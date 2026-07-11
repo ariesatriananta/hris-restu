@@ -42,6 +42,7 @@ import { Route as AuthenticatedAdministrasiUserHakAksesRouteImport } from './rou
 import { Route as AuthenticatedAdministrasiTemplateDokumenRouteImport } from './routes/_authenticated/administrasi/template-dokumen'
 import { Route as AuthenticatedAdministrasiPengaturanRouteImport } from './routes/_authenticated/administrasi/pengaturan'
 import { Route as AuthenticatedAdministrasiAuditTrailRouteImport } from './routes/_authenticated/administrasi/audit-trail'
+import { Route as AuthenticatedKaryawanDataKaryawanEmployeeUidRouteImport } from './routes/_authenticated/karyawan/data-karyawan_.$employeeUid'
 
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
@@ -231,6 +232,12 @@ const AuthenticatedAdministrasiAuditTrailRoute =
     path: '/administrasi/audit-trail',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedKaryawanDataKaryawanEmployeeUidRoute =
+  AuthenticatedKaryawanDataKaryawanEmployeeUidRouteImport.update({
+    id: '/karyawan/data-karyawan_/$employeeUid',
+    path: '/karyawan/data-karyawan/$employeeUid',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -265,6 +272,7 @@ export interface FileRoutesByFullPath {
   '/produksi/tarif-site': typeof AuthenticatedProduksiTarifSiteRoute
   '/produksi/terminal-setoran': typeof AuthenticatedProduksiTerminalSetoranRoute
   '/produksi/transaksi': typeof AuthenticatedProduksiTransaksiRoute
+  '/karyawan/data-karyawan/$employeeUid': typeof AuthenticatedKaryawanDataKaryawanEmployeeUidRoute
 }
 export interface FileRoutesByTo {
   '/sign-in': typeof authSignInRoute
@@ -299,6 +307,7 @@ export interface FileRoutesByTo {
   '/produksi/tarif-site': typeof AuthenticatedProduksiTarifSiteRoute
   '/produksi/terminal-setoran': typeof AuthenticatedProduksiTerminalSetoranRoute
   '/produksi/transaksi': typeof AuthenticatedProduksiTransaksiRoute
+  '/karyawan/data-karyawan/$employeeUid': typeof AuthenticatedKaryawanDataKaryawanEmployeeUidRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -335,6 +344,7 @@ export interface FileRoutesById {
   '/_authenticated/produksi/tarif-site': typeof AuthenticatedProduksiTarifSiteRoute
   '/_authenticated/produksi/terminal-setoran': typeof AuthenticatedProduksiTerminalSetoranRoute
   '/_authenticated/produksi/transaksi': typeof AuthenticatedProduksiTransaksiRoute
+  '/_authenticated/karyawan/data-karyawan_/$employeeUid': typeof AuthenticatedKaryawanDataKaryawanEmployeeUidRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -371,6 +381,7 @@ export interface FileRouteTypes {
     | '/produksi/tarif-site'
     | '/produksi/terminal-setoran'
     | '/produksi/transaksi'
+    | '/karyawan/data-karyawan/$employeeUid'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/sign-in'
@@ -405,6 +416,7 @@ export interface FileRouteTypes {
     | '/produksi/tarif-site'
     | '/produksi/terminal-setoran'
     | '/produksi/transaksi'
+    | '/karyawan/data-karyawan/$employeeUid'
   id:
     | '__root__'
     | '/_authenticated'
@@ -440,6 +452,7 @@ export interface FileRouteTypes {
     | '/_authenticated/produksi/tarif-site'
     | '/_authenticated/produksi/terminal-setoran'
     | '/_authenticated/produksi/transaksi'
+    | '/_authenticated/karyawan/data-karyawan_/$employeeUid'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -685,6 +698,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdministrasiAuditTrailRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/karyawan/data-karyawan_/$employeeUid': {
+      id: '/_authenticated/karyawan/data-karyawan_/$employeeUid'
+      path: '/karyawan/data-karyawan/$employeeUid'
+      fullPath: '/karyawan/data-karyawan/$employeeUid'
+      preLoaderRoute: typeof AuthenticatedKaryawanDataKaryawanEmployeeUidRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
@@ -715,6 +735,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedProduksiTarifSiteRoute: typeof AuthenticatedProduksiTarifSiteRoute
   AuthenticatedProduksiTerminalSetoranRoute: typeof AuthenticatedProduksiTerminalSetoranRoute
   AuthenticatedProduksiTransaksiRoute: typeof AuthenticatedProduksiTransaksiRoute
+  AuthenticatedKaryawanDataKaryawanEmployeeUidRoute: typeof AuthenticatedKaryawanDataKaryawanEmployeeUidRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -755,6 +776,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedProduksiTerminalSetoranRoute:
     AuthenticatedProduksiTerminalSetoranRoute,
   AuthenticatedProduksiTransaksiRoute: AuthenticatedProduksiTransaksiRoute,
+  AuthenticatedKaryawanDataKaryawanEmployeeUidRoute:
+    AuthenticatedKaryawanDataKaryawanEmployeeUidRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

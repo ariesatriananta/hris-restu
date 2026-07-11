@@ -58,3 +58,6 @@ Ketergantungan: seluruh kontrak API stabil dan environment deployment tersedia.
 - Filter dashboard adalah filter data, bukan authorization context.
 - Session Eksekusi 1 hanyalah marker localStorage melalui `AuthRepository`, bukan JWT production.
 - Warna brand diterapkan melalui design token, bukan hardcode berulang pada feature.
+- Eksekusi 2 menggunakan `EmployeeRepository` mock async dengan sessionStorage; histori mutasi append-only dan file hanya metadata mock.
+- ID card menggunakan Code128 SVG client-side melalui `jsbarcode`, lalu dapat dicetak lewat browser atau diunduh sebagai SVG.
+- Daftar karyawan mengikuti ekosistem tabel starter: TanStack Table, URL search params, faceted filter, sortable column, pagination, dan view options; tampilan mobile menggunakan kartu dari dataset yang sama.

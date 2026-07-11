@@ -8,7 +8,11 @@ import { Header } from './header'
 
 export function AppHeader() {
   const pathname = useLocation({ select: (location) => location.pathname })
-  const label = routeLabels[pathname] ?? 'Halaman'
+  const label =
+    routeLabels[pathname] ??
+    (pathname.startsWith('/karyawan/data-karyawan/')
+      ? 'Detail Karyawan'
+      : 'Halaman')
   const group = pathname === '/' ? null : pathname.split('/')[1]
 
   return (

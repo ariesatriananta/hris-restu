@@ -40,6 +40,25 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Pertahankan konfigurasi lint, format, alias, dan pola komponen starter selama masih relevan.
 - Jangan menambahkan dependency baru jika kemampuan yang sama sudah tersedia di repo.
 
+## Referensi UI wajib: shadcn-admin
+
+- Repository starter ini diturunkan dari `satnaing/shadcn-admin`. Pola, primitive, hook, dan public API yang sudah ada di repository lokal adalah standar UI utama yang wajib dipertahankan.
+- Referensi upstream: `https://github.com/satnaing/shadcn-admin`. Gunakan upstream hanya untuk memahami pola atau memulihkan file yang hilang; jangan mencampur versi upstream baru secara serampangan ke dependency/struktur starter lokal.
+- Sebelum membuat komponen UI baru, periksa terlebih dahulu `src/components/`, `src/components/data-table/`, `src/hooks/`, dan feature demo bawaan yang masih tersedia atau ada di histori Git.
+- Jangan membuat design system, data table, pagination, toolbar, filter, dialog, drawer, column header, atau komponen form versi sendiri jika starter sudah menyediakan pola yang setara.
+- Jika suatu komponen starter sempat terhapus tetapi dibutuhkan kembali, pulihkan pola/API yang sama dari baseline starter atau dari versi upstream yang sesuai, lalu adaptasikan domain dan copy-nya ke HRIS.
+
+### Standar wajib untuk data table dan filter
+
+- Semua daftar data operasional yang membutuhkan tabel harus mengikuti ekosistem starter: TanStack Table + `useTableUrlState` + `DataTableToolbar` + `DataTableFacetedFilter` + `DataTableColumnHeader` + `DataTablePagination` + `DataTableViewOptions` dan `DataTableBulkActions` bila aksi massal memang diperlukan.
+- Gunakan `src/components/data-table/` dan `src/hooks/use-table-url-state.ts` yang sudah ada. Jangan membuat table wrapper, filter bar, dropdown filter, pagination, atau query-state hook baru yang menduplikasi perilaku komponen tersebut.
+- Search, faceted filter, pagination, dan page size harus tersinkron ke route search params melalui schema TanStack Router. Filter yang berubah harus mengembalikan user ke halaman pertama dan filter aktif harus dapat di-reset melalui toolbar bawaan.
+- Bentuk feature mengikuti pola starter: `{feature}-table.tsx`, `{feature}-columns.tsx`, `{feature}-provider.tsx`, `{feature}-dialogs.tsx`, dan komponen row/bulk action hanya jika kebutuhan modul memang ada.
+- Kolom sortable wajib memakai `DataTableColumnHeader`; filter multi-pilihan wajib memakai `DataTableFacetedFilter`; pagination wajib memakai `DataTablePagination`.
+- Adaptasi yang diperbolehkan hanya pada domain model, column definition, label Bahasa Indonesia, opsi filter bisnis, dan aksi yang relevan. Layout, state management, interaksi, dan UX table harus tetap terasa seperti shadcn-admin.
+- Jangan menambahkan filter yang tidak punya tujuan operasional nyata. Untuk setiap filter, jelaskan field schema dan kebutuhan bisnis yang mendasarinya.
+- Sebelum menyatakan halaman tabel selesai, bandingkan implementasi dengan pola tabel starter yang relevan dan pastikan tidak ada komponen custom duplikat.
+
 ## Arsitektur frontend
 
 - Organisasikan kode bisnis per feature di `src/features/`.
@@ -127,4 +146,3 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Jangan mengubah schema tanpa konfirmasi.
 - Jangan mengganti TanStack Router, shadcn/ui, atau struktur utama starter hanya karena preferensi pribadi.
 - Jangan melakukan rewrite besar jika perubahan terarah sudah cukup.
-

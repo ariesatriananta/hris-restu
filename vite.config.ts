@@ -29,6 +29,9 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  optimizeDeps: {
+    include: ['jsbarcode'],
+  },
   test: {
     silent: 'passed-only',
     unstubEnvs: true,

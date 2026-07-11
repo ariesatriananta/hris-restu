@@ -7,10 +7,6 @@ const executablePath =
     ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
     : undefined
 const routes = [
-  '/karyawan/data-karyawan',
-  '/karyawan/riwayat-mutasi',
-  '/karyawan/pkwt-dokumen',
-  '/karyawan/cetak-id-card',
   '/attendance/monitoring-harian',
   '/attendance/scan',
   '/attendance/rekap',
@@ -39,12 +35,28 @@ function assert(condition, message) {
 
 const browser = await chromium.launch({ headless: true, executablePath })
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+page.on('pageerror', (error) => console.error('PAGE ERROR:', error.message))
+page.on('console', (message) => {
+  if (message.type() === 'error') console.error('BROWSER ERROR:', message.text())
+})
 await fs.mkdir('artifacts', { recursive: true })
 
 try {
   await page.goto(baseUrl, { waitUntil: 'networkidle' })
   await page.getByRole('button', { name: 'Masuk ke HRIS' }).click()
   await page.getByRole('heading', { name: 'Dashboard Operasional' }).waitFor()
+
+  await page.goto(`${baseUrl}/karyawan/data-karyawan`, { waitUntil: 'networkidle' })
+  await page.getByRole('heading', { name: 'Data Karyawan' }).waitFor()
+  await page.goto(`${baseUrl}/karyawan/data-karyawan/emp-adi-001`, { waitUntil: 'networkidle' })
+  await page.getByRole('heading', { name: 'Adi Pratama' }).waitFor()
+  await page.goto(`${baseUrl}/karyawan/riwayat-mutasi`, { waitUntil: 'networkidle' })
+  await page.getByRole('heading', { name: 'Riwayat Mutasi' }).waitFor()
+  await page.goto(`${baseUrl}/karyawan/pkwt-dokumen`, { waitUntil: 'networkidle' })
+  await page.getByRole('heading', { name: 'PKWT & Dokumen' }).waitFor()
+  await page.goto(`${baseUrl}/karyawan/cetak-id-card`, { waitUntil: 'networkidle' })
+  await page.getByRole('heading', { name: 'Cetak ID Card' }).waitFor()
+  await page.getByLabel('Barcode RSTJPR001').waitFor()
 
   for (const route of routes) {
     await page.goto(`${baseUrl}${route}`, { waitUntil: 'networkidle' })
@@ -86,8 +98,12 @@ try {
   await page.getByRole('heading', { name: 'Halaman tidak ditemukan' }).waitFor()
 
   console.log(
-    `Smoke test lulus untuk ${routes.length} route placeholder, dashboard, drawer mobile, 401, dan 404.`
+    `Smoke test lulus untuk ${routes.length} route placeholder, modul karyawan, dashboard, drawer mobile, 401, dan 404.`
   )
+} catch (error) {
+  console.error('Smoke gagal pada URL:', page.url())
+  await page.screenshot({ path: 'artifacts/smoke-failure.png', fullPage: true })
+  throw error
 } finally {
   await browser.close()
 }
