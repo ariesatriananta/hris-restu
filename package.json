@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:api": "pnpm --filter @hris-restu/api dev",
+    "build:api": "pnpm --filter @hris-restu/api build",
+    "test:api": "pnpm --filter @hris-restu/api test",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",

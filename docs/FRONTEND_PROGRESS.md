@@ -13,7 +13,7 @@ Pembaruan terakhir: 11 Juli 2026.
 | Payroll | placeholder | Route tersedia, proses bisnis belum dikerjakan. |
 | Laporan | placeholder | Route tersedia, laporan belum dikerjakan. |
 | Administrasi sistem | placeholder | Route tersedia, user/permission/audit/pengaturan belum dikerjakan. |
-| Backend, API, JWT, upload, dan MySQL | belum dikerjakan | Sengaja di luar scope Eksekusi 1 dan 2. |
+| Backend foundation | selesai | Workspace Express, Drizzle/MySQL, JWT cookie, session rotation, RBAC/site context, dan upload R2 tersedia. Integrasi API Master Karyawan masuk Eksekusi 4. |
 
 ## Kondisi dan blocker
 
@@ -23,4 +23,4 @@ Pembaruan terakhir: 11 Juli 2026.
 
 ## Lanjutan yang direkomendasikan
 
-Prioritas berikutnya adalah Backend Foundation: Express, Drizzle, MySQL, JWT, upload, RBAC, dan penggantian repository mock menjadi HTTP API.
+Prioritas berikutnya adalah Eksekusi 4: integrasi API Master Karyawan. Setelah itu Attendance, Produksi Borongan, dan Payroll dikerjakan berurutan pada Eksekusi 5–7.

@@ -61,3 +61,5 @@ Ketergantungan: seluruh kontrak API stabil dan environment deployment tersedia.
 - Eksekusi 2 menggunakan `EmployeeRepository` mock async dengan sessionStorage; histori mutasi append-only dan file hanya metadata mock.
 - ID card menggunakan Code128 SVG client-side melalui `jsbarcode`, lalu dapat dicetak lewat browser atau diunduh sebagai SVG.
 - Daftar karyawan mengikuti ekosistem tabel starter: TanStack Table, URL search params, faceted filter, sortable column, pagination, dan view options; tampilan mobile menggunakan kartu dari dataset yang sama.
+- Eksekusi 3 menyediakan backend foundation Express, Drizzle/MySQL, JWT cookie httpOnly, RBAC/site context, serta upload Cloudflare R2.
+- Urutan lanjutan dikunci: Eksekusi 4 integrasi API Master Karyawan; Eksekusi 5 Attendance; Eksekusi 6 Produksi Borongan; Eksekusi 7 Payroll.
