@@ -1,34 +1,29 @@
-import { useNavigate, useRouter } from '@tanstack/react-router'
+import { useNavigate } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-
-type GeneralErrorProps = React.HTMLAttributes<HTMLDivElement> & {
-  minimal?: boolean
-}
 
 export function GeneralError({
   className,
   minimal = false,
-}: GeneralErrorProps) {
+}: React.HTMLAttributes<HTMLDivElement> & { minimal?: boolean }) {
   const navigate = useNavigate()
-  const { history } = useRouter()
   return (
-    <div className={cn('h-svh w-full', className)}>
-      <div className='m-auto flex h-full w-full flex-col items-center justify-center gap-2'>
-        {!minimal && (
-          <h1 className='text-[7rem] leading-tight font-bold'>500</h1>
-        )}
-        <span className='font-medium'>Oops! Something went wrong {`:')`}</span>
-        <p className='text-center text-muted-foreground'>
-          We apologize for the inconvenience. <br /> Please try again later.
+    <div
+      className={cn(
+        'flex min-h-svh w-full items-center justify-center p-6 text-center',
+        className
+      )}
+    >
+      <div>
+        {!minimal && <p className='text-7xl font-bold text-destructive'>500</p>}
+        <h1 className='mt-3 text-xl font-semibold'>Terjadi gangguan</h1>
+        <p className='mt-2 text-muted-foreground'>
+          Aplikasi belum dapat memproses permintaan. Silakan coba kembali.
         </p>
         {!minimal && (
-          <div className='mt-6 flex gap-4'>
-            <Button variant='outline' onClick={() => history.go(-1)}>
-              Go Back
-            </Button>
-            <Button onClick={() => navigate({ to: '/' })}>Back to Home</Button>
-          </div>
+          <Button className='mt-6' onClick={() => navigate({ to: '/' })}>
+            Ke Dashboard
+          </Button>
         )}
       </div>
     </div>

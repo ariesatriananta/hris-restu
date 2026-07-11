@@ -1,19 +1,32 @@
-import { Logo } from '@/assets/logo'
+import { AppBrand } from '@/components/app-brand'
 
-type AuthLayoutProps = {
-  children: React.ReactNode
-}
-
-export function AuthLayout({ children }: AuthLayoutProps) {
+export function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className='container grid h-svh max-w-none items-center justify-center'>
-      <div className='mx-auto flex w-full flex-col justify-center space-y-2 py-8 sm:p-8'>
-        <div className='mb-4 flex items-center justify-center'>
-          <Logo className='me-2' />
-          <h1 className='text-xl font-medium'>Shadcn Admin</h1>
+    <main className='grid min-h-svh bg-muted/40 lg:grid-cols-[minmax(0,1fr)_minmax(420px,0.7fr)]'>
+      <section className='hidden bg-primary p-10 text-primary-foreground lg:flex lg:flex-col lg:justify-between'>
+        <AppBrand className='[&_p]:text-primary-foreground' />
+        <div className='max-w-xl space-y-4'>
+          <p className='text-sm font-semibold tracking-[0.2em] text-primary-foreground/70 uppercase'>
+            PT Restu Sejati Inti Abadi
+          </p>
+          <h1 className='text-4xl leading-tight font-bold'>
+            Operasional SDM tiga site dalam satu ruang kerja.
+          </h1>
+          <p className='text-primary-foreground/75'>
+            Fondasi untuk pengelolaan karyawan, attendance, produksi borongan,
+            dan payroll yang dapat ditelusuri.
+          </p>
         </div>
-        {children}
-      </div>
-    </div>
+        <p className='text-xs text-primary-foreground/60'>
+          Jepara · Semarang · Klaten
+        </p>
+      </section>
+      <section className='flex min-h-svh items-center justify-center p-5 sm:p-10'>
+        <div className='w-full max-w-md space-y-6'>
+          <AppBrand className='justify-center lg:hidden' />
+          {children}
+        </div>
+      </section>
+    </main>
   )
 }

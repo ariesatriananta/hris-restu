@@ -9,42 +9,40 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as ClerkRouteRouteImport } from './routes/clerk/route'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as AuthenticatedLaporanRouteImport } from './routes/_authenticated/laporan'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors404RouteImport } from './routes/(errors)/404'
 import { Route as errors403RouteImport } from './routes/(errors)/403'
 import { Route as errors401RouteImport } from './routes/(errors)/401'
-import { Route as authSignUpRouteImport } from './routes/(auth)/sign-up'
-import { Route as authSignIn2RouteImport } from './routes/(auth)/sign-in-2'
 import { Route as authSignInRouteImport } from './routes/(auth)/sign-in'
-import { Route as authOtpRouteImport } from './routes/(auth)/otp'
-import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
-import { Route as ClerkAuthenticatedRouteRouteImport } from './routes/clerk/_authenticated/route'
-import { Route as ClerkauthRouteRouteImport } from './routes/clerk/(auth)/route'
-import { Route as AuthenticatedSettingsRouteRouteImport } from './routes/_authenticated/settings/route'
-import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
-import { Route as AuthenticatedTasksIndexRouteImport } from './routes/_authenticated/tasks/index'
-import { Route as AuthenticatedSettingsIndexRouteImport } from './routes/_authenticated/settings/index'
-import { Route as AuthenticatedHelpCenterIndexRouteImport } from './routes/_authenticated/help-center/index'
-import { Route as AuthenticatedChatsIndexRouteImport } from './routes/_authenticated/chats/index'
-import { Route as AuthenticatedAppsIndexRouteImport } from './routes/_authenticated/apps/index'
-import { Route as ClerkAuthenticatedUserManagementRouteImport } from './routes/clerk/_authenticated/user-management'
-import { Route as ClerkauthSignUpRouteImport } from './routes/clerk/(auth)/sign-up'
-import { Route as ClerkauthSignInRouteImport } from './routes/clerk/(auth)/sign-in'
-import { Route as AuthenticatedSettingsNotificationsRouteImport } from './routes/_authenticated/settings/notifications'
-import { Route as AuthenticatedSettingsDisplayRouteImport } from './routes/_authenticated/settings/display'
-import { Route as AuthenticatedSettingsAppearanceRouteImport } from './routes/_authenticated/settings/appearance'
-import { Route as AuthenticatedSettingsAccountRouteImport } from './routes/_authenticated/settings/account'
+import { Route as AuthenticatedProduksiTransaksiRouteImport } from './routes/_authenticated/produksi/transaksi'
+import { Route as AuthenticatedProduksiTerminalSetoranRouteImport } from './routes/_authenticated/produksi/terminal-setoran'
+import { Route as AuthenticatedProduksiTarifSiteRouteImport } from './routes/_authenticated/produksi/tarif-site'
+import { Route as AuthenticatedProduksiRekapRouteImport } from './routes/_authenticated/produksi/rekap'
+import { Route as AuthenticatedProduksiMasterPekerjaanRouteImport } from './routes/_authenticated/produksi/master-pekerjaan'
+import { Route as AuthenticatedPayrollSlipGajiRouteImport } from './routes/_authenticated/payroll/slip-gaji'
+import { Route as AuthenticatedPayrollSimulasiRouteImport } from './routes/_authenticated/payroll/simulasi'
+import { Route as AuthenticatedPayrollRiwayatRouteImport } from './routes/_authenticated/payroll/riwayat'
+import { Route as AuthenticatedPayrollPeriodeRouteImport } from './routes/_authenticated/payroll/periode'
+import { Route as AuthenticatedPayrollApprovalClosingRouteImport } from './routes/_authenticated/payroll/approval-closing'
+import { Route as AuthenticatedKaryawanRiwayatMutasiRouteImport } from './routes/_authenticated/karyawan/riwayat-mutasi'
+import { Route as AuthenticatedKaryawanPkwtDokumenRouteImport } from './routes/_authenticated/karyawan/pkwt-dokumen'
+import { Route as AuthenticatedKaryawanDataKaryawanRouteImport } from './routes/_authenticated/karyawan/data-karyawan'
+import { Route as AuthenticatedKaryawanCetakIdCardRouteImport } from './routes/_authenticated/karyawan/cetak-id-card'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
+import { Route as AuthenticatedAttendanceScanRouteImport } from './routes/_authenticated/attendance/scan'
+import { Route as AuthenticatedAttendanceRekapRouteImport } from './routes/_authenticated/attendance/rekap'
+import { Route as AuthenticatedAttendanceMonitoringHarianRouteImport } from './routes/_authenticated/attendance/monitoring-harian'
+import { Route as AuthenticatedAttendanceMasterShiftRouteImport } from './routes/_authenticated/attendance/master-shift'
+import { Route as AuthenticatedAttendanceKoreksiRouteImport } from './routes/_authenticated/attendance/koreksi'
+import { Route as AuthenticatedAdministrasiUserHakAksesRouteImport } from './routes/_authenticated/administrasi/user-hak-akses'
+import { Route as AuthenticatedAdministrasiTemplateDokumenRouteImport } from './routes/_authenticated/administrasi/template-dokumen'
+import { Route as AuthenticatedAdministrasiPengaturanRouteImport } from './routes/_authenticated/administrasi/pengaturan'
+import { Route as AuthenticatedAdministrasiAuditTrailRouteImport } from './routes/_authenticated/administrasi/audit-trail'
 
-const ClerkRouteRoute = ClerkRouteRouteImport.update({
-  id: '/clerk',
-  path: '/clerk',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
@@ -52,6 +50,11 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedLaporanRoute = AuthenticatedLaporanRouteImport.update({
+  id: '/laporan',
+  path: '/laporan',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const errors503Route = errors503RouteImport.update({
@@ -79,116 +82,94 @@ const errors401Route = errors401RouteImport.update({
   path: '/401',
   getParentRoute: () => rootRouteImport,
 } as any)
-const authSignUpRoute = authSignUpRouteImport.update({
-  id: '/(auth)/sign-up',
-  path: '/sign-up',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const authSignIn2Route = authSignIn2RouteImport.update({
-  id: '/(auth)/sign-in-2',
-  path: '/sign-in-2',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const authSignInRoute = authSignInRouteImport.update({
   id: '/(auth)/sign-in',
   path: '/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
-const authOtpRoute = authOtpRouteImport.update({
-  id: '/(auth)/otp',
-  path: '/otp',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const authForgotPasswordRoute = authForgotPasswordRouteImport.update({
-  id: '/(auth)/forgot-password',
-  path: '/forgot-password',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ClerkAuthenticatedRouteRoute = ClerkAuthenticatedRouteRouteImport.update({
-  id: '/_authenticated',
-  getParentRoute: () => ClerkRouteRoute,
-} as any)
-const ClerkauthRouteRoute = ClerkauthRouteRouteImport.update({
-  id: '/(auth)',
-  getParentRoute: () => ClerkRouteRoute,
-} as any)
-const AuthenticatedSettingsRouteRoute =
-  AuthenticatedSettingsRouteRouteImport.update({
-    id: '/settings',
-    path: '/settings',
+const AuthenticatedProduksiTransaksiRoute =
+  AuthenticatedProduksiTransaksiRouteImport.update({
+    id: '/produksi/transaksi',
+    path: '/produksi/transaksi',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedUsersIndexRoute = AuthenticatedUsersIndexRouteImport.update({
-  id: '/users/',
-  path: '/users/',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedTasksIndexRoute = AuthenticatedTasksIndexRouteImport.update({
-  id: '/tasks/',
-  path: '/tasks/',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedSettingsIndexRoute =
-  AuthenticatedSettingsIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedSettingsRouteRoute,
-  } as any)
-const AuthenticatedHelpCenterIndexRoute =
-  AuthenticatedHelpCenterIndexRouteImport.update({
-    id: '/help-center/',
-    path: '/help-center/',
+const AuthenticatedProduksiTerminalSetoranRoute =
+  AuthenticatedProduksiTerminalSetoranRouteImport.update({
+    id: '/produksi/terminal-setoran',
+    path: '/produksi/terminal-setoran',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedChatsIndexRoute = AuthenticatedChatsIndexRouteImport.update({
-  id: '/chats/',
-  path: '/chats/',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedAppsIndexRoute = AuthenticatedAppsIndexRouteImport.update({
-  id: '/apps/',
-  path: '/apps/',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const ClerkAuthenticatedUserManagementRoute =
-  ClerkAuthenticatedUserManagementRouteImport.update({
-    id: '/user-management',
-    path: '/user-management',
-    getParentRoute: () => ClerkAuthenticatedRouteRoute,
+const AuthenticatedProduksiTarifSiteRoute =
+  AuthenticatedProduksiTarifSiteRouteImport.update({
+    id: '/produksi/tarif-site',
+    path: '/produksi/tarif-site',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const ClerkauthSignUpRoute = ClerkauthSignUpRouteImport.update({
-  id: '/sign-up',
-  path: '/sign-up',
-  getParentRoute: () => ClerkauthRouteRoute,
-} as any)
-const ClerkauthSignInRoute = ClerkauthSignInRouteImport.update({
-  id: '/sign-in',
-  path: '/sign-in',
-  getParentRoute: () => ClerkauthRouteRoute,
-} as any)
-const AuthenticatedSettingsNotificationsRoute =
-  AuthenticatedSettingsNotificationsRouteImport.update({
-    id: '/notifications',
-    path: '/notifications',
-    getParentRoute: () => AuthenticatedSettingsRouteRoute,
+const AuthenticatedProduksiRekapRoute =
+  AuthenticatedProduksiRekapRouteImport.update({
+    id: '/produksi/rekap',
+    path: '/produksi/rekap',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedSettingsDisplayRoute =
-  AuthenticatedSettingsDisplayRouteImport.update({
-    id: '/display',
-    path: '/display',
-    getParentRoute: () => AuthenticatedSettingsRouteRoute,
+const AuthenticatedProduksiMasterPekerjaanRoute =
+  AuthenticatedProduksiMasterPekerjaanRouteImport.update({
+    id: '/produksi/master-pekerjaan',
+    path: '/produksi/master-pekerjaan',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedSettingsAppearanceRoute =
-  AuthenticatedSettingsAppearanceRouteImport.update({
-    id: '/appearance',
-    path: '/appearance',
-    getParentRoute: () => AuthenticatedSettingsRouteRoute,
+const AuthenticatedPayrollSlipGajiRoute =
+  AuthenticatedPayrollSlipGajiRouteImport.update({
+    id: '/payroll/slip-gaji',
+    path: '/payroll/slip-gaji',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedSettingsAccountRoute =
-  AuthenticatedSettingsAccountRouteImport.update({
-    id: '/account',
-    path: '/account',
-    getParentRoute: () => AuthenticatedSettingsRouteRoute,
+const AuthenticatedPayrollSimulasiRoute =
+  AuthenticatedPayrollSimulasiRouteImport.update({
+    id: '/payroll/simulasi',
+    path: '/payroll/simulasi',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedPayrollRiwayatRoute =
+  AuthenticatedPayrollRiwayatRouteImport.update({
+    id: '/payroll/riwayat',
+    path: '/payroll/riwayat',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedPayrollPeriodeRoute =
+  AuthenticatedPayrollPeriodeRouteImport.update({
+    id: '/payroll/periode',
+    path: '/payroll/periode',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedPayrollApprovalClosingRoute =
+  AuthenticatedPayrollApprovalClosingRouteImport.update({
+    id: '/payroll/approval-closing',
+    path: '/payroll/approval-closing',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedKaryawanRiwayatMutasiRoute =
+  AuthenticatedKaryawanRiwayatMutasiRouteImport.update({
+    id: '/karyawan/riwayat-mutasi',
+    path: '/karyawan/riwayat-mutasi',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedKaryawanPkwtDokumenRoute =
+  AuthenticatedKaryawanPkwtDokumenRouteImport.update({
+    id: '/karyawan/pkwt-dokumen',
+    path: '/karyawan/pkwt-dokumen',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedKaryawanDataKaryawanRoute =
+  AuthenticatedKaryawanDataKaryawanRouteImport.update({
+    id: '/karyawan/data-karyawan',
+    path: '/karyawan/data-karyawan',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedKaryawanCetakIdCardRoute =
+  AuthenticatedKaryawanCetakIdCardRouteImport.update({
+    id: '/karyawan/cetak-id-card',
+    path: '/karyawan/cetak-id-card',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedErrorsErrorRoute =
   AuthenticatedErrorsErrorRouteImport.update({
@@ -196,197 +177,274 @@ const AuthenticatedErrorsErrorRoute =
     path: '/errors/$error',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAttendanceScanRoute =
+  AuthenticatedAttendanceScanRouteImport.update({
+    id: '/attendance/scan',
+    path: '/attendance/scan',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAttendanceRekapRoute =
+  AuthenticatedAttendanceRekapRouteImport.update({
+    id: '/attendance/rekap',
+    path: '/attendance/rekap',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAttendanceMonitoringHarianRoute =
+  AuthenticatedAttendanceMonitoringHarianRouteImport.update({
+    id: '/attendance/monitoring-harian',
+    path: '/attendance/monitoring-harian',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAttendanceMasterShiftRoute =
+  AuthenticatedAttendanceMasterShiftRouteImport.update({
+    id: '/attendance/master-shift',
+    path: '/attendance/master-shift',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAttendanceKoreksiRoute =
+  AuthenticatedAttendanceKoreksiRouteImport.update({
+    id: '/attendance/koreksi',
+    path: '/attendance/koreksi',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAdministrasiUserHakAksesRoute =
+  AuthenticatedAdministrasiUserHakAksesRouteImport.update({
+    id: '/administrasi/user-hak-akses',
+    path: '/administrasi/user-hak-akses',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAdministrasiTemplateDokumenRoute =
+  AuthenticatedAdministrasiTemplateDokumenRouteImport.update({
+    id: '/administrasi/template-dokumen',
+    path: '/administrasi/template-dokumen',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAdministrasiPengaturanRoute =
+  AuthenticatedAdministrasiPengaturanRouteImport.update({
+    id: '/administrasi/pengaturan',
+    path: '/administrasi/pengaturan',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAdministrasiAuditTrailRoute =
+  AuthenticatedAdministrasiAuditTrailRouteImport.update({
+    id: '/administrasi/audit-trail',
+    path: '/administrasi/audit-trail',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
-  '/clerk': typeof ClerkAuthenticatedRouteRouteWithChildren
-  '/settings': typeof AuthenticatedSettingsRouteRouteWithChildren
-  '/forgot-password': typeof authForgotPasswordRoute
-  '/otp': typeof authOtpRoute
   '/sign-in': typeof authSignInRoute
-  '/sign-in-2': typeof authSignIn2Route
-  '/sign-up': typeof authSignUpRoute
   '/401': typeof errors401Route
   '/403': typeof errors403Route
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/laporan': typeof AuthenticatedLaporanRoute
+  '/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
+  '/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
+  '/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
+  '/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
+  '/attendance/koreksi': typeof AuthenticatedAttendanceKoreksiRoute
+  '/attendance/master-shift': typeof AuthenticatedAttendanceMasterShiftRoute
+  '/attendance/monitoring-harian': typeof AuthenticatedAttendanceMonitoringHarianRoute
+  '/attendance/rekap': typeof AuthenticatedAttendanceRekapRoute
+  '/attendance/scan': typeof AuthenticatedAttendanceScanRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
-  '/settings/account': typeof AuthenticatedSettingsAccountRoute
-  '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
-  '/settings/display': typeof AuthenticatedSettingsDisplayRoute
-  '/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute
-  '/clerk/sign-in': typeof ClerkauthSignInRoute
-  '/clerk/sign-up': typeof ClerkauthSignUpRoute
-  '/clerk/user-management': typeof ClerkAuthenticatedUserManagementRoute
-  '/apps/': typeof AuthenticatedAppsIndexRoute
-  '/chats/': typeof AuthenticatedChatsIndexRoute
-  '/help-center/': typeof AuthenticatedHelpCenterIndexRoute
-  '/settings/': typeof AuthenticatedSettingsIndexRoute
-  '/tasks/': typeof AuthenticatedTasksIndexRoute
-  '/users/': typeof AuthenticatedUsersIndexRoute
+  '/karyawan/cetak-id-card': typeof AuthenticatedKaryawanCetakIdCardRoute
+  '/karyawan/data-karyawan': typeof AuthenticatedKaryawanDataKaryawanRoute
+  '/karyawan/pkwt-dokumen': typeof AuthenticatedKaryawanPkwtDokumenRoute
+  '/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
+  '/payroll/approval-closing': typeof AuthenticatedPayrollApprovalClosingRoute
+  '/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
+  '/payroll/riwayat': typeof AuthenticatedPayrollRiwayatRoute
+  '/payroll/simulasi': typeof AuthenticatedPayrollSimulasiRoute
+  '/payroll/slip-gaji': typeof AuthenticatedPayrollSlipGajiRoute
+  '/produksi/master-pekerjaan': typeof AuthenticatedProduksiMasterPekerjaanRoute
+  '/produksi/rekap': typeof AuthenticatedProduksiRekapRoute
+  '/produksi/tarif-site': typeof AuthenticatedProduksiTarifSiteRoute
+  '/produksi/terminal-setoran': typeof AuthenticatedProduksiTerminalSetoranRoute
+  '/produksi/transaksi': typeof AuthenticatedProduksiTransaksiRoute
 }
 export interface FileRoutesByTo {
-  '/clerk': typeof ClerkAuthenticatedRouteRouteWithChildren
-  '/forgot-password': typeof authForgotPasswordRoute
-  '/otp': typeof authOtpRoute
   '/sign-in': typeof authSignInRoute
-  '/sign-in-2': typeof authSignIn2Route
-  '/sign-up': typeof authSignUpRoute
   '/401': typeof errors401Route
   '/403': typeof errors403Route
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/laporan': typeof AuthenticatedLaporanRoute
   '/': typeof AuthenticatedIndexRoute
+  '/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
+  '/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
+  '/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
+  '/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
+  '/attendance/koreksi': typeof AuthenticatedAttendanceKoreksiRoute
+  '/attendance/master-shift': typeof AuthenticatedAttendanceMasterShiftRoute
+  '/attendance/monitoring-harian': typeof AuthenticatedAttendanceMonitoringHarianRoute
+  '/attendance/rekap': typeof AuthenticatedAttendanceRekapRoute
+  '/attendance/scan': typeof AuthenticatedAttendanceScanRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
-  '/settings/account': typeof AuthenticatedSettingsAccountRoute
-  '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
-  '/settings/display': typeof AuthenticatedSettingsDisplayRoute
-  '/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute
-  '/clerk/sign-in': typeof ClerkauthSignInRoute
-  '/clerk/sign-up': typeof ClerkauthSignUpRoute
-  '/clerk/user-management': typeof ClerkAuthenticatedUserManagementRoute
-  '/apps': typeof AuthenticatedAppsIndexRoute
-  '/chats': typeof AuthenticatedChatsIndexRoute
-  '/help-center': typeof AuthenticatedHelpCenterIndexRoute
-  '/settings': typeof AuthenticatedSettingsIndexRoute
-  '/tasks': typeof AuthenticatedTasksIndexRoute
-  '/users': typeof AuthenticatedUsersIndexRoute
+  '/karyawan/cetak-id-card': typeof AuthenticatedKaryawanCetakIdCardRoute
+  '/karyawan/data-karyawan': typeof AuthenticatedKaryawanDataKaryawanRoute
+  '/karyawan/pkwt-dokumen': typeof AuthenticatedKaryawanPkwtDokumenRoute
+  '/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
+  '/payroll/approval-closing': typeof AuthenticatedPayrollApprovalClosingRoute
+  '/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
+  '/payroll/riwayat': typeof AuthenticatedPayrollRiwayatRoute
+  '/payroll/simulasi': typeof AuthenticatedPayrollSimulasiRoute
+  '/payroll/slip-gaji': typeof AuthenticatedPayrollSlipGajiRoute
+  '/produksi/master-pekerjaan': typeof AuthenticatedProduksiMasterPekerjaanRoute
+  '/produksi/rekap': typeof AuthenticatedProduksiRekapRoute
+  '/produksi/tarif-site': typeof AuthenticatedProduksiTarifSiteRoute
+  '/produksi/terminal-setoran': typeof AuthenticatedProduksiTerminalSetoranRoute
+  '/produksi/transaksi': typeof AuthenticatedProduksiTransaksiRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
-  '/clerk': typeof ClerkRouteRouteWithChildren
-  '/_authenticated/settings': typeof AuthenticatedSettingsRouteRouteWithChildren
-  '/clerk/(auth)': typeof ClerkauthRouteRouteWithChildren
-  '/clerk/_authenticated': typeof ClerkAuthenticatedRouteRouteWithChildren
-  '/(auth)/forgot-password': typeof authForgotPasswordRoute
-  '/(auth)/otp': typeof authOtpRoute
   '/(auth)/sign-in': typeof authSignInRoute
-  '/(auth)/sign-in-2': typeof authSignIn2Route
-  '/(auth)/sign-up': typeof authSignUpRoute
   '/(errors)/401': typeof errors401Route
   '/(errors)/403': typeof errors403Route
   '/(errors)/404': typeof errors404Route
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
+  '/_authenticated/laporan': typeof AuthenticatedLaporanRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/_authenticated/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
+  '/_authenticated/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
+  '/_authenticated/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
+  '/_authenticated/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
+  '/_authenticated/attendance/koreksi': typeof AuthenticatedAttendanceKoreksiRoute
+  '/_authenticated/attendance/master-shift': typeof AuthenticatedAttendanceMasterShiftRoute
+  '/_authenticated/attendance/monitoring-harian': typeof AuthenticatedAttendanceMonitoringHarianRoute
+  '/_authenticated/attendance/rekap': typeof AuthenticatedAttendanceRekapRoute
+  '/_authenticated/attendance/scan': typeof AuthenticatedAttendanceScanRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
-  '/_authenticated/settings/account': typeof AuthenticatedSettingsAccountRoute
-  '/_authenticated/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
-  '/_authenticated/settings/display': typeof AuthenticatedSettingsDisplayRoute
-  '/_authenticated/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute
-  '/clerk/(auth)/sign-in': typeof ClerkauthSignInRoute
-  '/clerk/(auth)/sign-up': typeof ClerkauthSignUpRoute
-  '/clerk/_authenticated/user-management': typeof ClerkAuthenticatedUserManagementRoute
-  '/_authenticated/apps/': typeof AuthenticatedAppsIndexRoute
-  '/_authenticated/chats/': typeof AuthenticatedChatsIndexRoute
-  '/_authenticated/help-center/': typeof AuthenticatedHelpCenterIndexRoute
-  '/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute
-  '/_authenticated/tasks/': typeof AuthenticatedTasksIndexRoute
-  '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
+  '/_authenticated/karyawan/cetak-id-card': typeof AuthenticatedKaryawanCetakIdCardRoute
+  '/_authenticated/karyawan/data-karyawan': typeof AuthenticatedKaryawanDataKaryawanRoute
+  '/_authenticated/karyawan/pkwt-dokumen': typeof AuthenticatedKaryawanPkwtDokumenRoute
+  '/_authenticated/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
+  '/_authenticated/payroll/approval-closing': typeof AuthenticatedPayrollApprovalClosingRoute
+  '/_authenticated/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
+  '/_authenticated/payroll/riwayat': typeof AuthenticatedPayrollRiwayatRoute
+  '/_authenticated/payroll/simulasi': typeof AuthenticatedPayrollSimulasiRoute
+  '/_authenticated/payroll/slip-gaji': typeof AuthenticatedPayrollSlipGajiRoute
+  '/_authenticated/produksi/master-pekerjaan': typeof AuthenticatedProduksiMasterPekerjaanRoute
+  '/_authenticated/produksi/rekap': typeof AuthenticatedProduksiRekapRoute
+  '/_authenticated/produksi/tarif-site': typeof AuthenticatedProduksiTarifSiteRoute
+  '/_authenticated/produksi/terminal-setoran': typeof AuthenticatedProduksiTerminalSetoranRoute
+  '/_authenticated/produksi/transaksi': typeof AuthenticatedProduksiTransaksiRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/clerk'
-    | '/settings'
-    | '/forgot-password'
-    | '/otp'
     | '/sign-in'
-    | '/sign-in-2'
-    | '/sign-up'
     | '/401'
     | '/403'
     | '/404'
     | '/500'
     | '/503'
+    | '/laporan'
+    | '/administrasi/audit-trail'
+    | '/administrasi/pengaturan'
+    | '/administrasi/template-dokumen'
+    | '/administrasi/user-hak-akses'
+    | '/attendance/koreksi'
+    | '/attendance/master-shift'
+    | '/attendance/monitoring-harian'
+    | '/attendance/rekap'
+    | '/attendance/scan'
     | '/errors/$error'
-    | '/settings/account'
-    | '/settings/appearance'
-    | '/settings/display'
-    | '/settings/notifications'
-    | '/clerk/sign-in'
-    | '/clerk/sign-up'
-    | '/clerk/user-management'
-    | '/apps/'
-    | '/chats/'
-    | '/help-center/'
-    | '/settings/'
-    | '/tasks/'
-    | '/users/'
+    | '/karyawan/cetak-id-card'
+    | '/karyawan/data-karyawan'
+    | '/karyawan/pkwt-dokumen'
+    | '/karyawan/riwayat-mutasi'
+    | '/payroll/approval-closing'
+    | '/payroll/periode'
+    | '/payroll/riwayat'
+    | '/payroll/simulasi'
+    | '/payroll/slip-gaji'
+    | '/produksi/master-pekerjaan'
+    | '/produksi/rekap'
+    | '/produksi/tarif-site'
+    | '/produksi/terminal-setoran'
+    | '/produksi/transaksi'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/clerk'
-    | '/forgot-password'
-    | '/otp'
     | '/sign-in'
-    | '/sign-in-2'
-    | '/sign-up'
     | '/401'
     | '/403'
     | '/404'
     | '/500'
     | '/503'
+    | '/laporan'
     | '/'
+    | '/administrasi/audit-trail'
+    | '/administrasi/pengaturan'
+    | '/administrasi/template-dokumen'
+    | '/administrasi/user-hak-akses'
+    | '/attendance/koreksi'
+    | '/attendance/master-shift'
+    | '/attendance/monitoring-harian'
+    | '/attendance/rekap'
+    | '/attendance/scan'
     | '/errors/$error'
-    | '/settings/account'
-    | '/settings/appearance'
-    | '/settings/display'
-    | '/settings/notifications'
-    | '/clerk/sign-in'
-    | '/clerk/sign-up'
-    | '/clerk/user-management'
-    | '/apps'
-    | '/chats'
-    | '/help-center'
-    | '/settings'
-    | '/tasks'
-    | '/users'
+    | '/karyawan/cetak-id-card'
+    | '/karyawan/data-karyawan'
+    | '/karyawan/pkwt-dokumen'
+    | '/karyawan/riwayat-mutasi'
+    | '/payroll/approval-closing'
+    | '/payroll/periode'
+    | '/payroll/riwayat'
+    | '/payroll/simulasi'
+    | '/payroll/slip-gaji'
+    | '/produksi/master-pekerjaan'
+    | '/produksi/rekap'
+    | '/produksi/tarif-site'
+    | '/produksi/terminal-setoran'
+    | '/produksi/transaksi'
   id:
     | '__root__'
     | '/_authenticated'
-    | '/clerk'
-    | '/_authenticated/settings'
-    | '/clerk/(auth)'
-    | '/clerk/_authenticated'
-    | '/(auth)/forgot-password'
-    | '/(auth)/otp'
     | '/(auth)/sign-in'
-    | '/(auth)/sign-in-2'
-    | '/(auth)/sign-up'
     | '/(errors)/401'
     | '/(errors)/403'
     | '/(errors)/404'
     | '/(errors)/500'
     | '/(errors)/503'
+    | '/_authenticated/laporan'
     | '/_authenticated/'
+    | '/_authenticated/administrasi/audit-trail'
+    | '/_authenticated/administrasi/pengaturan'
+    | '/_authenticated/administrasi/template-dokumen'
+    | '/_authenticated/administrasi/user-hak-akses'
+    | '/_authenticated/attendance/koreksi'
+    | '/_authenticated/attendance/master-shift'
+    | '/_authenticated/attendance/monitoring-harian'
+    | '/_authenticated/attendance/rekap'
+    | '/_authenticated/attendance/scan'
     | '/_authenticated/errors/$error'
-    | '/_authenticated/settings/account'
-    | '/_authenticated/settings/appearance'
-    | '/_authenticated/settings/display'
-    | '/_authenticated/settings/notifications'
-    | '/clerk/(auth)/sign-in'
-    | '/clerk/(auth)/sign-up'
-    | '/clerk/_authenticated/user-management'
-    | '/_authenticated/apps/'
-    | '/_authenticated/chats/'
-    | '/_authenticated/help-center/'
-    | '/_authenticated/settings/'
-    | '/_authenticated/tasks/'
-    | '/_authenticated/users/'
+    | '/_authenticated/karyawan/cetak-id-card'
+    | '/_authenticated/karyawan/data-karyawan'
+    | '/_authenticated/karyawan/pkwt-dokumen'
+    | '/_authenticated/karyawan/riwayat-mutasi'
+    | '/_authenticated/payroll/approval-closing'
+    | '/_authenticated/payroll/periode'
+    | '/_authenticated/payroll/riwayat'
+    | '/_authenticated/payroll/simulasi'
+    | '/_authenticated/payroll/slip-gaji'
+    | '/_authenticated/produksi/master-pekerjaan'
+    | '/_authenticated/produksi/rekap'
+    | '/_authenticated/produksi/tarif-site'
+    | '/_authenticated/produksi/terminal-setoran'
+    | '/_authenticated/produksi/transaksi'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
-  ClerkRouteRoute: typeof ClerkRouteRouteWithChildren
-  authForgotPasswordRoute: typeof authForgotPasswordRoute
-  authOtpRoute: typeof authOtpRoute
   authSignInRoute: typeof authSignInRoute
-  authSignIn2Route: typeof authSignIn2Route
-  authSignUpRoute: typeof authSignUpRoute
   errors401Route: typeof errors401Route
   errors403Route: typeof errors403Route
   errors404Route: typeof errors404Route
@@ -396,13 +454,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/clerk': {
-      id: '/clerk'
-      path: '/clerk'
-      fullPath: '/clerk'
-      preLoaderRoute: typeof ClerkRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/_authenticated': {
       id: '/_authenticated'
       path: ''
@@ -415,6 +466,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/laporan': {
+      id: '/_authenticated/laporan'
+      path: '/laporan'
+      fullPath: '/laporan'
+      preLoaderRoute: typeof AuthenticatedLaporanRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/(errors)/503': {
@@ -452,20 +510,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof errors401RouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/(auth)/sign-up': {
-      id: '/(auth)/sign-up'
-      path: '/sign-up'
-      fullPath: '/sign-up'
-      preLoaderRoute: typeof authSignUpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(auth)/sign-in-2': {
-      id: '/(auth)/sign-in-2'
-      path: '/sign-in-2'
-      fullPath: '/sign-in-2'
-      preLoaderRoute: typeof authSignIn2RouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/(auth)/sign-in': {
       id: '/(auth)/sign-in'
       path: '/sign-in'
@@ -473,131 +517,103 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authSignInRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/(auth)/otp': {
-      id: '/(auth)/otp'
-      path: '/otp'
-      fullPath: '/otp'
-      preLoaderRoute: typeof authOtpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(auth)/forgot-password': {
-      id: '/(auth)/forgot-password'
-      path: '/forgot-password'
-      fullPath: '/forgot-password'
-      preLoaderRoute: typeof authForgotPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/clerk/_authenticated': {
-      id: '/clerk/_authenticated'
-      path: ''
-      fullPath: '/clerk'
-      preLoaderRoute: typeof ClerkAuthenticatedRouteRouteImport
-      parentRoute: typeof ClerkRouteRoute
-    }
-    '/clerk/(auth)': {
-      id: '/clerk/(auth)'
-      path: ''
-      fullPath: '/clerk'
-      preLoaderRoute: typeof ClerkauthRouteRouteImport
-      parentRoute: typeof ClerkRouteRoute
-    }
-    '/_authenticated/settings': {
-      id: '/_authenticated/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof AuthenticatedSettingsRouteRouteImport
+    '/_authenticated/produksi/transaksi': {
+      id: '/_authenticated/produksi/transaksi'
+      path: '/produksi/transaksi'
+      fullPath: '/produksi/transaksi'
+      preLoaderRoute: typeof AuthenticatedProduksiTransaksiRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/users/': {
-      id: '/_authenticated/users/'
-      path: '/users'
-      fullPath: '/users/'
-      preLoaderRoute: typeof AuthenticatedUsersIndexRouteImport
+    '/_authenticated/produksi/terminal-setoran': {
+      id: '/_authenticated/produksi/terminal-setoran'
+      path: '/produksi/terminal-setoran'
+      fullPath: '/produksi/terminal-setoran'
+      preLoaderRoute: typeof AuthenticatedProduksiTerminalSetoranRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/tasks/': {
-      id: '/_authenticated/tasks/'
-      path: '/tasks'
-      fullPath: '/tasks/'
-      preLoaderRoute: typeof AuthenticatedTasksIndexRouteImport
+    '/_authenticated/produksi/tarif-site': {
+      id: '/_authenticated/produksi/tarif-site'
+      path: '/produksi/tarif-site'
+      fullPath: '/produksi/tarif-site'
+      preLoaderRoute: typeof AuthenticatedProduksiTarifSiteRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/settings/': {
-      id: '/_authenticated/settings/'
-      path: '/'
-      fullPath: '/settings/'
-      preLoaderRoute: typeof AuthenticatedSettingsIndexRouteImport
-      parentRoute: typeof AuthenticatedSettingsRouteRoute
-    }
-    '/_authenticated/help-center/': {
-      id: '/_authenticated/help-center/'
-      path: '/help-center'
-      fullPath: '/help-center/'
-      preLoaderRoute: typeof AuthenticatedHelpCenterIndexRouteImport
+    '/_authenticated/produksi/rekap': {
+      id: '/_authenticated/produksi/rekap'
+      path: '/produksi/rekap'
+      fullPath: '/produksi/rekap'
+      preLoaderRoute: typeof AuthenticatedProduksiRekapRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/chats/': {
-      id: '/_authenticated/chats/'
-      path: '/chats'
-      fullPath: '/chats/'
-      preLoaderRoute: typeof AuthenticatedChatsIndexRouteImport
+    '/_authenticated/produksi/master-pekerjaan': {
+      id: '/_authenticated/produksi/master-pekerjaan'
+      path: '/produksi/master-pekerjaan'
+      fullPath: '/produksi/master-pekerjaan'
+      preLoaderRoute: typeof AuthenticatedProduksiMasterPekerjaanRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/apps/': {
-      id: '/_authenticated/apps/'
-      path: '/apps'
-      fullPath: '/apps/'
-      preLoaderRoute: typeof AuthenticatedAppsIndexRouteImport
+    '/_authenticated/payroll/slip-gaji': {
+      id: '/_authenticated/payroll/slip-gaji'
+      path: '/payroll/slip-gaji'
+      fullPath: '/payroll/slip-gaji'
+      preLoaderRoute: typeof AuthenticatedPayrollSlipGajiRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/clerk/_authenticated/user-management': {
-      id: '/clerk/_authenticated/user-management'
-      path: '/user-management'
-      fullPath: '/clerk/user-management'
-      preLoaderRoute: typeof ClerkAuthenticatedUserManagementRouteImport
-      parentRoute: typeof ClerkAuthenticatedRouteRoute
+    '/_authenticated/payroll/simulasi': {
+      id: '/_authenticated/payroll/simulasi'
+      path: '/payroll/simulasi'
+      fullPath: '/payroll/simulasi'
+      preLoaderRoute: typeof AuthenticatedPayrollSimulasiRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/clerk/(auth)/sign-up': {
-      id: '/clerk/(auth)/sign-up'
-      path: '/sign-up'
-      fullPath: '/clerk/sign-up'
-      preLoaderRoute: typeof ClerkauthSignUpRouteImport
-      parentRoute: typeof ClerkauthRouteRoute
+    '/_authenticated/payroll/riwayat': {
+      id: '/_authenticated/payroll/riwayat'
+      path: '/payroll/riwayat'
+      fullPath: '/payroll/riwayat'
+      preLoaderRoute: typeof AuthenticatedPayrollRiwayatRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/clerk/(auth)/sign-in': {
-      id: '/clerk/(auth)/sign-in'
-      path: '/sign-in'
-      fullPath: '/clerk/sign-in'
-      preLoaderRoute: typeof ClerkauthSignInRouteImport
-      parentRoute: typeof ClerkauthRouteRoute
+    '/_authenticated/payroll/periode': {
+      id: '/_authenticated/payroll/periode'
+      path: '/payroll/periode'
+      fullPath: '/payroll/periode'
+      preLoaderRoute: typeof AuthenticatedPayrollPeriodeRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/settings/notifications': {
-      id: '/_authenticated/settings/notifications'
-      path: '/notifications'
-      fullPath: '/settings/notifications'
-      preLoaderRoute: typeof AuthenticatedSettingsNotificationsRouteImport
-      parentRoute: typeof AuthenticatedSettingsRouteRoute
+    '/_authenticated/payroll/approval-closing': {
+      id: '/_authenticated/payroll/approval-closing'
+      path: '/payroll/approval-closing'
+      fullPath: '/payroll/approval-closing'
+      preLoaderRoute: typeof AuthenticatedPayrollApprovalClosingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/settings/display': {
-      id: '/_authenticated/settings/display'
-      path: '/display'
-      fullPath: '/settings/display'
-      preLoaderRoute: typeof AuthenticatedSettingsDisplayRouteImport
-      parentRoute: typeof AuthenticatedSettingsRouteRoute
+    '/_authenticated/karyawan/riwayat-mutasi': {
+      id: '/_authenticated/karyawan/riwayat-mutasi'
+      path: '/karyawan/riwayat-mutasi'
+      fullPath: '/karyawan/riwayat-mutasi'
+      preLoaderRoute: typeof AuthenticatedKaryawanRiwayatMutasiRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/settings/appearance': {
-      id: '/_authenticated/settings/appearance'
-      path: '/appearance'
-      fullPath: '/settings/appearance'
-      preLoaderRoute: typeof AuthenticatedSettingsAppearanceRouteImport
-      parentRoute: typeof AuthenticatedSettingsRouteRoute
+    '/_authenticated/karyawan/pkwt-dokumen': {
+      id: '/_authenticated/karyawan/pkwt-dokumen'
+      path: '/karyawan/pkwt-dokumen'
+      fullPath: '/karyawan/pkwt-dokumen'
+      preLoaderRoute: typeof AuthenticatedKaryawanPkwtDokumenRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/settings/account': {
-      id: '/_authenticated/settings/account'
-      path: '/account'
-      fullPath: '/settings/account'
-      preLoaderRoute: typeof AuthenticatedSettingsAccountRouteImport
-      parentRoute: typeof AuthenticatedSettingsRouteRoute
+    '/_authenticated/karyawan/data-karyawan': {
+      id: '/_authenticated/karyawan/data-karyawan'
+      path: '/karyawan/data-karyawan'
+      fullPath: '/karyawan/data-karyawan'
+      preLoaderRoute: typeof AuthenticatedKaryawanDataKaryawanRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/karyawan/cetak-id-card': {
+      id: '/_authenticated/karyawan/cetak-id-card'
+      path: '/karyawan/cetak-id-card'
+      fullPath: '/karyawan/cetak-id-card'
+      preLoaderRoute: typeof AuthenticatedKaryawanCetakIdCardRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/errors/$error': {
       id: '/_authenticated/errors/$error'
@@ -606,108 +622,147 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/attendance/scan': {
+      id: '/_authenticated/attendance/scan'
+      path: '/attendance/scan'
+      fullPath: '/attendance/scan'
+      preLoaderRoute: typeof AuthenticatedAttendanceScanRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/attendance/rekap': {
+      id: '/_authenticated/attendance/rekap'
+      path: '/attendance/rekap'
+      fullPath: '/attendance/rekap'
+      preLoaderRoute: typeof AuthenticatedAttendanceRekapRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/attendance/monitoring-harian': {
+      id: '/_authenticated/attendance/monitoring-harian'
+      path: '/attendance/monitoring-harian'
+      fullPath: '/attendance/monitoring-harian'
+      preLoaderRoute: typeof AuthenticatedAttendanceMonitoringHarianRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/attendance/master-shift': {
+      id: '/_authenticated/attendance/master-shift'
+      path: '/attendance/master-shift'
+      fullPath: '/attendance/master-shift'
+      preLoaderRoute: typeof AuthenticatedAttendanceMasterShiftRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/attendance/koreksi': {
+      id: '/_authenticated/attendance/koreksi'
+      path: '/attendance/koreksi'
+      fullPath: '/attendance/koreksi'
+      preLoaderRoute: typeof AuthenticatedAttendanceKoreksiRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/administrasi/user-hak-akses': {
+      id: '/_authenticated/administrasi/user-hak-akses'
+      path: '/administrasi/user-hak-akses'
+      fullPath: '/administrasi/user-hak-akses'
+      preLoaderRoute: typeof AuthenticatedAdministrasiUserHakAksesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/administrasi/template-dokumen': {
+      id: '/_authenticated/administrasi/template-dokumen'
+      path: '/administrasi/template-dokumen'
+      fullPath: '/administrasi/template-dokumen'
+      preLoaderRoute: typeof AuthenticatedAdministrasiTemplateDokumenRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/administrasi/pengaturan': {
+      id: '/_authenticated/administrasi/pengaturan'
+      path: '/administrasi/pengaturan'
+      fullPath: '/administrasi/pengaturan'
+      preLoaderRoute: typeof AuthenticatedAdministrasiPengaturanRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/administrasi/audit-trail': {
+      id: '/_authenticated/administrasi/audit-trail'
+      path: '/administrasi/audit-trail'
+      fullPath: '/administrasi/audit-trail'
+      preLoaderRoute: typeof AuthenticatedAdministrasiAuditTrailRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
-
-interface AuthenticatedSettingsRouteRouteChildren {
-  AuthenticatedSettingsAccountRoute: typeof AuthenticatedSettingsAccountRoute
-  AuthenticatedSettingsAppearanceRoute: typeof AuthenticatedSettingsAppearanceRoute
-  AuthenticatedSettingsDisplayRoute: typeof AuthenticatedSettingsDisplayRoute
-  AuthenticatedSettingsNotificationsRoute: typeof AuthenticatedSettingsNotificationsRoute
-  AuthenticatedSettingsIndexRoute: typeof AuthenticatedSettingsIndexRoute
-}
-
-const AuthenticatedSettingsRouteRouteChildren: AuthenticatedSettingsRouteRouteChildren =
-  {
-    AuthenticatedSettingsAccountRoute: AuthenticatedSettingsAccountRoute,
-    AuthenticatedSettingsAppearanceRoute: AuthenticatedSettingsAppearanceRoute,
-    AuthenticatedSettingsDisplayRoute: AuthenticatedSettingsDisplayRoute,
-    AuthenticatedSettingsNotificationsRoute:
-      AuthenticatedSettingsNotificationsRoute,
-    AuthenticatedSettingsIndexRoute: AuthenticatedSettingsIndexRoute,
-  }
-
-const AuthenticatedSettingsRouteRouteWithChildren =
-  AuthenticatedSettingsRouteRoute._addFileChildren(
-    AuthenticatedSettingsRouteRouteChildren,
-  )
 
 interface AuthenticatedRouteRouteChildren {
-  AuthenticatedSettingsRouteRoute: typeof AuthenticatedSettingsRouteRouteWithChildren
+  AuthenticatedLaporanRoute: typeof AuthenticatedLaporanRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+  AuthenticatedAdministrasiAuditTrailRoute: typeof AuthenticatedAdministrasiAuditTrailRoute
+  AuthenticatedAdministrasiPengaturanRoute: typeof AuthenticatedAdministrasiPengaturanRoute
+  AuthenticatedAdministrasiTemplateDokumenRoute: typeof AuthenticatedAdministrasiTemplateDokumenRoute
+  AuthenticatedAdministrasiUserHakAksesRoute: typeof AuthenticatedAdministrasiUserHakAksesRoute
+  AuthenticatedAttendanceKoreksiRoute: typeof AuthenticatedAttendanceKoreksiRoute
+  AuthenticatedAttendanceMasterShiftRoute: typeof AuthenticatedAttendanceMasterShiftRoute
+  AuthenticatedAttendanceMonitoringHarianRoute: typeof AuthenticatedAttendanceMonitoringHarianRoute
+  AuthenticatedAttendanceRekapRoute: typeof AuthenticatedAttendanceRekapRoute
+  AuthenticatedAttendanceScanRoute: typeof AuthenticatedAttendanceScanRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
-  AuthenticatedAppsIndexRoute: typeof AuthenticatedAppsIndexRoute
-  AuthenticatedChatsIndexRoute: typeof AuthenticatedChatsIndexRoute
-  AuthenticatedHelpCenterIndexRoute: typeof AuthenticatedHelpCenterIndexRoute
-  AuthenticatedTasksIndexRoute: typeof AuthenticatedTasksIndexRoute
-  AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
+  AuthenticatedKaryawanCetakIdCardRoute: typeof AuthenticatedKaryawanCetakIdCardRoute
+  AuthenticatedKaryawanDataKaryawanRoute: typeof AuthenticatedKaryawanDataKaryawanRoute
+  AuthenticatedKaryawanPkwtDokumenRoute: typeof AuthenticatedKaryawanPkwtDokumenRoute
+  AuthenticatedKaryawanRiwayatMutasiRoute: typeof AuthenticatedKaryawanRiwayatMutasiRoute
+  AuthenticatedPayrollApprovalClosingRoute: typeof AuthenticatedPayrollApprovalClosingRoute
+  AuthenticatedPayrollPeriodeRoute: typeof AuthenticatedPayrollPeriodeRoute
+  AuthenticatedPayrollRiwayatRoute: typeof AuthenticatedPayrollRiwayatRoute
+  AuthenticatedPayrollSimulasiRoute: typeof AuthenticatedPayrollSimulasiRoute
+  AuthenticatedPayrollSlipGajiRoute: typeof AuthenticatedPayrollSlipGajiRoute
+  AuthenticatedProduksiMasterPekerjaanRoute: typeof AuthenticatedProduksiMasterPekerjaanRoute
+  AuthenticatedProduksiRekapRoute: typeof AuthenticatedProduksiRekapRoute
+  AuthenticatedProduksiTarifSiteRoute: typeof AuthenticatedProduksiTarifSiteRoute
+  AuthenticatedProduksiTerminalSetoranRoute: typeof AuthenticatedProduksiTerminalSetoranRoute
+  AuthenticatedProduksiTransaksiRoute: typeof AuthenticatedProduksiTransaksiRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
-  AuthenticatedSettingsRouteRoute: AuthenticatedSettingsRouteRouteWithChildren,
+  AuthenticatedLaporanRoute: AuthenticatedLaporanRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+  AuthenticatedAdministrasiAuditTrailRoute:
+    AuthenticatedAdministrasiAuditTrailRoute,
+  AuthenticatedAdministrasiPengaturanRoute:
+    AuthenticatedAdministrasiPengaturanRoute,
+  AuthenticatedAdministrasiTemplateDokumenRoute:
+    AuthenticatedAdministrasiTemplateDokumenRoute,
+  AuthenticatedAdministrasiUserHakAksesRoute:
+    AuthenticatedAdministrasiUserHakAksesRoute,
+  AuthenticatedAttendanceKoreksiRoute: AuthenticatedAttendanceKoreksiRoute,
+  AuthenticatedAttendanceMasterShiftRoute:
+    AuthenticatedAttendanceMasterShiftRoute,
+  AuthenticatedAttendanceMonitoringHarianRoute:
+    AuthenticatedAttendanceMonitoringHarianRoute,
+  AuthenticatedAttendanceRekapRoute: AuthenticatedAttendanceRekapRoute,
+  AuthenticatedAttendanceScanRoute: AuthenticatedAttendanceScanRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
-  AuthenticatedAppsIndexRoute: AuthenticatedAppsIndexRoute,
-  AuthenticatedChatsIndexRoute: AuthenticatedChatsIndexRoute,
-  AuthenticatedHelpCenterIndexRoute: AuthenticatedHelpCenterIndexRoute,
-  AuthenticatedTasksIndexRoute: AuthenticatedTasksIndexRoute,
-  AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,
+  AuthenticatedKaryawanCetakIdCardRoute: AuthenticatedKaryawanCetakIdCardRoute,
+  AuthenticatedKaryawanDataKaryawanRoute:
+    AuthenticatedKaryawanDataKaryawanRoute,
+  AuthenticatedKaryawanPkwtDokumenRoute: AuthenticatedKaryawanPkwtDokumenRoute,
+  AuthenticatedKaryawanRiwayatMutasiRoute:
+    AuthenticatedKaryawanRiwayatMutasiRoute,
+  AuthenticatedPayrollApprovalClosingRoute:
+    AuthenticatedPayrollApprovalClosingRoute,
+  AuthenticatedPayrollPeriodeRoute: AuthenticatedPayrollPeriodeRoute,
+  AuthenticatedPayrollRiwayatRoute: AuthenticatedPayrollRiwayatRoute,
+  AuthenticatedPayrollSimulasiRoute: AuthenticatedPayrollSimulasiRoute,
+  AuthenticatedPayrollSlipGajiRoute: AuthenticatedPayrollSlipGajiRoute,
+  AuthenticatedProduksiMasterPekerjaanRoute:
+    AuthenticatedProduksiMasterPekerjaanRoute,
+  AuthenticatedProduksiRekapRoute: AuthenticatedProduksiRekapRoute,
+  AuthenticatedProduksiTarifSiteRoute: AuthenticatedProduksiTarifSiteRoute,
+  AuthenticatedProduksiTerminalSetoranRoute:
+    AuthenticatedProduksiTerminalSetoranRoute,
+  AuthenticatedProduksiTransaksiRoute: AuthenticatedProduksiTransaksiRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
-interface ClerkauthRouteRouteChildren {
-  ClerkauthSignInRoute: typeof ClerkauthSignInRoute
-  ClerkauthSignUpRoute: typeof ClerkauthSignUpRoute
-}
-
-const ClerkauthRouteRouteChildren: ClerkauthRouteRouteChildren = {
-  ClerkauthSignInRoute: ClerkauthSignInRoute,
-  ClerkauthSignUpRoute: ClerkauthSignUpRoute,
-}
-
-const ClerkauthRouteRouteWithChildren = ClerkauthRouteRoute._addFileChildren(
-  ClerkauthRouteRouteChildren,
-)
-
-interface ClerkAuthenticatedRouteRouteChildren {
-  ClerkAuthenticatedUserManagementRoute: typeof ClerkAuthenticatedUserManagementRoute
-}
-
-const ClerkAuthenticatedRouteRouteChildren: ClerkAuthenticatedRouteRouteChildren =
-  {
-    ClerkAuthenticatedUserManagementRoute:
-      ClerkAuthenticatedUserManagementRoute,
-  }
-
-const ClerkAuthenticatedRouteRouteWithChildren =
-  ClerkAuthenticatedRouteRoute._addFileChildren(
-    ClerkAuthenticatedRouteRouteChildren,
-  )
-
-interface ClerkRouteRouteChildren {
-  ClerkauthRouteRoute: typeof ClerkauthRouteRouteWithChildren
-  ClerkAuthenticatedRouteRoute: typeof ClerkAuthenticatedRouteRouteWithChildren
-}
-
-const ClerkRouteRouteChildren: ClerkRouteRouteChildren = {
-  ClerkauthRouteRoute: ClerkauthRouteRouteWithChildren,
-  ClerkAuthenticatedRouteRoute: ClerkAuthenticatedRouteRouteWithChildren,
-}
-
-const ClerkRouteRouteWithChildren = ClerkRouteRoute._addFileChildren(
-  ClerkRouteRouteChildren,
-)
-
 const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
-  ClerkRouteRoute: ClerkRouteRouteWithChildren,
-  authForgotPasswordRoute: authForgotPasswordRoute,
-  authOtpRoute: authOtpRoute,
   authSignInRoute: authSignInRoute,
-  authSignIn2Route: authSignIn2Route,
-  authSignUpRoute: authSignUpRoute,
   errors401Route: errors401Route,
   errors403Route: errors403Route,
   errors404Route: errors404Route,

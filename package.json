@@ -1,5 +1,5 @@
 {
-  "name": "shadcn-admin",
+  "name": "hris-pt-restu",
   "private": false,
   "version": "2.2.1",
   "type": "module",
@@ -15,11 +15,11 @@
     "test:watch": "vitest --browser.headless",
     "test:ui": "vitest --ui --browser.headless",
     "test:browser": "vitest",
+    "test:smoke": "node scripts/smoke-frontend.mjs",
     "test:coverage": "vitest run --coverage --browser.headless",
     "test:browser:install": "playwright install chromium --with-deps"
   },
   "dependencies": {
-    "@clerk/react": "^6.4.3",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-avatar": "^1.1.11",

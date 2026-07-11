@@ -1,53 +1,30 @@
 import { create } from 'zustand'
-import { getCookie, setCookie, removeCookie } from '@/lib/cookies'
-
-const ACCESS_TOKEN = 'thisisjustarandomstring'
-
-interface AuthUser {
-  accountNo: string
-  email: string
-  role: string[]
-  exp: number
-}
+import type { AuthSession, SignInCredentials } from '@/features/auth/domain'
+import { mockAuthRepository } from '@/features/auth/mock-auth-repository'
 
 interface AuthState {
-  auth: {
-    user: AuthUser | null
-    setUser: (user: AuthUser | null) => void
-    accessToken: string
-    setAccessToken: (accessToken: string) => void
-    resetAccessToken: () => void
-    reset: () => void
-  }
+  session: AuthSession | null
+  isSigningIn: boolean
+  signIn: (credentials: SignInCredentials) => Promise<void>
+  signOut: () => Promise<void>
+  refreshSession: () => void
 }
 
-export const useAuthStore = create<AuthState>()((set) => {
-  const cookieState = getCookie(ACCESS_TOKEN)
-  const initToken = cookieState ? JSON.parse(cookieState) : ''
-  return {
-    auth: {
-      user: null,
-      setUser: (user) =>
-        set((state) => ({ ...state, auth: { ...state.auth, user } })),
-      accessToken: initToken,
-      setAccessToken: (accessToken) =>
-        set((state) => {
-          setCookie(ACCESS_TOKEN, JSON.stringify(accessToken))
-          return { ...state, auth: { ...state.auth, accessToken } }
-        }),
-      resetAccessToken: () =>
-        set((state) => {
-          removeCookie(ACCESS_TOKEN)
-          return { ...state, auth: { ...state.auth, accessToken: '' } }
-        }),
-      reset: () =>
-        set((state) => {
-          removeCookie(ACCESS_TOKEN)
-          return {
-            ...state,
-            auth: { ...state.auth, user: null, accessToken: '' },
-          }
-        }),
-    },
-  }
-})
+export const useAuthStore = create<AuthState>((set) => ({
+  session: mockAuthRepository.getSession(),
+  isSigningIn: false,
+  signIn: async (credentials) => {
+    set({ isSigningIn: true })
+    try {
+      const session = await mockAuthRepository.signIn(credentials)
+      set({ session })
+    } finally {
+      set({ isSigningIn: false })
+    }
+  },
+  signOut: async () => {
+    await mockAuthRepository.signOut()
+    set({ session: null })
+  },
+  refreshSession: () => set({ session: mockAuthRepository.getSession() }),
+}))

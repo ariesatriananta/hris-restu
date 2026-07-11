@@ -1,35 +1,34 @@
-import { useNavigate, useLocation } from '@tanstack/react-router'
+import { useLocation, useNavigate } from '@tanstack/react-router'
 import { useAuthStore } from '@/stores/auth-store'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { safeRedirect } from '@/features/auth/safe-redirect'
 
-interface SignOutDialogProps {
+export function SignOutDialog({
+  open,
+  onOpenChange,
+}: {
   open: boolean
   onOpenChange: (open: boolean) => void
-}
-
-export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
+}) {
   const navigate = useNavigate()
   const location = useLocation()
-  const { auth } = useAuthStore()
-
-  const handleSignOut = () => {
-    auth.reset()
-    // Preserve current location for redirect after sign-in
-    const currentPath = location.href
-    navigate({
+  const signOut = useAuthStore((state) => state.signOut)
+  async function handleSignOut() {
+    await signOut()
+    await navigate({
       to: '/sign-in',
-      search: { redirect: currentPath },
+      search: { redirect: safeRedirect(location.href) },
       replace: true,
     })
   }
-
   return (
     <ConfirmDialog
       open={open}
       onOpenChange={onOpenChange}
-      title='Sign out'
-      desc='Are you sure you want to sign out? You will need to sign in again to access your account.'
-      confirmText='Sign out'
+      title='Keluar dari HRIS?'
+      desc='Sesi mock pada perangkat ini akan dihapus.'
+      confirmText='Keluar'
+      cancelBtnText='Batal'
       destructive
       handleConfirm={handleSignOut}
       className='sm:max-w-sm'

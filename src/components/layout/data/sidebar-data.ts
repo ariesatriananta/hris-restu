@@ -1,205 +1,118 @@
 import {
-  Construction,
+  BadgeDollarSign,
+  Building2,
+  CalendarClock,
+  ClipboardCheck,
+  FileBarChart,
+  Fingerprint,
+  IdCard,
   LayoutDashboard,
-  Monitor,
-  Bug,
-  ListTodo,
-  FileX,
-  HelpCircle,
-  Lock,
-  Bell,
-  Package,
-  Palette,
-  ServerOff,
+  ReceiptText,
+  ScanLine,
   Settings,
-  Wrench,
-  UserCog,
-  UserX,
-  Users,
-  MessagesSquare,
   ShieldCheck,
-  AudioWaveform,
-  Command,
-  GalleryVerticalEnd,
+  UserRoundCog,
+  Users,
+  WalletCards,
 } from 'lucide-react'
-import { ClerkLogo } from '@/assets/clerk-logo'
-import { type SidebarData } from '../types'
+import type { SidebarData } from '../types'
 
 export const sidebarData: SidebarData = {
-  user: {
-    name: 'satnaing',
-    email: 'satnaingdev@gmail.com',
-    avatar: '/avatars/shadcn.jpg',
-  },
-  teams: [
-    {
-      name: 'Shadcn Admin',
-      logo: Command,
-      plan: 'Vite + ShadcnUI',
-    },
-    {
-      name: 'Acme Inc',
-      logo: GalleryVerticalEnd,
-      plan: 'Enterprise',
-    },
-    {
-      name: 'Acme Corp.',
-      logo: AudioWaveform,
-      plan: 'Startup',
-    },
-  ],
   navGroups: [
     {
-      title: 'General',
+      title: 'Ringkasan',
+      items: [{ title: 'Dashboard', url: '/', icon: LayoutDashboard }],
+    },
+    {
+      title: 'Operasional HR',
       items: [
         {
-          title: 'Dashboard',
-          url: '/',
-          icon: LayoutDashboard,
-        },
-        {
-          title: 'Tasks',
-          url: '/tasks',
-          icon: ListTodo,
-        },
-        {
-          title: 'Apps',
-          url: '/apps',
-          icon: Package,
-        },
-        {
-          title: 'Chats',
-          url: '/chats',
-          badge: '3',
-          icon: MessagesSquare,
-        },
-        {
-          title: 'Users',
-          url: '/users',
+          title: 'Karyawan',
           icon: Users,
+          items: [
+            { title: 'Data Karyawan', url: '/karyawan/data-karyawan' },
+            { title: 'Riwayat Mutasi', url: '/karyawan/riwayat-mutasi' },
+            { title: 'PKWT & Dokumen', url: '/karyawan/pkwt-dokumen' },
+            { title: 'Cetak ID Card', url: '/karyawan/cetak-id-card' },
+          ],
         },
         {
-          title: 'Secured by Clerk',
-          icon: ClerkLogo,
+          title: 'Attendance',
+          icon: CalendarClock,
           items: [
             {
-              title: 'Sign In',
-              url: '/clerk/sign-in',
+              title: 'Monitoring Harian',
+              url: '/attendance/monitoring-harian',
             },
-            {
-              title: 'Sign Up',
-              url: '/clerk/sign-up',
-            },
-            {
-              title: 'User Management',
-              url: '/clerk/user-management',
-            },
+            { title: 'Scan Attendance', url: '/attendance/scan' },
+            { title: 'Rekap Attendance', url: '/attendance/rekap' },
+            { title: 'Koreksi Attendance', url: '/attendance/koreksi' },
+            { title: 'Master Shift', url: '/attendance/master-shift' },
+          ],
+        },
+        {
+          title: 'Produksi Borongan',
+          icon: ScanLine,
+          items: [
+            { title: 'Terminal Setoran', url: '/produksi/terminal-setoran' },
+            { title: 'Transaksi Produksi', url: '/produksi/transaksi' },
+            { title: 'Rekap Produksi', url: '/produksi/rekap' },
+            { title: 'Master Pekerjaan', url: '/produksi/master-pekerjaan' },
+            { title: 'Tarif per Site', url: '/produksi/tarif-site' },
+          ],
+        },
+        {
+          title: 'Payroll',
+          icon: WalletCards,
+          items: [
+            { title: 'Periode Payroll', url: '/payroll/periode' },
+            { title: 'Simulasi Payroll', url: '/payroll/simulasi' },
+            { title: 'Approval & Closing', url: '/payroll/approval-closing' },
+            { title: 'Riwayat Payroll', url: '/payroll/riwayat' },
+            { title: 'Slip Gaji', url: '/payroll/slip-gaji' },
           ],
         },
       ],
     },
     {
-      title: 'Pages',
+      title: 'Kontrol',
       items: [
+        { title: 'Laporan', url: '/laporan', icon: FileBarChart },
         {
-          title: 'Auth',
-          icon: ShieldCheck,
-          items: [
-            {
-              title: 'Sign In',
-              url: '/sign-in',
-            },
-            {
-              title: 'Sign In (2 Col)',
-              url: '/sign-in-2',
-            },
-            {
-              title: 'Sign Up',
-              url: '/sign-up',
-            },
-            {
-              title: 'Forgot Password',
-              url: '/forgot-password',
-            },
-            {
-              title: 'OTP',
-              url: '/otp',
-            },
-          ],
-        },
-        {
-          title: 'Errors',
-          icon: Bug,
-          items: [
-            {
-              title: 'Unauthorized',
-              url: '/errors/unauthorized',
-              icon: Lock,
-            },
-            {
-              title: 'Forbidden',
-              url: '/errors/forbidden',
-              icon: UserX,
-            },
-            {
-              title: 'Not Found',
-              url: '/errors/not-found',
-              icon: FileX,
-            },
-            {
-              title: 'Internal Server Error',
-              url: '/errors/internal-server-error',
-              icon: ServerOff,
-            },
-            {
-              title: 'Maintenance Error',
-              url: '/errors/maintenance-error',
-              icon: Construction,
-            },
-          ],
-        },
-      ],
-    },
-    {
-      title: 'Other',
-      items: [
-        {
-          title: 'Settings',
+          title: 'Administrasi Sistem',
           icon: Settings,
           items: [
             {
-              title: 'Profile',
-              url: '/settings',
-              icon: UserCog,
+              title: 'User & Hak Akses',
+              url: '/administrasi/user-hak-akses',
+              icon: UserRoundCog,
             },
             {
-              title: 'Account',
-              url: '/settings/account',
-              icon: Wrench,
+              title: 'Template Dokumen',
+              url: '/administrasi/template-dokumen',
+              icon: ReceiptText,
             },
             {
-              title: 'Appearance',
-              url: '/settings/appearance',
-              icon: Palette,
+              title: 'Audit Trail',
+              url: '/administrasi/audit-trail',
+              icon: Fingerprint,
             },
             {
-              title: 'Notifications',
-              url: '/settings/notifications',
-              icon: Bell,
-            },
-            {
-              title: 'Display',
-              url: '/settings/display',
-              icon: Monitor,
+              title: 'Pengaturan',
+              url: '/administrasi/pengaturan',
+              icon: Building2,
             },
           ],
-        },
-        {
-          title: 'Help Center',
-          url: '/help-center',
-          icon: HelpCircle,
         },
       ],
     },
   ],
+}
+
+export const moduleIcons = {
+  employees: IdCard,
+  attendance: ClipboardCheck,
+  production: BadgeDollarSign,
+  payroll: WalletCards,
+  administration: ShieldCheck,
 }

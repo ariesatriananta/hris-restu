@@ -5,6 +5,14 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { tanstackRouter } from '@tanstack/router-plugin/vite'
 import { playwright } from '@vitest/browser-playwright'
+import fs from 'node:fs'
+
+const windowsChrome =
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+const browserExecutable =
+  process.platform === 'win32' && fs.existsSync(windowsChrome)
+    ? windowsChrome
+    : undefined
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -26,7 +34,11 @@ export default defineConfig({
     unstubEnvs: true,
     browser: {
       enabled: true,
-      provider: playwright(),
+      provider: playwright({
+        launchOptions: browserExecutable
+          ? { executablePath: browserExecutable }
+          : undefined,
+      }),
       instances: [{ browser: 'chromium' }],
     },
     coverage: {

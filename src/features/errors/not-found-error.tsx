@@ -5,19 +5,18 @@ export function NotFoundError() {
   const navigate = useNavigate()
   const { history } = useRouter()
   return (
-    <div className='h-svh'>
-      <div className='m-auto flex h-full w-full flex-col items-center justify-center gap-2'>
-        <h1 className='text-[7rem] leading-tight font-bold'>404</h1>
-        <span className='font-medium'>Oops! Page Not Found!</span>
-        <p className='text-center text-muted-foreground'>
-          It seems like the page you're looking for <br />
-          does not exist or might have been removed.
+    <div className='flex min-h-svh items-center justify-center p-6 text-center'>
+      <div>
+        <p className='text-7xl font-bold text-primary'>404</p>
+        <h1 className='mt-3 text-xl font-semibold'>Halaman tidak ditemukan</h1>
+        <p className='mt-2 text-muted-foreground'>
+          Alamat yang Bos buka tidak tersedia atau sudah dipindahkan.
         </p>
-        <div className='mt-6 flex gap-4'>
+        <div className='mt-6 flex justify-center gap-3'>
           <Button variant='outline' onClick={() => history.go(-1)}>
-            Go Back
+            Kembali
           </Button>
-          <Button onClick={() => navigate({ to: '/' })}>Back to Home</Button>
+          <Button onClick={() => navigate({ to: '/' })}>Ke Dashboard</Button>
         </div>
       </div>
     </div>
