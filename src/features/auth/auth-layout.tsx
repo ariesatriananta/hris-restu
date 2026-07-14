@@ -1,3 +1,4 @@
+import { APP_NAME, COMPANY_NAME } from '@/lib/app-branding'
 import { AppBrand } from '@/components/app-brand'
 
 export function AuthLayout({ children }: { children: React.ReactNode }) {
@@ -7,14 +8,14 @@ export function AuthLayout({ children }: { children: React.ReactNode }) {
         <AppBrand className='[&_p]:text-primary-foreground' />
         <div className='max-w-xl space-y-4'>
           <p className='text-sm font-semibold tracking-[0.2em] text-primary-foreground/70 uppercase'>
-            PT Restu Sejati Inti Abadi
+            {APP_NAME}
           </p>
           <h1 className='text-4xl leading-tight font-bold'>
             Operasional SDM tiga site dalam satu ruang kerja.
           </h1>
           <p className='text-primary-foreground/75'>
-            Fondasi untuk pengelolaan karyawan, attendance, produksi borongan,
-            dan payroll yang dapat ditelusuri.
+            {COMPANY_NAME} &mdash; fondasi pengelolaan karyawan, attendance,
+            produksi borongan, dan payroll yang dapat ditelusuri.
           </p>
         </div>
         <p className='text-xs text-primary-foreground/60'>

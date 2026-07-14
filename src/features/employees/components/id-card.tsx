@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import JsBarcode from 'jsbarcode'
 import { Download, Printer } from 'lucide-react'
 import { toast } from 'sonner'
+import { APP_NAME } from '@/lib/app-branding'
 import { Button } from '@/components/ui/button'
 import type { Employee } from '../domain'
 
@@ -46,7 +47,7 @@ export function EmployeeIdCard({ employee }: { employee: Employee }) {
         <rect x="212" width="28" height="540" fill="${NAVY}"/>
         <image href="${logo}" x="74" y="45" width="100" height="100" preserveAspectRatio="xMidYMid meet"/>
         ${avatar}
-        <text x="120" y="475" text-anchor="middle" font-family="Arial" font-size="15" font-weight="700" letter-spacing="2" fill="#ffffff">HRIS PT RESTU</text>
+        <text x="120" y="475" text-anchor="middle" font-family="Arial" font-size="15" font-weight="700" letter-spacing="2" fill="#ffffff">${APP_NAME}</text>
         <text x="280" y="82" font-family="Arial" font-size="20" font-weight="700" fill="${GREEN}">KARTU IDENTITAS KARYAWAN</text>
         <text x="280" y="158" font-family="Arial" font-size="38" font-weight="700" fill="${NAVY}">${escapeXml(employee.fullName)}</text>
         <text x="280" y="205" font-family="Arial" font-size="23" fill="#334155">${escapeXml(employee.employeeNumber)} · Site ${escapeXml(employee.site)}</text>
@@ -77,7 +78,7 @@ export function EmployeeIdCard({ employee }: { employee: Employee }) {
         <div className='flex flex-col items-center justify-between bg-primary p-4 text-center text-white'>
           <img
             src='/brand/restu-logo.jpeg'
-            alt='PT Restu'
+            alt={`Logo ${APP_NAME}`}
             className='size-14 rounded-full bg-white object-contain p-1'
           />
           {employee.photo?.temporaryUrl ? (
@@ -92,7 +93,7 @@ export function EmployeeIdCard({ employee }: { employee: Employee }) {
             </div>
           )}
           <span className='text-[9px] font-semibold tracking-wider'>
-            HRIS PT RESTU
+            {APP_NAME}
           </span>
         </div>
         <div className='flex flex-col justify-between p-5'>

@@ -1,10 +1,10 @@
-# Progress Frontend HRIS PT Restu
+# Progress Frontend HRIS RSIA
 
-Pembaruan terakhir: 13 Juli 2026.
+Pembaruan terakhir: 14 Juli 2026.
 
 | Area | Status | Catatan |
 |---|---|---|
-| Application shell dan branding | selesai | Shell responsif, sidebar/drawer, breadcrumb, theme, user menu, dan identitas PT Restu telah diverifikasi. |
+| Application shell dan branding | selesai | Shell responsif, sidebar/drawer, breadcrumb, theme, user menu, dan identitas HRIS RSIA telah diterapkan. |
 | Auth dan protected route | selesai | Login/logout/me memakai cookie httpOnly API; bootstrap sesi dan refresh sekali dari Axios telah diterapkan. |
 | Dashboard operasional | selesai | Data mock async, filter site, KPI, chart, tabel/kartu mobile, aktivitas, alert, serta state loading/error/empty telah diverifikasi. |
 | Master Karyawan (Eksekusi 4) | selesai | CRUD, lookup, filter/pagination, histori/mutasi atomik, PKWT, dokumen, foto, ID card, upload R2, RBAC/scope site, dan audit log memakai HTTP API/MySQL. Runtime mock karyawan telah dihapus; seed hanya berisi data fiktif. Form tambah/edit memakai halaman penuh. |
@@ -17,7 +17,7 @@ Pembaruan terakhir: 13 Juli 2026.
 
 ## Kondisi dan blocker
 
-- Logo resmi tersedia di `public/brand/restu-logo.jpeg`; UI tetap memiliki fallback teks `RESTU` jika asset gagal dimuat.
+- Logo resmi tersedia di `public/brand/restu-logo.jpeg`; UI tetap memiliki fallback teks `RSIA` jika asset gagal dimuat.
 - Repository Git aktif pada branch `main`; perubahan dapat diaudit melalui status dan diff Git.
 - Schema database tidak diubah.
 - File HR memakai CDN R2 publik sesuai keputusan produk; URL yang diperoleh pihak lain dapat dibuka.

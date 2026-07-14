@@ -1,4 +1,4 @@
-# Rencana Implementasi Frontend HRIS PT Restu
+# Rencana Implementasi Frontend HRIS RSIA
 
 Dokumen ini menjadi urutan kerja frontend setelah fondasi awal. Database tetap mengikuti `db/HRIS_PT_RESTU_SCHEMA_MYSQL.sql`; perubahan schema memerlukan persetujuan eksplisit.
 

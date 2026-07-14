@@ -1,4 +1,4 @@
-# Backend Foundation HRIS PT Restu
+# Backend Foundation HRIS RSIA
 
 API berada di `apps/api`, memakai Express, Drizzle/MySQL, JWT cookie httpOnly, RBAC dari database, dan Cloudflare R2.
 
