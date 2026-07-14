@@ -12,7 +12,11 @@ describe('EmployeeForm', () => {
     })
     const screen = await render(
       <QueryClientProvider client={client}>
-        <EmployeeForm onSubmit={onSubmit} disableLookupQuery />
+        <EmployeeForm
+          onSubmit={onSubmit}
+          onCancel={() => {}}
+          disableLookupQuery
+        />
       </QueryClientProvider>
     )
 

@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { z } from 'zod'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Button } from '@/components/ui/button'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useEmployeeLookups } from '../data/queries'
 import type { Employee, EmployeeInput, MockFileAttachment } from '../domain'
+import { FormActionBar } from './form-action-bar'
 
 const optionalText = z.string().optional()
 const schema = z
@@ -86,11 +87,13 @@ const sensitiveFields: [keyof Values, string][] = [
 export function EmployeeForm({
   employee,
   onSubmit,
+  onCancel,
   isPending,
   disableLookupQuery = false,
 }: {
   employee?: Employee
   onSubmit: (input: EmployeeInput, photoFile?: File) => void | Promise<void>
+  onCancel: () => void
   isPending?: boolean
   disableLookupQuery?: boolean
 }) {
@@ -141,6 +144,7 @@ export function EmployeeForm({
       notes: employee?.notes ?? '',
     },
   })
+  const { confirmation } = useUnsavedChanges(form.formState.isDirty)
 
   const submit = async (values: Values) => {
     setIsUploading(true)
@@ -199,6 +203,7 @@ export function EmployeeForm({
         },
         photoFile
       )
+      form.reset(values)
     } finally {
       setIsUploading(false)
     }
@@ -249,180 +254,185 @@ export function EmployeeForm({
   )
 
   return (
-    <form onSubmit={form.handleSubmit(submit)} className='space-y-6'>
-      <section className='space-y-3'>
-        <h3 className='font-semibold'>Identitas kerja</h3>
-        <div className='grid gap-3 sm:grid-cols-2'>
-          {textField('employeeNumber', 'Nomor karyawan')}
-          {textField('barcode', 'Barcode')}
-          {textField('fullName', 'Nama lengkap')}
-          {textField('nickname', 'Nama panggilan')}
-          {select(
-            'employeeType',
-            'Jenis karyawan',
-            [
-              { value: 'BORONGAN', label: 'Borongan' },
-              { value: 'BULANAN', label: 'Bulanan' },
-            ],
-            !!employee
+    <>
+      <form
+        id='employee-form'
+        onSubmit={form.handleSubmit(submit)}
+        className='space-y-6 pb-24'
+      >
+        <section className='space-y-3'>
+          <h3 className='font-semibold'>Identitas kerja</h3>
+          <div className='grid gap-3 sm:grid-cols-2'>
+            {textField('employeeNumber', 'Nomor karyawan')}
+            {textField('barcode', 'Barcode')}
+            {textField('fullName', 'Nama lengkap')}
+            {textField('nickname', 'Nama panggilan')}
+            {select(
+              'employeeType',
+              'Jenis karyawan',
+              [
+                { value: 'BORONGAN', label: 'Borongan' },
+                { value: 'BULANAN', label: 'Bulanan' },
+              ],
+              !!employee
+            )}
+            {select(
+              'employeeStatus',
+              'Status',
+              [
+                { value: 'ACTIVE', label: 'Aktif' },
+                { value: 'LEAVE', label: 'Cuti' },
+                { value: 'RESIGNED', label: 'Resign' },
+                { value: 'INACTIVE', label: 'Nonaktif' },
+              ],
+              !!employee
+            )}
+            {select(
+              'site',
+              'Site',
+              sites.map((item) => ({ value: item.code, label: item.name })),
+              !!employee
+            )}
+            {select(
+              'department',
+              'Departemen',
+              [
+                { value: '', label: 'Pilih departemen' },
+                ...departments.map((item) => ({
+                  value: item.name,
+                  label: item.name,
+                })),
+              ],
+              !!employee
+            )}
+            {select(
+              'position',
+              'Jabatan',
+              [
+                { value: '', label: 'Pilih jabatan' },
+                ...positions.map((item) => ({
+                  value: item.name,
+                  label: item.name,
+                })),
+              ],
+              !!employee
+            )}
+            {select(
+              'workGroup',
+              'Kelompok kerja',
+              [
+                { value: '', label: 'Pilih kelompok' },
+                ...workGroups.map((item) => ({
+                  value: item.name,
+                  label: item.name,
+                })),
+              ],
+              !!employee
+            )}
+            {textField('joinDate', 'Tanggal bergabung', 'date')}
+            {textField('permanentDate', 'Tanggal tetap', 'date')}
+            <Field
+              label='Tanggal resign'
+              error={form.formState.errors.resignDate?.message}
+            >
+              <Input
+                type='date'
+                disabled={!!employee}
+                {...form.register('resignDate')}
+              />
+            </Field>
+            <Field label='Alasan resign'>
+              <Input disabled={!!employee} {...form.register('resignReason')} />
+            </Field>
+            {select('gender', 'Jenis kelamin', [
+              { value: 'MALE', label: 'Laki-laki' },
+              { value: 'FEMALE', label: 'Perempuan' },
+            ])}
+            {select('maritalStatus', 'Status perkawinan', [
+              { value: '', label: 'Belum diisi' },
+              { value: 'SINGLE', label: 'Belum menikah' },
+              { value: 'MARRIED', label: 'Menikah' },
+              { value: 'DIVORCED', label: 'Cerai' },
+              { value: 'WIDOWED', label: 'Duda/Janda' },
+            ])}
+          </div>
+          {employee && (
+            <p className='rounded-md bg-muted p-3 text-xs text-muted-foreground'>
+              Penempatan, jenis, dan status kerja dikunci pada form edit.
+              Gunakan aksi Catat Mutasi agar perubahan masuk ke histori.
+            </p>
           )}
-          {select(
-            'employeeStatus',
-            'Status',
-            [
-              { value: 'ACTIVE', label: 'Aktif' },
-              { value: 'LEAVE', label: 'Cuti' },
-              { value: 'RESIGNED', label: 'Resign' },
-              { value: 'INACTIVE', label: 'Nonaktif' },
-            ],
-            !!employee
-          )}
-          {select(
-            'site',
-            'Site',
-            sites.map((item) => ({ value: item.code, label: item.name })),
-            !!employee
-          )}
-          {select(
-            'department',
-            'Departemen',
-            [
-              { value: '', label: 'Pilih departemen' },
-              ...departments.map((item) => ({
-                value: item.name,
-                label: item.name,
-              })),
-            ],
-            !!employee
-          )}
-          {select(
-            'position',
-            'Jabatan',
-            [
-              { value: '', label: 'Pilih jabatan' },
-              ...positions.map((item) => ({
-                value: item.name,
-                label: item.name,
-              })),
-            ],
-            !!employee
-          )}
-          {select(
-            'workGroup',
-            'Kelompok kerja',
-            [
-              { value: '', label: 'Pilih kelompok' },
-              ...workGroups.map((item) => ({
-                value: item.name,
-                label: item.name,
-              })),
-            ],
-            !!employee
-          )}
-          {textField('joinDate', 'Tanggal bergabung', 'date')}
-          {textField('permanentDate', 'Tanggal tetap', 'date')}
-          <Field
-            label='Tanggal resign'
-            error={form.formState.errors.resignDate?.message}
-          >
+        </section>
+
+        <section className='space-y-3 border-t pt-5'>
+          <h3 className='font-semibold'>Identitas pribadi</h3>
+          <div className='grid gap-3 sm:grid-cols-2'>
+            {personalFields.map(([name, label, type]) =>
+              textField(name, label, type)
+            )}
+          </div>
+        </section>
+
+        <section className='space-y-3 border-t pt-5'>
+          <h3 className='font-semibold'>Alamat & kontak</h3>
+          <Field label='Alamat'>
+            <Textarea {...form.register('address')} />
+          </Field>
+          <div className='grid gap-3 sm:grid-cols-2'>
+            {contactFields.map(([name, label]) => textField(name, label))}
+          </div>
+        </section>
+
+        <section className='space-y-3 border-t pt-5'>
+          <h3 className='font-semibold'>Data darurat & legal</h3>
+          <div className='grid gap-3 sm:grid-cols-2'>
+            {sensitiveFields.map(([name, label]) => textField(name, label))}
+          </div>
+        </section>
+
+        <section className='space-y-3 border-t pt-5'>
+          <h3 className='font-semibold'>Foto dan catatan</h3>
+          <label className='grid gap-1 text-sm'>
+            Foto karyawan
             <Input
-              type='date'
-              disabled={!!employee}
-              {...form.register('resignDate')}
+              type='file'
+              accept='image/*'
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (!file) return
+                setPhotoFile(file)
+                setPhoto({
+                  uid: '',
+                  originalName: file.name,
+                  mimeType: file.type || 'application/octet-stream',
+                  sizeBytes: file.size,
+                  extension: file.name.split('.').pop(),
+                  temporaryUrl: URL.createObjectURL(file),
+                })
+              }}
             />
+            <span className='text-xs text-muted-foreground'>
+              {photo?.originalName ?? 'Belum ada foto dipilih.'} Foto akan
+              diunggah saat form disimpan.
+            </span>
+          </label>
+          <Field label='Catatan'>
+            <Textarea {...form.register('notes')} />
           </Field>
-          <Field label='Alasan resign'>
-            <Input disabled={!!employee} {...form.register('resignReason')} />
-          </Field>
-          {select('gender', 'Jenis kelamin', [
-            { value: 'MALE', label: 'Laki-laki' },
-            { value: 'FEMALE', label: 'Perempuan' },
-          ])}
-          {select('maritalStatus', 'Status perkawinan', [
-            { value: '', label: 'Belum diisi' },
-            { value: 'SINGLE', label: 'Belum menikah' },
-            { value: 'MARRIED', label: 'Menikah' },
-            { value: 'DIVORCED', label: 'Cerai' },
-            { value: 'WIDOWED', label: 'Duda/Janda' },
-          ])}
-        </div>
-        {employee && (
-          <p className='rounded-md bg-muted p-3 text-xs text-muted-foreground'>
-            Penempatan, jenis, dan status kerja dikunci pada form edit. Gunakan
-            aksi Catat Mutasi agar perubahan masuk ke histori.
+          <p className='text-xs text-muted-foreground'>
+            Data NIK, rekening, BPJS, dan kontak hanya ditampilkan utuh saat
+            form Super Admin ini dibuka.
           </p>
-        )}
-      </section>
-
-      <section className='space-y-3 border-t pt-5'>
-        <h3 className='font-semibold'>Identitas pribadi</h3>
-        <div className='grid gap-3 sm:grid-cols-2'>
-          {personalFields.map(([name, label, type]) =>
-            textField(name, label, type)
-          )}
-        </div>
-      </section>
-
-      <section className='space-y-3 border-t pt-5'>
-        <h3 className='font-semibold'>Alamat & kontak</h3>
-        <Field label='Alamat'>
-          <Textarea {...form.register('address')} />
-        </Field>
-        <div className='grid gap-3 sm:grid-cols-2'>
-          {contactFields.map(([name, label]) => textField(name, label))}
-        </div>
-      </section>
-
-      <section className='space-y-3 border-t pt-5'>
-        <h3 className='font-semibold'>Data darurat & legal</h3>
-        <div className='grid gap-3 sm:grid-cols-2'>
-          {sensitiveFields.map(([name, label]) => textField(name, label))}
-        </div>
-      </section>
-
-      <section className='space-y-3 border-t pt-5'>
-        <h3 className='font-semibold'>Foto dan catatan</h3>
-        <label className='grid gap-1 text-sm'>
-          Foto karyawan
-          <Input
-            type='file'
-            accept='image/*'
-            onChange={(event) => {
-              const file = event.target.files?.[0]
-              if (!file) return
-              setPhotoFile(file)
-              setPhoto({
-                uid: '',
-                originalName: file.name,
-                mimeType: file.type || 'application/octet-stream',
-                sizeBytes: file.size,
-                extension: file.name.split('.').pop(),
-                temporaryUrl: URL.createObjectURL(file),
-              })
-            }}
-          />
-          <span className='text-xs text-muted-foreground'>
-            {photo?.originalName ?? 'Belum ada foto dipilih.'} Foto akan
-            diunggah saat form disimpan.
-          </span>
-        </label>
-        <Field label='Catatan'>
-          <Textarea {...form.register('notes')} />
-        </Field>
-        <p className='text-xs text-muted-foreground'>
-          Data NIK, rekening, BPJS, dan kontak hanya ditampilkan utuh saat form
-          Super Admin ini dibuka.
-        </p>
-      </section>
-
-      <Button type='submit' disabled={isPending || isUploading}>
-        {isPending || isUploading
-          ? 'Menyimpan...'
-          : employee
-            ? 'Simpan perubahan'
-            : 'Tambah karyawan'}
-      </Button>
-    </form>
+        </section>
+      </form>
+      <FormActionBar
+        formId='employee-form'
+        isPending={isPending || isUploading}
+        submitLabel={employee ? 'Simpan perubahan' : 'Tambah karyawan'}
+        onCancel={onCancel}
+      />
+      {confirmation}
+    </>
   )
 }
 

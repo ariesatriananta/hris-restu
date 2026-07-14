@@ -1,14 +1,13 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { EmployeeFormPage } from '@/features/employees/components/employee-form-page'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 export const Route = createFileRoute(
   '/_authenticated/karyawan/data-karyawan_/$employeeUid/edit'
 )({
-  component: RouteComponent,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: '/karyawan/ubah-karyawan/$employeeUid',
+      params: { employeeUid: params.employeeUid },
+      replace: true,
+    })
+  },
 })
-
-// Route module also exports TanStack Router's route definition.
-// eslint-disable-next-line react-refresh/only-export-components
-function RouteComponent() {
-  return <EmployeeFormPage employeeUid={Route.useParams().employeeUid} />
-}

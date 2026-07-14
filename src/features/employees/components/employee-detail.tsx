@@ -1,9 +1,18 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeft, GitBranchPlus, Pencil } from 'lucide-react'
+import {
+  ArrowLeft,
+  Download,
+  ExternalLink,
+  GitBranchPlus,
+  Pencil,
+  Plus,
+  RefreshCcw,
+} from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Main } from '@/components/layout/main'
 import {
@@ -25,24 +34,22 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
   if (employee.isPending)
     return (
       <Main>
-        <p>Memuat detail karyawan...</p>
+        <RecordSkeleton />
       </Main>
     )
   if (employee.isError)
     return (
       <Main>
         <h1 className='text-2xl font-bold'>Detail gagal dimuat</h1>
-        <Button className='mt-4' onClick={() => employee.refetch()}>
-          Coba lagi
-        </Button>
+        <Retry onClick={() => employee.refetch()} />
       </Main>
     )
   if (!employee.data)
     return (
       <Main>
         <h1 className='text-2xl font-bold'>Karyawan tidak ditemukan</h1>
-        <Button asChild className='mt-4'>
-          <Link to='/karyawan/data-karyawan'>Kembali ke data karyawan</Link>
+        <Button className='mt-4' asChild>
+          <Link to='/karyawan/data-karyawan'>Kembali</Link>
         </Button>
       </Main>
     )
@@ -56,38 +63,36 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
           </Link>
         </Button>
         <div className='flex flex-col justify-between gap-4 sm:flex-row sm:items-start'>
-          <div>
-            <div className='flex items-start gap-3'>
-              {data.photo?.temporaryUrl ? (
-                <img
-                  src={data.photo.temporaryUrl}
-                  alt={`Foto ${data.fullName}`}
-                  className='size-14 rounded-full border object-cover'
-                />
-              ) : (
-                <div className='flex size-14 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg font-bold text-primary'>
-                  {data.fullName
-                    .split(' ')
-                    .map((part) => part[0])
-                    .slice(0, 2)
-                    .join('')}
-                </div>
-              )}
-              <div>
-                <div className='flex flex-wrap items-center gap-2'>
-                  <h1 className='text-2xl font-bold'>{data.fullName}</h1>
-                  <Badge>{statusLabel(data.employeeStatus)}</Badge>
-                </div>
-                <p className='text-muted-foreground'>
-                  {data.employeeNumber} · {data.barcode} · Site {data.site}
-                </p>
+          <div className='flex items-start gap-3'>
+            {data.photo?.url || data.photo?.temporaryUrl ? (
+              <img
+                src={data.photo.url ?? data.photo.temporaryUrl}
+                alt={`Foto ${data.fullName}`}
+                className='size-14 rounded-full border object-cover'
+              />
+            ) : (
+              <div className='flex size-14 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg font-bold text-primary'>
+                {data.fullName
+                  .split(' ')
+                  .map((part) => part[0])
+                  .slice(0, 2)
+                  .join('')}
               </div>
+            )}
+            <div>
+              <div className='flex flex-wrap items-center gap-2'>
+                <h1 className='text-2xl font-bold'>{data.fullName}</h1>
+                <Badge>{statusLabel(data.employeeStatus)}</Badge>
+              </div>
+              <p className='text-muted-foreground'>
+                {data.employeeNumber} · {data.barcode} · Site {data.site}
+              </p>
             </div>
           </div>
           <div className='flex flex-wrap gap-2'>
             <Button asChild variant='outline'>
               <Link
-                to='/karyawan/data-karyawan/$employeeUid/edit'
+                to='/karyawan/ubah-karyawan/$employeeUid'
                 params={{ employeeUid: data.uid }}
               >
                 <Pencil /> Ubah data
@@ -176,29 +181,42 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
         <TabsContent value='mutasi'>
           <Card>
             <CardHeader>
-              <CardTitle>Histori penempatan</CardTitle>
+              <div className='flex justify-between gap-3'>
+                <CardTitle>Histori penempatan</CardTitle>
+                <Button size='sm' onClick={() => setMutationOpen(true)}>
+                  <Plus /> Catat mutasi
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className='space-y-4'>
-                {histories.data?.map((item) => (
-                  <div
-                    key={item.uid}
-                    className='border-s-2 border-primary ps-4'
-                  >
-                    <div className='flex flex-wrap items-center gap-2'>
-                      <p className='font-semibold'>
-                        {item.site} · {item.position ?? 'Tanpa jabatan'}
+              {histories.isPending ? (
+                <RecordSkeleton />
+              ) : histories.isError ? (
+                <Retry onClick={() => histories.refetch()} />
+              ) : !histories.data?.length ? (
+                <Empty text='Belum ada histori penempatan.' />
+              ) : (
+                <div className='space-y-4'>
+                  {histories.data.map((item) => (
+                    <div
+                      key={item.uid}
+                      className='border-s-2 border-primary ps-4'
+                    >
+                      <div className='flex flex-wrap items-center gap-2'>
+                        <p className='font-semibold'>
+                          {item.site} · {item.position ?? 'Tanpa jabatan'}
+                        </p>
+                        <Badge variant='secondary'>{item.changeType}</Badge>
+                      </div>
+                      <p className='text-sm text-muted-foreground'>
+                        {formatDate(item.effectiveFrom)} —{' '}
+                        {formatDate(item.effectiveTo)} ·{' '}
+                        {item.reason ?? 'Tidak ada alasan'}
                       </p>
-                      <Badge variant='secondary'>{item.changeType}</Badge>
                     </div>
-                    <p className='text-sm text-muted-foreground'>
-                      {formatDate(item.effectiveFrom)} —{' '}
-                      {formatDate(item.effectiveTo)} ·{' '}
-                      {item.reason ?? 'Tidak ada alasan'}
-                    </p>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -206,20 +224,38 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
           <Records
             title='PKWT & kontrak'
             empty='Belum ada kontrak.'
-            items={contracts.data?.map(
-              (item) =>
-                `${item.contractNumber} · ${statusLabel(item.status)} · ${formatDate(item.startDate)} — ${formatDate(item.endDate)}`
-            )}
+            pending={contracts.isPending}
+            error={contracts.isError}
+            retry={() => contracts.refetch()}
+            add={{
+              to: '/karyawan/pkwt/tambah',
+              employeeUid: data.uid,
+              label: 'Tambah PKWT',
+            }}
+            items={contracts.data?.map((item) => ({
+              label: `${item.contractNumber} · ${statusLabel(item.status)} · ${formatDate(item.startDate)} — ${formatDate(item.endDate)}`,
+              edit: `/karyawan/pkwt/${item.uid}/ubah`,
+              file: item.issuedFile?.url,
+            }))}
           />
         </TabsContent>
         <TabsContent value='dokumen'>
           <Records
             title='Dokumen karyawan'
             empty='Belum ada dokumen.'
-            items={documents.data?.map(
-              (item) =>
-                `${item.name} · ${statusLabel(item.status)} · ${item.file.originalName}`
-            )}
+            pending={documents.isPending}
+            error={documents.isError}
+            retry={() => documents.refetch()}
+            add={{
+              to: '/karyawan/dokumen/tambah',
+              employeeUid: data.uid,
+              label: 'Tambah dokumen',
+            }}
+            items={documents.data?.map((item) => ({
+              label: `${item.name} · ${statusLabel(item.status)} · ${item.file.originalName}`,
+              edit: `/karyawan/dokumen/${item.uid}/ubah`,
+              file: item.file.url,
+            }))}
           />
         </TabsContent>
         <TabsContent value='id-card'>
@@ -263,29 +299,99 @@ function Records({
   title,
   empty,
   items,
+  pending,
+  error,
+  retry,
+  add,
 }: {
   title: string
   empty: string
-  items?: string[]
+  items?: { label: string; edit: string; file?: string }[]
+  pending: boolean
+  error: boolean
+  retry: () => void
+  add: {
+    to: '/karyawan/pkwt/tambah' | '/karyawan/dokumen/tambah'
+    employeeUid: string
+    label: string
+  }
 }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <div className='flex items-center justify-between gap-3'>
+          <CardTitle>{title}</CardTitle>
+          <Button size='sm' asChild>
+            <Link to={add.to} search={{ employeeUid: add.employeeUid }}>
+              <Plus /> {add.label}
+            </Link>
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
-        {items?.length ? (
+        {pending ? (
+          <RecordSkeleton />
+        ) : error ? (
+          <Retry onClick={retry} />
+        ) : items?.length ? (
           <ul className='space-y-3'>
             {items.map((item) => (
-              <li key={item} className='rounded-md border p-3 text-sm'>
-                {item}
+              <li
+                key={item.edit}
+                className='flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm'
+              >
+                <span>{item.label}</span>
+                <span className='flex gap-1'>
+                  <Button size='sm' variant='ghost' asChild>
+                    <a href={item.edit} aria-label={`Ubah ${item.label}`}>
+                      <Pencil />
+                      <span className='sr-only'>Ubah</span>
+                    </a>
+                  </Button>
+                  {item.file && (
+                    <>
+                      <Button size='sm' variant='ghost' asChild>
+                        <a href={item.file} target='_blank' rel='noreferrer'>
+                          <ExternalLink /> Buka file
+                        </a>
+                      </Button>
+                      <Button size='sm' variant='ghost' asChild>
+                        <a href={item.file} download>
+                          <Download />
+                        </a>
+                      </Button>
+                    </>
+                  )}
+                </span>
               </li>
             ))}
           </ul>
         ) : (
-          <p className='text-sm text-muted-foreground'>{empty}</p>
+          <Empty text={empty} />
         )}
       </CardContent>
     </Card>
   )
+}
+function RecordSkeleton() {
+  return (
+    <div className='space-y-3'>
+      {[1, 2, 3].map((item) => (
+        <Skeleton key={item} className='h-14 w-full' />
+      ))}
+    </div>
+  )
+}
+function Retry({ onClick }: { onClick: () => void }) {
+  return (
+    <div className='py-6 text-sm'>
+      <p>Data gagal dimuat.</p>
+      <Button variant='outline' className='mt-3' onClick={onClick}>
+        <RefreshCcw /> Coba lagi
+      </Button>
+    </div>
+  )
+}
+function Empty({ text }: { text: string }) {
+  return <p className='py-6 text-sm text-muted-foreground'>{text}</p>
 }

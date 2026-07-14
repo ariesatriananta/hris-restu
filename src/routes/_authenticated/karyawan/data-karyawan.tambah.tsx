@@ -1,8 +1,9 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { EmployeeFormPage } from '@/features/employees/components/employee-form-page'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 export const Route = createFileRoute(
   '/_authenticated/karyawan/data-karyawan/tambah'
 )({
-  component: EmployeeFormPage,
+  beforeLoad: () => {
+    throw redirect({ to: '/karyawan/tambah-karyawan', replace: true })
+  },
 })

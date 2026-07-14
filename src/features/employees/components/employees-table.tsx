@@ -8,7 +8,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table'
-import { Pencil, Users } from 'lucide-react'
+import { Eye, Pencil, Users } from 'lucide-react'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -170,17 +170,27 @@ export function EmployeesTable({
                     </div>
                     <Badge>{statusLabel(employee.employeeStatus)}</Badge>
                   </div>
-                  <div className='mt-3 flex items-center justify-between text-sm'>
+                  <div className='mt-3 flex items-center justify-between gap-2 text-sm'>
                     <span>
                       {employee.site} · {statusLabel(employee.employeeType)}
                     </span>
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      onClick={() => onEdit(employee)}
-                    >
-                      <Pencil /> Ubah
-                    </Button>
+                    <div className='flex gap-2'>
+                      <Button size='sm' variant='outline' asChild>
+                        <Link
+                          to='/karyawan/data-karyawan/$employeeUid'
+                          params={{ employeeUid: employee.uid }}
+                        >
+                          <Eye /> Detail
+                        </Link>
+                      </Button>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        onClick={() => onEdit(employee)}
+                      >
+                        <Pencil /> Ubah
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

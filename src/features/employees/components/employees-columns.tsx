@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Pencil } from 'lucide-react'
+import { Eye, Pencil } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DataTableColumnHeader } from '@/components/data-table'
@@ -74,7 +74,16 @@ export function createEmployeeColumns(
       enableSorting: false,
       enableHiding: false,
       cell: ({ row }) => (
-        <div className='text-right'>
+        <div className='flex justify-end gap-1'>
+          <Button size='sm' variant='ghost' asChild>
+            <Link
+              to='/karyawan/data-karyawan/$employeeUid'
+              params={{ employeeUid: row.original.uid }}
+            >
+              <Eye />
+              <span>Detail</span>
+            </Link>
+          </Button>
           <Button
             size='sm'
             variant='ghost'

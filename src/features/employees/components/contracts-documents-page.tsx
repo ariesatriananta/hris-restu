@@ -1,63 +1,18 @@
-import { useMemo, useState } from 'react'
-import { z } from 'zod'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useMemo } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
 import { Main } from '@/components/layout/main'
-import { uploadEmployeeFile } from '../data/files'
-import {
-  useContracts,
-  useDocuments,
-  useEmployeeList,
-  useSaveContract,
-  useSaveDocument,
-} from '../data/queries'
-import type { Employee, EmployeeContract, EmployeeDocument } from '../domain'
-import { formatDate, statusLabel } from '../utils'
+import { useContractList, useDocumentList } from '../data/queries'
+import type {
+  EmployeeContract,
+  EmployeeDocument,
+  EmployeeRecordListParams,
+  PaginatedResult,
+  SiteCode,
+} from '../domain'
+import { formatDate } from '../utils'
 import { RecordsTable, type EmployeeRecordRow } from './records-table'
-
-const contractSchema = z
-  .object({
-    employeeUid: z.string().min(1, 'Karyawan wajib dipilih.'),
-    contractNumber: z.string().min(1, 'Nomor kontrak wajib diisi.'),
-    contractType: z.enum(['PKWT', 'PKWTT', 'OTHER']),
-    sequenceNumber: z.coerce
-      .number()
-      .int()
-      .positive('Urutan kontrak minimal 1.'),
-    startDate: z.string().min(1, 'Tanggal mulai wajib diisi.'),
-    endDate: z.string().optional(),
-    status: z.enum(['DRAFT', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED']),
-    notes: z.string().optional(),
-  })
-  .refine((v) => !v.endDate || v.endDate >= v.startDate, {
-    path: ['endDate'],
-    message: 'Tanggal berakhir tidak boleh sebelum tanggal mulai.',
-  })
-const documentSchema = z.object({
-  employeeUid: z.string().min(1, 'Karyawan wajib dipilih.'),
-  documentType: z.string().min(1, 'Tipe dokumen wajib diisi.'),
-  name: z.string().min(1, 'Nama dokumen wajib diisi.'),
-  documentNumber: z.string().optional(),
-  issuedDate: z.string().optional(),
-  expiryDate: z.string().optional(),
-  status: z.enum(['ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED']),
-  notes: z.string().optional(),
-})
-type ContractValues = z.input<typeof contractSchema>
-type ContractOutput = z.output<typeof contractSchema>
-type DocumentValues = z.infer<typeof documentSchema>
 
 export function ContractsDocumentsPage({
   search,
@@ -66,49 +21,19 @@ export function ContractsDocumentsPage({
   search: Record<string, unknown>
   navigate: NavigateFn
 }) {
-  const employees = useEmployeeList({ page: 1, pageSize: 100 })
-  const contracts = useContracts()
-  const documents = useDocuments()
-  const [editingContract, setEditingContract] = useState<EmployeeContract>()
-  const [editingDocument, setEditingDocument] = useState<EmployeeDocument>()
-  const [contractOpen, setContractOpen] = useState(false)
-  const [documentOpen, setDocumentOpen] = useState(false)
-  const byUid = useMemo(
-    () =>
-      new Map((employees.data?.items ?? []).map((item) => [item.uid, item])),
-    [employees.data?.items]
+  const routerNavigate = useNavigate()
+  const contractParams = params(search, 'contract')
+  const documentParams = params(search, 'document')
+  const contracts = useContractList(contractParams)
+  const documents = useDocumentList(documentParams)
+  const contractRows = useMemo(
+    () => mapContracts(contracts.data),
+    [contracts.data]
   )
-  const contractRows: EmployeeRecordRow[] = (contracts.data ?? []).map(
-    (item) => ({
-      uid: item.uid,
-      employeeUid: item.employeeUid,
-      title: item.contractNumber,
-      employee:
-        byUid.get(item.employeeUid)?.fullName ?? 'Karyawan tidak ditemukan',
-      site: byUid.get(item.employeeUid)?.site ?? '—',
-      detail: `${item.contractType} · ${formatDate(item.startDate)} — ${formatDate(item.endDate)}`,
-      status: item.status,
-      expiry: expiry(item.endDate),
-    })
+  const documentRows = useMemo(
+    () => mapDocuments(documents.data),
+    [documents.data]
   )
-  const documentRows: EmployeeRecordRow[] = (documents.data ?? []).map(
-    (item) => ({
-      uid: item.uid,
-      employeeUid: item.employeeUid,
-      title: item.name,
-      employee:
-        byUid.get(item.employeeUid)?.fullName ?? 'Karyawan tidak ditemukan',
-      site: byUid.get(item.employeeUid)?.site ?? '—',
-      detail: `${item.documentType} · ${item.file.originalName}`,
-      status: item.status,
-      expiry: expiry(item.expiryDate),
-    })
-  )
-  const retry = () => {
-    void employees.refetch()
-    void contracts.refetch()
-    void documents.refetch()
-  }
   return (
     <Main>
       <div className='mb-6'>
@@ -130,19 +55,16 @@ export function ContractsDocumentsPage({
             prefix='contract'
             statuses={['DRAFT', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED']}
             actionLabel='Tambah kontrak'
-            onCreate={() => {
-              setEditingContract(undefined)
-              setContractOpen(true)
-            }}
-            onEdit={(uid) => {
-              setEditingContract(
-                (contracts.data ?? []).find((item) => item.uid === uid)
-              )
-              setContractOpen(true)
-            }}
-            isPending={employees.isPending || contracts.isPending}
-            isError={employees.isError || contracts.isError}
-            onRetry={retry}
+            onCreate={() => routerNavigate({ to: '/karyawan/pkwt/tambah' })}
+            onEdit={(uid) =>
+              routerNavigate({
+                to: '/karyawan/pkwt/$contractUid/ubah',
+                params: { contractUid: uid },
+              })
+            }
+            isPending={contracts.isPending}
+            isError={contracts.isError}
+            onRetry={() => contracts.refetch()}
           />
         </TabsContent>
         <TabsContent value='documents' className='mt-4'>
@@ -153,324 +75,88 @@ export function ContractsDocumentsPage({
             prefix='document'
             statuses={['ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED']}
             actionLabel='Tambah dokumen'
-            onCreate={() => {
-              setEditingDocument(undefined)
-              setDocumentOpen(true)
-            }}
-            onEdit={(uid) => {
-              setEditingDocument(
-                (documents.data ?? []).find((item) => item.uid === uid)
-              )
-              setDocumentOpen(true)
-            }}
-            isPending={employees.isPending || documents.isPending}
-            isError={employees.isError || documents.isError}
-            onRetry={retry}
+            onCreate={() => routerNavigate({ to: '/karyawan/dokumen/tambah' })}
+            onEdit={(uid) =>
+              routerNavigate({
+                to: '/karyawan/dokumen/$documentUid/ubah',
+                params: { documentUid: uid },
+              })
+            }
+            isPending={documents.isPending}
+            isError={documents.isError}
+            onRetry={() => documents.refetch()}
           />
         </TabsContent>
       </Tabs>
-      <ContractDialog
-        open={contractOpen}
-        onOpenChange={setContractOpen}
-        employees={employees.data?.items ?? []}
-        contract={editingContract}
-      />
-      <DocumentDialog
-        open={documentOpen}
-        onOpenChange={setDocumentOpen}
-        employees={employees.data?.items ?? []}
-        document={editingDocument}
-      />
     </Main>
   )
 }
 
-function ContractDialog({
-  open,
-  onOpenChange,
-  employees,
-  contract,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  employees: Employee[]
-  contract?: EmployeeContract
-}) {
-  const save = useSaveContract()
-  const [attachment, setAttachment] = useState<File>()
-  const form = useForm<ContractValues>({
-    resolver: zodResolver(contractSchema),
-    values: {
-      employeeUid: contract?.employeeUid ?? '',
-      contractNumber: contract?.contractNumber ?? '',
-      contractType: contract?.contractType ?? 'PKWT',
-      sequenceNumber: contract?.sequenceNumber ?? 1,
-      startDate: contract?.startDate ?? '',
-      endDate: contract?.endDate ?? '',
-      status: contract?.status ?? 'DRAFT',
-      notes: contract?.notes ?? '',
-    },
-  })
-  const submit = async (raw: ContractValues) => {
-    const value: ContractOutput = contractSchema.parse(raw)
-    const employee = employees.find((item) => item.uid === value.employeeUid)
-    const issuedFile = attachment
-      ? await uploadEmployeeFile(attachment, value.employeeUid)
-      : contract?.issuedFile
-    await save.mutateAsync({
-      uid: contract?.uid,
-      input: {
-        ...value,
-        endDate: value.endDate || undefined,
-        notes: value.notes || undefined,
-        signedDate: contract?.signedDate,
-        salaryOrRateNotes: contract?.salaryOrRateNotes,
-        issuedFile,
-        positionNameSnapshot:
-          contract?.positionNameSnapshot ?? employee?.position,
-        siteNameSnapshot:
-          contract?.siteNameSnapshot ??
-          (employee ? `Site ${statusLabel(employee.site)}` : undefined),
-      },
-    })
-    onOpenChange(false)
+function params(
+  search: Record<string, unknown>,
+  prefix: 'contract' | 'document'
+): EmployeeRecordListParams {
+  return {
+    query:
+      typeof search[`${prefix}Filter`] === 'string'
+        ? (search[`${prefix}Filter`] as string)
+        : undefined,
+    site: Array.isArray(search[`${prefix}Site`])
+      ? ((search[`${prefix}Site`] as unknown[]).filter(
+          (value): value is SiteCode =>
+            value === 'JEPARA' || value === 'SEMARANG' || value === 'KLATEN'
+        ) as SiteCode[])
+      : undefined,
+    status: Array.isArray(search[`${prefix}Status`])
+      ? (search[`${prefix}Status`] as string[])
+      : undefined,
+    page:
+      typeof search[`${prefix}Page`] === 'number'
+        ? (search[`${prefix}Page`] as number)
+        : 1,
+    pageSize:
+      typeof search[`${prefix}PageSize`] === 'number'
+        ? (search[`${prefix}PageSize`] as number)
+        : 10,
   }
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto'>
-        <DialogHeader>
-          <DialogTitle>
-            {contract ? 'Ubah kontrak' : 'Tambah kontrak'}
-          </DialogTitle>
-          <DialogDescription>
-            Lampiran akan diunggah ke penyimpanan file saat disimpan.
-          </DialogDescription>
-        </DialogHeader>
-        <form className='grid gap-3' onSubmit={form.handleSubmit(submit)}>
-          <EmployeeField
-            employees={employees}
-            disabled={!!contract}
-            {...form.register('employeeUid')}
-          />
-          <Labeled
-            label='Nomor kontrak'
-            error={form.formState.errors.contractNumber?.message}
-          >
-            <Input {...form.register('contractNumber')} />
-          </Labeled>
-          <SelectNative
-            {...form.register('contractType')}
-            values={['PKWT', 'PKWTT', 'OTHER']}
-          />
-          <Labeled label='File kontrak (opsional)'>
-            <Input
-              type='file'
-              accept='.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-              onChange={(event) => setAttachment(event.target.files?.[0])}
-            />
-          </Labeled>
-          <Labeled
-            label='Urutan kontrak'
-            error={form.formState.errors.sequenceNumber?.message}
-          >
-            <Input type='number' {...form.register('sequenceNumber')} />
-          </Labeled>
-          <Labeled
-            label='Tanggal mulai'
-            error={form.formState.errors.startDate?.message}
-          >
-            <Input type='date' {...form.register('startDate')} />
-          </Labeled>
-          <Labeled
-            label='Tanggal berakhir'
-            error={form.formState.errors.endDate?.message}
-          >
-            <Input type='date' {...form.register('endDate')} />
-          </Labeled>
-          <SelectNative
-            {...form.register('status')}
-            values={['DRAFT', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED']}
-          />
-          <Labeled label='Catatan'>
-            <Textarea {...form.register('notes')} />
-          </Labeled>
-          <Button disabled={save.isPending}>
-            {save.isPending ? 'Menyimpan...' : 'Simpan kontrak'}
-          </Button>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
 }
-
-function DocumentDialog({
-  open,
-  onOpenChange,
-  employees,
-  document,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  employees: Employee[]
-  document?: EmployeeDocument
-}) {
-  const save = useSaveDocument()
-  const [attachment, setAttachment] = useState<File>()
-  const form = useForm<DocumentValues>({
-    resolver: zodResolver(documentSchema),
-    values: {
-      employeeUid: document?.employeeUid ?? '',
-      documentType: document?.documentType ?? '',
-      name: document?.name ?? '',
-      documentNumber: document?.documentNumber ?? '',
-      issuedDate: document?.issuedDate ?? '',
-      expiryDate: document?.expiryDate ?? '',
-      status: document?.status ?? 'ACTIVE',
-      notes: document?.notes ?? '',
-    },
-  })
-  const submit = async (value: DocumentValues) => {
-    const file = attachment
-      ? await uploadEmployeeFile(attachment, value.employeeUid)
-      : document?.file
-    if (!file) {
-      form.setError('root', { message: 'File dokumen wajib dipilih.' })
-      return
-    }
-    await save.mutateAsync({
-      uid: document?.uid,
-      input: {
-        ...value,
-        documentNumber: value.documentNumber || undefined,
-        issuedDate: value.issuedDate || undefined,
-        expiryDate: value.expiryDate || undefined,
-        notes: value.notes || undefined,
-        file,
-      },
-    })
-    onOpenChange(false)
+function mapContracts(
+  data?: PaginatedResult<EmployeeContract>
+): PaginatedResult<EmployeeRecordRow> {
+  return {
+    items: (data?.items ?? []).map((item) => ({
+      uid: item.uid,
+      employeeUid: item.employeeUid,
+      title: item.contractNumber,
+      employee: item.employeeName ?? 'Karyawan',
+      site: item.site ?? '—',
+      detail: `${item.contractType} · ${formatDate(item.startDate)} — ${formatDate(item.endDate)}`,
+      status: item.status,
+      expiry: expiry(item.endDate),
+    })),
+    total: data?.total ?? 0,
+    page: data?.page ?? 1,
+    pageSize: data?.pageSize ?? 10,
   }
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto'>
-        <DialogHeader>
-          <DialogTitle>
-            {document ? 'Ubah dokumen' : 'Tambah dokumen'}
-          </DialogTitle>
-          <DialogDescription>
-            File wajib dipilih untuk dokumen baru dan akan diunggah saat
-            disimpan.
-          </DialogDescription>
-        </DialogHeader>
-        <form className='grid gap-3' onSubmit={form.handleSubmit(submit)}>
-          <EmployeeField
-            employees={employees}
-            disabled={!!document}
-            {...form.register('employeeUid')}
-          />
-          <Labeled
-            label='Tipe dokumen'
-            error={form.formState.errors.documentType?.message}
-          >
-            <Input {...form.register('documentType')} />
-          </Labeled>
-          <Labeled
-            label='Nama dokumen'
-            error={form.formState.errors.name?.message}
-          >
-            <Input {...form.register('name')} />
-          </Labeled>
-          <Labeled label='Nomor dokumen'>
-            <Input {...form.register('documentNumber')} />
-          </Labeled>
-          <Labeled label='Tanggal terbit'>
-            <Input type='date' {...form.register('issuedDate')} />
-          </Labeled>
-          <Labeled label='Tanggal kedaluwarsa'>
-            <Input type='date' {...form.register('expiryDate')} />
-          </Labeled>
-          <SelectNative
-            {...form.register('status')}
-            values={['ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED']}
-          />
-          <Labeled
-            label='File dokumen'
-            error={form.formState.errors.root?.message}
-          >
-            <Input
-              type='file'
-              accept='.pdf,.docx,image/jpeg,image/png,image/webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-              onChange={(event) => setAttachment(event.target.files?.[0])}
-            />
-          </Labeled>
-          <Labeled label='Catatan'>
-            <Textarea {...form.register('notes')} />
-          </Labeled>
-          <Button disabled={save.isPending}>
-            {save.isPending ? 'Menyimpan...' : 'Simpan dokumen'}
-          </Button>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
 }
-
-function Labeled({
-  label,
-  error,
-  children,
-}: {
-  label?: string
-  error?: string
-  children: React.ReactNode
-}) {
-  return (
-    <label className='grid gap-1 text-sm'>
-      {label}
-      {children}
-      {error && <span className='text-destructive'>{error}</span>}
-    </label>
-  )
-}
-function SelectNative({
-  values,
-  ...props
-}: React.SelectHTMLAttributes<HTMLSelectElement> & { values: string[] }) {
-  return (
-    <select
-      className='h-9 rounded-md border bg-background px-3 text-sm'
-      {...props}
-    >
-      {values.map((value) => (
-        <option key={value} value={value}>
-          {statusLabel(value)}
-        </option>
-      ))}
-    </select>
-  )
-}
-function EmployeeField({
-  employees,
-  disabled,
-  ...props
-}: React.SelectHTMLAttributes<HTMLSelectElement> & { employees: Employee[] }) {
-  return (
-    <label className='grid gap-1 text-sm'>
-      Karyawan
-      <select
-        className='h-9 rounded-md border bg-background px-3 text-sm'
-        disabled={disabled}
-        {...props}
-      >
-        <option value=''>Pilih karyawan</option>
-        {employees.map((item) => (
-          <option key={item.uid} value={item.uid}>
-            {item.fullName} · {item.employeeNumber}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
+function mapDocuments(
+  data?: PaginatedResult<EmployeeDocument>
+): PaginatedResult<EmployeeRecordRow> {
+  return {
+    items: (data?.items ?? []).map((item) => ({
+      uid: item.uid,
+      employeeUid: item.employeeUid,
+      title: item.name,
+      employee: item.employeeName ?? 'Karyawan',
+      site: item.site ?? '—',
+      detail: `${item.documentType} · ${item.file.originalName}`,
+      status: item.status,
+      expiry: expiry(item.expiryDate),
+    })),
+    total: data?.total ?? 0,
+    page: data?.page ?? 1,
+    pageSize: data?.pageSize ?? 10,
+  }
 }
 function expiry(date?: string) {
   if (!date) return undefined

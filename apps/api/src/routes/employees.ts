@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Router } from 'express'
 import type { RowDataPacket } from 'mysql2'
 import { z } from 'zod'
+import { env } from '../config.js'
 import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
 import { ApiError } from '../lib/errors.js'
@@ -45,13 +46,14 @@ const documentInput = z.object({
   issuedDate: optionalDate, expiryDate: optionalDate, status: z.enum(['ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED']), notes: optional,
 }).refine((value) => !value.issuedDate || !value.expiryDate || value.expiryDate >= value.issuedDate, { message: 'Tanggal dokumen tidak valid.', path: ['expiryDate'] })
 
-const employeeSelect = `SELECT e.uid,e.employee_number employeeNumber,e.barcode,e.full_name fullName,e.nickname,et.code employeeType,es.code employeeStatus,s.code site,d.name department,p.name position,w.name workGroup,e.join_date joinDate,e.permanent_date permanentDate,e.resign_date resignDate,e.resign_reason resignReason,e.gender,e.birth_place birthPlace,e.birth_date birthDate,e.marital_status maritalStatus,e.religion,e.address,e.city,e.province,e.postal_code postalCode,e.phone,e.emergency_contact_name emergencyContactName,e.emergency_contact_phone emergencyContactPhone,e.emergency_contact_relation emergencyContactRelation,e.national_id_number nationalIdNumber,e.family_card_number familyCardNumber,e.tax_number taxNumber,e.bank_name bankName,e.bank_account_number bankAccountNumber,e.bank_account_name bankAccountName,e.bpjs_health_number bpjsHealthNumber,e.bpjs_employment_number bpjsEmploymentNumber,e.notes,f.uid photoUid,f.original_name photoName,f.mime_type photoMimeType,f.size_bytes photoSizeBytes,f.extension photoExtension FROM employees e JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN departments d ON d.id=e.current_department_id LEFT JOIN positions p ON p.id=e.current_position_id LEFT JOIN work_groups w ON w.id=e.current_work_group_id LEFT JOIN files f ON f.id=e.photo_file_id`
+const employeeSelect = `SELECT e.uid,e.employee_number employeeNumber,e.barcode,e.full_name fullName,e.nickname,et.code employeeType,es.code employeeStatus,s.code site,d.name department,p.name position,w.name workGroup,e.join_date joinDate,e.permanent_date permanentDate,e.resign_date resignDate,e.resign_reason resignReason,e.gender,e.birth_place birthPlace,e.birth_date birthDate,e.marital_status maritalStatus,e.religion,e.address,e.city,e.province,e.postal_code postalCode,e.phone,e.emergency_contact_name emergencyContactName,e.emergency_contact_phone emergencyContactPhone,e.emergency_contact_relation emergencyContactRelation,e.national_id_number nationalIdNumber,e.family_card_number familyCardNumber,e.tax_number taxNumber,e.bank_name bankName,e.bank_account_number bankAccountNumber,e.bank_account_name bankAccountName,e.bpjs_health_number bpjsHealthNumber,e.bpjs_employment_number bpjsEmploymentNumber,e.notes,f.uid photoUid,f.original_name photoName,f.mime_type photoMimeType,f.size_bytes photoSizeBytes,f.extension photoExtension,f.storage_path photoPath FROM employees e JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN departments d ON d.id=e.current_department_id LEFT JOIN positions p ON p.id=e.current_position_id LEFT JOIN work_groups w ON w.id=e.current_work_group_id LEFT JOIN files f ON f.id=e.photo_file_id`
 const empty = (value?: string) => value?.trim() || null
 function enforceSite(auth: AuthContext, site: string) { if (!auth.roles.includes('SUPER_ADMIN') && !auth.siteAccess.includes(site)) throw new ApiError(403, 'Akses site ditolak.') }
 function mapEmployee(row: RowDataPacket) {
-  const { photoUid, photoName, photoMimeType, photoSizeBytes, photoExtension, ...employee } = row
-  return { ...employee, photo: photoUid ? { uid: photoUid, originalName: photoName, mimeType: photoMimeType, sizeBytes: Number(photoSizeBytes), extension: photoExtension } : undefined }
+  const { photoUid, photoName, photoMimeType, photoSizeBytes, photoExtension, photoPath, ...employee } = row
+  return { ...employee, photo: photoUid ? { uid: photoUid, originalName: photoName, mimeType: photoMimeType, sizeBytes: Number(photoSizeBytes), extension: photoExtension, url: fileUrl(photoPath) } : undefined }
 }
+const fileUrl = (path?: string) => path ? `${env.R2_PUBLIC_BASE_URL.replace(/\/$/, '')}/${path}` : undefined
 async function references(input: z.infer<typeof employeeInput> | z.infer<typeof mutationInput>) {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT s.id siteId,(SELECT id FROM departments WHERE site_id=s.id AND name=? LIMIT 1) departmentId,(SELECT id FROM positions WHERE name=? LIMIT 1) positionId,(SELECT id FROM work_groups WHERE site_id=s.id AND name=? LIMIT 1) workGroupId,(SELECT id FROM employee_types WHERE code=? LIMIT 1) typeId,(SELECT id FROM employee_statuses WHERE code=? LIMIT 1) statusId FROM sites s WHERE s.code=? LIMIT 1`,
@@ -113,11 +115,39 @@ employeesRouter.get('/histories', requirePermission('employees.view'), async (_r
   } catch (error) { next(error) }
 })
 
-employeesRouter.get('/contracts', requirePermission('employees.view'), async (_req, res, next) => {
-  try { const scoped = scopeWhere(res.locals.auth as AuthContext); const [rows] = await pool.query<RowDataPacket[]>(`${contractSelect()} WHERE ${scoped.sql} ORDER BY c.start_date DESC`, scoped.params); res.json(rows.map(mapContract)) } catch (error) { next(error) }
+employeesRouter.get('/contracts', requirePermission('employees.view'), async (req, res, next) => {
+  try {
+    const page = Math.max(1, Number(req.query.page ?? 1)); const pageSize = Math.min(50, Math.max(1, Number(req.query.pageSize ?? 10)))
+    const where = ['1=1']; const values: unknown[] = []; const query = String(req.query.query ?? '')
+    if (query) { where.push('(c.contract_number LIKE ? OR e.full_name LIKE ? OR e.employee_number LIKE ?)'); values.push(`%${query}%`, `%${query}%`, `%${query}%`) }
+    const sites = String(req.query.site ?? '').split(',').filter(Boolean); if (sites.length) { where.push(`s.code IN (${sites.map(() => '?').join(',')})`); values.push(...sites) }
+    const statuses = String(req.query.status ?? '').split(',').filter(Boolean); if (statuses.length) { where.push(`c.status IN (${statuses.map(() => '?').join(',')})`); values.push(...statuses) }
+    const scoped = scopeWhere(res.locals.auth as AuthContext); where.push(scoped.sql); values.push(...scoped.params)
+    const clause = where.join(' AND ')
+    const [count] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) total ${contractFrom()} WHERE ${clause}`, values)
+    const [rows] = await pool.query<RowDataPacket[]>(`${contractSelect()} WHERE ${clause} ORDER BY c.start_date DESC LIMIT ? OFFSET ?`, [...values, pageSize, (page - 1) * pageSize])
+    res.json({ items: rows.map(mapContract), total: Number(count[0].total), page, pageSize })
+  } catch (error) { next(error) }
 })
-employeesRouter.get('/documents', requirePermission('employees.view'), async (_req, res, next) => {
-  try { const scoped = scopeWhere(res.locals.auth as AuthContext); const [rows] = await pool.query<RowDataPacket[]>(`${documentSelect()} WHERE ${scoped.sql} ORDER BY d.expiry_date`, scoped.params); res.json(rows.map(mapDocument)) } catch (error) { next(error) }
+employeesRouter.get('/documents', requirePermission('employees.view'), async (req, res, next) => {
+  try {
+    const page = Math.max(1, Number(req.query.page ?? 1)); const pageSize = Math.min(50, Math.max(1, Number(req.query.pageSize ?? 10)))
+    const where = ['1=1']; const values: unknown[] = []; const query = String(req.query.query ?? '')
+    if (query) { where.push('(d.name LIKE ? OR d.document_number LIKE ? OR e.full_name LIKE ? OR e.employee_number LIKE ?)'); values.push(`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`) }
+    const sites = String(req.query.site ?? '').split(',').filter(Boolean); if (sites.length) { where.push(`s.code IN (${sites.map(() => '?').join(',')})`); values.push(...sites) }
+    const statuses = String(req.query.status ?? '').split(',').filter(Boolean); if (statuses.length) { where.push(`d.status IN (${statuses.map(() => '?').join(',')})`); values.push(...statuses) }
+    const scoped = scopeWhere(res.locals.auth as AuthContext); where.push(scoped.sql); values.push(...scoped.params)
+    const clause = where.join(' AND ')
+    const [count] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) total ${documentFrom()} WHERE ${clause}`, values)
+    const [rows] = await pool.query<RowDataPacket[]>(`${documentSelect()} WHERE ${clause} ORDER BY d.expiry_date LIMIT ? OFFSET ?`, [...values, pageSize, (page - 1) * pageSize])
+    res.json({ items: rows.map(mapDocument), total: Number(count[0].total), page, pageSize })
+  } catch (error) { next(error) }
+})
+employeesRouter.get('/contracts/:contractUid', requirePermission('employees.view'), async (req, res, next) => {
+  try { const uid = routeParam(req.params.contractUid); const [rows] = await pool.query<RowDataPacket[]>(`${contractSelect()} WHERE c.uid=?`, [uid]); if (!rows[0]) throw new ApiError(404, 'Kontrak tidak ditemukan.'); enforceSite(res.locals.auth as AuthContext, rows[0].site); res.json(mapContract(rows[0])) } catch (error) { next(error) }
+})
+employeesRouter.get('/documents/:documentUid', requirePermission('employees.view'), async (req, res, next) => {
+  try { const uid = routeParam(req.params.documentUid); const [rows] = await pool.query<RowDataPacket[]>(`${documentSelect()} WHERE d.uid=?`, [uid]); if (!rows[0]) throw new ApiError(404, 'Dokumen tidak ditemukan.'); enforceSite(res.locals.auth as AuthContext, rows[0].site); res.json(mapDocument(rows[0])) } catch (error) { next(error) }
 })
 
 employeesRouter.get('/:uid', requirePermission('employees.view'), async (req, res, next) => {
@@ -186,7 +216,9 @@ employeesRouter.patch('/documents/:documentUid', requirePermission('documents.ma
   try { const input = documentInput.parse(req.body); const auth = res.locals.auth as AuthContext; const documentUid = routeParam(req.params.documentUid); const [rows] = await pool.query<RowDataPacket[]>('SELECT d.id,s.id siteId,s.code site FROM employee_documents d JOIN employees e ON e.id=d.employee_id JOIN sites s ON s.id=e.current_site_id WHERE d.uid=?', [documentUid]); if (!rows[0]) throw new ApiError(404, 'Dokumen tidak ditemukan.'); enforceSite(auth, rows[0].site); await pool.execute('UPDATE employee_documents SET document_type=?,document_number=?,name=?,file_id=?,issued_date=?,expiry_date=?,status=?,notes=?,updated_by=? WHERE id=?', [input.documentType,empty(input.documentNumber),input.name,await fileId(input.fileUid),empty(input.issuedDate),empty(input.expiryDate),input.status,empty(input.notes),auth.id,rows[0].id]); await writeAudit({ auth, request: req, siteId: rows[0].siteId, action: 'UPDATE', table: 'employee_documents', recordId: rows[0].id, recordUid: documentUid, description: `Memperbarui dokumen ${input.name}.` }); res.status(204).end() } catch (error) { next(error) }
 })
 
-function contractSelect() { return `SELECT c.uid,e.uid employeeUid,c.contract_number contractNumber,c.contract_type contractType,c.sequence_number sequenceNumber,c.start_date startDate,c.end_date endDate,c.signed_date signedDate,c.status,c.position_name_snapshot positionNameSnapshot,c.site_name_snapshot siteNameSnapshot,c.salary_or_rate_notes salaryOrRateNotes,c.notes,f.uid issuedFileUid,f.original_name issuedFileName,f.mime_type issuedFileMimeType,f.size_bytes issuedFileSizeBytes,f.extension issuedFileExtension FROM employee_contracts c JOIN employees e ON e.id=c.employee_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN files f ON f.id=c.issued_file_id` }
-function mapContract(row: RowDataPacket) { const { issuedFileUid, issuedFileName, issuedFileMimeType, issuedFileSizeBytes, issuedFileExtension, ...contract } = row; return { ...contract, issuedFile: issuedFileUid ? { uid: issuedFileUid, originalName: issuedFileName, mimeType: issuedFileMimeType, sizeBytes: Number(issuedFileSizeBytes), extension: issuedFileExtension } : undefined } }
-function documentSelect() { return `SELECT d.uid,e.uid employeeUid,d.document_type documentType,d.document_number documentNumber,d.name,d.issued_date issuedDate,d.expiry_date expiryDate,d.status,d.notes,f.uid fileUid,f.original_name originalName,f.mime_type mimeType,f.size_bytes sizeBytes,f.extension FROM employee_documents d JOIN employees e ON e.id=d.employee_id JOIN sites s ON s.id=e.current_site_id JOIN files f ON f.id=d.file_id` }
-function mapDocument(row: RowDataPacket) { const { fileUid, originalName, mimeType, sizeBytes, extension, ...document } = row; return { ...document, file: { uid: fileUid, originalName, mimeType, sizeBytes: Number(sizeBytes), extension } } }
+function contractFrom() { return `FROM employee_contracts c JOIN employees e ON e.id=c.employee_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN files f ON f.id=c.issued_file_id` }
+function contractSelect() { return `SELECT c.uid,e.uid employeeUid,e.full_name employeeName,s.code site,c.contract_number contractNumber,c.contract_type contractType,c.sequence_number sequenceNumber,c.start_date startDate,c.end_date endDate,c.signed_date signedDate,c.status,c.position_name_snapshot positionNameSnapshot,c.site_name_snapshot siteNameSnapshot,c.salary_or_rate_notes salaryOrRateNotes,c.notes,f.uid issuedFileUid,f.original_name issuedFileName,f.mime_type issuedFileMimeType,f.size_bytes issuedFileSizeBytes,f.extension issuedFileExtension,f.storage_path issuedFilePath ${contractFrom()}` }
+function mapContract(row: RowDataPacket) { const { issuedFileUid, issuedFileName, issuedFileMimeType, issuedFileSizeBytes, issuedFileExtension, issuedFilePath, employeeName, site, ...contract } = row; return { ...contract, employeeName, site, issuedFile: issuedFileUid ? { uid: issuedFileUid, originalName: issuedFileName, mimeType: issuedFileMimeType, sizeBytes: Number(issuedFileSizeBytes), extension: issuedFileExtension, url: fileUrl(issuedFilePath) } : undefined } }
+function documentFrom() { return `FROM employee_documents d JOIN employees e ON e.id=d.employee_id JOIN sites s ON s.id=e.current_site_id JOIN files f ON f.id=d.file_id` }
+function documentSelect() { return `SELECT d.uid,e.uid employeeUid,e.full_name employeeName,s.code site,d.document_type documentType,d.document_number documentNumber,d.name,d.issued_date issuedDate,d.expiry_date expiryDate,d.status,d.notes,f.uid fileUid,f.original_name originalName,f.mime_type mimeType,f.size_bytes sizeBytes,f.extension,f.storage_path filePath ${documentFrom()}` }
+function mapDocument(row: RowDataPacket) { const { fileUid, originalName, mimeType, sizeBytes, extension, filePath, employeeName, site, ...document } = row; return { ...document, employeeName, site, file: { uid: fileUid, originalName, mimeType, sizeBytes: Number(sizeBytes), extension, url: fileUrl(filePath) } } }

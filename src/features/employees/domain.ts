@@ -31,6 +31,7 @@ export interface MockFileAttachment {
   sizeBytes: number
   extension?: string
   temporaryUrl?: string
+  url?: string
 }
 export interface Employee {
   uid: string
@@ -103,6 +104,8 @@ export interface EmployeeContract {
   salaryOrRateNotes?: string
   notes?: string
   issuedFile?: MockFileAttachment
+  employeeName?: string
+  site?: SiteCode
 }
 export interface EmployeeDocument {
   uid: string
@@ -115,6 +118,8 @@ export interface EmployeeDocument {
   status: DocumentStatus
   notes?: string
   file: MockFileAttachment
+  employeeName?: string
+  site?: SiteCode
 }
 export interface EmployeeInput extends Omit<Employee, 'uid' | 'photo'> {
   photo?: MockFileAttachment
@@ -137,6 +142,13 @@ export interface EmployeeListParams {
   site?: SiteCode | SiteCode[] | 'ALL'
   employeeType?: EmployeeTypeCode | EmployeeTypeCode[] | 'ALL'
   employeeStatus?: EmployeeStatusCode | EmployeeStatusCode[] | 'ALL'
+  page?: number
+  pageSize?: number
+}
+export interface EmployeeRecordListParams {
+  query?: string
+  site?: SiteCode[]
+  status?: string[]
   page?: number
   pageSize?: number
 }

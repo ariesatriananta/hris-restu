@@ -35,7 +35,7 @@ export function EmployeesPage({
     () =>
       createEmployeeColumns((employee) =>
         routerNavigate({
-          to: '/karyawan/data-karyawan/$employeeUid/edit',
+          to: '/karyawan/ubah-karyawan/$employeeUid',
           params: { employeeUid: employee.uid },
         })
       ),
@@ -51,7 +51,7 @@ export function EmployeesPage({
           </p>
         </div>
         <Button asChild>
-          <Link to='/karyawan/data-karyawan/tambah'>
+          <Link to='/karyawan/tambah-karyawan'>
             <Plus /> Tambah karyawan
           </Link>
         </Button>
@@ -81,7 +81,7 @@ export function EmployeesPage({
               navigate={navigate}
               onEdit={(employee) =>
                 routerNavigate({
-                  to: '/karyawan/data-karyawan/$employeeUid/edit',
+                  to: '/karyawan/ubah-karyawan/$employeeUid',
                   params: { employeeUid: employee.uid },
                 })
               }

@@ -4,7 +4,8 @@
   "version": "2.2.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently --kill-others-on-fail --names frontend,api --prefix-colors blue,green \"pnpm dev:frontend\" \"pnpm dev:api\"",
+    "dev:frontend": "vite",
     "dev:api": "pnpm --filter @hris-restu/api dev",
     "build:api": "pnpm --filter @hris-restu/api build",
     "test:api": "pnpm --filter @hris-restu/api test",
@@ -84,6 +85,7 @@
     "@vitest/browser-playwright": "^4.1.4",
     "@vitest/coverage-v8": "^4.1.4",
     "@vitest/ui": "^4.1.4",
+    "concurrently": "^10.0.3",
     "eslint": "^10.2.1",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",

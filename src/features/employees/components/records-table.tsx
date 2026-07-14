@@ -3,7 +3,6 @@ import { Link } from '@tanstack/react-router'
 import {
   flexRender,
   getCoreRowModel,
-  getFilteredRowModel,
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
@@ -27,6 +26,7 @@ import {
   DataTablePagination,
   DataTableToolbar,
 } from '@/components/data-table'
+import type { PaginatedResult } from '../domain'
 import { statusLabel } from '../utils'
 
 export type EmployeeRecordRow = {
@@ -53,7 +53,7 @@ export function RecordsTable({
   isError,
   onRetry,
 }: {
-  data: EmployeeRecordRow[]
+  data: PaginatedResult<EmployeeRecordRow>
   search: Record<string, unknown>
   navigate: NavigateFn
   prefix: 'contract' | 'document'
@@ -80,7 +80,10 @@ export function RecordsTable({
     {
       accessorKey: 'title',
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title='Dokumen' />
+        <DataTableColumnHeader
+          column={column}
+          title={prefix === 'contract' ? 'Kontrak' : 'Dokumen'}
+        />
       ),
       cell: ({ row }) => (
         <div>
@@ -144,7 +147,7 @@ export function RecordsTable({
   ]
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data,
+    data: data.items,
     columns,
     state: {
       sorting,
@@ -157,8 +160,10 @@ export function RecordsTable({
     onColumnFiltersChange: url.onColumnFiltersChange,
     onPaginationChange: url.onPaginationChange,
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    manualFiltering: true,
+    manualPagination: true,
+    pageCount: Math.max(1, Math.ceil(data.total / data.pageSize)),
   })
   return (
     <Card>
@@ -242,6 +247,11 @@ export function RecordsTable({
                 </TableBody>
               </Table>
             </div>
+            <p className='text-sm text-muted-foreground'>
+              Menampilkan {data.total ? (data.page - 1) * data.pageSize + 1 : 0}
+              –{Math.min(data.page * data.pageSize, data.total)} dari{' '}
+              {data.total} data.
+            </p>
             <DataTablePagination table={table} />
           </>
         )}

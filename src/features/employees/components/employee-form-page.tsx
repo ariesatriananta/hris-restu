@@ -58,8 +58,17 @@ export function EmployeeFormPage({ employeeUid }: { employeeUid?: string }) {
           await navigate({
             to: '/karyawan/data-karyawan/$employeeUid',
             params: { employeeUid: result.uid },
+            ignoreBlocker: true,
           })
         }}
+        onCancel={() =>
+          navigate({
+            to: isEdit
+              ? '/karyawan/data-karyawan/$employeeUid'
+              : '/karyawan/data-karyawan',
+            params: isEdit ? { employeeUid: employeeUid! } : undefined,
+          })
+        }
       />
     </Main>
   )

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { z } from 'zod'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -12,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useApplyMutation, useEmployeeLookups } from '../data/queries'
 import type { Employee, MutationInput } from '../domain'
 import { statusLabel } from '../utils'
@@ -50,6 +52,7 @@ export function MutationDialog({
 }) {
   const mutation = useApplyMutation()
   const lookups = useEmployeeLookups()
+  const [pendingInput, setPendingInput] = useState<MutationInput>()
   const form = useForm<MutationInput>({
     resolver: zodResolver(mutationSchema),
     defaultValues: {
@@ -64,12 +67,13 @@ export function MutationDialog({
     },
   })
   const selectedSite = useWatch({ control: form.control, name: 'site' })
-  const submit = (input: MutationInput) =>
+  const commit = (input: MutationInput) =>
     mutation.mutate(
       { employeeUid: employee.uid, input },
       {
         onSuccess: () => {
           toast.success('Mutasi dicatat sebagai histori baru.')
+          setPendingInput(undefined)
           onOpenChange(false)
         },
         onError: (error) => toast.error(error.message),
@@ -85,7 +89,10 @@ export function MutationDialog({
             tidak dapat diedit dari alur ini.
           </DialogDescription>
         </DialogHeader>
-        <form className='grid gap-3' onSubmit={form.handleSubmit(submit)}>
+        <form
+          className='grid gap-3'
+          onSubmit={form.handleSubmit((input) => setPendingInput(input))}
+        >
           <Select
             label='Site'
             options={(lookups.data?.sites ?? []).map((item) => ({
@@ -176,12 +183,78 @@ export function MutationDialog({
             Catatan
             <Textarea {...form.register('notes')} />
           </label>
-          <Button disabled={mutation.isPending}>
-            {mutation.isPending ? 'Menyimpan...' : 'Simpan mutasi'}
-          </Button>
+          <Button disabled={mutation.isPending}>Tinjau mutasi</Button>
         </form>
+        <ConfirmDialog
+          open={Boolean(pendingInput)}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen && !mutation.isPending) setPendingInput(undefined)
+          }}
+          title='Konfirmasi perubahan mutasi'
+          desc={
+            pendingInput ? (
+              <MutationSummary employee={employee} input={pendingInput} />
+            ) : (
+              ''
+            )
+          }
+          cancelBtnText='Kembali periksa'
+          confirmText='Simpan mutasi'
+          isLoading={mutation.isPending}
+          handleConfirm={() => pendingInput && commit(pendingInput)}
+        />
       </DialogContent>
     </Dialog>
+  )
+}
+function MutationSummary({
+  employee,
+  input,
+}: {
+  employee: Employee
+  input: MutationInput
+}) {
+  return (
+    <div className='grid gap-2 text-sm text-foreground'>
+      <p className='text-muted-foreground'>
+        Periksa perubahan berikut sebelum histori baru dibuat.
+      </p>
+      <SummaryRow label='Site' before={employee.site} after={input.site} />
+      <SummaryRow
+        label='Jabatan'
+        before={employee.position}
+        after={input.position}
+      />
+      <SummaryRow
+        label='Departemen'
+        before={employee.department}
+        after={input.department}
+      />
+      <SummaryRow
+        label='Tanggal efektif'
+        before='Histori aktif ditutup sehari sebelumnya'
+        after={input.effectiveFrom}
+      />
+    </div>
+  )
+}
+function SummaryRow({
+  label,
+  before,
+  after,
+}: {
+  label: string
+  before?: string
+  after?: string
+}) {
+  return (
+    <div className='grid grid-cols-[105px_1fr] gap-2'>
+      <span className='text-muted-foreground'>{label}</span>
+      <span>
+        {before || '—'} <span className='px-1 text-muted-foreground'>→</span>{' '}
+        <strong>{after || '—'}</strong>
+      </span>
+    </div>
   )
 }
 function Select({

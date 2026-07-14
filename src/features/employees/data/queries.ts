@@ -10,10 +10,17 @@ import type {
   EmployeeDocument,
   EmployeeInput,
   EmployeeListParams,
+  EmployeeRecordListParams,
   LookupOption,
   MutationInput,
 } from '../domain'
-import { httpEmployeeRepository } from './http-employee-repository'
+import {
+  httpEmployeeRepository,
+  getContract,
+  getDocument,
+  listContracts,
+  listDocuments,
+} from './http-employee-repository'
 
 export const employeeKeys = {
   all: ['employees'] as const,
@@ -27,6 +34,12 @@ export const employeeKeys = {
   documents: (uid?: string) =>
     [...employeeKeys.all, 'documents', uid ?? 'all'] as const,
   lookups: () => [...employeeKeys.all, 'lookups'] as const,
+  contractList: (params: EmployeeRecordListParams) =>
+    [...employeeKeys.all, 'contract-list', params] as const,
+  documentList: (params: EmployeeRecordListParams) =>
+    [...employeeKeys.all, 'document-list', params] as const,
+  contract: (uid: string) => [...employeeKeys.all, 'contract', uid] as const,
+  document: (uid: string) => [...employeeKeys.all, 'document', uid] as const,
 }
 export type EmployeeLookups = {
   sites: LookupOption[]
@@ -77,6 +90,36 @@ export const useDocuments = (uid?: string) =>
     queryOptions({
       queryKey: employeeKeys.documents(uid),
       queryFn: () => httpEmployeeRepository.documents(uid),
+    })
+  )
+export const useContractList = (params: EmployeeRecordListParams) =>
+  useQuery(
+    queryOptions({
+      queryKey: employeeKeys.contractList(params),
+      queryFn: () => listContracts(params),
+    })
+  )
+export const useDocumentList = (params: EmployeeRecordListParams) =>
+  useQuery(
+    queryOptions({
+      queryKey: employeeKeys.documentList(params),
+      queryFn: () => listDocuments(params),
+    })
+  )
+export const useContract = (uid: string) =>
+  useQuery(
+    queryOptions({
+      queryKey: employeeKeys.contract(uid),
+      queryFn: () => getContract(uid),
+      enabled: Boolean(uid),
+    })
+  )
+export const useDocument = (uid: string) =>
+  useQuery(
+    queryOptions({
+      queryKey: employeeKeys.document(uid),
+      queryFn: () => getDocument(uid),
+      enabled: Boolean(uid),
     })
   )
 function invalidate(queryClient: ReturnType<typeof useQueryClient>) {

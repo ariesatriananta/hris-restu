@@ -6,6 +6,7 @@ import type {
   EmploymentHistory,
   EmployeeContract,
   EmployeeDocument,
+  EmployeeRecordListParams,
   PaginatedResult,
 } from '../domain'
 
@@ -112,3 +113,35 @@ export const httpEmployeeRepository: EmployeeRepository = {
     throw new Error('Reset mock tidak tersedia pada API nyata.')
   },
 }
+
+const recordParams = (input: EmployeeRecordListParams) => ({
+  ...input,
+  site: input.site?.join(','),
+  status: input.status?.join(','),
+})
+
+export const listContracts = async (input: EmployeeRecordListParams) =>
+  (
+    await apiClient.get<PaginatedResult<EmployeeContract>>(
+      '/employees/contracts',
+      {
+        params: recordParams(input),
+      }
+    )
+  ).data
+
+export const listDocuments = async (input: EmployeeRecordListParams) =>
+  (
+    await apiClient.get<PaginatedResult<EmployeeDocument>>(
+      '/employees/documents',
+      {
+        params: recordParams(input),
+      }
+    )
+  ).data
+
+export const getContract = async (uid: string) =>
+  (await apiClient.get<EmployeeContract>(`/employees/contracts/${uid}`)).data
+
+export const getDocument = async (uid: string) =>
+  (await apiClient.get<EmployeeDocument>(`/employees/documents/${uid}`)).data

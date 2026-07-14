@@ -1,11 +1,19 @@
-export const formatDate = (value?: string) =>
-  value
-    ? new Intl.DateTimeFormat('id-ID', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      }).format(new Date(`${value}T00:00:00`))
-    : '—'
+export const formatDate = (value?: string) => {
+  if (!value) return '—'
+
+  // MySQL DATE dapat sampai sebagai YYYY-MM-DD atau ISO datetime dari API.
+  // Jangan menempelkan waktu ke ISO datetime karena menghasilkan Invalid Date.
+  const date = new Date(value.includes('T') ? value : `${value}T00:00:00+07:00`)
+
+  if (Number.isNaN(date.getTime())) return '—'
+
+  return new Intl.DateTimeFormat('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'Asia/Jakarta',
+  }).format(date)
+}
 export const maskValue = (value?: string, keep = 4) =>
   value
     ? `${'•'.repeat(Math.max(4, value.length - keep))}${value.slice(-keep)}`
