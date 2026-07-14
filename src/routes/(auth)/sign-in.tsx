@@ -7,8 +7,10 @@ const searchSchema = z.object({ redirect: z.string().optional() })
 
 export const Route = createFileRoute('/(auth)/sign-in')({
   validateSearch: searchSchema,
-  beforeLoad: () => {
-    if (useAuthStore.getState().session) throw redirect({ to: '/' })
+  beforeLoad: async () => {
+    const state = useAuthStore.getState()
+    if (state.session || (await state.refreshSession()))
+      throw redirect({ to: '/' })
   },
   component: SignIn,
 })

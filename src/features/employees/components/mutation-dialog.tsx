@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -12,8 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { departments, positions, sites, workGroups } from '../data/lookups'
-import { useApplyMutation } from '../data/queries'
+import { useApplyMutation, useEmployeeLookups } from '../data/queries'
 import type { Employee, MutationInput } from '../domain'
 import { statusLabel } from '../utils'
 
@@ -50,6 +49,7 @@ export function MutationDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const mutation = useApplyMutation()
+  const lookups = useEmployeeLookups()
   const form = useForm<MutationInput>({
     resolver: zodResolver(mutationSchema),
     defaultValues: {
@@ -63,6 +63,7 @@ export function MutationDialog({
       changeType: 'TRANSFER',
     },
   })
+  const selectedSite = useWatch({ control: form.control, name: 'site' })
   const submit = (input: MutationInput) =>
     mutation.mutate(
       { employeeUid: employee.uid, input },
@@ -76,7 +77,7 @@ export function MutationDialog({
     )
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle>Catat mutasi</DialogTitle>
           <DialogDescription>
@@ -87,7 +88,7 @@ export function MutationDialog({
         <form className='grid gap-3' onSubmit={form.handleSubmit(submit)}>
           <Select
             label='Site'
-            options={sites.map((item) => ({
+            options={(lookups.data?.sites ?? []).map((item) => ({
               value: item.code,
               label: item.name,
             }))}
@@ -95,15 +96,19 @@ export function MutationDialog({
           />
           <Select
             label='Departemen'
-            options={departments.map((item) => ({
-              value: item.name,
-              label: item.name,
-            }))}
+            options={(lookups.data?.departments ?? [])
+              .filter(
+                (item) => !item.siteCode || item.siteCode === selectedSite
+              )
+              .map((item) => ({
+                value: item.name,
+                label: item.name,
+              }))}
             {...form.register('department')}
           />
           <Select
             label='Jabatan'
-            options={positions.map((item) => ({
+            options={(lookups.data?.positions ?? []).map((item) => ({
               value: item.name,
               label: item.name,
             }))}
@@ -111,10 +116,14 @@ export function MutationDialog({
           />
           <Select
             label='Kelompok kerja'
-            options={workGroups.map((item) => ({
-              value: item.name,
-              label: item.name,
-            }))}
+            options={(lookups.data?.workGroups ?? [])
+              .filter(
+                (item) => !item.siteCode || item.siteCode === selectedSite
+              )
+              .map((item) => ({
+                value: item.name,
+                label: item.name,
+              }))}
             {...form.register('workGroup')}
           />
           <Select

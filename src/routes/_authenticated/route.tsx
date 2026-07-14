@@ -3,9 +3,9 @@ import { useAuthStore } from '@/stores/auth-store'
 import { AuthenticatedLayout } from '@/components/layout/authenticated-layout'
 
 export const Route = createFileRoute('/_authenticated')({
-  beforeLoad: ({ location }) => {
+  beforeLoad: async ({ location }) => {
     const { session, refreshSession } = useAuthStore.getState()
-    if (!session) refreshSession()
+    if (!session) await refreshSession()
     if (!useAuthStore.getState().session) {
       throw redirect({
         to: '/sign-in',

@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Main } from '@/components/layout/main'
+import { uploadEmployeeFile } from '../data/files'
 import {
   useContracts,
   useDocuments,
@@ -196,6 +197,7 @@ function ContractDialog({
   contract?: EmployeeContract
 }) {
   const save = useSaveContract()
+  const [attachment, setAttachment] = useState<File>()
   const form = useForm<ContractValues>({
     resolver: zodResolver(contractSchema),
     values: {
@@ -209,38 +211,39 @@ function ContractDialog({
       notes: contract?.notes ?? '',
     },
   })
-  const submit = (raw: ContractValues) => {
+  const submit = async (raw: ContractValues) => {
     const value: ContractOutput = contractSchema.parse(raw)
     const employee = employees.find((item) => item.uid === value.employeeUid)
-    save.mutate(
-      {
-        uid: contract?.uid,
-        input: {
-          ...value,
-          endDate: value.endDate || undefined,
-          notes: value.notes || undefined,
-          signedDate: contract?.signedDate,
-          salaryOrRateNotes: contract?.salaryOrRateNotes,
-          issuedFile: contract?.issuedFile,
-          positionNameSnapshot:
-            contract?.positionNameSnapshot ?? employee?.position,
-          siteNameSnapshot:
-            contract?.siteNameSnapshot ??
-            (employee ? `Site ${statusLabel(employee.site)}` : undefined),
-        },
+    const issuedFile = attachment
+      ? await uploadEmployeeFile(attachment, value.employeeUid)
+      : contract?.issuedFile
+    await save.mutateAsync({
+      uid: contract?.uid,
+      input: {
+        ...value,
+        endDate: value.endDate || undefined,
+        notes: value.notes || undefined,
+        signedDate: contract?.signedDate,
+        salaryOrRateNotes: contract?.salaryOrRateNotes,
+        issuedFile,
+        positionNameSnapshot:
+          contract?.positionNameSnapshot ?? employee?.position,
+        siteNameSnapshot:
+          contract?.siteNameSnapshot ??
+          (employee ? `Site ${statusLabel(employee.site)}` : undefined),
       },
-      { onSuccess: () => onOpenChange(false) }
-    )
+    })
+    onOpenChange(false)
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle>
             {contract ? 'Ubah kontrak' : 'Tambah kontrak'}
           </DialogTitle>
           <DialogDescription>
-            Lampiran tetap berupa metadata mock.
+            Lampiran akan diunggah ke penyimpanan file saat disimpan.
           </DialogDescription>
         </DialogHeader>
         <form className='grid gap-3' onSubmit={form.handleSubmit(submit)}>
@@ -259,6 +262,13 @@ function ContractDialog({
             {...form.register('contractType')}
             values={['PKWT', 'PKWTT', 'OTHER']}
           />
+          <Labeled label='File kontrak (opsional)'>
+            <Input
+              type='file'
+              accept='.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+              onChange={(event) => setAttachment(event.target.files?.[0])}
+            />
+          </Labeled>
           <Labeled
             label='Urutan kontrak'
             error={form.formState.errors.sequenceNumber?.message}
@@ -305,6 +315,7 @@ function DocumentDialog({
   document?: EmployeeDocument
 }) {
   const save = useSaveDocument()
+  const [attachment, setAttachment] = useState<File>()
   const form = useForm<DocumentValues>({
     resolver: zodResolver(documentSchema),
     values: {
@@ -318,36 +329,37 @@ function DocumentDialog({
       notes: document?.notes ?? '',
     },
   })
-  const submit = (value: DocumentValues) =>
-    save.mutate(
-      {
-        uid: document?.uid,
-        input: {
-          ...value,
-          documentNumber: value.documentNumber || undefined,
-          issuedDate: value.issuedDate || undefined,
-          expiryDate: value.expiryDate || undefined,
-          notes: value.notes || undefined,
-          file: document?.file ?? {
-            uid: `file-${crypto.randomUUID()}`,
-            originalName: 'lampiran-mock.pdf',
-            mimeType: 'application/pdf',
-            sizeBytes: 0,
-            extension: 'pdf',
-          },
-        },
+  const submit = async (value: DocumentValues) => {
+    const file = attachment
+      ? await uploadEmployeeFile(attachment, value.employeeUid)
+      : document?.file
+    if (!file) {
+      form.setError('root', { message: 'File dokumen wajib dipilih.' })
+      return
+    }
+    await save.mutateAsync({
+      uid: document?.uid,
+      input: {
+        ...value,
+        documentNumber: value.documentNumber || undefined,
+        issuedDate: value.issuedDate || undefined,
+        expiryDate: value.expiryDate || undefined,
+        notes: value.notes || undefined,
+        file,
       },
-      { onSuccess: () => onOpenChange(false) }
-    )
+    })
+    onOpenChange(false)
+  }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle>
             {document ? 'Ubah dokumen' : 'Tambah dokumen'}
           </DialogTitle>
           <DialogDescription>
-            File belum diunggah; metadata lampiran mock digunakan.
+            File wajib dipilih untuk dokumen baru dan akan diunggah saat
+            disimpan.
           </DialogDescription>
         </DialogHeader>
         <form className='grid gap-3' onSubmit={form.handleSubmit(submit)}>
@@ -381,6 +393,16 @@ function DocumentDialog({
             {...form.register('status')}
             values={['ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED']}
           />
+          <Labeled
+            label='File dokumen'
+            error={form.formState.errors.root?.message}
+          >
+            <Input
+              type='file'
+              accept='.pdf,.docx,image/jpeg,image/png,image/webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+              onChange={(event) => setAttachment(event.target.files?.[0])}
+            />
+          </Labeled>
           <Labeled label='Catatan'>
             <Textarea {...form.register('notes')} />
           </Labeled>

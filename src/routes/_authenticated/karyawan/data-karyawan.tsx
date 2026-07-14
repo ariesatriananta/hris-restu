@@ -12,20 +12,14 @@ export const Route = createFileRoute('/_authenticated/karyawan/data-karyawan')({
     employeeStatus: z
       .array(z.enum(['ACTIVE', 'LEAVE', 'RESIGNED', 'INACTIVE']))
       .optional(),
-    mockState: z.enum(['normal', 'empty', 'error']).optional(),
   }),
   component: RouteComponent,
 })
 
+// Route module also exports TanStack Router's route definition.
 // eslint-disable-next-line react-refresh/only-export-components
 function RouteComponent() {
-  const requested = Route.useSearch().mockState
-  const mockState = import.meta.env.DEV ? requested : undefined
   return (
-    <EmployeesPage
-      mockState={mockState}
-      search={Route.useSearch()}
-      navigate={Route.useNavigate()}
-    />
+    <EmployeesPage search={Route.useSearch()} navigate={Route.useNavigate()} />
   )
 }

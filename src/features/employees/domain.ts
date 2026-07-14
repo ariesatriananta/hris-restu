@@ -139,7 +139,6 @@ export interface EmployeeListParams {
   employeeStatus?: EmployeeStatusCode | EmployeeStatusCode[] | 'ALL'
   page?: number
   pageSize?: number
-  mockState?: 'normal' | 'empty' | 'error'
 }
 export interface PaginatedResult<T> {
   items: T[]

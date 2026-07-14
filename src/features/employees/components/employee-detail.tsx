@@ -1,17 +1,9 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ArrowLeft, GitBranchPlus, Pencil } from 'lucide-react'
-import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Main } from '@/components/layout/main'
 import {
@@ -19,10 +11,8 @@ import {
   useDocuments,
   useEmployee,
   useHistories,
-  useSaveEmployee,
 } from '../data/queries'
 import { formatDate, maskValue, statusLabel } from '../utils'
-import { EmployeeForm } from './employee-form'
 import { EmployeeIdCard } from './id-card'
 import { MutationDialog } from './mutation-dialog'
 
@@ -32,8 +22,6 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
   const contracts = useContracts(employeeUid)
   const documents = useDocuments(employeeUid)
   const [mutationOpen, setMutationOpen] = useState(false)
-  const [editOpen, setEditOpen] = useState(false)
-  const save = useSaveEmployee()
   if (employee.isPending)
     return (
       <Main>
@@ -97,8 +85,13 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
             </div>
           </div>
           <div className='flex flex-wrap gap-2'>
-            <Button variant='outline' onClick={() => setEditOpen(true)}>
-              <Pencil /> Ubah data
+            <Button asChild variant='outline'>
+              <Link
+                to='/karyawan/data-karyawan/$employeeUid/edit'
+                params={{ employeeUid: data.uid }}
+              >
+                <Pencil /> Ubah data
+              </Link>
             </Button>
             <Button variant='outline' onClick={() => setMutationOpen(true)}>
               <GitBranchPlus /> Catat mutasi
@@ -238,32 +231,6 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
         open={mutationOpen}
         onOpenChange={setMutationOpen}
       />
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className='max-h-[90svh] max-w-4xl overflow-y-auto'>
-          <DialogHeader>
-            <DialogTitle>Ubah data karyawan</DialogTitle>
-            <DialogDescription>
-              Penempatan dan status kerja hanya dapat diubah lewat Catat Mutasi.
-            </DialogDescription>
-          </DialogHeader>
-          <EmployeeForm
-            employee={data}
-            isPending={save.isPending}
-            onSubmit={(input) =>
-              save.mutate(
-                { input, uid: data.uid },
-                {
-                  onSuccess: () => {
-                    toast.success('Data karyawan diperbarui.')
-                    setEditOpen(false)
-                  },
-                  onError: (error) => toast.error(error.message),
-                }
-              )
-            }
-          />
-        </DialogContent>
-      </Dialog>
     </Main>
   )
 }

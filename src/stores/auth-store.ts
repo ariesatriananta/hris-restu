@@ -1,30 +1,37 @@
 import { create } from 'zustand'
 import type { AuthSession, SignInCredentials } from '@/features/auth/domain'
-import { mockAuthRepository } from '@/features/auth/mock-auth-repository'
+import {
+  httpAuthRepository,
+  restoreHttpSession,
+} from '@/features/auth/http-auth-repository'
 
 interface AuthState {
   session: AuthSession | null
   isSigningIn: boolean
   signIn: (credentials: SignInCredentials) => Promise<void>
   signOut: () => Promise<void>
-  refreshSession: () => void
+  refreshSession: () => Promise<AuthSession | null>
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  session: mockAuthRepository.getSession(),
+  session: httpAuthRepository.getSession(),
   isSigningIn: false,
   signIn: async (credentials) => {
     set({ isSigningIn: true })
     try {
-      const session = await mockAuthRepository.signIn(credentials)
+      const session = await httpAuthRepository.signIn(credentials)
       set({ session })
     } finally {
       set({ isSigningIn: false })
     }
   },
   signOut: async () => {
-    await mockAuthRepository.signOut()
+    await httpAuthRepository.signOut()
     set({ session: null })
   },
-  refreshSession: () => set({ session: mockAuthRepository.getSession() }),
+  refreshSession: async () => {
+    const session = await restoreHttpSession()
+    set({ session })
+    return session
+  },
 }))

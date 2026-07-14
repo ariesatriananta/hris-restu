@@ -35,6 +35,7 @@ export default defineConfig({
   test: {
     silent: 'passed-only',
     unstubEnvs: true,
+    exclude: ['apps/api/**'],
     browser: {
       enabled: true,
       provider: playwright({

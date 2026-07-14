@@ -19,7 +19,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/password-input'
 import { InvalidCredentialsError } from '@/features/auth/domain'
-import { mockCredentials } from '@/features/auth/mock-auth-repository'
+import { apiCredentials } from '@/features/auth/http-auth-repository'
 import { safeRedirect } from '@/features/auth/safe-redirect'
 
 const formSchema = z.object({
@@ -43,7 +43,7 @@ export function UserAuthForm({
   const isSigningIn = useAuthStore((state) => state.isSigningIn)
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: mockCredentials,
+    defaultValues: apiCredentials,
   })
 
   async function onSubmit(values: FormValues) {
@@ -90,7 +90,7 @@ export function UserAuthForm({
                 <PasswordInput autoComplete='current-password' {...field} />
               </FormControl>
               <FormDescription>
-                Akun demo: {mockCredentials.email} / {mockCredentials.password}
+                Akun local: {apiCredentials.email} / {apiCredentials.password}
               </FormDescription>
               <FormMessage />
             </FormItem>

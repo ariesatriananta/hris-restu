@@ -28,6 +28,8 @@ export const Route = createFileRoute('/_authenticated/karyawan/riwayat-mutasi')(
   }
 )
 
+// Route module also exports TanStack Router's route definition.
+// eslint-disable-next-line react-refresh/only-export-components
 function RouteComponent() {
   return (
     <MutationPage search={Route.useSearch()} navigate={Route.useNavigate()} />

@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { z } from 'zod'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { departments, positions, sites, workGroups } from '../data/lookups'
+import { useEmployeeLookups } from '../data/queries'
 import type { Employee, EmployeeInput, MockFileAttachment } from '../domain'
 
 const optionalText = z.string().optional()
@@ -87,14 +87,19 @@ export function EmployeeForm({
   employee,
   onSubmit,
   isPending,
+  disableLookupQuery = false,
 }: {
   employee?: Employee
-  onSubmit: (input: EmployeeInput) => void
+  onSubmit: (input: EmployeeInput, photoFile?: File) => void | Promise<void>
   isPending?: boolean
+  disableLookupQuery?: boolean
 }) {
   const [photo, setPhoto] = useState<MockFileAttachment | undefined>(
     employee?.photo
   )
+  const [photoFile, setPhotoFile] = useState<File>()
+  const [isUploading, setIsUploading] = useState(false)
+  const lookups = useEmployeeLookups(!disableLookupQuery)
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -108,13 +113,13 @@ export function EmployeeForm({
       department: employee?.department ?? '',
       position: employee?.position ?? '',
       workGroup: employee?.workGroup ?? '',
-      joinDate: employee?.joinDate ?? '',
-      permanentDate: employee?.permanentDate ?? '',
-      resignDate: employee?.resignDate ?? '',
+      joinDate: dateInput(employee?.joinDate),
+      permanentDate: dateInput(employee?.permanentDate),
+      resignDate: dateInput(employee?.resignDate),
       resignReason: employee?.resignReason ?? '',
       gender: employee?.gender ?? 'MALE',
       birthPlace: employee?.birthPlace ?? '',
-      birthDate: employee?.birthDate ?? '',
+      birthDate: dateInput(employee?.birthDate),
       maritalStatus: employee?.maritalStatus ?? '',
       religion: employee?.religion ?? '',
       address: employee?.address ?? '',
@@ -137,58 +142,66 @@ export function EmployeeForm({
     },
   })
 
-  const submit = (values: Values) => {
-    const lockedPlacement = employee
-      ? {
-          employeeType: employee.employeeType,
-          employeeStatus: employee.employeeStatus,
-          site: employee.site,
-          department: employee.department,
-          position: employee.position,
-          workGroup: employee.workGroup,
-        }
-      : {
-          employeeType: values.employeeType,
-          employeeStatus: values.employeeStatus,
-          site: values.site,
-          department: empty(values.department),
-          position: empty(values.position),
-          workGroup: empty(values.workGroup),
-        }
-    onSubmit({
-      employeeNumber: values.employeeNumber.trim(),
-      barcode: values.barcode.trim(),
-      fullName: values.fullName.trim(),
-      nickname: empty(values.nickname),
-      ...lockedPlacement,
-      joinDate: values.joinDate,
-      permanentDate: empty(values.permanentDate),
-      resignDate: employee?.resignDate ?? empty(values.resignDate),
-      resignReason: employee?.resignReason ?? empty(values.resignReason),
-      gender: values.gender,
-      birthPlace: empty(values.birthPlace),
-      birthDate: empty(values.birthDate),
-      maritalStatus: values.maritalStatus || undefined,
-      religion: empty(values.religion),
-      address: empty(values.address),
-      city: empty(values.city),
-      province: empty(values.province),
-      postalCode: empty(values.postalCode),
-      phone: empty(values.phone),
-      emergencyContactName: empty(values.emergencyContactName),
-      emergencyContactPhone: empty(values.emergencyContactPhone),
-      emergencyContactRelation: empty(values.emergencyContactRelation),
-      nationalIdNumber: empty(values.nationalIdNumber),
-      familyCardNumber: empty(values.familyCardNumber),
-      taxNumber: empty(values.taxNumber),
-      bankName: empty(values.bankName),
-      bankAccountNumber: empty(values.bankAccountNumber),
-      bankAccountName: empty(values.bankAccountName),
-      bpjsHealthNumber: empty(values.bpjsHealthNumber),
-      bpjsEmploymentNumber: empty(values.bpjsEmploymentNumber),
-      photo,
-      notes: empty(values.notes),
-    })
+  const submit = async (values: Values) => {
+    setIsUploading(true)
+    try {
+      const lockedPlacement = employee
+        ? {
+            employeeType: employee.employeeType,
+            employeeStatus: employee.employeeStatus,
+            site: employee.site,
+            department: employee.department,
+            position: employee.position,
+            workGroup: employee.workGroup,
+          }
+        : {
+            employeeType: values.employeeType,
+            employeeStatus: values.employeeStatus,
+            site: values.site,
+            department: empty(values.department),
+            position: empty(values.position),
+            workGroup: empty(values.workGroup),
+          }
+      await onSubmit(
+        {
+          employeeNumber: values.employeeNumber.trim(),
+          barcode: values.barcode.trim(),
+          fullName: values.fullName.trim(),
+          nickname: empty(values.nickname),
+          ...lockedPlacement,
+          joinDate: values.joinDate,
+          permanentDate: empty(values.permanentDate),
+          resignDate: employee?.resignDate ?? empty(values.resignDate),
+          resignReason: employee?.resignReason ?? empty(values.resignReason),
+          gender: values.gender,
+          birthPlace: empty(values.birthPlace),
+          birthDate: empty(values.birthDate),
+          maritalStatus: values.maritalStatus || undefined,
+          religion: empty(values.religion),
+          address: empty(values.address),
+          city: empty(values.city),
+          province: empty(values.province),
+          postalCode: empty(values.postalCode),
+          phone: empty(values.phone),
+          emergencyContactName: empty(values.emergencyContactName),
+          emergencyContactPhone: empty(values.emergencyContactPhone),
+          emergencyContactRelation: empty(values.emergencyContactRelation),
+          nationalIdNumber: empty(values.nationalIdNumber),
+          familyCardNumber: empty(values.familyCardNumber),
+          taxNumber: empty(values.taxNumber),
+          bankName: empty(values.bankName),
+          bankAccountNumber: empty(values.bankAccountNumber),
+          bankAccountName: empty(values.bankAccountName),
+          bpjsHealthNumber: empty(values.bpjsHealthNumber),
+          bpjsEmploymentNumber: empty(values.bpjsEmploymentNumber),
+          photo,
+          notes: empty(values.notes),
+        },
+        photoFile
+      )
+    } finally {
+      setIsUploading(false)
+    }
   }
 
   const select = (
@@ -224,6 +237,15 @@ export function EmployeeForm({
     >
       <Input type={type} {...form.register(name)} />
     </Field>
+  )
+  const selectedSite = useWatch({ control: form.control, name: 'site' })
+  const sites = lookups.data?.sites ?? []
+  const departments = (lookups.data?.departments ?? []).filter(
+    (item) => !item.siteCode || item.siteCode === selectedSite
+  )
+  const positions = lookups.data?.positions ?? []
+  const workGroups = (lookups.data?.workGroups ?? []).filter(
+    (item) => !item.siteCode || item.siteCode === selectedSite
   )
 
   return (
@@ -361,15 +383,16 @@ export function EmployeeForm({
       <section className='space-y-3 border-t pt-5'>
         <h3 className='font-semibold'>Foto dan catatan</h3>
         <label className='grid gap-1 text-sm'>
-          Foto karyawan (mock)
+          Foto karyawan
           <Input
             type='file'
             accept='image/*'
             onChange={(event) => {
               const file = event.target.files?.[0]
               if (!file) return
+              setPhotoFile(file)
               setPhoto({
-                uid: `file-${crypto.randomUUID()}`,
+                uid: '',
                 originalName: file.name,
                 mimeType: file.type || 'application/octet-stream',
                 sizeBytes: file.size,
@@ -379,8 +402,8 @@ export function EmployeeForm({
             }}
           />
           <span className='text-xs text-muted-foreground'>
-            {photo?.originalName ?? 'Belum ada foto dipilih.'} File tidak
-            diunggah ke server.
+            {photo?.originalName ?? 'Belum ada foto dipilih.'} Foto akan
+            diunggah saat form disimpan.
           </span>
         </label>
         <Field label='Catatan'>
@@ -392,8 +415,8 @@ export function EmployeeForm({
         </p>
       </section>
 
-      <Button type='submit' disabled={isPending}>
-        {isPending
+      <Button type='submit' disabled={isPending || isUploading}>
+        {isPending || isUploading
           ? 'Menyimpan...'
           : employee
             ? 'Simpan perubahan'
@@ -419,4 +442,8 @@ function Field({
       {error && <span className='text-xs text-destructive'>{error}</span>}
     </label>
   )
+}
+
+function dateInput(value?: string) {
+  return value ? value.slice(0, 10) : ''
 }

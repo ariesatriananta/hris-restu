@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from 'vitest/browser'
@@ -6,7 +7,14 @@ import { EmployeeForm } from './employee-form'
 describe('EmployeeForm', () => {
   it('mengirim field pribadi opsional melalui schema Zod', async () => {
     const onSubmit = vi.fn()
-    const screen = await render(<EmployeeForm onSubmit={onSubmit} />)
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const screen = await render(
+      <QueryClientProvider client={client}>
+        <EmployeeForm onSubmit={onSubmit} disableLookupQuery />
+      </QueryClientProvider>
+    )
 
     await userEvent.fill(screen.getByLabelText('Nomor karyawan'), 'RST-TEST-01')
     await userEvent.fill(screen.getByLabelText('Barcode'), 'RSTTEST01')
