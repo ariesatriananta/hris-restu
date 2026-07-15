@@ -1,6 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
+import { Plus } from 'lucide-react'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Main } from '@/components/layout/main'
 import { useContractList, useDocumentList } from '../data/queries'
@@ -12,6 +14,7 @@ import type {
   SiteCode,
 } from '../domain'
 import { formatDate } from '../utils'
+import { ContractDetailDrawer } from './contract-detail-drawer'
 import { RecordsTable, type EmployeeRecordRow } from './records-table'
 
 export function ContractsDocumentsPage({
@@ -22,6 +25,10 @@ export function ContractsDocumentsPage({
   navigate: NavigateFn
 }) {
   const routerNavigate = useNavigate()
+  const [activeTab, setActiveTab] = useState<'contracts' | 'documents'>(
+    'contracts'
+  )
+  const [selectedContract, setSelectedContract] = useState<EmployeeContract>()
   const contractParams = params(search, 'contract')
   const documentParams = params(search, 'document')
   const contracts = useContractList(contractParams)
@@ -36,13 +43,35 @@ export function ContractsDocumentsPage({
   )
   return (
     <Main>
-      <div className='mb-6'>
-        <h1 className='text-2xl font-bold'>PKWT & Dokumen</h1>
-        <p className='text-muted-foreground'>
-          Kontrak, masa berlaku, dan metadata lampiran karyawan.
-        </p>
+      <div className='mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end'>
+        <div>
+          <h1 className='text-2xl font-bold'>PKWT & Dokumen</h1>
+          <p className='text-muted-foreground'>
+            Kontrak, masa berlaku, dan metadata lampiran karyawan.
+          </p>
+        </div>
+        <Button
+          onClick={() =>
+            routerNavigate({
+              to:
+                activeTab === 'contracts'
+                  ? '/karyawan/pkwt/tambah'
+                  : '/karyawan/dokumen/tambah',
+            })
+          }
+        >
+          <Plus />
+          {activeTab === 'contracts' ? 'Tambah kontrak' : 'Tambah dokumen'}
+        </Button>
       </div>
-      <Tabs defaultValue='contracts'>
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          if (value === 'contracts' || value === 'documents') {
+            setActiveTab(value)
+          }
+        }}
+      >
         <TabsList>
           <TabsTrigger value='contracts'>PKWT & Kontrak</TabsTrigger>
           <TabsTrigger value='documents'>Dokumen</TabsTrigger>
@@ -53,15 +82,14 @@ export function ContractsDocumentsPage({
             search={search}
             navigate={navigate}
             prefix='contract'
-            statuses={['DRAFT', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED']}
-            actionLabel='Tambah kontrak'
-            onCreate={() => routerNavigate({ to: '/karyawan/pkwt/tambah' })}
+            statuses={['DRAFT', 'SCHEDULED', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED']}
             onEdit={(uid) =>
               routerNavigate({
                 to: '/karyawan/pkwt/$contractUid/ubah',
                 params: { contractUid: uid },
               })
             }
+            onView={(row) => setSelectedContract(row.contract)}
             isPending={contracts.isPending}
             isError={contracts.isError}
             onRetry={() => contracts.refetch()}
@@ -74,8 +102,6 @@ export function ContractsDocumentsPage({
             navigate={navigate}
             prefix='document'
             statuses={['ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED']}
-            actionLabel='Tambah dokumen'
-            onCreate={() => routerNavigate({ to: '/karyawan/dokumen/tambah' })}
             onEdit={(uid) =>
               routerNavigate({
                 to: '/karyawan/dokumen/$documentUid/ubah',
@@ -88,6 +114,21 @@ export function ContractsDocumentsPage({
           />
         </TabsContent>
       </Tabs>
+      <ContractDetailDrawer
+        contract={selectedContract}
+        employee={
+          selectedContract
+            ? {
+                uid: selectedContract.employeeUid,
+                fullName: selectedContract.employeeName ?? 'Karyawan',
+              }
+            : undefined
+        }
+        open={Boolean(selectedContract)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedContract(undefined)
+        }}
+      />
     </Main>
   )
 }
@@ -117,7 +158,7 @@ function params(
     pageSize:
       typeof search[`${prefix}PageSize`] === 'number'
         ? (search[`${prefix}PageSize`] as number)
-        : 10,
+        : 100,
   }
 }
 function mapContracts(
@@ -133,10 +174,11 @@ function mapContracts(
       detail: `${item.contractType} · ${formatDate(item.startDate)} — ${formatDate(item.endDate)}`,
       status: item.status,
       expiry: expiry(item.endDate),
+      contract: item,
     })),
     total: data?.total ?? 0,
     page: data?.page ?? 1,
-    pageSize: data?.pageSize ?? 10,
+    pageSize: data?.pageSize ?? 100,
   }
 }
 function mapDocuments(
@@ -155,7 +197,7 @@ function mapDocuments(
     })),
     total: data?.total ?? 0,
     page: data?.page ?? 1,
-    pageSize: data?.pageSize ?? 10,
+    pageSize: data?.pageSize ?? 100,
   }
 }
 function expiry(date?: string) {

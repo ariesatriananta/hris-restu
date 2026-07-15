@@ -4,6 +4,8 @@ import {
   ArrowLeft,
   Download,
   ExternalLink,
+  Eye,
+  ImageIcon,
   GitBranchPlus,
   Pencil,
   Plus,
@@ -22,7 +24,9 @@ import {
   useHistories,
 } from '../data/queries'
 import { formatDate, maskValue, statusLabel } from '../utils'
+import { ContractDetailDrawer } from './contract-detail-drawer'
 import { EmployeeIdCard } from './id-card'
+import { MutationDetailDrawer } from './mutation-detail-drawer'
 import { MutationDialog } from './mutation-dialog'
 
 export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
@@ -31,6 +35,8 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
   const contracts = useContracts(employeeUid)
   const documents = useDocuments(employeeUid)
   const [mutationOpen, setMutationOpen] = useState(false)
+  const [selectedHistoryUid, setSelectedHistoryUid] = useState<string>()
+  const [selectedContractUid, setSelectedContractUid] = useState<string>()
   if (employee.isPending)
     return (
       <Main>
@@ -116,6 +122,7 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
         <TabsList className='mb-5 w-full justify-start overflow-x-auto'>
           <TabsTrigger value='ringkasan'>Ringkasan</TabsTrigger>
           <TabsTrigger value='pribadi'>Data pribadi</TabsTrigger>
+          <TabsTrigger value='foto-identitas'>Foto Identitas</TabsTrigger>
           <TabsTrigger value='mutasi'>Penempatan & Mutasi</TabsTrigger>
           <TabsTrigger value='kontrak'>PKWT</TabsTrigger>
           <TabsTrigger value='dokumen'>Dokumen</TabsTrigger>
@@ -149,8 +156,9 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
         <TabsContent value='pribadi'>
           <div className='grid gap-4 md:grid-cols-2'>
             <InfoCard
-              title='Identitas & kontak'
+              title='Identitas, domisili & kontak'
               rows={[
+                ['Nama panggilan', data.nickname],
                 [
                   'Jenis kelamin',
                   data.gender === 'MALE' ? 'Laki-laki' : 'Perempuan',
@@ -159,24 +167,60 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
                   'Tempat/tanggal lahir',
                   `${data.birthPlace ?? '—'} / ${formatDate(data.birthDate)}`,
                 ],
+                ['Status perkawinan', maritalStatusLabel(data.maritalStatus)],
+                ['Agama', data.religion],
                 ['Alamat', data.address],
                 ['Kota', data.city],
+                ['Provinsi', data.province],
+                ['Kode pos', data.postalCode],
                 ['Telepon', maskValue(data.phone)],
               ]}
             />
             <InfoCard
-              title='Data sensitif'
+              title='Legal, bank & kontak darurat'
               rows={[
                 ['NIK', maskValue(data.nationalIdNumber)],
                 ['Kartu keluarga', maskValue(data.familyCardNumber)],
-                ['Rekening', maskValue(data.bankAccountNumber)],
+                ['NPWP', maskValue(data.taxNumber)],
                 ['BPJS Kesehatan', maskValue(data.bpjsHealthNumber)],
                 ['BPJS Ketenagakerjaan', maskValue(data.bpjsEmploymentNumber)],
+                ['Bank', data.bankName],
+                ['Pemilik rekening', data.bankAccountName],
+                ['Rekening', maskValue(data.bankAccountNumber)],
+                ['Nama kontak darurat', data.emergencyContactName],
+                ['Hubungan kontak darurat', data.emergencyContactRelation],
                 ['Kontak darurat', maskValue(data.emergencyContactPhone)],
-                ['NPWP', maskValue(data.taxNumber)],
               ]}
             />
           </div>
+        </TabsContent>
+        <TabsContent value='foto-identitas'>
+          {documents.isPending ? (
+            <RecordSkeleton />
+          ) : documents.isError ? (
+            <Retry onClick={() => documents.refetch()} />
+          ) : (
+            <div className='grid gap-4 lg:grid-cols-3'>
+              <IdentityPhotoCard
+                title='Foto Karyawan'
+                attachment={data.photo}
+                emptyText='Belum ada foto karyawan.'
+                employeeUid={data.uid}
+              />
+              <IdentityPhotoCard
+                title='Foto KTP'
+                attachment={findIdentityDocument(documents.data, 'KTP')?.file}
+                emptyText='Belum ada foto KTP.'
+                employeeUid={data.uid}
+              />
+              <IdentityPhotoCard
+                title='Foto KK'
+                attachment={findIdentityDocument(documents.data, 'KK')?.file}
+                emptyText='Belum ada foto KK.'
+                employeeUid={data.uid}
+              />
+            </div>
+          )}
         </TabsContent>
         <TabsContent value='mutasi'>
           <Card>
@@ -200,19 +244,30 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
                   {histories.data.map((item) => (
                     <div
                       key={item.uid}
-                      className='border-s-2 border-primary ps-4'
+                      className='flex flex-wrap items-center justify-between gap-3 border-s-2 border-primary ps-4'
                     >
-                      <div className='flex flex-wrap items-center gap-2'>
-                        <p className='font-semibold'>
-                          {item.site} · {item.position ?? 'Tanpa jabatan'}
+                      <div>
+                        <div className='flex flex-wrap items-center gap-2'>
+                          <p className='font-semibold'>
+                            {item.site} · {item.position ?? 'Tanpa jabatan'}
+                          </p>
+                          <Badge variant='secondary'>
+                            {statusLabel(item.changeType)}
+                          </Badge>
+                        </div>
+                        <p className='text-sm text-muted-foreground'>
+                          {formatDate(item.effectiveFrom)} —{' '}
+                          {formatDate(item.effectiveTo)} ·{' '}
+                          {item.reason ?? 'Tidak ada alasan'}
                         </p>
-                        <Badge variant='secondary'>{item.changeType}</Badge>
                       </div>
-                      <p className='text-sm text-muted-foreground'>
-                        {formatDate(item.effectiveFrom)} —{' '}
-                        {formatDate(item.effectiveTo)} ·{' '}
-                        {item.reason ?? 'Tidak ada alasan'}
-                      </p>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        onClick={() => setSelectedHistoryUid(item.uid)}
+                      >
+                        <Eye /> Detail
+                      </Button>
                     </div>
                   ))}
                 </div>
@@ -235,7 +290,7 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
             items={contracts.data?.map((item) => ({
               label: `${item.contractNumber} · ${statusLabel(item.status)} · ${formatDate(item.startDate)} — ${formatDate(item.endDate)}`,
               edit: `/karyawan/pkwt/${item.uid}/ubah`,
-              file: item.issuedFile?.url,
+              onDetail: () => setSelectedContractUid(item.uid),
             }))}
           />
         </TabsContent>
@@ -266,6 +321,34 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
         employee={data}
         open={mutationOpen}
         onOpenChange={setMutationOpen}
+      />
+      <MutationDetailDrawer
+        history={histories.data?.find(
+          (item) => item.uid === selectedHistoryUid
+        )}
+        employee={{
+          uid: data.uid,
+          fullName: data.fullName,
+          employeeNumber: data.employeeNumber,
+        }}
+        open={Boolean(selectedHistoryUid)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedHistoryUid(undefined)
+        }}
+      />
+      <ContractDetailDrawer
+        contract={contracts.data?.find(
+          (item) => item.uid === selectedContractUid
+        )}
+        employee={{
+          uid: data.uid,
+          fullName: data.fullName,
+          employeeNumber: data.employeeNumber,
+        }}
+        open={Boolean(selectedContractUid)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedContractUid(undefined)
+        }}
       />
     </Main>
   )
@@ -306,7 +389,12 @@ function Records({
 }: {
   title: string
   empty: string
-  items?: { label: string; edit: string; file?: string }[]
+  items?: {
+    label: string
+    edit: string
+    file?: string
+    onDetail?: () => void
+  }[]
   pending: boolean
   error: boolean
   retry: () => void
@@ -342,13 +430,18 @@ function Records({
               >
                 <span>{item.label}</span>
                 <span className='flex gap-1'>
+                  {item.onDetail && (
+                    <Button size='sm' variant='outline' onClick={item.onDetail}>
+                      <Eye /> Detail
+                    </Button>
+                  )}
                   <Button size='sm' variant='ghost' asChild>
                     <a href={item.edit} aria-label={`Ubah ${item.label}`}>
                       <Pencil />
                       <span className='sr-only'>Ubah</span>
                     </a>
                   </Button>
-                  {item.file && (
+                  {item.file && !item.onDetail && (
                     <>
                       <Button size='sm' variant='ghost' asChild>
                         <a href={item.file} target='_blank' rel='noreferrer'>
@@ -394,4 +487,75 @@ function Retry({ onClick }: { onClick: () => void }) {
 }
 function Empty({ text }: { text: string }) {
   return <p className='py-6 text-sm text-muted-foreground'>{text}</p>
+}
+
+function maritalStatusLabel(value?: string) {
+  return (
+    {
+      SINGLE: 'Belum menikah',
+      MARRIED: 'Menikah',
+      DIVORCED: 'Cerai',
+      WIDOWED: 'Duda/Janda',
+    }[value ?? ''] ?? undefined
+  )
+}
+
+function findIdentityDocument(
+  documents: ReturnType<typeof useDocuments>['data'],
+  type: 'KTP' | 'KK'
+) {
+  return documents?.find((document) => document.documentType === type)
+}
+
+function IdentityPhotoCard({
+  title,
+  attachment,
+  emptyText,
+  employeeUid,
+}: {
+  title: string
+  attachment?: { url?: string; mimeType: string; originalName: string }
+  emptyText: string
+  employeeUid: string
+}) {
+  const isImage = attachment?.mimeType.startsWith('image/')
+  return (
+    <Card className='overflow-hidden'>
+      <CardHeader>
+        <CardTitle className='text-base'>{title}</CardTitle>
+      </CardHeader>
+      <CardContent className='space-y-3'>
+        <div className='aspect-[4/3] overflow-hidden rounded-md border bg-muted'>
+          {attachment?.url && isImage ? (
+            <img
+              src={attachment.url}
+              alt={title}
+              className='size-full object-cover'
+            />
+          ) : (
+            <div className='flex size-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground'>
+              <ImageIcon className='size-8' />
+              <span>{attachment ? attachment.originalName : emptyText}</span>
+            </div>
+          )}
+        </div>
+        {attachment?.url ? (
+          <Button asChild variant='outline' size='sm' className='w-full'>
+            <a href={attachment.url} target='_blank' rel='noreferrer'>
+              <ExternalLink /> Buka foto
+            </a>
+          </Button>
+        ) : (
+          <Button asChild variant='outline' size='sm' className='w-full'>
+            <Link
+              to='/karyawan/ubah-karyawan/$employeeUid'
+              params={{ employeeUid }}
+            >
+              <Pencil /> Tambahkan dari form
+            </Link>
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  )
 }

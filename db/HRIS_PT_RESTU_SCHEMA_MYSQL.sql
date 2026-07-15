@@ -30,6 +30,7 @@ CREATE TABLE sites (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   uid CHAR(36) NOT NULL,
   code VARCHAR(20) NOT NULL,
+  employee_number_prefix CHAR(3) NOT NULL,
   name VARCHAR(100) NOT NULL,
   address TEXT NULL,
   city VARCHAR(100) NULL,
@@ -44,8 +45,20 @@ CREATE TABLE sites (
   PRIMARY KEY (id),
   UNIQUE KEY uq_sites_uid (uid),
   UNIQUE KEY uq_sites_code (code),
+  UNIQUE KEY uq_sites_employee_number_prefix (employee_number_prefix),
   KEY idx_sites_active (is_active),
   CONSTRAINT chk_sites_active CHECK (is_active IN (0, 1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE employee_number_sequences (
+  site_id BIGINT UNSIGNED NOT NULL,
+  join_date DATE NOT NULL,
+  last_sequence SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (site_id, join_date),
+  CONSTRAINT chk_employee_number_sequence CHECK (last_sequence BETWEEN 0 AND 999),
+  CONSTRAINT fk_employee_number_sequences_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE roles (
@@ -315,11 +328,28 @@ CREATE TABLE employee_statuses (
   CONSTRAINT chk_employee_statuses_active CHECK (is_active IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE contract_types (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  code VARCHAR(30) NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  description VARCHAR(255) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_contract_types_uid (uid),
+  UNIQUE KEY uq_contract_types_code (code),
+  CONSTRAINT chk_contract_types_active CHECK (is_active IN (0, 1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE employees (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   uid CHAR(36) NOT NULL,
   employee_number VARCHAR(50) NOT NULL,
-  barcode VARCHAR(100) NOT NULL,
+  barcode VARCHAR(100) GENERATED ALWAYS AS (employee_number) STORED,
   employee_type_id BIGINT UNSIGNED NOT NULL,
   employee_status_id BIGINT UNSIGNED NOT NULL,
   current_site_id BIGINT UNSIGNED NOT NULL,
@@ -421,12 +451,14 @@ CREATE TABLE employee_contracts (
   uid CHAR(36) NOT NULL,
   employee_id BIGINT UNSIGNED NOT NULL,
   contract_number VARCHAR(100) NOT NULL,
-  contract_type VARCHAR(20) NOT NULL DEFAULT 'PKWT',
+  contract_type_id BIGINT UNSIGNED NOT NULL,
   sequence_number SMALLINT UNSIGNED NOT NULL DEFAULT 1,
   start_date DATE NOT NULL,
   end_date DATE NULL,
   signed_date DATE NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
+  terminated_at DATE NULL,
+  termination_reason VARCHAR(500) NULL,
   position_name_snapshot VARCHAR(150) NULL,
   site_name_snapshot VARCHAR(150) NULL,
   salary_or_rate_notes VARCHAR(255) NULL,
@@ -441,11 +473,30 @@ CREATE TABLE employee_contracts (
   UNIQUE KEY uq_employee_contracts_uid (uid),
   UNIQUE KEY uq_employee_contracts_number (contract_number),
   KEY idx_employee_contracts_employee_dates (employee_id, start_date, end_date),
+  KEY idx_employee_contracts_type (contract_type_id),
   KEY idx_employee_contracts_status (status),
-  CONSTRAINT chk_employee_contracts_type CHECK (contract_type IN ('PKWT', 'PKWTT', 'OTHER')),
-  CONSTRAINT chk_employee_contracts_status CHECK (status IN ('DRAFT', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED')),
+  CONSTRAINT chk_employee_contracts_status CHECK (status IN ('DRAFT', 'SCHEDULED', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED')),
   CONSTRAINT chk_employee_contracts_dates CHECK (end_date IS NULL OR end_date >= start_date),
-  CONSTRAINT fk_employee_contracts_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON UPDATE CASCADE ON DELETE RESTRICT
+  CONSTRAINT fk_employee_contracts_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_employee_contracts_type FOREIGN KEY (contract_type_id) REFERENCES contract_types (id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE employee_contract_lifecycle_events (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  contract_id BIGINT UNSIGNED NOT NULL,
+  from_status VARCHAR(20) NULL,
+  to_status VARCHAR(20) NOT NULL,
+  effective_date DATE NOT NULL,
+  reason VARCHAR(500) NULL,
+  source VARCHAR(20) NOT NULL,
+  actor_user_id BIGINT UNSIGNED NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id), UNIQUE KEY uq_employee_contract_lifecycle_events_uid (uid),
+  KEY idx_contract_lifecycle_contract_date (contract_id, effective_date),
+  CONSTRAINT chk_contract_lifecycle_source CHECK (source IN ('MANUAL', 'CRON')),
+  CONSTRAINT fk_contract_lifecycle_contract FOREIGN KEY (contract_id) REFERENCES employee_contracts (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_contract_lifecycle_actor FOREIGN KEY (actor_user_id) REFERENCES users (id) ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE employee_salary_histories (
@@ -1257,11 +1308,11 @@ CREATE TABLE audit_logs (
 -- H. SEED DATA DASAR
 -- ============================================================================
 
-INSERT INTO sites (uid, code, name, city, province, timezone)
+INSERT INTO sites (uid, code, employee_number_prefix, name, city, province, timezone)
 VALUES
-  (UUID(), 'JEPARA', 'Site Jepara', 'Jepara', 'Jawa Tengah', 'Asia/Jakarta'),
-  (UUID(), 'SEMARANG', 'Site Semarang', 'Semarang', 'Jawa Tengah', 'Asia/Jakarta'),
-  (UUID(), 'KLATEN', 'Site Klaten', 'Klaten', 'Jawa Tengah', 'Asia/Jakarta');
+  (UUID(), 'JEPARA', 'KDS', 'Site Jepara', 'Jepara', 'Jawa Tengah', 'Asia/Jakarta'),
+  (UUID(), 'SEMARANG', 'SMG', 'Site Semarang', 'Semarang', 'Jawa Tengah', 'Asia/Jakarta'),
+  (UUID(), 'KLATEN', 'SLO', 'Site Klaten', 'Klaten', 'Jawa Tengah', 'Asia/Jakarta');
 
 INSERT INTO roles (uid, code, name, description, is_system)
 VALUES
@@ -1280,9 +1331,17 @@ VALUES
 INSERT INTO employee_statuses (uid, code, name, allows_attendance, allows_production)
 VALUES
   (UUID(), 'ACTIVE', 'Aktif', 1, 1),
-  (UUID(), 'LEAVE', 'Cuti', 0, 0),
   (UUID(), 'RESIGNED', 'Resign', 0, 0),
   (UUID(), 'INACTIVE', 'Nonaktif', 0, 0);
+
+INSERT INTO contract_types (uid, code, name, description)
+VALUES
+  (UUID(), 'PKWT', 'Perjanjian Kerja Waktu Tertentu', 'Kontrak kerja dengan masa berlaku tertentu.'),
+  (UUID(), 'PKWTT', 'Perjanjian Kerja Waktu Tidak Tertentu', 'Hubungan kerja tanpa batas waktu tertentu.'),
+  (UUID(), 'OTHER', 'Kontrak Lainnya', 'Dokumen kontrak di luar PKWT dan PKWTT.'),
+  (UUID(), 'TRAINING', 'Training', 'Kontrak atau kesepakatan selama masa pelatihan.'),
+  (UUID(), 'PROJECT', 'Project', 'Kontrak kerja untuk proyek tertentu.'),
+  (UUID(), 'RETAIN', 'Retain', 'Kontrak retensi atau perpanjangan masa kerja.');
 
 INSERT INTO work_units (uid, code, name, decimal_precision)
 VALUES

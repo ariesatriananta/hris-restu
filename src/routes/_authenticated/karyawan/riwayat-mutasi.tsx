@@ -6,7 +6,7 @@ export const Route = createFileRoute('/_authenticated/karyawan/riwayat-mutasi')(
   {
     validateSearch: z.object({
       page: z.number().int().positive().optional(),
-      pageSize: z.number().int().min(10).max(50).optional(),
+      pageSize: z.number().int().min(1).max(500).optional(),
       filter: z.string().optional(),
       site: z.array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])).optional(),
       changeType: z

@@ -8,7 +8,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table'
-import { Eye, Pencil, Users } from 'lucide-react'
+import { Eye, LoaderCircle, Pencil, Users } from 'lucide-react'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -45,7 +45,7 @@ const filters = [
   {
     columnId: 'employeeStatus',
     title: 'Status',
-    options: ['ACTIVE', 'LEAVE', 'RESIGNED', 'INACTIVE'].map((value) => ({
+    options: ['ACTIVE', 'RESIGNED', 'INACTIVE'].map((value) => ({
       value,
       label: statusLabel(value),
     })),
@@ -58,12 +58,14 @@ export function EmployeesTable({
   search,
   navigate,
   onEdit,
+  isFetching,
 }: {
   data: PaginatedResult<Employee>
   columns: ColumnDef<Employee>[]
   search: Record<string, unknown>
   navigate: NavigateFn
   onEdit: (employee: Employee) => void
+  isFetching?: boolean
 }) {
   const [sorting, setSorting] = useState<SortingState>([])
   const tableState = useTableUrlState({
@@ -107,8 +109,17 @@ export function EmployeesTable({
       <DataTableToolbar
         table={table}
         searchPlaceholder='Cari nama, nomor, atau barcode...'
+        searchDebounceMs={600}
         filters={filters}
       />
+      {isFetching && (
+        <div
+          role='status'
+          className='flex items-center gap-2 text-xs text-muted-foreground'
+        >
+          <LoaderCircle className='size-3 animate-spin' /> Memperbarui data...
+        </div>
+      )}
       {data.items.length === 0 ? (
         <div className='py-10 text-center text-muted-foreground'>
           <Users className='mx-auto mb-2' />
@@ -163,7 +174,7 @@ export function EmployeesTable({
                       >
                         {employee.fullName}
                       </Link>
-                      <p className='text-xs text-muted-foreground'>
+                      <p className='text-[11px] leading-3 text-muted-foreground'>
                         {employee.employeeNumber} ·{' '}
                         {employee.position ?? 'Belum ada jabatan'}
                       </p>

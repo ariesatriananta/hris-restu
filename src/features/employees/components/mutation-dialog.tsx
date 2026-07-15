@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { z } from 'zod'
+import { isAxiosError } from 'axios'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
@@ -14,7 +15,12 @@ import {
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { useApplyMutation, useEmployeeLookups } from '../data/queries'
+import { DatePicker } from '@/components/date-picker'
+import {
+  useApplyMutation,
+  useEmployeeLookups,
+  useHistories,
+} from '../data/queries'
 import type { Employee, MutationInput } from '../domain'
 import { statusLabel } from '../utils'
 
@@ -24,14 +30,11 @@ const mutationSchema = z.object({
   position: z.string().optional(),
   workGroup: z.string().optional(),
   employeeType: z.enum(['BORONGAN', 'BULANAN']),
-  employeeStatus: z.enum(['ACTIVE', 'LEAVE', 'RESIGNED', 'INACTIVE']),
   effectiveFrom: z.string().min(1, 'Tanggal efektif wajib diisi.'),
   changeType: z.enum([
-    'INITIAL',
     'TRANSFER',
     'PROMOTION',
     'DEMOTION',
-    'STATUS_CHANGE',
     'TYPE_CHANGE',
     'GROUP_CHANGE',
     'OTHER',
@@ -52,6 +55,7 @@ export function MutationDialog({
 }) {
   const mutation = useApplyMutation()
   const lookups = useEmployeeLookups()
+  const histories = useHistories(employee.uid)
   const [pendingInput, setPendingInput] = useState<MutationInput>()
   const form = useForm<MutationInput>({
     resolver: zodResolver(mutationSchema),
@@ -61,12 +65,15 @@ export function MutationDialog({
       position: employee.position,
       workGroup: employee.workGroup,
       employeeType: employee.employeeType,
-      employeeStatus: employee.employeeStatus,
       effectiveFrom: new Date().toISOString().slice(0, 10),
       changeType: 'TRANSFER',
     },
   })
   const selectedSite = useWatch({ control: form.control, name: 'site' })
+  const effectiveFrom = useWatch({
+    control: form.control,
+    name: 'effectiveFrom',
+  })
   const commit = (input: MutationInput) =>
     mutation.mutate(
       { employeeUid: employee.uid, input },
@@ -76,7 +83,7 @@ export function MutationDialog({
           setPendingInput(undefined)
           onOpenChange(false)
         },
-        onError: (error) => toast.error(error.message),
+        onError: (error) => toast.error(mutationErrorMessage(error)),
       }
     )
   return (
@@ -91,7 +98,21 @@ export function MutationDialog({
         </DialogHeader>
         <form
           className='grid gap-3'
-          onSubmit={form.handleSubmit((input) => setPendingInput(input))}
+          onSubmit={form.handleSubmit((input) => {
+            const activeHistory = histories.data?.find(
+              (history) => !history.effectiveTo
+            )
+            if (
+              activeHistory &&
+              input.effectiveFrom <= activeHistory.effectiveFrom
+            ) {
+              form.setError('effectiveFrom', {
+                message: `Tanggal efektif harus setelah ${activeHistory.effectiveFrom}.`,
+              })
+              return
+            }
+            setPendingInput(input as MutationInput)
+          })}
         >
           <Select
             label='Site'
@@ -139,7 +160,6 @@ export function MutationDialog({
               'TRANSFER',
               'PROMOTION',
               'DEMOTION',
-              'STATUS_CHANGE',
               'TYPE_CHANGE',
               'GROUP_CHANGE',
               'OTHER',
@@ -154,22 +174,22 @@ export function MutationDialog({
             ]}
             {...form.register('employeeType')}
           />
-          <Select
-            label='Status kerja baru'
-            options={[
-              { value: 'ACTIVE', label: 'Aktif' },
-              { value: 'LEAVE', label: 'Cuti' },
-              { value: 'RESIGNED', label: 'Resign' },
-              { value: 'INACTIVE', label: 'Nonaktif' },
-            ]}
-            {...form.register('employeeStatus')}
-          />
           <label className='grid gap-1 text-sm'>
             Tanggal efektif
-            <Input
-              type='date'
-              {...form.register('effectiveFrom', { required: true })}
+            <DatePicker
+              selected={dateFromInput(effectiveFrom)}
+              onSelect={(date) =>
+                form.setValue('effectiveFrom', dateToInput(date), {
+                  shouldDirty: true,
+                  shouldValidate: true,
+                })
+              }
             />
+            {form.formState.errors.effectiveFrom?.message && (
+              <span className='text-xs text-destructive'>
+                {form.formState.errors.effectiveFrom.message}
+              </span>
+            )}
           </label>
           <label className='grid gap-1 text-sm'>
             Nomor referensi
@@ -178,6 +198,11 @@ export function MutationDialog({
           <label className='grid gap-1 text-sm'>
             Alasan
             <Textarea {...form.register('reason')} />
+            {form.formState.errors.reason?.message && (
+              <span className='text-xs text-destructive'>
+                {form.formState.errors.reason.message}
+              </span>
+            )}
           </label>
           <label className='grid gap-1 text-sm'>
             Catatan
@@ -206,6 +231,12 @@ export function MutationDialog({
       </DialogContent>
     </Dialog>
   )
+}
+function mutationErrorMessage(error: unknown) {
+  if (isAxiosError<{ message?: string }>(error)) {
+    return error.response?.data?.message ?? 'Mutasi gagal disimpan.'
+  }
+  return error instanceof Error ? error.message : 'Mutasi gagal disimpan.'
 }
 function MutationSummary({
   employee,
@@ -277,4 +308,18 @@ function Select({
       </select>
     </label>
   )
+}
+
+function dateFromInput(value?: string) {
+  if (!value) return undefined
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+function dateToInput(value?: Date) {
+  if (!value) return ''
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }

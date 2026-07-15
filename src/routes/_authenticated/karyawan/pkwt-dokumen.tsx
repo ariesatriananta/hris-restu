@@ -5,14 +5,14 @@ import { ContractsDocumentsPage } from '@/features/employees/components/contract
 export const Route = createFileRoute('/_authenticated/karyawan/pkwt-dokumen')({
   validateSearch: z.object({
     contractPage: z.number().int().positive().optional(),
-    contractPageSize: z.number().int().min(10).max(50).optional(),
+    contractPageSize: z.number().int().min(1).max(500).optional(),
     contractFilter: z.string().optional(),
     contractSite: z.array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])).optional(),
     contractStatus: z
       .array(z.enum(['DRAFT', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED']))
       .optional(),
     documentPage: z.number().int().positive().optional(),
-    documentPageSize: z.number().int().min(10).max(50).optional(),
+    documentPageSize: z.number().int().min(1).max(500).optional(),
     documentFilter: z.string().optional(),
     documentSite: z.array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])).optional(),
     documentStatus: z

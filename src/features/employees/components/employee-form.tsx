@@ -1,23 +1,29 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { z } from 'zod'
-import { useForm, useWatch } from 'react-hook-form'
+import { useForm, useWatch, type UseFormSetValue } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { DatePicker } from '@/components/date-picker'
 import { useEmployeeLookups } from '../data/queries'
-import type { Employee, EmployeeInput, MockFileAttachment } from '../domain'
+import type {
+  Employee,
+  EmployeeDocument,
+  EmployeeInput,
+  MockFileAttachment,
+} from '../domain'
 import { FormActionBar } from './form-action-bar'
 
 const optionalText = z.string().optional()
 const schema = z
   .object({
-    employeeNumber: z.string().min(1, 'Nomor karyawan wajib diisi.'),
-    barcode: z.string().min(1, 'Barcode wajib diisi.'),
     fullName: z.string().min(2, 'Nama lengkap wajib diisi.'),
     nickname: optionalText,
     employeeType: z.enum(['BORONGAN', 'BULANAN']),
-    employeeStatus: z.enum(['ACTIVE', 'LEAVE', 'RESIGNED', 'INACTIVE']),
+    employeeStatus: z.enum(['ACTIVE', 'RESIGNED', 'INACTIVE', 'LEAVE']),
     site: z.enum(['JEPARA', 'SEMARANG', 'KLATEN']),
     department: optionalText,
     position: optionalText,
@@ -57,6 +63,7 @@ const schema = z
   })
 
 type Values = z.infer<typeof schema>
+const formFieldNames = new Set<keyof Values>(schema.keyof().options)
 const empty = (value?: string) => value?.trim() || undefined
 
 const personalFields: [keyof Values, string, string?][] = [
@@ -86,13 +93,18 @@ const sensitiveFields: [keyof Values, string][] = [
 
 export function EmployeeForm({
   employee,
+  identityDocuments,
   onSubmit,
   onCancel,
   isPending,
   disableLookupQuery = false,
 }: {
   employee?: Employee
-  onSubmit: (input: EmployeeInput, photoFile?: File) => void | Promise<void>
+  identityDocuments?: Partial<Record<'KTP' | 'KK', EmployeeDocument>>
+  onSubmit: (
+    input: EmployeeInput,
+    files: { photo?: File; nationalId?: File; familyCard?: File }
+  ) => void | Promise<void>
   onCancel: () => void
   isPending?: boolean
   disableLookupQuery?: boolean
@@ -101,17 +113,23 @@ export function EmployeeForm({
     employee?.photo
   )
   const [photoFile, setPhotoFile] = useState<File>()
+  const [nationalIdPhoto, setNationalIdPhoto] = useState<
+    MockFileAttachment | undefined
+  >(identityDocuments?.KTP?.file)
+  const [nationalIdFile, setNationalIdFile] = useState<File>()
+  const [familyCardPhoto, setFamilyCardPhoto] = useState<
+    MockFileAttachment | undefined
+  >(identityDocuments?.KK?.file)
+  const [familyCardFile, setFamilyCardFile] = useState<File>()
   const [isUploading, setIsUploading] = useState(false)
   const lookups = useEmployeeLookups(!disableLookupQuery)
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: {
-      employeeNumber: employee?.employeeNumber ?? '',
-      barcode: employee?.barcode ?? '',
       fullName: employee?.fullName ?? '',
       nickname: employee?.nickname ?? '',
       employeeType: employee?.employeeType ?? 'BORONGAN',
-      employeeStatus: employee?.employeeStatus ?? 'ACTIVE',
+      employeeStatus: employee?.employeeStatus ?? 'INACTIVE',
       site: employee?.site ?? 'JEPARA',
       department: employee?.department ?? '',
       position: employee?.position ?? '',
@@ -145,6 +163,22 @@ export function EmployeeForm({
     },
   })
   const { confirmation } = useUnsavedChanges(form.formState.isDirty)
+  const photoUrl = photo?.temporaryUrl ?? photo?.url
+
+  useEffect(() => {
+    const temporaryUrl = photo?.temporaryUrl
+    return () => {
+      if (temporaryUrl) URL.revokeObjectURL(temporaryUrl)
+    }
+  }, [photo?.temporaryUrl])
+  useEffect(
+    () => revokeTemporaryUrl(nationalIdPhoto?.temporaryUrl),
+    [nationalIdPhoto?.temporaryUrl]
+  )
+  useEffect(
+    () => revokeTemporaryUrl(familyCardPhoto?.temporaryUrl),
+    [familyCardPhoto?.temporaryUrl]
+  )
 
   const submit = async (values: Values) => {
     setIsUploading(true)
@@ -168,8 +202,6 @@ export function EmployeeForm({
           }
       await onSubmit(
         {
-          employeeNumber: values.employeeNumber.trim(),
-          barcode: values.barcode.trim(),
           fullName: values.fullName.trim(),
           nickname: empty(values.nickname),
           ...lockedPlacement,
@@ -201,9 +233,16 @@ export function EmployeeForm({
           photo,
           notes: empty(values.notes),
         },
-        photoFile
+        {
+          photo: photoFile,
+          nationalId: nationalIdFile,
+          familyCard: familyCardFile,
+        }
       )
       form.reset(values)
+    } catch (error) {
+      applyServerFieldErrors(error, form.setError)
+      throw error
     } finally {
       setIsUploading(false)
     }
@@ -240,11 +279,28 @@ export function EmployeeForm({
       label={label}
       error={form.formState.errors[name]?.message}
     >
-      <Input type={type} {...form.register(name)} />
+      {type === 'date' ? (
+        <FormDatePicker
+          control={form.control}
+          name={name}
+          setValue={form.setValue}
+        />
+      ) : (
+        <Input type={type} {...form.register(name)} />
+      )}
     </Field>
   )
   const selectedSite = useWatch({ control: form.control, name: 'site' })
+  const selectedJoinDate = useWatch({ control: form.control, name: 'joinDate' })
+  const currentFullName = useWatch({ control: form.control, name: 'fullName' })
+  const resignDate = useWatch({ control: form.control, name: 'resignDate' })
   const sites = lookups.data?.sites ?? []
+  const employeeNumberPreview = employee
+    ? employee.employeeNumber
+    : formatEmployeeNumberPreview(
+        sites.find((site) => site.code === selectedSite)?.employeeNumberPrefix,
+        selectedJoinDate
+      )
   const departments = (lookups.data?.departments ?? []).filter(
     (item) => !item.siteCode || item.siteCode === selectedSite
   )
@@ -263,8 +319,9 @@ export function EmployeeForm({
         <section className='space-y-3'>
           <h3 className='font-semibold'>Identitas kerja</h3>
           <div className='grid gap-3 sm:grid-cols-2'>
-            {textField('employeeNumber', 'Nomor karyawan')}
-            {textField('barcode', 'Barcode')}
+            <Field label='Employee ID'>
+              <Input value={employeeNumberPreview} readOnly disabled />
+            </Field>
             {textField('fullName', 'Nama lengkap')}
             {textField('nickname', 'Nama panggilan')}
             {select(
@@ -279,13 +336,10 @@ export function EmployeeForm({
             {select(
               'employeeStatus',
               'Status',
-              [
-                { value: 'ACTIVE', label: 'Aktif' },
-                { value: 'LEAVE', label: 'Cuti' },
-                { value: 'RESIGNED', label: 'Resign' },
-                { value: 'INACTIVE', label: 'Nonaktif' },
-              ],
-              !!employee
+              employee?.employeeStatus === 'LEAVE'
+                ? [{ value: 'LEAVE', label: 'Cuti (legacy)' }]
+                : [{ value: 'INACTIVE', label: 'Nonaktif' }],
+              true
             )}
             {select(
               'site',
@@ -335,14 +389,14 @@ export function EmployeeForm({
               label='Tanggal resign'
               error={form.formState.errors.resignDate?.message}
             >
-              <Input
-                type='date'
-                disabled={!!employee}
-                {...form.register('resignDate')}
+              <DatePicker
+                selected={dateFromInput(resignDate)}
+                onSelect={() => undefined}
+                disabled
               />
             </Field>
             <Field label='Alasan resign'>
-              <Input disabled={!!employee} {...form.register('resignReason')} />
+              <Input disabled {...form.register('resignReason')} />
             </Field>
             {select('gender', 'Jenis kelamin', [
               { value: 'MALE', label: 'Laki-laki' },
@@ -358,8 +412,9 @@ export function EmployeeForm({
           </div>
           {employee && (
             <p className='rounded-md bg-muted p-3 text-xs text-muted-foreground'>
-              Penempatan, jenis, dan status kerja dikunci pada form edit.
-              Gunakan aksi Catat Mutasi agar perubahan masuk ke histori.
+              Penempatan, jenis, status, dan data resign dikelola melalui Catat
+              Mutasi agar perubahan masuk ke histori. Tanggal bergabung dapat
+              dikoreksi tanpa mengubah Employee ID.
             </p>
           )}
         </section>
@@ -391,31 +446,84 @@ export function EmployeeForm({
         </section>
 
         <section className='space-y-3 border-t pt-5'>
-          <h3 className='font-semibold'>Foto dan catatan</h3>
-          <label className='grid gap-1 text-sm'>
-            Foto karyawan
-            <Input
-              type='file'
-              accept='image/*'
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (!file) return
-                setPhotoFile(file)
-                setPhoto({
-                  uid: '',
-                  originalName: file.name,
-                  mimeType: file.type || 'application/octet-stream',
-                  sizeBytes: file.size,
-                  extension: file.name.split('.').pop(),
-                  temporaryUrl: URL.createObjectURL(file),
-                })
+          <h3 className='font-semibold'>Foto karyawan dan identitas</h3>
+          <div className='flex flex-col gap-4 rounded-lg border bg-muted/30 p-4 sm:flex-row sm:items-center'>
+            <Avatar className='size-28 rounded-xl border bg-background shadow-sm'>
+              <AvatarImage
+                src={photoUrl}
+                alt={photo ? `Foto ${employee?.fullName ?? 'karyawan'}` : ''}
+                className='object-cover'
+              />
+              <AvatarFallback className='rounded-xl bg-primary/10 text-2xl font-semibold text-primary'>
+                {initials(employee?.fullName ?? currentFullName)}
+              </AvatarFallback>
+            </Avatar>
+            <div className='min-w-0 flex-1 space-y-2'>
+              <div>
+                <p className='font-medium'>Foto karyawan</p>
+                <p className='text-sm text-muted-foreground'>
+                  {photo?.originalName ??
+                    'Belum ada foto. Pilih foto wajah yang jelas.'}
+                </p>
+              </div>
+              <Input
+                type='file'
+                accept='image/png,image/jpeg,image/webp'
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (!file) return
+                  setPhotoFile(file)
+                  setPhoto({
+                    uid: '',
+                    originalName: file.name,
+                    mimeType: file.type || 'application/octet-stream',
+                    sizeBytes: file.size,
+                    extension: file.name.split('.').pop(),
+                    temporaryUrl: URL.createObjectURL(file),
+                  })
+                }}
+              />
+              <div className='flex flex-wrap items-center gap-2 text-xs text-muted-foreground'>
+                <span>
+                  PNG, JPG, atau WebP. Foto diunggah saat form disimpan.
+                </span>
+                {photo && (
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    className='h-auto px-1 text-destructive hover:text-destructive'
+                    onClick={() => {
+                      setPhoto(undefined)
+                      setPhotoFile(undefined)
+                    }}
+                  >
+                    Hapus foto
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className='grid gap-4 md:grid-cols-2'>
+            <ImageUploadCard
+              label='Foto KTP'
+              description='Foto atau scan KTP yang terbaca jelas.'
+              attachment={nationalIdPhoto}
+              onSelect={(file) => {
+                setNationalIdFile(file)
+                setNationalIdPhoto(attachmentFromFile(file))
               }}
             />
-            <span className='text-xs text-muted-foreground'>
-              {photo?.originalName ?? 'Belum ada foto dipilih.'} Foto akan
-              diunggah saat form disimpan.
-            </span>
-          </label>
+            <ImageUploadCard
+              label='Foto KK'
+              description='Foto atau scan Kartu Keluarga yang terbaca jelas.'
+              attachment={familyCardPhoto}
+              onSelect={(file) => {
+                setFamilyCardFile(file)
+                setFamilyCardPhoto(attachmentFromFile(file))
+              }}
+            />
+          </div>
           <Field label='Catatan'>
             <Textarea {...form.register('notes')} />
           </Field>
@@ -454,6 +562,142 @@ function Field({
   )
 }
 
+function FormDatePicker({
+  control,
+  name,
+  setValue,
+}: {
+  control: ReturnType<typeof useForm<Values>>['control']
+  name: keyof Values
+  setValue: UseFormSetValue<Values>
+}) {
+  const value = useWatch({ control, name })
+  return (
+    <DatePicker
+      selected={dateFromInput(value)}
+      onSelect={(date) =>
+        setValue(name, dateToInput(date), {
+          shouldDirty: true,
+          shouldValidate: true,
+        })
+      }
+    />
+  )
+}
+
 function dateInput(value?: string) {
   return value ? value.slice(0, 10) : ''
+}
+
+function dateFromInput(value?: string) {
+  if (!value) return undefined
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+function dateToInput(value?: Date) {
+  if (!value) return ''
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function formatEmployeeNumberPreview(prefix?: string, joinDate?: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(joinDate ?? '')
+  if (!prefix || !match) return 'Akan dibuat otomatis'
+  const [, year, month, day] = match
+  return `P${prefix}-${year.slice(2)}${month}-${day}xxx`
+}
+
+function applyServerFieldErrors(
+  error: unknown,
+  setError: ReturnType<typeof useForm<Values>>['setError']
+) {
+  const fieldErrors = (
+    error as {
+      response?: {
+        data?: { issues?: { fieldErrors?: Record<string, string[]> } }
+      }
+    }
+  ).response?.data?.issues?.fieldErrors
+
+  if (!fieldErrors) return
+  for (const [field, messages] of Object.entries(fieldErrors)) {
+    if (!isFormField(field) || !messages[0]) continue
+    setError(field, { type: 'server', message: messages[0] })
+  }
+}
+
+function isFormField(field: string): field is keyof Values {
+  return formFieldNames.has(field as keyof Values)
+}
+
+function initials(name?: string) {
+  const result = name
+    ?.trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase()
+  return result || 'FK'
+}
+
+function attachmentFromFile(file: File): MockFileAttachment {
+  return {
+    uid: '',
+    originalName: file.name,
+    mimeType: file.type || 'application/octet-stream',
+    sizeBytes: file.size,
+    extension: file.name.split('.').pop(),
+    temporaryUrl: URL.createObjectURL(file),
+  }
+}
+
+function revokeTemporaryUrl(temporaryUrl?: string) {
+  return () => {
+    if (temporaryUrl) URL.revokeObjectURL(temporaryUrl)
+  }
+}
+
+function ImageUploadCard({
+  label,
+  description,
+  attachment,
+  onSelect,
+}: {
+  label: string
+  description: string
+  attachment?: MockFileAttachment
+  onSelect: (file: File) => void
+}) {
+  const url = attachment?.temporaryUrl ?? attachment?.url
+  return (
+    <div className='overflow-hidden rounded-lg border bg-muted/30'>
+      <div className='aspect-[4/3] bg-muted'>
+        {url ? (
+          <img src={url} alt={label} className='size-full object-cover' />
+        ) : (
+          <div className='flex size-full items-center justify-center px-6 text-center text-sm text-muted-foreground'>
+            Belum ada {label.toLowerCase()}.
+          </div>
+        )}
+      </div>
+      <div className='space-y-2 p-3'>
+        <div>
+          <p className='font-medium'>{label}</p>
+          <p className='text-xs text-muted-foreground'>{description}</p>
+        </div>
+        <Input
+          type='file'
+          accept='image/png,image/jpeg,image/webp'
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            if (file) onSelect(file)
+          }}
+        />
+      </div>
+    </div>
+  )
 }

@@ -9,10 +9,9 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table'
-import { GitBranch, RefreshCcw } from 'lucide-react'
+import { Eye, GitBranch, RefreshCcw } from 'lucide-react'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import {
   Table,
   TableBody,
@@ -30,6 +29,7 @@ import { Main } from '@/components/layout/main'
 import { useEmployeeList, useHistories } from '../data/queries'
 import type { EmploymentHistory } from '../domain'
 import { formatDate, statusLabel } from '../utils'
+import { MutationDetailDrawer } from './mutation-detail-drawer'
 
 type MutationRow = EmploymentHistory & {
   employeeName: string
@@ -61,57 +61,74 @@ const filters = [
   },
 ]
 
-const columns: ColumnDef<MutationRow>[] = [
-  {
-    accessorKey: 'employeeName',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Karyawan' />
-    ),
-    cell: ({ row }) => (
-      <div>
-        <Link
-          className='font-medium hover:underline'
-          to='/karyawan/data-karyawan/$employeeUid'
-          params={{ employeeUid: row.original.employeeUid }}
+function getColumns(
+  onView: (history: MutationRow) => void
+): ColumnDef<MutationRow>[] {
+  return [
+    {
+      accessorKey: 'employeeName',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Karyawan' />
+      ),
+      cell: ({ row }) => (
+        <div>
+          <Link
+            className='font-medium hover:underline'
+            to='/karyawan/data-karyawan/$employeeUid'
+            params={{ employeeUid: row.original.employeeUid }}
+          >
+            {row.original.employeeName}
+          </Link>
+          <p className='text-[11px] leading-3 text-muted-foreground'>
+            {row.original.employeeNumber}
+          </p>
+        </div>
+      ),
+    },
+    {
+      accessorKey: 'site',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Site' />
+      ),
+      filterFn: (row, id, value: string[]) => value.includes(row.getValue(id)),
+    },
+    {
+      accessorKey: 'position',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Jabatan' />
+      ),
+      cell: ({ row }) => row.original.position ?? '—',
+    },
+    {
+      accessorKey: 'changeType',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Perubahan' />
+      ),
+      cell: ({ row }) => statusLabel(row.original.changeType),
+      filterFn: (row, id, value: string[]) => value.includes(row.getValue(id)),
+    },
+    {
+      accessorKey: 'effectiveFrom',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Efektif' />
+      ),
+      cell: ({ row }) => formatDate(row.original.effectiveFrom),
+    },
+    {
+      id: 'actions',
+      cell: ({ row }) => (
+        <Button
+          size='sm'
+          variant='ghost'
+          onClick={() => onView(row.original)}
+          aria-label={`Lihat detail mutasi ${row.original.employeeName}`}
         >
-          {row.original.employeeName}
-        </Link>
-        <p className='text-xs text-muted-foreground'>
-          {row.original.employeeNumber}
-        </p>
-      </div>
-    ),
-  },
-  {
-    accessorKey: 'site',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Site' />
-    ),
-    filterFn: (row, id, value: string[]) => value.includes(row.getValue(id)),
-  },
-  {
-    accessorKey: 'position',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Jabatan' />
-    ),
-    cell: ({ row }) => row.original.position ?? '—',
-  },
-  {
-    accessorKey: 'changeType',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Perubahan' />
-    ),
-    cell: ({ row }) => statusLabel(row.original.changeType),
-    filterFn: (row, id, value: string[]) => value.includes(row.getValue(id)),
-  },
-  {
-    accessorKey: 'effectiveFrom',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Efektif' />
-    ),
-    cell: ({ row }) => formatDate(row.original.effectiveFrom),
-  },
-]
+          <Eye /> Detail
+        </Button>
+      ),
+    },
+  ]
+}
 
 export function MutationPage({
   search,
@@ -121,6 +138,7 @@ export function MutationPage({
   navigate: NavigateFn
 }) {
   const [sorting, setSorting] = useState<SortingState>([])
+  const [selectedHistory, setSelectedHistory] = useState<MutationRow>()
   const histories = useHistories()
   const employees = useEmployeeList({ page: 1, pageSize: 100 })
   const rows = useMemo<MutationRow[]>(() => {
@@ -149,7 +167,7 @@ export function MutationPage({
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: rows,
-    columns,
+    columns: useMemo(() => getColumns(setSelectedHistory), []),
     state: {
       sorting,
       globalFilter: tableState.globalFilter,
@@ -173,77 +191,92 @@ export function MutationPage({
           Jejak penempatan dan perubahan status yang bersifat append-only.
         </p>
       </div>
-      <Card>
-        <CardContent className='space-y-4 pt-6'>
-          <DataTableToolbar
-            table={table}
-            searchPlaceholder='Cari karyawan, nomor, atau jabatan...'
-            filters={filters}
-          />
-          {histories.isPending || employees.isPending ? (
-            <p className='py-10 text-center text-sm text-muted-foreground'>
-              Memuat riwayat mutasi...
-            </p>
-          ) : histories.isError || employees.isError ? (
-            <div className='py-10 text-center'>
-              <p className='text-sm'>Riwayat mutasi gagal dimuat.</p>
-              <Button
-                variant='outline'
-                className='mt-3'
-                onClick={() => {
-                  void histories.refetch()
-                  void employees.refetch()
-                }}
-              >
-                <RefreshCcw /> Coba lagi
-              </Button>
+      <div className='space-y-4'>
+        <DataTableToolbar
+          table={table}
+          searchPlaceholder='Cari karyawan, nomor, atau jabatan...'
+          searchDebounceMs={300}
+          filters={filters}
+        />
+        {histories.isPending || employees.isPending ? (
+          <p className='py-10 text-center text-sm text-muted-foreground'>
+            Memuat riwayat mutasi...
+          </p>
+        ) : histories.isError || employees.isError ? (
+          <div className='py-10 text-center'>
+            <p className='text-sm'>Riwayat mutasi gagal dimuat.</p>
+            <Button
+              variant='outline'
+              className='mt-3'
+              onClick={() => {
+                void histories.refetch()
+                void employees.refetch()
+              }}
+            >
+              <RefreshCcw /> Coba lagi
+            </Button>
+          </div>
+        ) : table.getRowModel().rows.length === 0 ? (
+          <div className='py-10 text-center text-sm text-muted-foreground'>
+            <GitBranch className='mx-auto mb-2' />
+            Tidak ada histori yang sesuai filter.
+          </div>
+        ) : (
+          <>
+            <div className='overflow-x-auto rounded-md border'>
+              <Table>
+                <TableHeader>
+                  {table.getHeaderGroups().map((group) => (
+                    <TableRow key={group.id}>
+                      {group.headers.map((header) => (
+                        <TableHead key={header.id}>
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(
+                                header.column.columnDef.header,
+                                header.getContext()
+                              )}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody>
+                  {table.getRowModel().rows.map((row) => (
+                    <TableRow key={row.id}>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
-          ) : table.getRowModel().rows.length === 0 ? (
-            <div className='py-10 text-center text-sm text-muted-foreground'>
-              <GitBranch className='mx-auto mb-2' />
-              Tidak ada histori yang sesuai filter.
-            </div>
-          ) : (
-            <>
-              <div className='overflow-x-auto rounded-md border'>
-                <Table>
-                  <TableHeader>
-                    {table.getHeaderGroups().map((group) => (
-                      <TableRow key={group.id}>
-                        {group.headers.map((header) => (
-                          <TableHead key={header.id}>
-                            {header.isPlaceholder
-                              ? null
-                              : flexRender(
-                                  header.column.columnDef.header,
-                                  header.getContext()
-                                )}
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    ))}
-                  </TableHeader>
-                  <TableBody>
-                    {table.getRowModel().rows.map((row) => (
-                      <TableRow key={row.id}>
-                        {row.getVisibleCells().map((cell) => (
-                          <TableCell key={cell.id}>
-                            {flexRender(
-                              cell.column.columnDef.cell,
-                              cell.getContext()
-                            )}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <DataTablePagination table={table} />
-            </>
-          )}
-        </CardContent>
-      </Card>
+            <DataTablePagination table={table} />
+          </>
+        )}
+      </div>
+      <MutationDetailDrawer
+        history={selectedHistory}
+        employee={
+          selectedHistory
+            ? {
+                uid: selectedHistory.employeeUid,
+                fullName: selectedHistory.employeeName,
+                employeeNumber: selectedHistory.employeeNumber,
+              }
+            : undefined
+        }
+        open={Boolean(selectedHistory)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedHistory(undefined)
+        }}
+      />
     </Main>
   )
 }

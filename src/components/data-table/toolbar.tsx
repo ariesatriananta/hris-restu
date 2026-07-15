@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { Cross2Icon } from '@radix-ui/react-icons'
 import { type Table } from '@tanstack/react-table'
 import { Button } from '@/components/ui/button'
@@ -9,6 +10,7 @@ type DataTableToolbarProps<TData> = {
   table: Table<TData>
   searchPlaceholder?: string
   searchKey?: string
+  searchDebounceMs?: number
   filters?: {
     columnId: string
     title: string
@@ -24,10 +26,33 @@ export function DataTableToolbar<TData>({
   table,
   searchPlaceholder = 'Filter...',
   searchKey,
+  searchDebounceMs = 0,
   filters = [],
 }: DataTableToolbarProps<TData>) {
   const isFiltered =
     table.getState().columnFilters.length > 0 || table.getState().globalFilter
+  const tableGlobalFilter = (table.getState().globalFilter as string) ?? ''
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  )
+
+  useEffect(
+    () => () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current)
+    },
+    []
+  )
+
+  const updateGlobalFilter = (value: string, debounce = true) => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current)
+    if (!searchDebounceMs || !debounce) {
+      table.setGlobalFilter(value)
+      return
+    }
+    debounceTimer.current = setTimeout(() => {
+      table.setGlobalFilter(value)
+    }, searchDebounceMs)
+  }
 
   return (
     <div className='flex items-center justify-between'>
@@ -45,9 +70,10 @@ export function DataTableToolbar<TData>({
           />
         ) : (
           <Input
+            key={tableGlobalFilter}
             placeholder={searchPlaceholder}
-            value={table.getState().globalFilter ?? ''}
-            onChange={(event) => table.setGlobalFilter(event.target.value)}
+            defaultValue={tableGlobalFilter}
+            onChange={(event) => updateGlobalFilter(event.target.value)}
             className='h-8 w-37.5 lg:w-62.5'
           />
         )}
@@ -70,7 +96,7 @@ export function DataTableToolbar<TData>({
             variant='ghost'
             onClick={() => {
               table.resetColumnFilters()
-              table.setGlobalFilter('')
+              updateGlobalFilter('', false)
             }}
             className='h-8 px-2 lg:px-3'
           >

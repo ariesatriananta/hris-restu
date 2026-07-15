@@ -1,4 +1,9 @@
-import { useState, type ReactNode, type SelectHTMLAttributes } from 'react'
+import {
+  useEffect,
+  useState,
+  type ReactNode,
+  type SelectHTMLAttributes,
+} from 'react'
 import { z } from 'zod'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -9,27 +14,32 @@ import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
 import { uploadEmployeeFile } from '../data/files'
 import {
   useContract,
   useDocument,
+  useEmployeeLookups,
   useSaveContract,
   useSaveDocument,
 } from '../data/queries'
-import type { EmployeeContract, EmployeeDocument } from '../domain'
+import type {
+  EmployeeContract,
+  EmployeeDocument,
+  MockFileAttachment,
+} from '../domain'
 import { EmployeePicker } from './employee-picker'
 import { FormActionBar } from './form-action-bar'
 
 const contractSchema = z
   .object({
     employeeUid: z.string().min(1, 'Karyawan wajib dipilih.'),
-    contractNumber: z.string().min(1, 'Nomor kontrak wajib diisi.'),
-    contractType: z.enum(['PKWT', 'PKWTT', 'OTHER']),
-    sequenceNumber: z.number().int().positive(),
+    contractNumber: z.string().optional(),
+    contractType: z.string().min(1, 'Jenis kontrak wajib dipilih.'),
+    sequenceNumber: z.number().int().nonnegative().optional(),
     startDate: z.string().min(1),
     endDate: z.string().optional(),
-    status: z.enum(['DRAFT', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED']),
     notes: z.string().optional(),
   })
   .refine((v) => !v.endDate || v.endDate >= v.startDate, {
@@ -117,17 +127,20 @@ function ContractForm({
   onSaved: () => void
 }) {
   const save = useSaveContract()
+  const lookups = useEmployeeLookups()
   const [file, setFile] = useState<File>()
+  const [attachment, setAttachment] = useState<MockFileAttachment | undefined>(
+    record?.issuedFile
+  )
   const form = useForm<ContractValues>({
     resolver: zodResolver(contractSchema),
     defaultValues: {
       employeeUid: employeeUid ?? record?.employeeUid ?? '',
       contractNumber: record?.contractNumber ?? '',
       contractType: record?.contractType ?? 'PKWT',
-      sequenceNumber: record?.sequenceNumber ?? 1,
+      sequenceNumber: record?.sequenceNumber ?? 0,
       startDate: record?.startDate?.slice(0, 10) ?? '',
       endDate: record?.endDate?.slice(0, 10) ?? '',
-      status: record?.status ?? 'DRAFT',
       notes: record?.notes ?? '',
     },
   })
@@ -135,7 +148,15 @@ function ContractForm({
     control: form.control,
     name: 'employeeUid',
   })
+  const startDate = useWatch({ control: form.control, name: 'startDate' })
+  const endDate = useWatch({ control: form.control, name: 'endDate' })
   const { confirmation } = useUnsavedChanges(form.formState.isDirty)
+  useEffect(() => {
+    const temporaryUrl = attachment?.temporaryUrl
+    return () => {
+      if (temporaryUrl) URL.revokeObjectURL(temporaryUrl)
+    }
+  }, [attachment?.temporaryUrl])
   const submit = async (value: ContractValues) => {
     const attachment = file
       ? await uploadEmployeeFile(file, value.employeeUid)
@@ -144,6 +165,9 @@ function ContractForm({
       uid: record?.uid,
       input: {
         ...value,
+        status: record?.status ?? 'DRAFT',
+        contractNumber: record?.contractNumber ?? '',
+        sequenceNumber: record?.sequenceNumber ?? 0,
         endDate: value.endDate || undefined,
         notes: value.notes || undefined,
         issuedFile: attachment,
@@ -179,38 +203,61 @@ function ContractForm({
           label='Nomor kontrak'
           error={form.formState.errors.contractNumber?.message}
         >
-          <Input {...form.register('contractNumber')} />
+          <Input
+            value={record?.contractNumber ?? 'Akan dibuat otomatis'}
+            readOnly
+            disabled
+          />
         </Field>
         <Native
           label='Jenis kontrak'
-          values={['PKWT', 'PKWTT', 'OTHER']}
+          values={(lookups.data?.contractTypes ?? []).map((item) => ({
+            value: item.code,
+            label: item.name,
+          }))}
+          disabled={lookups.isPending || !lookups.data?.contractTypes.length}
           {...form.register('contractType')}
         />
         <Field label='Urutan kontrak'>
           <Input
-            type='number'
-            {...form.register('sequenceNumber', { valueAsNumber: true })}
+            value={record?.sequenceNumber ?? 'Ditentukan otomatis'}
+            readOnly
+            disabled
           />
         </Field>
-        <Field label='Tanggal mulai'>
-          <Input type='date' {...form.register('startDate')} />
-        </Field>
-        <Field
+        <DateField
+          label='Tanggal mulai'
+          value={startDate}
+          onChange={(date) =>
+            form.setValue('startDate', dateToInput(date), {
+              shouldDirty: true,
+              shouldValidate: true,
+            })
+          }
+        />
+        <DateField
           label='Tanggal berakhir'
           error={form.formState.errors.endDate?.message}
-        >
-          <Input type='date' {...form.register('endDate')} />
-        </Field>
-        <Native
-          label='Status'
-          values={['DRAFT', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED']}
-          {...form.register('status')}
+          value={endDate}
+          onChange={(date) =>
+            form.setValue('endDate', dateToInput(date), {
+              shouldDirty: true,
+              shouldValidate: true,
+            })
+          }
         />
+        <Field label='Status workflow'><Input value={record?.status ?? 'DRAFT'} readOnly disabled /></Field>
         <Field label='Lampiran kontrak (opsional)'>
+          <ContractAttachmentPreview attachment={attachment} />
           <Input
             type='file'
             accept='.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-            onChange={(e) => setFile(e.target.files?.[0])}
+            onChange={(e) => {
+              const nextFile = e.target.files?.[0]
+              if (!nextFile) return
+              setFile(nextFile)
+              setAttachment(attachmentFromFile(nextFile))
+            }}
           />
         </Field>
         <div className='sm:col-span-2'>
@@ -253,6 +300,8 @@ function DocumentForm({
     control: form.control,
     name: 'employeeUid',
   })
+  const issuedDate = useWatch({ control: form.control, name: 'issuedDate' })
+  const expiryDate = useWatch({ control: form.control, name: 'expiryDate' })
   const { confirmation } = useUnsavedChanges(form.formState.isDirty)
   const submit = async (value: DocumentValues) => {
     const attachment = file
@@ -311,12 +360,26 @@ function DocumentForm({
         <Field label='Nomor dokumen'>
           <Input {...form.register('documentNumber')} />
         </Field>
-        <Field label='Tanggal terbit'>
-          <Input type='date' {...form.register('issuedDate')} />
-        </Field>
-        <Field label='Tanggal kedaluwarsa'>
-          <Input type='date' {...form.register('expiryDate')} />
-        </Field>
+        <DateField
+          label='Tanggal terbit'
+          value={issuedDate}
+          onChange={(date) =>
+            form.setValue('issuedDate', dateToInput(date), {
+              shouldDirty: true,
+              shouldValidate: true,
+            })
+          }
+        />
+        <DateField
+          label='Tanggal kedaluwarsa'
+          value={expiryDate}
+          onChange={(date) =>
+            form.setValue('expiryDate', dateToInput(date), {
+              shouldDirty: true,
+              shouldValidate: true,
+            })
+          }
+        />
         <Native
           label='Status'
           values={['ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED']}
@@ -336,6 +399,57 @@ function DocumentForm({
         </div>
       </form>
     </RecordLayout>
+  )
+}
+
+function DateField({
+  label,
+  error,
+  value,
+  onChange,
+}: {
+  label: string
+  error?: string
+  value?: string
+  onChange: (date: Date | undefined) => void
+}) {
+  return (
+    <Field label={label} error={error}>
+      <DatePicker selected={dateFromInput(value)} onSelect={onChange} />
+    </Field>
+  )
+}
+
+function ContractAttachmentPreview({
+  attachment,
+}: {
+  attachment?: MockFileAttachment
+}) {
+  const url = attachment?.temporaryUrl ?? attachment?.url
+  if (!attachment || !url) {
+    return (
+      <p className='rounded-md border border-dashed p-3 text-sm text-muted-foreground'>
+        Belum ada lampiran. PDF akan dapat dipratinjau di sini.
+      </p>
+    )
+  }
+
+  if (attachment.mimeType === 'application/pdf') {
+    return (
+      <div className='overflow-hidden rounded-md border bg-muted'>
+        <iframe
+          title={`Pratinjau ${attachment.originalName}`}
+          src={url}
+          className='h-72 w-full bg-background'
+        />
+      </div>
+    )
+  }
+
+  return (
+    <p className='rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground'>
+      {attachment.originalName} — pratinjau tidak tersedia untuk tipe file ini.
+    </p>
   )
 }
 
@@ -397,13 +511,39 @@ function Field({
     </label>
   )
 }
+
+function dateFromInput(value?: string) {
+  if (!value) return undefined
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+function dateToInput(value?: Date) {
+  if (!value) return ''
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function attachmentFromFile(file: File): MockFileAttachment {
+  return {
+    uid: '',
+    originalName: file.name,
+    mimeType: file.type || 'application/octet-stream',
+    sizeBytes: file.size,
+    extension: file.name.split('.').pop(),
+    temporaryUrl: URL.createObjectURL(file),
+  }
+}
+
 function Native({
   label,
   values,
   ...props
 }: SelectHTMLAttributes<HTMLSelectElement> & {
   label: string
-  values: string[]
+  values: Array<string | { value: string; label: string }>
 }) {
   return (
     <Field label={label}>
@@ -411,11 +551,15 @@ function Native({
         className='h-9 rounded-md border bg-background px-3 text-sm'
         {...props}
       >
-        {values.map((v: string) => (
-          <option key={v} value={v}>
-            {v}
-          </option>
-        ))}
+        {values.map((item) => {
+          const option =
+            typeof item === 'string' ? { value: item, label: item } : item
+          return (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          )
+        })}
       </select>
     </Field>
   )

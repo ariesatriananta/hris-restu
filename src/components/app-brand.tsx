@@ -33,7 +33,7 @@ export function AppBrand({ compact = false, className }: AppBrandProps) {
         <div className='min-w-0 leading-tight'>
           <p className='truncate text-sm font-bold'>{APP_NAME}</p>
           <p className='truncate text-xs text-muted-foreground'>
-            Sistem Internal
+            Sistem HR Terintegrasi
           </p>
         </div>
       )}

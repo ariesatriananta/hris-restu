@@ -3,7 +3,6 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { Plus, RefreshCcw } from 'lucide-react'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Main } from '@/components/layout/main'
 import { useEmployeeList } from '../data/queries'
 import type { EmployeeListParams } from '../domain'
@@ -27,9 +26,9 @@ export function EmployeesPage({
       ? search.employeeStatus
       : undefined,
     page: typeof search.page === 'number' ? search.page : 1,
-    pageSize: typeof search.pageSize === 'number' ? search.pageSize : 10,
+    pageSize: typeof search.pageSize === 'number' ? search.pageSize : 100,
   }
-  const query = useEmployeeList(params)
+  const query = useEmployeeList(params, { keepPreviousData: true })
   const routerNavigate = useNavigate()
   const columns = useMemo(
     () =>
@@ -56,39 +55,36 @@ export function EmployeesPage({
           </Link>
         </Button>
       </div>
-      <Card>
-        <CardContent className='pt-6'>
-          {query.isPending ? (
-            <p className='py-10 text-center text-muted-foreground'>
-              Memuat data karyawan...
-            </p>
-          ) : query.isError ? (
-            <div className='py-10 text-center'>
-              <p>Data gagal dimuat.</p>
-              <Button
-                variant='outline'
-                className='mt-3'
-                onClick={() => query.refetch()}
-              >
-                <RefreshCcw /> Coba lagi
-              </Button>
-            </div>
-          ) : (
-            <EmployeesTable
-              data={query.data}
-              columns={columns}
-              search={search}
-              navigate={navigate}
-              onEdit={(employee) =>
-                routerNavigate({
-                  to: '/karyawan/ubah-karyawan/$employeeUid',
-                  params: { employeeUid: employee.uid },
-                })
-              }
-            />
-          )}
-        </CardContent>
-      </Card>
+      {query.isPending && !query.data ? (
+        <p className='py-10 text-center text-muted-foreground'>
+          Memuat data karyawan...
+        </p>
+      ) : query.isError ? (
+        <div className='py-10 text-center'>
+          <p>Data gagal dimuat.</p>
+          <Button
+            variant='outline'
+            className='mt-3'
+            onClick={() => query.refetch()}
+          >
+            <RefreshCcw /> Coba lagi
+          </Button>
+        </div>
+      ) : (
+        <EmployeesTable
+          data={query.data}
+          columns={columns}
+          search={search}
+          navigate={navigate}
+          onEdit={(employee) =>
+            routerNavigate({
+              to: '/karyawan/ubah-karyawan/$employeeUid',
+              params: { employeeUid: employee.uid },
+            })
+          }
+          isFetching={query.isFetching}
+        />
+      )}
     </Main>
   )
 }

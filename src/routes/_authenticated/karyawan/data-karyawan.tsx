@@ -5,7 +5,7 @@ import { EmployeesPage } from '@/features/employees/components/employees-page'
 export const Route = createFileRoute('/_authenticated/karyawan/data-karyawan')({
   validateSearch: z.object({
     page: z.number().int().positive().optional(),
-    pageSize: z.number().int().min(10).max(50).optional(),
+    pageSize: z.number().int().min(1).max(500).optional(),
     filter: z.string().optional(),
     site: z.array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])).optional(),
     employeeType: z.array(z.enum(['BORONGAN', 'BULANAN'])).optional(),

@@ -4,6 +4,10 @@ import { render } from 'vitest-browser-react'
 import { userEvent } from 'vitest/browser'
 import { EmployeeForm } from './employee-form'
 
+vi.mock('@/hooks/use-unsaved-changes', () => ({
+  useUnsavedChanges: () => ({ confirmation: null }),
+}))
+
 describe('EmployeeForm', () => {
   it('mengirim field pribadi opsional melalui schema Zod', async () => {
     const onSubmit = vi.fn()
@@ -20,14 +24,15 @@ describe('EmployeeForm', () => {
       </QueryClientProvider>
     )
 
-    await userEvent.fill(screen.getByLabelText('Nomor karyawan'), 'RST-TEST-01')
-    await userEvent.fill(screen.getByLabelText('Barcode'), 'RSTTEST01')
+    await expect
+      .element(screen.getByLabelText('Employee ID'))
+      .toHaveValue('Akan dibuat otomatis')
     await userEvent.fill(
       screen.getByLabelText('Nama lengkap'),
       'Karyawan Fiktif'
     )
     await userEvent.fill(
-      screen.getByLabelText('Tanggal bergabung'),
+      screen.getByLabelText('Tanggal bergabung', { exact: true }),
       '2026-07-11'
     )
     await userEvent.fill(
@@ -43,11 +48,12 @@ describe('EmployeeForm', () => {
     )
 
     await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce())
-    expect(onSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        nationalIdNumber: 'MOCK-NIK-1234',
-        bankAccountNumber: 'MOCK-REKENING-5678',
-      })
-    )
+    const submitted = onSubmit.mock.calls[0]?.[0]
+    expect(submitted).not.toHaveProperty('employeeNumber')
+    expect(submitted).not.toHaveProperty('barcode')
+    expect(submitted).toMatchObject({
+      nationalIdNumber: 'MOCK-NIK-1234',
+      bankAccountNumber: 'MOCK-REKENING-5678',
+    })
   })
 })

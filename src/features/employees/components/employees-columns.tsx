@@ -25,7 +25,7 @@ export function createEmployeeColumns(
           >
             {row.original.fullName}
           </Link>
-          <p className='text-xs text-muted-foreground'>
+          <p className='text-[11px] leading-3 text-muted-foreground'>
             {row.original.employeeNumber} · {row.original.barcode}
           </p>
         </div>

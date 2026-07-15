@@ -8,11 +8,10 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table'
-import { FileText, Pencil, Plus, RefreshCcw } from 'lucide-react'
+import { Eye, FileText, Pencil, RefreshCcw } from 'lucide-react'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import {
   Table,
   TableBody,
@@ -26,7 +25,7 @@ import {
   DataTablePagination,
   DataTableToolbar,
 } from '@/components/data-table'
-import type { PaginatedResult } from '../domain'
+import type { EmployeeContract, PaginatedResult } from '../domain'
 import { statusLabel } from '../utils'
 
 export type EmployeeRecordRow = {
@@ -38,6 +37,7 @@ export type EmployeeRecordRow = {
   status: string
   detail: string
   expiry?: string
+  contract?: EmployeeContract
 }
 
 export function RecordsTable({
@@ -46,9 +46,8 @@ export function RecordsTable({
   navigate,
   prefix,
   statuses,
-  actionLabel,
-  onCreate,
   onEdit,
+  onView,
   isPending,
   isError,
   onRetry,
@@ -58,9 +57,8 @@ export function RecordsTable({
   navigate: NavigateFn
   prefix: 'contract' | 'document'
   statuses: string[]
-  actionLabel: string
-  onCreate: () => void
   onEdit: (uid: string) => void
+  onView?: (row: EmployeeRecordRow) => void
   isPending: boolean
   isError: boolean
   onRetry: () => void
@@ -88,7 +86,9 @@ export function RecordsTable({
       cell: ({ row }) => (
         <div>
           <p className='font-medium'>{row.original.title}</p>
-          <p className='text-xs text-muted-foreground'>{row.original.detail}</p>
+          <p className='text-[11px] leading-3 text-muted-foreground'>
+            {row.original.detail}
+          </p>
         </div>
       ),
     },
@@ -134,14 +134,26 @@ export function RecordsTable({
       enableSorting: false,
       enableHiding: false,
       cell: ({ row }) => (
-        <Button
-          size='sm'
-          variant='ghost'
-          onClick={() => onEdit(row.original.uid)}
-        >
-          <Pencil />
-          <span className='sr-only'>Ubah</span>
-        </Button>
+        <div className='flex items-center gap-1'>
+          {onView && (
+            <Button
+              size='sm'
+              variant='ghost'
+              onClick={() => onView(row.original)}
+            >
+              <Eye /> Detail
+            </Button>
+          )}
+          <Button
+            size='sm'
+            variant='ghost'
+            onClick={() => onEdit(row.original.uid)}
+            aria-label={`Ubah ${row.original.title}`}
+          >
+            <Pencil />
+            <span className='sr-only'>Ubah</span>
+          </Button>
+        </div>
       ),
     },
   ]
@@ -166,96 +178,90 @@ export function RecordsTable({
     pageCount: Math.max(1, Math.ceil(data.total / data.pageSize)),
   })
   return (
-    <Card>
-      <CardContent className='space-y-4 pt-6'>
-        <div className='flex justify-end'>
-          <Button onClick={onCreate}>
-            <Plus /> {actionLabel}
+    <div className='space-y-4'>
+      <DataTableToolbar
+        table={table}
+        searchPlaceholder='Cari karyawan, nomor, atau dokumen...'
+        searchDebounceMs={300}
+        filters={[
+          {
+            columnId: 'site',
+            title: 'Site',
+            options: ['JEPARA', 'SEMARANG', 'KLATEN'].map((value) => ({
+              value,
+              label: statusLabel(value),
+            })),
+          },
+          {
+            columnId: 'status',
+            title: 'Status',
+            options: statuses.map((value) => ({
+              value,
+              label: statusLabel(value),
+            })),
+          },
+        ]}
+      />
+      {isPending ? (
+        <p className='py-10 text-center text-muted-foreground'>
+          Memuat data...
+        </p>
+      ) : isError ? (
+        <div className='py-10 text-center'>
+          <p>Data gagal dimuat.</p>
+          <Button variant='outline' className='mt-3' onClick={onRetry}>
+            <RefreshCcw /> Coba lagi
           </Button>
         </div>
-        <DataTableToolbar
-          table={table}
-          searchPlaceholder='Cari karyawan, nomor, atau dokumen...'
-          filters={[
-            {
-              columnId: 'site',
-              title: 'Site',
-              options: ['JEPARA', 'SEMARANG', 'KLATEN'].map((value) => ({
-                value,
-                label: statusLabel(value),
-              })),
-            },
-            {
-              columnId: 'status',
-              title: 'Status',
-              options: statuses.map((value) => ({
-                value,
-                label: statusLabel(value),
-              })),
-            },
-          ]}
-        />
-        {isPending ? (
-          <p className='py-10 text-center text-muted-foreground'>
-            Memuat data...
+      ) : table.getRowModel().rows.length === 0 ? (
+        <div className='py-10 text-center text-muted-foreground'>
+          <FileText className='mx-auto mb-2' />
+          Tidak ada data yang sesuai filter.
+        </div>
+      ) : (
+        <>
+          <div className='overflow-x-auto rounded-md border'>
+            <Table>
+              <TableHeader>
+                {table.getHeaderGroups().map((group) => (
+                  <TableRow key={group.id}>
+                    {group.headers.map((header) => (
+                      <TableHead key={header.id}>
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                              header.column.columnDef.header,
+                              header.getContext()
+                            )}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableHeader>
+              <TableBody>
+                {table.getRowModel().rows.map((row) => (
+                  <TableRow key={row.id}>
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext()
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <p className='text-sm text-muted-foreground'>
+            Menampilkan {data.total ? (data.page - 1) * data.pageSize + 1 : 0}–
+            {Math.min(data.page * data.pageSize, data.total)} dari {data.total}{' '}
+            data.
           </p>
-        ) : isError ? (
-          <div className='py-10 text-center'>
-            <p>Data gagal dimuat.</p>
-            <Button variant='outline' className='mt-3' onClick={onRetry}>
-              <RefreshCcw /> Coba lagi
-            </Button>
-          </div>
-        ) : table.getRowModel().rows.length === 0 ? (
-          <div className='py-10 text-center text-muted-foreground'>
-            <FileText className='mx-auto mb-2' />
-            Tidak ada data yang sesuai filter.
-          </div>
-        ) : (
-          <>
-            <div className='overflow-x-auto rounded-md border'>
-              <Table>
-                <TableHeader>
-                  {table.getHeaderGroups().map((group) => (
-                    <TableRow key={group.id}>
-                      {group.headers.map((header) => (
-                        <TableHead key={header.id}>
-                          {header.isPlaceholder
-                            ? null
-                            : flexRender(
-                                header.column.columnDef.header,
-                                header.getContext()
-                              )}
-                        </TableHead>
-                      ))}
-                    </TableRow>
-                  ))}
-                </TableHeader>
-                <TableBody>
-                  {table.getRowModel().rows.map((row) => (
-                    <TableRow key={row.id}>
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext()
-                          )}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <p className='text-sm text-muted-foreground'>
-              Menampilkan {data.total ? (data.page - 1) * data.pageSize + 1 : 0}
-              –{Math.min(data.page * data.pageSize, data.total)} dari{' '}
-              {data.total} data.
-            </p>
-            <DataTablePagination table={table} />
-          </>
-        )}
-      </CardContent>
-    </Card>
+          <DataTablePagination table={table} />
+        </>
+      )}
+    </div>
   )
 }

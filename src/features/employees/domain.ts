@@ -10,8 +10,13 @@ export type EmploymentChangeType =
   | 'TYPE_CHANGE'
   | 'GROUP_CHANGE'
   | 'OTHER'
+export type MutationChangeType = Exclude<
+  EmploymentChangeType,
+  'INITIAL' | 'STATUS_CHANGE'
+>
 export type ContractStatus =
   | 'DRAFT'
+  | 'SCHEDULED'
   | 'ACTIVE'
   | 'EXPIRED'
   | 'TERMINATED'
@@ -23,6 +28,7 @@ export interface LookupOption {
   code: string
   name: string
   siteCode?: SiteCode
+  employeeNumberPrefix?: string
 }
 export interface MockFileAttachment {
   uid: string
@@ -72,7 +78,15 @@ export interface Employee {
   bpjsEmploymentNumber?: string
   photo?: MockFileAttachment
   notes?: string
+  terminatedAt?: string
+  terminationReason?: string
 }
+export type ContractLifecycleAction =
+  | 'schedule'
+  | 'activate'
+  | 'terminate'
+  | 'resign'
+  | 'cancel'
 export interface EmploymentHistory {
   uid: string
   employeeUid: string
@@ -93,7 +107,7 @@ export interface EmployeeContract {
   uid: string
   employeeUid: string
   contractNumber: string
-  contractType: 'PKWT' | 'PKWTT' | 'OTHER'
+  contractType: string
   sequenceNumber: number
   startDate: string
   endDate?: string
@@ -121,7 +135,10 @@ export interface EmployeeDocument {
   employeeName?: string
   site?: SiteCode
 }
-export interface EmployeeInput extends Omit<Employee, 'uid' | 'photo'> {
+export interface EmployeeInput extends Omit<
+  Employee,
+  'uid' | 'photo' | 'employeeNumber' | 'barcode'
+> {
   photo?: MockFileAttachment
 }
 export interface MutationInput {
@@ -130,9 +147,8 @@ export interface MutationInput {
   position?: string
   workGroup?: string
   employeeType: EmployeeTypeCode
-  employeeStatus: EmployeeStatusCode
   effectiveFrom: string
-  changeType: EmploymentChangeType
+  changeType: MutationChangeType
   referenceNumber?: string
   reason?: string
   notes?: string
@@ -166,7 +182,7 @@ export interface EmployeeRepository {
   applyMutation(
     employeeUid: string,
     input: MutationInput
-  ): Promise<EmploymentHistory>
+  ): Promise<{ uid: string }>
   contracts(employeeUid?: string): Promise<EmployeeContract[]>
   saveContract(
     input: Omit<EmployeeContract, 'uid'>,

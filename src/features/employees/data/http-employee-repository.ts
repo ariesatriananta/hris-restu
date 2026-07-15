@@ -7,6 +7,7 @@ import type {
   EmployeeContract,
   EmployeeDocument,
   EmployeeRecordListParams,
+  ContractLifecycleAction,
   PaginatedResult,
 } from '../domain'
 
@@ -49,7 +50,8 @@ export const httpEmployeeRepository: EmployeeRepository = {
     }
   },
   async save(input, uid) {
-    const body = { ...input, photoUid: input.photo?.uid }
+    const { photo, ...employee } = input
+    const body = { ...employee, photoUid: photo?.uid || undefined }
     const response = uid
       ? await apiClient.patch(`/employees/${uid}`, body)
       : await apiClient.post<{ uid: string }>('/employees', body)
@@ -145,3 +147,4 @@ export const getContract = async (uid: string) =>
 
 export const getDocument = async (uid: string) =>
   (await apiClient.get<EmployeeDocument>(`/employees/documents/${uid}`)).data
+export const transitionContract = async (uid: string, action: ContractLifecycleAction, input: { effectiveDate?: string; reason?: string }) => (await apiClient.post<EmployeeContract>(`/employees/contracts/${uid}/${action}`, input)).data

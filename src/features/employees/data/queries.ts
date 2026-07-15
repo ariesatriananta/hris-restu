@@ -1,4 +1,5 @@
 import {
+  keepPreviousData,
   queryOptions,
   useMutation,
   useQuery,
@@ -13,11 +14,13 @@ import type {
   EmployeeRecordListParams,
   LookupOption,
   MutationInput,
+  ContractLifecycleAction,
 } from '../domain'
 import {
   httpEmployeeRepository,
   getContract,
   getDocument,
+  transitionContract,
   listContracts,
   listDocuments,
 } from './http-employee-repository'
@@ -46,6 +49,7 @@ export type EmployeeLookups = {
   departments: LookupOption[]
   positions: LookupOption[]
   workGroups: LookupOption[]
+  contractTypes: LookupOption[]
 }
 export const useEmployeeLookups = (enabled = true) =>
   useQuery(
@@ -57,11 +61,15 @@ export const useEmployeeLookups = (enabled = true) =>
       enabled,
     })
   )
-export const useEmployeeList = (params: EmployeeListParams) =>
+export const useEmployeeList = (
+  params: EmployeeListParams,
+  options?: { keepPreviousData?: boolean }
+) =>
   useQuery(
     queryOptions({
       queryKey: employeeKeys.list(params),
       queryFn: () => httpEmployeeRepository.list(params),
+      placeholderData: options?.keepPreviousData ? keepPreviousData : undefined,
     })
   )
 export const useEmployee = (uid: string) =>
@@ -69,6 +77,7 @@ export const useEmployee = (uid: string) =>
     queryOptions({
       queryKey: employeeKeys.detail(uid),
       queryFn: () => httpEmployeeRepository.getByUid(uid),
+      enabled: Boolean(uid),
     })
   )
 export const useHistories = (uid?: string) =>
@@ -89,7 +98,8 @@ export const useDocuments = (uid?: string) =>
   useQuery(
     queryOptions({
       queryKey: employeeKeys.documents(uid),
-      queryFn: () => httpEmployeeRepository.documents(uid),
+      queryFn: () => httpEmployeeRepository.documents(uid!),
+      enabled: Boolean(uid),
     })
   )
 export const useContractList = (params: EmployeeRecordListParams) =>
@@ -159,6 +169,7 @@ export function useSaveContract() {
     onSuccess: () => invalidate(queryClient),
   })
 }
+export function useTransitionContract() { const queryClient=useQueryClient(); return useMutation({ mutationFn: ({uid,action,input}:{uid:string;action:ContractLifecycleAction;input:{effectiveDate?:string;reason?:string}})=>transitionContract(uid,action,input), onSuccess:()=>invalidate(queryClient) }) }
 export function useSaveDocument() {
   const queryClient = useQueryClient()
   return useMutation({
