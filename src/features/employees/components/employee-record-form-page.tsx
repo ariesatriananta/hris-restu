@@ -20,6 +20,7 @@ import { uploadEmployeeFile } from '../data/files'
 import {
   useContract,
   useDocument,
+  useEmployee,
   useEmployeeLookups,
   useSaveContract,
   useSaveDocument,
@@ -148,6 +149,7 @@ function ContractForm({
     control: form.control,
     name: 'employeeUid',
   })
+  const selectedEmployee = useEmployee(selectedEmployeeUid)
   const startDate = useWatch({ control: form.control, name: 'startDate' })
   const endDate = useWatch({ control: form.control, name: 'endDate' })
   const { confirmation } = useUnsavedChanges(form.formState.isDirty)
@@ -158,6 +160,16 @@ function ContractForm({
     }
   }, [attachment?.temporaryUrl])
   const submit = async (value: ContractValues) => {
+    if (
+      selectedEmployee.data?.joinDate &&
+      value.startDate < selectedEmployee.data.joinDate
+    ) {
+      form.setError('startDate', {
+        message:
+          'Tanggal mulai kontrak tidak boleh sebelum tanggal bergabung karyawan.',
+      })
+      return
+    }
     const attachment = file
       ? await uploadEmployeeFile(file, value.employeeUid)
       : record?.issuedFile
@@ -215,7 +227,11 @@ function ContractForm({
             value: item.code,
             label: item.name,
           }))}
-          disabled={lookups.isPending || !lookups.data?.contractTypes.length}
+          disabled={
+            lookups.isPending ||
+            !lookups.data?.contractTypes.length ||
+            record?.status === 'ACTIVE'
+          }
           {...form.register('contractType')}
         />
         <Field label='Urutan kontrak'>
@@ -227,7 +243,14 @@ function ContractForm({
         </Field>
         <DateField
           label='Tanggal mulai'
+          error={form.formState.errors.startDate?.message}
           value={startDate}
+          disabledDates={(date) =>
+            Boolean(
+              selectedEmployee.data?.joinDate &&
+              dateToInput(date) < selectedEmployee.data.joinDate
+            )
+          }
           onChange={(date) =>
             form.setValue('startDate', dateToInput(date), {
               shouldDirty: true,
@@ -246,7 +269,9 @@ function ContractForm({
             })
           }
         />
-        <Field label='Status workflow'><Input value={record?.status ?? 'DRAFT'} readOnly disabled /></Field>
+        <Field label='Status workflow'>
+          <Input value={record?.status ?? 'DRAFT'} readOnly disabled />
+        </Field>
         <Field label='Lampiran kontrak (opsional)'>
           <ContractAttachmentPreview attachment={attachment} />
           <Input
@@ -407,15 +432,21 @@ function DateField({
   error,
   value,
   onChange,
+  disabledDates,
 }: {
   label: string
   error?: string
   value?: string
   onChange: (date: Date | undefined) => void
+  disabledDates?: (date: Date) => boolean
 }) {
   return (
     <Field label={label} error={error}>
-      <DatePicker selected={dateFromInput(value)} onSelect={onChange} />
+      <DatePicker
+        selected={dateFromInput(value)}
+        onSelect={onChange}
+        disabledDates={disabledDates}
+      />
     </Field>
   )
 }

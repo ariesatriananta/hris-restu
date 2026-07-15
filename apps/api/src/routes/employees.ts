@@ -15,6 +15,7 @@ import {
   synchronizeActiveContractAfterEdit,
   transitionContract,
 } from '../lib/contract-lifecycle.js'
+import { cronConflict } from '../lib/contract-lifecycle-policy.js'
 import { authenticate, requirePermission, type AuthContext } from '../middleware/authenticate.js'
 
 const siteCode = z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])
@@ -51,9 +52,8 @@ const contractFields = {
   issuedFileUid: z.string().uuid().optional(), notes: optional,
 }
 const contractCreateInput = z.object(contractFields).refine((value) => !value.endDate || value.endDate >= value.startDate, { message: 'Tanggal kontrak tidak valid.', path: ['endDate'] })
-const contractUpdateInput = z.object({
-  contractNumber: z.string().trim().min(1), sequenceNumber: z.number().int().positive(), ...contractFields,
-}).refine((value) => !value.endDate || value.endDate >= value.startDate, { message: 'Tanggal kontrak tidak valid.', path: ['endDate'] })
+const contractUpdateInput = z.object(contractFields).strict()
+  .refine((value) => !value.endDate || value.endDate >= value.startDate, { message: 'Tanggal kontrak tidak valid.', path: ['endDate'] })
 const documentInput = z.object({
   documentType: z.string().trim().min(1), documentNumber: optional, name: z.string().trim().min(1), fileUid: z.string().uuid(),
   issuedDate: optionalDate, expiryDate: optionalDate, status: z.enum(['ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED']), notes: optional,
@@ -150,6 +150,13 @@ employeesRouter.get('/contracts', requirePermission('employees.view'), async (re
     res.json({ items: rows.map(mapContract), total: Number(count[0].total), page, pageSize })
   } catch (error) { next(error) }
 })
+employeesRouter.get('/contracts/conflicts', requirePermission('employees.view'), async (_req, res, next) => {
+  try {
+    const scope = scopeWhere(res.locals.auth as AuthContext)
+    const [rows] = await pool.query<RowDataPacket[]>(`SELECT e.uid employeeUid,e.employee_number employeeNumber,e.full_name fullName,s.code site,es.code currentStatus,COUNT(c.id) activeContracts,GROUP_CONCAT(c.contract_number ORDER BY c.start_date SEPARATOR ', ') activeContractNumbers FROM employees e JOIN sites s ON s.id=e.current_site_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN employee_contracts c ON c.employee_id=e.id AND c.status='ACTIVE' AND c.start_date<=CURDATE() AND (c.end_date IS NULL OR c.end_date>=CURDATE()) WHERE ${scope.sql} GROUP BY e.id,e.uid,e.employee_number,e.full_name,s.code,es.code HAVING COUNT(c.id)>1 OR (es.code IN ('RESIGNED','LEAVE') AND COUNT(c.id)>0) ORDER BY s.code,e.employee_number LIMIT 50`, scope.params)
+    res.json({ items: rows.map((row) => cronConflict({ employeeUid: String(row.employeeUid), employeeNumber: String(row.employeeNumber), fullName: String(row.fullName), site: String(row.site), currentStatus: String(row.currentStatus), activeContracts: Number(row.activeContracts), activeContractNumbers: row.activeContractNumbers ? String(row.activeContractNumbers) : null })), total: rows.length })
+  } catch (error) { next(error) }
+})
 employeesRouter.get('/documents', requirePermission('employees.view'), async (req, res, next) => {
   try {
     const page = Math.max(1, Number(req.query.page ?? 1)); const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 100)))
@@ -240,7 +247,7 @@ employeesRouter.post('/:uid/contracts', requirePermission('employees.manage'), a
     const input = contractCreateInput.parse(req.body); const auth = res.locals.auth as AuthContext; const uid = randomUUID(); const conn = await pool.getConnection()
     try {
       await conn.beginTransaction()
-      const [employees] = await conn.query<RowDataPacket[]>('SELECT e.id,e.employee_number employeeNumber,s.id siteId,s.code site,p.name position FROM employees e JOIN sites s ON s.id=e.current_site_id LEFT JOIN positions p ON p.id=e.current_position_id WHERE e.uid=? FOR UPDATE', [routeParam(req.params.uid)])
+      const [employees] = await conn.query<RowDataPacket[]>('SELECT e.id,e.employee_number employeeNumber,DATE_FORMAT(e.join_date,\'%Y-%m-%d\') joinDate,s.id siteId,s.code site,p.name position FROM employees e JOIN sites s ON s.id=e.current_site_id LEFT JOIN positions p ON p.id=e.current_position_id WHERE e.uid=? FOR UPDATE', [routeParam(req.params.uid)])
       const employee = employees[0]
       if (!employee) throw new ApiError(404, 'Karyawan tidak ditemukan.')
       enforceSite(auth, employee.site)
@@ -250,7 +257,7 @@ employeesRouter.post('/:uid/contracts', requirePermission('employees.manage'), a
       const [sequences] = await conn.query<RowDataPacket[]>('SELECT COALESCE(MAX(sequence_number), 0) + 1 nextSequence FROM employee_contracts WHERE employee_id=?', [employee.id])
       const sequenceNumber = Number(sequences[0]?.nextSequence ?? 1)
       const contractNumber = formatContractNumber(contractType.code, employee.employeeNumber, sequenceNumber)
-      await assertContractRules(conn, employee.id, contractType.code, input.startDate, input.endDate)
+      await assertContractRules(conn, employee.id, contractType.code, input.startDate, input.endDate, undefined, employee.joinDate)
       await conn.execute(`INSERT INTO employee_contracts(uid,employee_id,contract_number,contract_type_id,sequence_number,start_date,end_date,signed_date,status,position_name_snapshot,site_name_snapshot,issued_file_id,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [uid,employee.id,contractNumber,contractType.id,sequenceNumber,input.startDate,empty(input.endDate),empty(input.signedDate),'DRAFT',employee.position,`Site ${employee.site}`,await fileId(input.issuedFileUid),empty(input.notes),auth.id,auth.id])
       await writeAudit({ auth, request: req, siteId: employee.siteId, action: 'CREATE', table: 'employee_contracts', recordUid: uid, description: `Menambah kontrak ${contractNumber}.` }, conn)
       await conn.commit()
@@ -259,7 +266,31 @@ employeesRouter.post('/:uid/contracts', requirePermission('employees.manage'), a
   } catch (error) { next(error) }
 })
 employeesRouter.patch('/contracts/:contractUid', requirePermission('employees.manage'), async (req, res, next) => {
-  try { const input = contractUpdateInput.parse(req.body); const auth = res.locals.auth as AuthContext; const contractUid = routeParam(req.params.contractUid); const [rows] = await pool.query<RowDataPacket[]>('SELECT c.id,c.employee_id,c.status,s.id siteId,s.code site FROM employee_contracts c JOIN employees e ON e.id=c.employee_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=?', [contractUid]); if (!rows[0]) throw new ApiError(404, 'Kontrak tidak ditemukan.'); enforceSite(auth, rows[0].site); const [contractTypes] = await pool.query<RowDataPacket[]>('SELECT id,code FROM contract_types WHERE code=? AND is_active=1', [input.contractType]); if (!contractTypes[0]) throw new ApiError(422, 'Tipe kontrak tidak valid atau tidak aktif.'); const conn=await pool.getConnection(); try { await conn.beginTransaction(); await assertContractRules(conn,rows[0].employee_id,contractTypes[0].code,input.startDate,input.endDate,rows[0].id); await conn.execute('UPDATE employee_contracts SET contract_number=?,contract_type_id=?,sequence_number=?,start_date=?,end_date=?,signed_date=?,issued_file_id=?,notes=?,updated_by=? WHERE id=?', [input.contractNumber,contractTypes[0].id,input.sequenceNumber,input.startDate,empty(input.endDate),empty(input.signedDate),await fileId(input.issuedFileUid),empty(input.notes),auth.id,rows[0].id]); await synchronizeActiveContractAfterEdit(conn,{ id: rows[0].id, employeeId: rows[0].employee_id, status: rows[0].status, startDate: input.startDate, endDate: input.endDate },auth); await writeAudit({ auth, request:req, siteId:rows[0].siteId, action:'UPDATE', table:'employee_contracts', recordId:rows[0].id, recordUid:contractUid, description:`Memperbarui kontrak ${input.contractNumber}.`},conn); await conn.commit() } catch(error){await conn.rollback();throw error} finally{conn.release()} res.status(204).end() } catch (error) { next(error) }
+  try {
+    const input = contractUpdateInput.parse(req.body)
+    const auth = res.locals.auth as AuthContext
+    const contractUid = routeParam(req.params.contractUid)
+    const conn = await pool.getConnection()
+    try {
+      await conn.beginTransaction()
+      const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.employee_id,c.contract_number,c.sequence_number,c.status,ct.code contractType,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,s.id siteId,s.code site FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [contractUid])
+      const contract = rows[0]
+      if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
+      enforceSite(auth, contract.site)
+      if (['EXPIRED', 'TERMINATED', 'CANCELLED'].includes(contract.status)) throw new ApiError(409, 'Kontrak final tidak dapat diubah.')
+      if (contract.status === 'ACTIVE' && input.contractType !== contract.contractType) throw new ApiError(422, 'Jenis kontrak aktif tidak dapat diubah.')
+      const [types] = await conn.query<RowDataPacket[]>('SELECT id,code FROM contract_types WHERE code=? AND is_active=1 FOR UPDATE', [input.contractType])
+      const type = types[0]
+      if (!type) throw new ApiError(422, 'Tipe kontrak tidak valid atau tidak aktif.')
+      await assertContractRules(conn, contract.employee_id, type.code, input.startDate, input.endDate, contract.id, contract.joinDate)
+      const contractNumber = contract.status === 'ACTIVE' ? contract.contract_number : formatContractNumber(type.code, (await conn.query<RowDataPacket[]>('SELECT employee_number employeeNumber FROM employees WHERE id=? FOR UPDATE', [contract.employee_id]))[0][0].employeeNumber, contract.sequence_number)
+      await conn.execute('UPDATE employee_contracts SET contract_number=?,contract_type_id=?,start_date=?,end_date=?,signed_date=?,issued_file_id=?,notes=?,updated_by=? WHERE id=?', [contractNumber,type.id,input.startDate,empty(input.endDate),empty(input.signedDate),await fileId(input.issuedFileUid),empty(input.notes),auth.id,contract.id])
+      await synchronizeActiveContractAfterEdit(conn,{ id: contract.id, uid: contract.uid, employeeId: contract.employee_id, siteId: contract.siteId, status: contract.status, startDate: input.startDate, endDate: input.endDate },auth)
+      await writeAudit({ auth, request:req, siteId:contract.siteId, action:'UPDATE', table:'employee_contracts', recordId:contract.id, recordUid:contractUid, description:`Memperbarui kontrak ${contractNumber}.`},conn)
+      await conn.commit()
+    } catch (error) { await conn.rollback(); throw error } finally { conn.release() }
+    res.status(204).end()
+  } catch (error) { next(error) }
 })
 employeesRouter.post('/contracts/:contractUid/:action', requirePermission('employees.manage'), async (req,res,next)=>{ try { const action=z.enum(['schedule','activate','terminate','resign','cancel']).parse(req.params.action); const input=z.object({effectiveDate:z.string().date().optional(),reason:z.string().trim().min(1).max(500).optional()}).parse(req.body); res.json(await transitionContract(routeParam(req.params.contractUid),action,input,res.locals.auth)) }catch(error){next(error)} })
 employeesRouter.post('/:uid/documents', requirePermission('documents.manage'), async (req, res, next) => {

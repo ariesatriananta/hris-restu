@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import {
   ArrowLeft,
@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { DataTableActionButton } from '@/components/data-table'
 import { Main } from '@/components/layout/main'
 import {
   useContracts,
@@ -23,8 +24,10 @@ import {
   useEmployee,
   useHistories,
 } from '../data/queries'
+import type { Employee, EmployeeContract } from '../domain'
 import { formatDate, maskValue, statusLabel } from '../utils'
 import { ContractDetailDrawer } from './contract-detail-drawer'
+import { ContractLifecycleActionButtons } from './contract-lifecycle-action-buttons'
 import { EmployeeIdCard } from './id-card'
 import { MutationDetailDrawer } from './mutation-detail-drawer'
 import { MutationDialog } from './mutation-dialog'
@@ -145,6 +148,7 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
               title='Status kerja'
               rows={[
                 ['Status', statusLabel(data.employeeStatus)],
+                ['Ringkasan', employmentStatusSummary(data, contracts.data)],
                 ['Tanggal tetap', formatDate(data.permanentDate)],
                 ['Tanggal resign', formatDate(data.resignDate)],
                 ['Alasan resign', data.resignReason],
@@ -288,8 +292,14 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
               label: 'Tambah PKWT',
             }}
             items={contracts.data?.map((item) => ({
+              actionLabel: item.contractNumber,
               label: `${item.contractNumber} · ${statusLabel(item.status)} · ${formatDate(item.startDate)} — ${formatDate(item.endDate)}`,
-              edit: `/karyawan/pkwt/${item.uid}/ubah`,
+              edit: ['EXPIRED', 'TERMINATED', 'CANCELLED'].includes(item.status)
+                ? undefined
+                : `/karyawan/pkwt/${item.uid}/ubah`,
+              lifecycleActions: (
+                <ContractLifecycleActionButtons contract={item} />
+              ),
               onDetail: () => setSelectedContractUid(item.uid),
             }))}
           />
@@ -307,6 +317,7 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
               label: 'Tambah dokumen',
             }}
             items={documents.data?.map((item) => ({
+              actionLabel: item.documentNumber ?? item.name,
               label: `${item.name} · ${statusLabel(item.status)} · ${item.file.originalName}`,
               edit: `/karyawan/dokumen/${item.uid}/ubah`,
               file: item.file.url,
@@ -378,6 +389,40 @@ function InfoCard({
     </Card>
   )
 }
+
+function employmentStatusSummary(
+  employee: Employee,
+  contracts?: EmployeeContract[]
+) {
+  if (contracts === undefined) return 'Memuat dasar kontrak...'
+
+  if (employee.employeeStatus === 'RESIGNED') {
+    return `Mengundurkan diri${employee.resignDate ? ` pada ${formatDate(employee.resignDate)}` : ''}.`
+  }
+
+  const active = contracts.find((contract) => contract.status === 'ACTIVE')
+  if (active) {
+    return `Aktif melalui kontrak ${active.contractNumber}${active.endDate ? ` hingga ${formatDate(active.endDate)}` : ''}.`
+  }
+
+  if (employee.employeeStatus === 'INACTIVE') {
+    const terminated = contracts.find(
+      (contract) => contract.status === 'TERMINATED'
+    )
+    if (terminated) {
+      return `Nonaktif — kontrak ${terminated.contractNumber} dihentikan${terminated.terminatedAt ? ` pada ${formatDate(terminated.terminatedAt)}` : ''}.`
+    }
+
+    const expired = contracts.find((contract) => contract.status === 'EXPIRED')
+    if (expired) {
+      return `Nonaktif — kontrak ${expired.contractNumber} berakhir${expired.endDate ? ` pada ${formatDate(expired.endDate)}` : ''}.`
+    }
+
+    return 'Nonaktif — tidak ada kontrak aktif.'
+  }
+
+  return 'Status mengikuti lifecycle kontrak.'
+}
 function Records({
   title,
   empty,
@@ -391,7 +436,9 @@ function Records({
   empty: string
   items?: {
     label: string
-    edit: string
+    actionLabel?: string
+    edit?: string
+    lifecycleActions?: ReactNode
     file?: string
     onDetail?: () => void
   }[]
@@ -425,22 +472,30 @@ function Records({
           <ul className='space-y-3'>
             {items.map((item) => (
               <li
-                key={item.edit}
+                key={item.edit ?? item.label}
                 className='flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm'
               >
                 <span>{item.label}</span>
                 <span className='flex gap-1'>
                   {item.onDetail && (
-                    <Button size='sm' variant='outline' onClick={item.onDetail}>
-                      <Eye /> Detail
-                    </Button>
+                    <DataTableActionButton
+                      onClick={item.onDetail}
+                      label={`Lihat detail ${item.actionLabel ?? item.label}`}
+                    >
+                      <Eye />
+                    </DataTableActionButton>
                   )}
-                  <Button size='sm' variant='ghost' asChild>
-                    <a href={item.edit} aria-label={`Ubah ${item.label}`}>
-                      <Pencil />
-                      <span className='sr-only'>Ubah</span>
-                    </a>
-                  </Button>
+                  {item.edit && (
+                    <DataTableActionButton
+                      label={`Ubah ${item.actionLabel ?? item.label}`}
+                      asChild
+                    >
+                      <a href={item.edit}>
+                        <Pencil />
+                      </a>
+                    </DataTableActionButton>
+                  )}
+                  {item.lifecycleActions}
                   {item.file && !item.onDetail && (
                     <>
                       <Button size='sm' variant='ghost' asChild>

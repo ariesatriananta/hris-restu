@@ -8,6 +8,7 @@ import type {
   EmployeeDocument,
   EmployeeRecordListParams,
   ContractLifecycleAction,
+  ContractLifecycleConflict,
   PaginatedResult,
 } from '../domain'
 
@@ -81,7 +82,14 @@ export const httpEmployeeRepository: EmployeeRepository = {
     ).data
   },
   async saveContract(input, uid) {
-    const body = { ...input, issuedFileUid: input.issuedFile?.uid }
+    const body = {
+      contractType: input.contractType,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      signedDate: input.signedDate,
+      issuedFileUid: input.issuedFile?.uid,
+      notes: input.notes,
+    }
     if (uid) {
       await apiClient.patch(`/employees/contracts/${uid}`, body)
       return { ...input, uid }
@@ -142,9 +150,26 @@ export const listDocuments = async (input: EmployeeRecordListParams) =>
     )
   ).data
 
+export const listContractConflicts = async () =>
+  (
+    await apiClient.get<{ items: ContractLifecycleConflict[]; total: number }>(
+      '/employees/contracts/conflicts'
+    )
+  ).data
+
 export const getContract = async (uid: string) =>
   (await apiClient.get<EmployeeContract>(`/employees/contracts/${uid}`)).data
 
 export const getDocument = async (uid: string) =>
   (await apiClient.get<EmployeeDocument>(`/employees/documents/${uid}`)).data
-export const transitionContract = async (uid: string, action: ContractLifecycleAction, input: { effectiveDate?: string; reason?: string }) => (await apiClient.post<EmployeeContract>(`/employees/contracts/${uid}/${action}`, input)).data
+export const transitionContract = async (
+  uid: string,
+  action: ContractLifecycleAction,
+  input: { effectiveDate?: string; reason?: string }
+) =>
+  (
+    await apiClient.post<EmployeeContract>(
+      `/employees/contracts/${uid}/${action}`,
+      input
+    )
+  ).data

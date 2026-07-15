@@ -22,6 +22,7 @@ import {
   getDocument,
   transitionContract,
   listContracts,
+  listContractConflicts,
   listDocuments,
 } from './http-employee-repository'
 
@@ -42,6 +43,7 @@ export const employeeKeys = {
   documentList: (params: EmployeeRecordListParams) =>
     [...employeeKeys.all, 'document-list', params] as const,
   contract: (uid: string) => [...employeeKeys.all, 'contract', uid] as const,
+  contractConflicts: () => [...employeeKeys.all, 'contract-conflicts'] as const,
   document: (uid: string) => [...employeeKeys.all, 'document', uid] as const,
 }
 export type EmployeeLookups = {
@@ -109,6 +111,14 @@ export const useContractList = (params: EmployeeRecordListParams) =>
       queryFn: () => listContracts(params),
     })
   )
+export const useContractConflicts = () =>
+  useQuery(
+    queryOptions({
+      queryKey: employeeKeys.contractConflicts(),
+      queryFn: listContractConflicts,
+      staleTime: 30 * 1000,
+    })
+  )
 export const useDocumentList = (params: EmployeeRecordListParams) =>
   useQuery(
     queryOptions({
@@ -169,7 +179,21 @@ export function useSaveContract() {
     onSuccess: () => invalidate(queryClient),
   })
 }
-export function useTransitionContract() { const queryClient=useQueryClient(); return useMutation({ mutationFn: ({uid,action,input}:{uid:string;action:ContractLifecycleAction;input:{effectiveDate?:string;reason?:string}})=>transitionContract(uid,action,input), onSuccess:()=>invalidate(queryClient) }) }
+export function useTransitionContract() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      uid,
+      action,
+      input,
+    }: {
+      uid: string
+      action: ContractLifecycleAction
+      input: { effectiveDate?: string; reason?: string }
+    }) => transitionContract(uid, action, input),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
 export function useSaveDocument() {
   const queryClient = useQueryClient()
   return useMutation({

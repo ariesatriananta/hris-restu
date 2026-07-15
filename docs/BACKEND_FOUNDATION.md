@@ -26,6 +26,7 @@ Sesuai keputusan produk, URL file dibentuk dari `R2_PUBLIC_BASE_URL`. Siapa pun 
 - Karyawan: `GET/POST /api/employees`, `GET/PATCH /api/employees/:uid`; list mendukung `query`, `site`, `employeeType`, `employeeStatus`, `page`, dan `pageSize`.
 - Riwayat dan mutasi append-only: `GET /api/employees/histories`, `GET /api/employees/:uid/histories`, `POST /api/employees/:uid/mutations`.
 - PKWT: `GET /api/employees/contracts`, `GET/POST /api/employees/:uid/contracts`, dan `PATCH /api/employees/contracts/:contractUid`.
+- Konflik lifecycle PKWT: `GET /api/employees/contracts/conflicts`; endpoint browser ini memakai permission `employees.view`, scope site, dan tidak memerlukan atau mengekspos secret cron.
 - Dokumen: `GET /api/employees/documents`, `GET/POST /api/employees/:uid/documents`, dan `PATCH /api/employees/documents/:documentUid`.
 - Aksi tulis Master Karyawan dan upload mencatat `audit_logs`. Semua resource memeriksa permission dan scope site di backend.
 
@@ -52,3 +53,6 @@ Seed pengujian dijalankan dengan `pnpm --filter @hris-restu/api db:seed-demo`; i
 - Endpoint mengaktifkan kontrak `SCHEDULED`, mengakhiri kontrak `ACTIVE` yang sudah melewati tanggal akhir, lalu merekonsiliasi seluruh Master Karyawan. Karyawan `ACTIVE` tanpa kontrak aktif yang berlaku otomatis menjadi `INACTIVE`; karyawan non-resign dengan kontrak aktif yang berlaku otomatis menjadi `ACTIVE`. Karyawan `RESIGNED` atau legacy `LEAVE` yang masih memiliki kontrak aktif dicatat sebagai konflik dan tidak diaktifkan otomatis. Tidak ada dampak ke Attendance, Produksi, atau Payroll pada tahap ini.
 - Karyawan baru selalu dibuat `INACTIVE`. Mutasi tidak dapat mengubah status kerja; status `ACTIVE`, `INACTIVE`, atau `RESIGNED` hanya berubah melalui lifecycle kontrak. Rekrut langsung wajib melalui pembuatan lalu aktivasi kontrak.
 - Saat kontrak `ACTIVE` diedit, API menyinkronkan status karyawan dalam transaksi yang sama: kontrak yang masih berlaku mengaktifkan karyawan, sedangkan kontrak yang berakhir sebelum hari bisnis dipindahkan ke `EXPIRED` dan karyawan menjadi `INACTIVE`.
+- Hardening PKWT: kontrak `EXPIRED`, `TERMINATED`, dan `CANCELLED` immutable; nomor dan urutan kontrak tetap dibuat server. Aksi lifecycle serta edit memakai row locking transaksi, mencatat audit trail manual/sistem, dan memblokir konflik lebih dari satu kontrak aktif yang berlaku.
+- Tanggal mulai kontrak wajib sama dengan atau setelah tanggal bergabung karyawan. Validasi dilakukan di form dan dipaksakan kembali oleh backend saat create maupun edit.
+- Respons cron menyertakan `conflicts` (maksimum 50 item) berisi `employeeUid`, nomor/nama karyawan, site, nomor kontrak aktif, dan alasan konflik. Gunakan daftar ini untuk perbaikan data legacy; cron sengaja tidak menutup atau memilih kontrak secara spekulatif.

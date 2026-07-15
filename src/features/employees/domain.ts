@@ -113,6 +113,8 @@ export interface EmployeeContract {
   endDate?: string
   signedDate?: string
   status: ContractStatus
+  terminatedAt?: string
+  terminationReason?: string
   positionNameSnapshot?: string
   siteNameSnapshot?: string
   salaryOrRateNotes?: string
@@ -167,6 +169,14 @@ export interface EmployeeRecordListParams {
   status?: string[]
   page?: number
   pageSize?: number
+}
+export interface ContractLifecycleConflict {
+  employeeUid: string
+  employeeNumber: string
+  fullName: string
+  site: SiteCode
+  reason: string
+  contractNumbers: string[]
 }
 export interface PaginatedResult<T> {
   items: T[]

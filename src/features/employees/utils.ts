@@ -25,6 +25,7 @@ export const statusLabel = (value: string) =>
     RESIGNED: 'Resign',
     INACTIVE: 'Nonaktif',
     DRAFT: 'Draft',
+    SCHEDULED: 'Dijadwalkan',
     EXPIRED: 'Berakhir',
     TERMINATED: 'Dihentikan',
     CANCELLED: 'Dibatalkan',

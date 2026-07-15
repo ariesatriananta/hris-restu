@@ -28,3 +28,31 @@ export async function writeAudit(input: AuditInput, connection?: PoolConnection)
     ]
   )
 }
+
+type SystemAuditInput = Omit<AuditInput, 'auth' | 'request'>
+
+export async function writeSystemAudit(
+  input: SystemAuditInput,
+  connection?: PoolConnection
+) {
+  const executor = connection ?? pool
+  await executor.execute(
+    `INSERT INTO audit_logs(uid,user_id,site_id,module,action,table_name,record_id,record_uid,description,ip_address,user_agent,created_by,updated_by)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      randomUUID(),
+      null,
+      input.siteId ?? null,
+      'EMPLOYEES',
+      input.action,
+      input.table,
+      input.recordId ?? null,
+      input.recordUid ?? null,
+      input.description,
+      null,
+      null,
+      null,
+      null,
+    ]
+  )
+}

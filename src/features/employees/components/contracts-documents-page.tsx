@@ -1,11 +1,16 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Plus } from 'lucide-react'
+import { AlertTriangle, Plus } from 'lucide-react'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Main } from '@/components/layout/main'
-import { useContractList, useDocumentList } from '../data/queries'
+import {
+  useContractConflicts,
+  useContractList,
+  useDocumentList,
+} from '../data/queries'
 import type {
   EmployeeContract,
   EmployeeDocument,
@@ -33,6 +38,7 @@ export function ContractsDocumentsPage({
   const documentParams = params(search, 'document')
   const contracts = useContractList(contractParams)
   const documents = useDocumentList(documentParams)
+  const conflicts = useContractConflicts()
   const contractRows = useMemo(
     () => mapContracts(contracts.data),
     [contracts.data]
@@ -64,6 +70,35 @@ export function ContractsDocumentsPage({
           {activeTab === 'contracts' ? 'Tambah kontrak' : 'Tambah dokumen'}
         </Button>
       </div>
+      {activeTab === 'contracts' && conflicts.data?.items.length ? (
+        <Alert variant='destructive' className='mb-4'>
+          <AlertTriangle />
+          <AlertTitle>
+            {conflicts.data.total} konflik lifecycle kontrak perlu ditindak
+          </AlertTitle>
+          <AlertDescription>
+            <ul className='mt-2 space-y-1'>
+              {conflicts.data.items.map((conflict) => (
+                <li key={conflict.employeeUid}>
+                  <Button
+                    variant='link'
+                    className='h-auto p-0 text-inherit underline'
+                    onClick={() =>
+                      routerNavigate({
+                        to: '/karyawan/data-karyawan/$employeeUid',
+                        params: { employeeUid: conflict.employeeUid },
+                      })
+                    }
+                  >
+                    {conflict.employeeNumber} · {conflict.fullName}
+                  </Button>{' '}
+                  — {conflict.reason} ({conflict.contractNumbers.join(', ')})
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <Tabs
         value={activeTab}
         onValueChange={(value) => {
@@ -82,12 +117,22 @@ export function ContractsDocumentsPage({
             search={search}
             navigate={navigate}
             prefix='contract'
-            statuses={['DRAFT', 'SCHEDULED', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED']}
+            statuses={[
+              'DRAFT',
+              'SCHEDULED',
+              'ACTIVE',
+              'EXPIRED',
+              'TERMINATED',
+              'CANCELLED',
+            ]}
             onEdit={(uid) =>
               routerNavigate({
                 to: '/karyawan/pkwt/$contractUid/ubah',
                 params: { contractUid: uid },
               })
+            }
+            canEdit={(row) =>
+              !['EXPIRED', 'TERMINATED', 'CANCELLED'].includes(row.status)
             }
             onView={(row) => setSelectedContract(row.contract)}
             isPending={contracts.isPending}
@@ -173,7 +218,7 @@ function mapContracts(
       site: item.site ?? '—',
       detail: `${item.contractType} · ${formatDate(item.startDate)} — ${formatDate(item.endDate)}`,
       status: item.status,
-      expiry: expiry(item.endDate),
+      expiry: item.status === 'ACTIVE' ? expiry(item.endDate) : undefined,
       contract: item,
     })),
     total: data?.total ?? 0,

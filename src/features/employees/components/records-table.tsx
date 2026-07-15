@@ -21,12 +21,14 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
+  DataTableActionButton,
   DataTableColumnHeader,
   DataTablePagination,
   DataTableToolbar,
 } from '@/components/data-table'
 import type { EmployeeContract, PaginatedResult } from '../domain'
 import { statusLabel } from '../utils'
+import { ContractLifecycleActionButtons } from './contract-lifecycle-action-buttons'
 
 export type EmployeeRecordRow = {
   uid: string
@@ -47,6 +49,7 @@ export function RecordsTable({
   prefix,
   statuses,
   onEdit,
+  canEdit = () => true,
   onView,
   isPending,
   isError,
@@ -58,6 +61,7 @@ export function RecordsTable({
   prefix: 'contract' | 'document'
   statuses: string[]
   onEdit: (uid: string) => void
+  canEdit?: (row: EmployeeRecordRow) => boolean
   onView?: (row: EmployeeRecordRow) => void
   isPending: boolean
   isError: boolean
@@ -136,23 +140,24 @@ export function RecordsTable({
       cell: ({ row }) => (
         <div className='flex items-center gap-1'>
           {onView && (
-            <Button
-              size='sm'
-              variant='ghost'
+            <DataTableActionButton
               onClick={() => onView(row.original)}
+              label={`Lihat detail ${row.original.title}`}
             >
-              <Eye /> Detail
-            </Button>
+              <Eye />
+            </DataTableActionButton>
           )}
-          <Button
-            size='sm'
-            variant='ghost'
-            onClick={() => onEdit(row.original.uid)}
-            aria-label={`Ubah ${row.original.title}`}
-          >
-            <Pencil />
-            <span className='sr-only'>Ubah</span>
-          </Button>
+          {canEdit(row.original) && (
+            <DataTableActionButton
+              onClick={() => onEdit(row.original.uid)}
+              label={`Ubah ${row.original.title}`}
+            >
+              <Pencil />
+            </DataTableActionButton>
+          )}
+          {prefix === 'contract' && row.original.contract && (
+            <ContractLifecycleActionButtons contract={row.original.contract} />
+          )}
         </div>
       ),
     },

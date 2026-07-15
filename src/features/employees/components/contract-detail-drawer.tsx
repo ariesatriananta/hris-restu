@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { DatePicker } from '@/components/date-picker'
 import { useTransitionContract } from '../data/queries'
 import type { EmployeeContract } from '../domain'
 import { formatDate, statusLabel } from '../utils'
@@ -38,6 +39,8 @@ export function ContractDetailDrawer({
     'schedule' | 'activate' | 'terminate' | 'resign' | 'cancel'
   >()
   const [reason, setReason] = useState('')
+  const today = new Date().toISOString().slice(0, 10)
+  const [effectiveDate, setEffectiveDate] = useState(today)
   const requiresReason = action === 'terminate' || action === 'resign'
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -116,11 +119,13 @@ export function ContractDetailDrawer({
                         : 'Aktifkan'}
                     </Button>
                   )}
-                  {contract.status === 'SCHEDULED' && (
-                    <Button size='sm' onClick={() => setAction('activate')}>
-                      Aktifkan
-                    </Button>
-                  )}
+                  {contract.status === 'SCHEDULED' &&
+                    contract.startDate <=
+                      new Date().toISOString().slice(0, 10) && (
+                      <Button size='sm' onClick={() => setAction('activate')}>
+                        Aktifkan
+                      </Button>
+                    )}
                   <Button
                     size='sm'
                     variant='outline'
@@ -224,6 +229,7 @@ export function ContractDetailDrawer({
           if (!open && !transition.isPending) {
             setAction(undefined)
             setReason('')
+            setEffectiveDate(today)
           }
         }}
         title='Konfirmasi lifecycle kontrak'
@@ -245,12 +251,15 @@ export function ContractDetailDrawer({
               {
                 uid: contract.uid,
                 action,
-                input: requiresReason ? { reason: reason.trim() } : {},
+                input: requiresReason
+                  ? { reason: reason.trim(), effectiveDate }
+                  : {},
               },
               {
                 onSuccess: () => {
                   setAction(undefined)
                   setReason('')
+                  setEffectiveDate(today)
                 },
               }
             )
@@ -258,18 +267,44 @@ export function ContractDetailDrawer({
         }}
       >
         {requiresReason ? (
-          <label className='grid gap-2 text-sm font-medium'>
-            Alasan {action === 'resign' ? 'resign' : 'terminasi'}
-            <Textarea
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              placeholder='Wajib diisi'
-            />
-          </label>
+          <div className='grid gap-4'>
+            <label className='grid gap-2 text-sm font-medium'>
+              Tanggal efektif
+              <DatePicker
+                selected={dateFromInput(effectiveDate)}
+                onSelect={(date) => date && setEffectiveDate(dateToInput(date))}
+                fromYear={new Date(contract?.startDate ?? today).getFullYear()}
+                toYear={new Date().getFullYear()}
+                disabledDates={(date) => {
+                  const value = dateToInput(date)
+                  return value < (contract?.startDate ?? today) || value > today
+                }}
+              />
+            </label>
+            <label className='grid gap-2 text-sm font-medium'>
+              Alasan {action === 'resign' ? 'resign' : 'terminasi'}
+              <Textarea
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder='Wajib diisi'
+              />
+            </label>
+          </div>
         ) : null}
       </ConfirmDialog>
     </Sheet>
   )
+}
+
+function dateFromInput(value: string) {
+  return new Date(`${value}T00:00:00`)
+}
+
+function dateToInput(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function lifecycleDescription(

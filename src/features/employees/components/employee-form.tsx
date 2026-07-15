@@ -412,9 +412,9 @@ export function EmployeeForm({
           </div>
           {employee && (
             <p className='rounded-md bg-muted p-3 text-xs text-muted-foreground'>
-              Penempatan, jenis, status, dan data resign dikelola melalui Catat
-              Mutasi agar perubahan masuk ke histori. Tanggal bergabung dapat
-              dikoreksi tanpa mengubah Employee ID.
+              Penempatan dan jenis karyawan dikelola melalui Catat Mutasi.
+              Status kerja serta data resign dikelola melalui lifecycle PKWT.
+              Tanggal bergabung dapat dikoreksi tanpa mengubah Employee ID.
             </p>
           )}
         </section>
