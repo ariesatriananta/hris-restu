@@ -28,6 +28,8 @@ const schema = z
     department: optionalText,
     position: optionalText,
     workGroup: optionalText,
+    productionModuleUid: optionalText,
+    productionModuleSectionUid: optionalText,
     joinDate: z.string().min(1, 'Tanggal bergabung wajib diisi.'),
     permanentDate: optionalText,
     resignDate: optionalText,
@@ -61,6 +63,15 @@ const schema = z
     path: ['resignDate'],
     message: 'Tanggal resign tidak boleh sebelum tanggal bergabung.',
   })
+  .refine(
+    (value) =>
+      value.employeeType !== 'BORONGAN' ||
+      Boolean(value.productionModuleSectionUid),
+    {
+      path: ['productionModuleSectionUid'],
+      message: 'Bagian produksi wajib dipilih untuk karyawan Borongan.',
+    }
+  )
 
 type Values = z.infer<typeof schema>
 const formFieldNames = new Set<keyof Values>(schema.keyof().options)
@@ -134,6 +145,8 @@ export function EmployeeForm({
       department: employee?.department ?? '',
       position: employee?.position ?? '',
       workGroup: employee?.workGroup ?? '',
+      productionModuleUid: employee?.productionModuleUid ?? '',
+      productionModuleSectionUid: employee?.productionModuleSectionUid ?? '',
       joinDate: dateInput(employee?.joinDate),
       permanentDate: dateInput(employee?.permanentDate),
       resignDate: dateInput(employee?.resignDate),
@@ -191,6 +204,7 @@ export function EmployeeForm({
             department: employee.department,
             position: employee.position,
             workGroup: employee.workGroup,
+            productionModuleSectionUid: employee.productionModuleSectionUid,
           }
         : {
             employeeType: values.employeeType,
@@ -199,6 +213,10 @@ export function EmployeeForm({
             department: empty(values.department),
             position: empty(values.position),
             workGroup: empty(values.workGroup),
+            productionModuleSectionUid:
+              values.employeeType === 'BORONGAN'
+                ? empty(values.productionModuleSectionUid)
+                : undefined,
           }
       await onSubmit(
         {
@@ -291,6 +309,14 @@ export function EmployeeForm({
     </Field>
   )
   const selectedSite = useWatch({ control: form.control, name: 'site' })
+  const selectedEmployeeType = useWatch({
+    control: form.control,
+    name: 'employeeType',
+  })
+  const selectedProductionModuleUid = useWatch({
+    control: form.control,
+    name: 'productionModuleUid',
+  })
   const selectedJoinDate = useWatch({ control: form.control, name: 'joinDate' })
   const currentFullName = useWatch({ control: form.control, name: 'fullName' })
   const resignDate = useWatch({ control: form.control, name: 'resignDate' })
@@ -305,9 +331,35 @@ export function EmployeeForm({
     (item) => !item.siteCode || item.siteCode === selectedSite
   )
   const positions = lookups.data?.positions ?? []
-  const workGroups = (lookups.data?.workGroups ?? []).filter(
-    (item) => !item.siteCode || item.siteCode === selectedSite
+  const productionModules = (lookups.data?.productionModules ?? []).filter(
+    (item) => item.siteCode === selectedSite
   )
+  const productionModuleSections = (
+    lookups.data?.productionModuleSections ?? []
+  ).filter((item) => item.moduleUid === selectedProductionModuleUid)
+
+  useEffect(() => {
+    if (
+      !employee &&
+      lookups.data &&
+      selectedProductionModuleUid &&
+      !productionModules.some(
+        (item) => item.uid === selectedProductionModuleUid
+      )
+    ) {
+      form.setValue('productionModuleUid', '', { shouldDirty: true })
+      form.setValue('productionModuleSectionUid', '', {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    }
+  }, [
+    employee,
+    form,
+    lookups.data,
+    productionModules,
+    selectedProductionModuleUid,
+  ])
 
   return (
     <>
@@ -371,17 +423,51 @@ export function EmployeeForm({
               ],
               !!employee
             )}
-            {select(
-              'workGroup',
-              'Kelompok kerja',
-              [
-                { value: '', label: 'Pilih kelompok' },
-                ...workGroups.map((item) => ({
-                  value: item.name,
-                  label: item.name,
-                })),
-              ],
-              !!employee
+            {selectedEmployeeType === 'BORONGAN' && (
+              <>
+                <Field
+                  label='Modul produksi'
+                  error={form.formState.errors.productionModuleUid?.message}
+                >
+                  <select
+                    className='h-9 rounded-md border bg-background px-3 disabled:cursor-not-allowed disabled:opacity-60'
+                    disabled={!!employee}
+                    {...form.register('productionModuleUid', {
+                      onChange: () =>
+                        form.setValue('productionModuleSectionUid', '', {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        }),
+                    })}
+                  >
+                    <option value=''>Pilih modul produksi</option>
+                    {productionModules.map((item) => (
+                      <option key={item.uid} value={item.uid}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field
+                  label='Bagian produksi'
+                  error={
+                    form.formState.errors.productionModuleSectionUid?.message
+                  }
+                >
+                  <select
+                    className='h-9 rounded-md border bg-background px-3 disabled:cursor-not-allowed disabled:opacity-60'
+                    disabled={!!employee || !selectedProductionModuleUid}
+                    {...form.register('productionModuleSectionUid')}
+                  >
+                    <option value=''>Pilih Bagian produksi</option>
+                    {productionModuleSections.map((item) => (
+                      <option key={item.uid} value={item.uid}>
+                        {item.sectionName}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </>
             )}
             {textField('joinDate', 'Tanggal bergabung', 'date')}
             {textField('permanentDate', 'Tanggal tetap', 'date')}

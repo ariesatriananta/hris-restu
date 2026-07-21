@@ -3,6 +3,7 @@ import {
   Building2,
   CalendarClock,
   ClipboardCheck,
+  Database,
   FileBarChart,
   Fingerprint,
   IdCard,
@@ -86,6 +87,11 @@ export const sidebarData: SidebarData = {
               title: 'User & Hak Akses',
               url: '/administrasi/user-hak-akses',
               icon: UserRoundCog,
+            },
+            {
+              title: 'Master Data',
+              url: '/administrasi/master-data',
+              icon: Database,
             },
             {
               title: 'Template Dokumen',

@@ -9,6 +9,7 @@ export type EmploymentChangeType =
   | 'STATUS_CHANGE'
   | 'TYPE_CHANGE'
   | 'GROUP_CHANGE'
+  | 'PRODUCTION_ASSIGNMENT_CHANGE'
   | 'OTHER'
 export type MutationChangeType = Exclude<
   EmploymentChangeType,
@@ -29,6 +30,18 @@ export interface LookupOption {
   name: string
   siteCode?: SiteCode
   employeeNumberPrefix?: string
+}
+export interface ProductionModuleLookup extends LookupOption {
+  siteCode: SiteCode
+}
+export interface ProductionModuleSectionLookup {
+  uid: string
+  moduleUid: string
+  sectionUid: string
+  sectionCode: string
+  sectionName: string
+  siteCode: SiteCode
+  isActive?: boolean
 }
 export interface MockFileAttachment {
   uid: string
@@ -51,6 +64,13 @@ export interface Employee {
   department?: string
   position?: string
   workGroup?: string
+  productionModuleSectionUid?: string
+  productionModuleUid?: string
+  productionModuleCode?: string
+  productionModule?: string
+  productionSectionUid?: string
+  productionSectionCode?: string
+  productionSection?: string
   joinDate: string
   permanentDate?: string
   resignDate?: string
@@ -94,6 +114,10 @@ export interface EmploymentHistory {
   department?: string
   position?: string
   workGroup?: string
+  productionModuleUid?: string
+  productionModule?: string
+  productionSectionUid?: string
+  productionSection?: string
   employeeType: EmployeeTypeCode
   employeeStatus: EmployeeStatusCode
   effectiveFrom: string
@@ -139,15 +163,27 @@ export interface EmployeeDocument {
 }
 export interface EmployeeInput extends Omit<
   Employee,
-  'uid' | 'photo' | 'employeeNumber' | 'barcode'
+  | 'uid'
+  | 'photo'
+  | 'employeeNumber'
+  | 'barcode'
+  | 'productionModuleUid'
+  | 'productionModuleCode'
+  | 'productionModule'
+  | 'productionSectionUid'
+  | 'productionSectionCode'
+  | 'productionSection'
 > {
   photo?: MockFileAttachment
+  productionModuleSectionUid?: string
 }
 export interface MutationInput {
   site: SiteCode
   department?: string
   position?: string
   workGroup?: string
+  productionModuleUid?: string
+  productionModuleSectionUid?: string
   employeeType: EmployeeTypeCode
   effectiveFrom: string
   changeType: MutationChangeType

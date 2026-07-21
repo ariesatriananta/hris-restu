@@ -44,6 +44,7 @@ import { Route as AuthenticatedAttendanceKoreksiRouteImport } from './routes/_au
 import { Route as AuthenticatedAdministrasiUserHakAksesRouteImport } from './routes/_authenticated/administrasi/user-hak-akses'
 import { Route as AuthenticatedAdministrasiTemplateDokumenRouteImport } from './routes/_authenticated/administrasi/template-dokumen'
 import { Route as AuthenticatedAdministrasiPengaturanRouteImport } from './routes/_authenticated/administrasi/pengaturan'
+import { Route as AuthenticatedAdministrasiMasterDataRouteImport } from './routes/_authenticated/administrasi/master-data'
 import { Route as AuthenticatedAdministrasiAuditTrailRouteImport } from './routes/_authenticated/administrasi/audit-trail'
 import { Route as AuthenticatedKaryawanUbahKaryawanEmployeeUidRouteImport } from './routes/_authenticated/karyawan/ubah-karyawan.$employeeUid'
 import { Route as AuthenticatedKaryawanPkwtTambahRouteImport } from './routes/_authenticated/karyawan/pkwt.tambah'
@@ -256,6 +257,12 @@ const AuthenticatedAdministrasiPengaturanRoute =
     path: '/administrasi/pengaturan',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAdministrasiMasterDataRoute =
+  AuthenticatedAdministrasiMasterDataRouteImport.update({
+    id: '/administrasi/master-data',
+    path: '/administrasi/master-data',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAdministrasiAuditTrailRoute =
   AuthenticatedAdministrasiAuditTrailRouteImport.update({
     id: '/administrasi/audit-trail',
@@ -333,6 +340,7 @@ export interface FileRoutesByFullPath {
   '/503': typeof errors503Route
   '/laporan': typeof AuthenticatedLaporanRoute
   '/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
+  '/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
   '/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
   '/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
   '/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
@@ -380,6 +388,7 @@ export interface FileRoutesByTo {
   '/laporan': typeof AuthenticatedLaporanRoute
   '/': typeof AuthenticatedIndexRoute
   '/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
+  '/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
   '/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
   '/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
   '/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
@@ -429,6 +438,7 @@ export interface FileRoutesById {
   '/_authenticated/laporan': typeof AuthenticatedLaporanRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
+  '/_authenticated/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
   '/_authenticated/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
   '/_authenticated/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
   '/_authenticated/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
@@ -478,6 +488,7 @@ export interface FileRouteTypes {
     | '/503'
     | '/laporan'
     | '/administrasi/audit-trail'
+    | '/administrasi/master-data'
     | '/administrasi/pengaturan'
     | '/administrasi/template-dokumen'
     | '/administrasi/user-hak-akses'
@@ -525,6 +536,7 @@ export interface FileRouteTypes {
     | '/laporan'
     | '/'
     | '/administrasi/audit-trail'
+    | '/administrasi/master-data'
     | '/administrasi/pengaturan'
     | '/administrasi/template-dokumen'
     | '/administrasi/user-hak-akses'
@@ -573,6 +585,7 @@ export interface FileRouteTypes {
     | '/_authenticated/laporan'
     | '/_authenticated/'
     | '/_authenticated/administrasi/audit-trail'
+    | '/_authenticated/administrasi/master-data'
     | '/_authenticated/administrasi/pengaturan'
     | '/_authenticated/administrasi/template-dokumen'
     | '/_authenticated/administrasi/user-hak-akses'
@@ -868,6 +881,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdministrasiPengaturanRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/administrasi/master-data': {
+      id: '/_authenticated/administrasi/master-data'
+      path: '/administrasi/master-data'
+      fullPath: '/administrasi/master-data'
+      preLoaderRoute: typeof AuthenticatedAdministrasiMasterDataRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/administrasi/audit-trail': {
       id: '/_authenticated/administrasi/audit-trail'
       path: '/administrasi/audit-trail'
@@ -1047,6 +1067,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedLaporanRoute: typeof AuthenticatedLaporanRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedAdministrasiAuditTrailRoute: typeof AuthenticatedAdministrasiAuditTrailRoute
+  AuthenticatedAdministrasiMasterDataRoute: typeof AuthenticatedAdministrasiMasterDataRoute
   AuthenticatedAdministrasiPengaturanRoute: typeof AuthenticatedAdministrasiPengaturanRoute
   AuthenticatedAdministrasiTemplateDokumenRoute: typeof AuthenticatedAdministrasiTemplateDokumenRoute
   AuthenticatedAdministrasiUserHakAksesRoute: typeof AuthenticatedAdministrasiUserHakAksesRoute
@@ -1082,6 +1103,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedAdministrasiAuditTrailRoute:
     AuthenticatedAdministrasiAuditTrailRoute,
+  AuthenticatedAdministrasiMasterDataRoute:
+    AuthenticatedAdministrasiMasterDataRoute,
   AuthenticatedAdministrasiPengaturanRoute:
     AuthenticatedAdministrasiPengaturanRoute,
   AuthenticatedAdministrasiTemplateDokumenRoute:

@@ -43,5 +43,6 @@ export const statusLabel = (value: string) =>
     STATUS_CHANGE: 'Perubahan status',
     TYPE_CHANGE: 'Perubahan jenis',
     GROUP_CHANGE: 'Perubahan kelompok',
+    PRODUCTION_ASSIGNMENT_CHANGE: 'Perubahan penempatan produksi',
     OTHER: 'Lainnya',
   })[value] ?? value

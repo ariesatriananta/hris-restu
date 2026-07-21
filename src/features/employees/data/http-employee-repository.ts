@@ -68,9 +68,10 @@ export const httpEmployeeRepository: EmployeeRepository = {
     ).data
   },
   async applyMutation(uid, input) {
+    const { productionModuleUid: _productionModuleUid, ...body } = input
     const response = await apiClient.post<{ uid: string }>(
       `/employees/${uid}/mutations`,
-      input
+      body
     )
     return { uid: response.data.uid, employeeUid: uid, ...input }
   },

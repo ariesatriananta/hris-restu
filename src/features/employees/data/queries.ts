@@ -13,6 +13,8 @@ import type {
   EmployeeListParams,
   EmployeeRecordListParams,
   LookupOption,
+  ProductionModuleLookup,
+  ProductionModuleSectionLookup,
   MutationInput,
   ContractLifecycleAction,
 } from '../domain'
@@ -51,6 +53,8 @@ export type EmployeeLookups = {
   departments: LookupOption[]
   positions: LookupOption[]
   workGroups: LookupOption[]
+  productionModules: ProductionModuleLookup[]
+  productionModuleSections: ProductionModuleSectionLookup[]
   contractTypes: LookupOption[]
 }
 export const useEmployeeLookups = (enabled = true) =>

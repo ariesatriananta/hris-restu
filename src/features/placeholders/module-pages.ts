@@ -201,6 +201,16 @@ export const modulePages = {
       'Waktu dan sumber aksi',
     ],
   },
+  '/administrasi/master-data': {
+    group: 'Administrasi Sistem',
+    title: 'Master Data',
+    description: 'Master referensi operasional yang digunakan lintas modul.',
+    features: [
+      'Modul Produksi per site',
+      'Bagian Produksi',
+      'Pemetaan Modul dan Bagian',
+    ],
+  },
   '/administrasi/pengaturan': {
     group: 'Administrasi Sistem',
     title: 'Pengaturan',

@@ -2,12 +2,17 @@ import { useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import {
   ArrowLeft,
+  Contact,
   Download,
   ExternalLink,
   Eye,
   ImageIcon,
   GitBranchPlus,
+  IdCard,
   Pencil,
+  LayoutDashboard,
+  FileSignature,
+  FileText,
   Plus,
   RefreshCcw,
 } from 'lucide-react'
@@ -122,14 +127,38 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
         </div>
       </div>
       <Tabs defaultValue='ringkasan'>
-        <TabsList className='mb-5 w-full justify-start overflow-x-auto'>
-          <TabsTrigger value='ringkasan'>Ringkasan</TabsTrigger>
-          <TabsTrigger value='pribadi'>Data pribadi</TabsTrigger>
-          <TabsTrigger value='foto-identitas'>Foto Identitas</TabsTrigger>
-          <TabsTrigger value='mutasi'>Penempatan & Mutasi</TabsTrigger>
-          <TabsTrigger value='kontrak'>PKWT</TabsTrigger>
-          <TabsTrigger value='dokumen'>Dokumen</TabsTrigger>
-          <TabsTrigger value='id-card'>ID Card</TabsTrigger>
+        <TabsList className='mb-5 h-auto w-full justify-start gap-1 overflow-x-auto rounded-xl p-1'>
+          <TabsTrigger value='ringkasan' className='h-10 flex-none gap-2 px-4'>
+            <LayoutDashboard className='size-4' />
+            Ringkasan
+          </TabsTrigger>
+          <TabsTrigger value='pribadi' className='h-10 flex-none gap-2 px-4'>
+            <Contact className='size-4' />
+            Data pribadi
+          </TabsTrigger>
+          <TabsTrigger
+            value='foto-identitas'
+            className='h-10 flex-none gap-2 px-4'
+          >
+            <ImageIcon className='size-4' />
+            Foto Identitas
+          </TabsTrigger>
+          <TabsTrigger value='mutasi' className='h-10 flex-none gap-2 px-4'>
+            <GitBranchPlus className='size-4' />
+            Penempatan & Mutasi
+          </TabsTrigger>
+          <TabsTrigger value='kontrak' className='h-10 flex-none gap-2 px-4'>
+            <FileSignature className='size-4' />
+            PKWT
+          </TabsTrigger>
+          <TabsTrigger value='dokumen' className='h-10 flex-none gap-2 px-4'>
+            <FileText className='size-4' />
+            Dokumen
+          </TabsTrigger>
+          <TabsTrigger value='id-card' className='h-10 flex-none gap-2 px-4'>
+            <IdCard className='size-4' />
+            ID Card
+          </TabsTrigger>
         </TabsList>
         <TabsContent value='ringkasan'>
           <div className='grid gap-4 md:grid-cols-2'>
@@ -139,7 +168,14 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
                 ['Site', data.site],
                 ['Departemen', data.department],
                 ['Jabatan', data.position],
-                ['Kelompok kerja', data.workGroup],
+                [
+                  'Penempatan produksi',
+                  data.employeeType === 'BORONGAN'
+                    ? [data.productionModule, data.productionSection]
+                        .filter(Boolean)
+                        .join(' • ')
+                    : undefined,
+                ],
                 ['Jenis', statusLabel(data.employeeType)],
                 ['Bergabung', formatDate(data.joinDate)],
               ]}

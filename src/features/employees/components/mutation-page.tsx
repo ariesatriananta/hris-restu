@@ -55,7 +55,7 @@ const filters = [
       'DEMOTION',
       'STATUS_CHANGE',
       'TYPE_CHANGE',
-      'GROUP_CHANGE',
+      'PRODUCTION_ASSIGNMENT_CHANGE',
       'OTHER',
     ].map((value) => ({ value, label: statusLabel(value) })),
   },

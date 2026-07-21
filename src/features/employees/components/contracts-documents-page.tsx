@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { AlertTriangle, Plus } from 'lucide-react'
+import { AlertTriangle, FileText, Plus, ScrollText } from 'lucide-react'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -107,9 +107,15 @@ export function ContractsDocumentsPage({
           }
         }}
       >
-        <TabsList>
-          <TabsTrigger value='contracts'>PKWT & Kontrak</TabsTrigger>
-          <TabsTrigger value='documents'>Dokumen</TabsTrigger>
+        <TabsList className='h-auto w-full justify-start gap-1 overflow-x-auto rounded-xl p-1 sm:w-fit'>
+          <TabsTrigger value='contracts' className='h-10 flex-none gap-2 px-4'>
+            <ScrollText className='size-4' />
+            PKWT & Kontrak
+          </TabsTrigger>
+          <TabsTrigger value='documents' className='h-10 flex-none gap-2 px-4'>
+            <FileText className='size-4' />
+            Dokumen
+          </TabsTrigger>
         </TabsList>
         <TabsContent value='contracts' className='mt-4'>
           <RecordsTable

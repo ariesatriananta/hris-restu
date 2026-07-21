@@ -289,6 +289,63 @@ CREATE TABLE work_groups (
   CONSTRAINT fk_work_groups_department FOREIGN KEY (department_id) REFERENCES departments (id) ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE production_modules (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  site_id BIGINT UNSIGNED NOT NULL,
+  code VARCHAR(30) NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  description VARCHAR(255) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_production_modules_uid (uid),
+  UNIQUE KEY uq_production_modules_site_code (site_id, code),
+  KEY idx_production_modules_site_active (site_id, is_active),
+  CONSTRAINT chk_production_modules_active CHECK (is_active IN (0, 1)),
+  CONSTRAINT fk_production_modules_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE production_sections (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  code VARCHAR(30) NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  description VARCHAR(255) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_production_sections_uid (uid),
+  UNIQUE KEY uq_production_sections_code (code),
+  KEY idx_production_sections_active (is_active),
+  CONSTRAINT chk_production_sections_active CHECK (is_active IN (0, 1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE production_module_sections (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  production_module_id BIGINT UNSIGNED NOT NULL,
+  production_section_id BIGINT UNSIGNED NOT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_production_module_sections_uid (uid),
+  UNIQUE KEY uq_production_module_sections_pair (production_module_id, production_section_id),
+  KEY idx_production_module_sections_module_active (production_module_id, is_active),
+  CONSTRAINT chk_production_module_sections_active CHECK (is_active IN (0, 1)),
+  CONSTRAINT fk_production_module_sections_module FOREIGN KEY (production_module_id) REFERENCES production_modules (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_production_module_sections_section FOREIGN KEY (production_section_id) REFERENCES production_sections (id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE employee_types (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   uid CHAR(36) NOT NULL,
@@ -356,6 +413,7 @@ CREATE TABLE employees (
   current_department_id BIGINT UNSIGNED NULL,
   current_position_id BIGINT UNSIGNED NULL,
   current_work_group_id BIGINT UNSIGNED NULL,
+  current_production_module_section_id BIGINT UNSIGNED NULL,
   full_name VARCHAR(150) NOT NULL,
   nickname VARCHAR(100) NULL,
   national_id_number VARCHAR(30) NULL,
@@ -398,6 +456,7 @@ CREATE TABLE employees (
   KEY idx_employees_department (current_department_id),
   KEY idx_employees_position (current_position_id),
   KEY idx_employees_work_group (current_work_group_id),
+  KEY idx_employees_production_module_section (current_production_module_section_id),
   KEY idx_employees_type (employee_type_id),
   KEY idx_employees_name (full_name),
   CONSTRAINT chk_employees_gender CHECK (gender IN ('MALE', 'FEMALE')),
@@ -408,7 +467,8 @@ CREATE TABLE employees (
   CONSTRAINT fk_employees_site FOREIGN KEY (current_site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_employees_department FOREIGN KEY (current_department_id) REFERENCES departments (id) ON UPDATE CASCADE ON DELETE SET NULL,
   CONSTRAINT fk_employees_position FOREIGN KEY (current_position_id) REFERENCES positions (id) ON UPDATE CASCADE ON DELETE SET NULL,
-  CONSTRAINT fk_employees_work_group FOREIGN KEY (current_work_group_id) REFERENCES work_groups (id) ON UPDATE CASCADE ON DELETE SET NULL
+  CONSTRAINT fk_employees_work_group FOREIGN KEY (current_work_group_id) REFERENCES work_groups (id) ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_employees_production_module_section FOREIGN KEY (current_production_module_section_id) REFERENCES production_module_sections (id) ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE employee_employment_histories (
@@ -419,6 +479,7 @@ CREATE TABLE employee_employment_histories (
   department_id BIGINT UNSIGNED NULL,
   position_id BIGINT UNSIGNED NULL,
   work_group_id BIGINT UNSIGNED NULL,
+  production_module_section_id BIGINT UNSIGNED NULL,
   employee_type_id BIGINT UNSIGNED NOT NULL,
   employee_status_id BIGINT UNSIGNED NOT NULL,
   effective_from DATE NOT NULL,
@@ -436,12 +497,13 @@ CREATE TABLE employee_employment_histories (
   KEY idx_employment_history_employee_date (employee_id, effective_from, effective_to),
   KEY idx_employment_history_site (site_id),
   CONSTRAINT chk_employment_history_dates CHECK (effective_to IS NULL OR effective_to >= effective_from),
-  CONSTRAINT chk_employment_history_change CHECK (change_type IN ('INITIAL', 'TRANSFER', 'PROMOTION', 'DEMOTION', 'STATUS_CHANGE', 'TYPE_CHANGE', 'GROUP_CHANGE', 'OTHER')),
+  CONSTRAINT chk_employment_history_change CHECK (change_type IN ('INITIAL', 'TRANSFER', 'PROMOTION', 'DEMOTION', 'STATUS_CHANGE', 'TYPE_CHANGE', 'GROUP_CHANGE', 'PRODUCTION_ASSIGNMENT_CHANGE', 'OTHER')),
   CONSTRAINT fk_employment_history_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_employment_history_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_employment_history_department FOREIGN KEY (department_id) REFERENCES departments (id) ON UPDATE CASCADE ON DELETE SET NULL,
   CONSTRAINT fk_employment_history_position FOREIGN KEY (position_id) REFERENCES positions (id) ON UPDATE CASCADE ON DELETE SET NULL,
   CONSTRAINT fk_employment_history_group FOREIGN KEY (work_group_id) REFERENCES work_groups (id) ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_employment_history_production_module_section FOREIGN KEY (production_module_section_id) REFERENCES production_module_sections (id) ON UPDATE CASCADE ON DELETE SET NULL,
   CONSTRAINT fk_employment_history_type FOREIGN KEY (employee_type_id) REFERENCES employee_types (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_employment_history_status FOREIGN KEY (employee_status_id) REFERENCES employee_statuses (id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

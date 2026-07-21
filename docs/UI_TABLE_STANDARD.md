@@ -1,4 +1,3 @@
-
 ### Standar wajib untuk data table dan filter
 
 - Semua daftar data operasional yang membutuhkan tabel harus mengikuti ekosistem starter: TanStack Table + `useTableUrlState` + `DataTableToolbar` + `DataTableFacetedFilter` + `DataTableColumnHeader` + `DataTablePagination` + `DataTableViewOptions` dan `DataTableBulkActions` bila aksi massal memang diperlukan.

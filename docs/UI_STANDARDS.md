@@ -9,6 +9,7 @@
 - Data table harus mendukung loading, empty state, error state, pencarian, filter, pagination, dan tampilan mobile yang masuk akal sesuai kebutuhan fitur.
 - Hindari dashboard penuh kartu dekoratif tanpa informasi yang dapat ditindaklanjuti.
 - Gunakan format lokal Indonesia untuk tanggal, waktu, angka, dan Rupiah.
+- Navigasi tab memakai primitive `Tabs` shadcn/ui dengan icon Lucide yang bermakna pada setiap tab, padding lega (`h-10`, `px-4`), jarak antar-tab, dan horizontal scroll pada layar sempit. Jangan membuat tab teks yang dempet atau menghilangkan akses keyboard bawaan primitive.
 
 
 ## Referensi UI wajib: shadcn-admin

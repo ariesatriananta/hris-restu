@@ -85,7 +85,16 @@ export function MutationDetailDrawer({
               <DetailRow label='Site'>{statusLabel(history.site)}</DetailRow>
               <DetailRow label='Departemen'>{history.department}</DetailRow>
               <DetailRow label='Jabatan'>{history.position}</DetailRow>
-              <DetailRow label='Kelompok kerja'>{history.workGroup}</DetailRow>
+              <DetailRow label='Modul produksi'>
+                {history.employeeType === 'BORONGAN'
+                  ? history.productionModule
+                  : undefined}
+              </DetailRow>
+              <DetailRow label='Bagian produksi'>
+                {history.employeeType === 'BORONGAN'
+                  ? history.productionSection
+                  : undefined}
+              </DetailRow>
               <DetailRow label='Jenis karyawan'>
                 {statusLabel(history.employeeType)}
               </DetailRow>

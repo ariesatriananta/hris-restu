@@ -24,25 +24,38 @@ import {
 import type { Employee, MutationInput } from '../domain'
 import { statusLabel } from '../utils'
 
-const mutationSchema = z.object({
-  site: z.enum(['JEPARA', 'SEMARANG', 'KLATEN']),
-  department: z.string().optional(),
-  position: z.string().optional(),
-  workGroup: z.string().optional(),
-  employeeType: z.enum(['BORONGAN', 'BULANAN']),
-  effectiveFrom: z.string().min(1, 'Tanggal efektif wajib diisi.'),
-  changeType: z.enum([
-    'TRANSFER',
-    'PROMOTION',
-    'DEMOTION',
-    'TYPE_CHANGE',
-    'GROUP_CHANGE',
-    'OTHER',
-  ]),
-  referenceNumber: z.string().optional(),
-  reason: z.string().optional(),
-  notes: z.string().optional(),
-})
+const mutationSchema = z
+  .object({
+    site: z.enum(['JEPARA', 'SEMARANG', 'KLATEN']),
+    department: z.string().optional(),
+    position: z.string().optional(),
+    workGroup: z.string().optional(),
+    productionModuleUid: z.string().optional(),
+    productionModuleSectionUid: z.string().optional(),
+    employeeType: z.enum(['BORONGAN', 'BULANAN']),
+    effectiveFrom: z.string().min(1, 'Tanggal efektif wajib diisi.'),
+    changeType: z.enum([
+      'TRANSFER',
+      'PROMOTION',
+      'DEMOTION',
+      'TYPE_CHANGE',
+      'GROUP_CHANGE',
+      'PRODUCTION_ASSIGNMENT_CHANGE',
+      'OTHER',
+    ]),
+    referenceNumber: z.string().optional(),
+    reason: z.string().optional(),
+    notes: z.string().optional(),
+  })
+  .refine(
+    (value) =>
+      value.employeeType !== 'BORONGAN' ||
+      Boolean(value.productionModuleSectionUid),
+    {
+      path: ['productionModuleSectionUid'],
+      message: 'Bagian produksi wajib dipilih untuk karyawan Borongan.',
+    }
+  )
 
 export function MutationDialog({
   employee,
@@ -64,12 +77,22 @@ export function MutationDialog({
       department: employee.department,
       position: employee.position,
       workGroup: employee.workGroup,
+      productionModuleUid: employee.productionModuleUid,
+      productionModuleSectionUid: employee.productionModuleSectionUid,
       employeeType: employee.employeeType,
       effectiveFrom: new Date().toISOString().slice(0, 10),
       changeType: 'TRANSFER',
     },
   })
   const selectedSite = useWatch({ control: form.control, name: 'site' })
+  const selectedEmployeeType = useWatch({
+    control: form.control,
+    name: 'employeeType',
+  })
+  const selectedProductionModuleUid = useWatch({
+    control: form.control,
+    name: 'productionModuleUid',
+  })
   const effectiveFrom = useWatch({
     control: form.control,
     name: 'effectiveFrom',
@@ -120,7 +143,15 @@ export function MutationDialog({
               value: item.code,
               label: item.name,
             }))}
-            {...form.register('site')}
+            {...form.register('site', {
+              onChange: () => {
+                form.setValue('productionModuleUid', '', { shouldDirty: true })
+                form.setValue('productionModuleSectionUid', '', {
+                  shouldDirty: true,
+                  shouldValidate: true,
+                })
+              },
+            })}
           />
           <Select
             label='Departemen'
@@ -143,25 +174,13 @@ export function MutationDialog({
             {...form.register('position')}
           />
           <Select
-            label='Kelompok kerja'
-            options={(lookups.data?.workGroups ?? [])
-              .filter(
-                (item) => !item.siteCode || item.siteCode === selectedSite
-              )
-              .map((item) => ({
-                value: item.name,
-                label: item.name,
-              }))}
-            {...form.register('workGroup')}
-          />
-          <Select
             label='Jenis perubahan'
             options={[
               'TRANSFER',
               'PROMOTION',
               'DEMOTION',
               'TYPE_CHANGE',
-              'GROUP_CHANGE',
+              'PRODUCTION_ASSIGNMENT_CHANGE',
               'OTHER',
             ].map((value) => ({ value, label: statusLabel(value) }))}
             {...form.register('changeType')}
@@ -174,6 +193,42 @@ export function MutationDialog({
             ]}
             {...form.register('employeeType')}
           />
+          {selectedEmployeeType === 'BORONGAN' && (
+            <>
+              <Select
+                label='Modul produksi'
+                options={[
+                  { value: '', label: 'Pilih modul produksi' },
+                  ...(lookups.data?.productionModules ?? [])
+                    .filter((item) => item.siteCode === selectedSite)
+                    .map((item) => ({ value: item.uid, label: item.name })),
+                ]}
+                {...form.register('productionModuleUid', {
+                  onChange: () =>
+                    form.setValue('productionModuleSectionUid', '', {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    }),
+                })}
+              />
+              <Select
+                label='Bagian produksi'
+                options={[
+                  { value: '', label: 'Pilih Bagian produksi' },
+                  ...(lookups.data?.productionModuleSections ?? [])
+                    .filter(
+                      (item) => item.moduleUid === selectedProductionModuleUid
+                    )
+                    .map((item) => ({
+                      value: item.uid,
+                      label: item.sectionName,
+                    })),
+                ]}
+                disabled={!selectedProductionModuleUid}
+                {...form.register('productionModuleSectionUid')}
+              />
+            </>
+          )}
           <label className='grid gap-1 text-sm'>
             Tanggal efektif
             <DatePicker
@@ -261,6 +316,17 @@ function MutationSummary({
         before={employee.department}
         after={input.department}
       />
+      {input.employeeType === 'BORONGAN' && (
+        <SummaryRow
+          label='Penempatan produksi'
+          before={
+            employee.productionModule || employee.productionSection
+              ? `${employee.productionModule ?? '—'} / ${employee.productionSection ?? '—'}`
+              : undefined
+          }
+          after='Sesuai Modul dan Bagian yang dipilih'
+        />
+      )}
       <SummaryRow
         label='Tanggal efektif'
         before='Histori aktif ditutup sehari sebelumnya'

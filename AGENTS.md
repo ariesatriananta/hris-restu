@@ -25,4 +25,5 @@ Lihat di file : `docs/UI_TABLE_STANDARD.md`
 - Jangan mengekspos `id` internal sebagai identifier route jika tidak diperlukan, Gunakan identifier publik `uid` pada URL dan kontrak frontend
 
 
-- Gunakan `pnpm` sebagai package manager.
+- Gunakan `pnpm` sebagai package manager di env lokal
+- Gunakan `npm` sebagai package manager di env production
