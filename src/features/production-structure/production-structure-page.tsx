@@ -1,7 +1,17 @@
 import { useEffect, useState } from 'react'
+import { isAxiosError } from 'axios'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Boxes, GitBranch, Layers3, Pencil, Plus } from 'lucide-react'
+import {
+  BriefcaseBusiness,
+  Boxes,
+  Building2,
+  GitBranch,
+  Layers3,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { apiClient } from '@/lib/api-client'
 import { Badge } from '@/components/ui/badge'
@@ -23,11 +33,13 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
   DataTableActionButton,
   DataTableColumnHeader,
 } from '@/components/data-table'
 import { Main } from '@/components/layout/main'
+import { employeeKeys } from '@/features/employees/data/queries'
 import { ProductionMasterTable } from './production-master-table'
 
 type Module = {
@@ -56,11 +68,38 @@ type Mapping = {
   sectionName: string
   site: string
 }
+type Department = {
+  uid: string
+  code: string
+  name: string
+  description?: string
+  isActive: boolean
+  site: string
+}
+type Position = {
+  uid: string
+  code: string
+  name: string
+  category: 'PRODUCTION' | 'STAFF' | 'MANAGEMENT'
+  description?: string
+  isActive: boolean
+}
+type DeleteTarget = {
+  uid: string
+  name: string
+  endpoint: string
+  label: string
+}
 type List<T> = { items: T[]; total: number; page: number; pageSize: number }
 
 const sites = ['JEPARA', 'SEMARANG', 'KLATEN']
 const key = ['production-structure'] as const
 const label = (active: boolean) => (active ? 'Aktif' : 'Nonaktif')
+const positionCategoryLabel = {
+  PRODUCTION: 'Produksi',
+  STAFF: 'Staff',
+  MANAGEMENT: 'Manajemen',
+} as const
 
 export function ProductionStructurePage({
   search,
@@ -74,6 +113,9 @@ export function ProductionStructurePage({
   const [module, setModule] = useState<Module>()
   const [section, setSection] = useState<Section>()
   const [mapping, setMapping] = useState<Mapping>()
+  const [department, setDepartment] = useState<Department>()
+  const [position, setPosition] = useState<Position>()
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>()
   const params = {
     query: typeof search.filter === 'string' ? search.filter : undefined,
     site: Array.isArray(search.site) ? search.site.join(',') : undefined,
@@ -89,6 +131,27 @@ export function ProductionStructurePage({
       (
         await apiClient.get<List<Module>>('/production-structure/modules', {
           params,
+        })
+      ).data,
+  })
+  const departments = useQuery({
+    queryKey: [...key, 'departments', params],
+    queryFn: async () =>
+      (
+        await apiClient.get<List<Department>>(
+          '/production-structure/departments',
+          {
+            params,
+          }
+        )
+      ).data,
+  })
+  const positions = useQuery({
+    queryKey: [...key, 'positions', params],
+    queryFn: async () =>
+      (
+        await apiClient.get<List<Position>>('/production-structure/positions', {
+          params: { ...params, site: undefined },
         })
       ).data,
   })
@@ -111,17 +174,46 @@ export function ProductionStructurePage({
         )
       ).data,
   })
-  const refresh = () => void client.invalidateQueries({ queryKey: key })
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: key })
+    void client.invalidateQueries({ queryKey: employeeKeys.lookups() })
+  }
+  const deleteMutation = useMutation({
+    mutationFn: (target: DeleteTarget) => apiClient.delete(target.endpoint),
+    onSuccess: (_data, target) => {
+      toast.success(`${target.label} berhasil dihapus.`)
+      refresh()
+      setDeleteTarget(undefined)
+    },
+    onError: (error) => {
+      const message = isAxiosError<{ message?: string }>(error)
+        ? error.response?.data.message
+        : undefined
+      toast.error(message ?? 'Data gagal dihapus.')
+      setDeleteTarget(undefined)
+    },
+  })
   return (
     <Main>
       <div className='mb-6'>
         <h1 className='text-2xl font-bold'>Master Data</h1>
         <p className='text-muted-foreground'>
-          Kelola struktur penempatan produksi untuk karyawan Borongan.
+          Kelola struktur organisasi dan penempatan produksi karyawan.
         </p>
       </div>
       <Tabs value={tab} onValueChange={setTab} className='space-y-4'>
         <TabsList className='h-auto w-full justify-start gap-1 overflow-x-auto rounded-xl p-1 sm:w-fit'>
+          <TabsTrigger
+            value='departments'
+            className='h-10 flex-none gap-2 px-4'
+          >
+            <Building2 className='size-4' />
+            Departemen
+          </TabsTrigger>
+          <TabsTrigger value='positions' className='h-10 flex-none gap-2 px-4'>
+            <BriefcaseBusiness className='size-4' />
+            Jabatan
+          </TabsTrigger>
           <TabsTrigger value='modules' className='h-10 flex-none gap-2 px-4'>
             <Boxes className='size-4' />
             Modul Produksi
@@ -135,6 +227,59 @@ export function ProductionStructurePage({
             Mapping Modul & Bagian
           </TabsTrigger>
         </TabsList>
+        <TabsContent value='departments'>
+          <MasterHeader
+            title='Departemen'
+            description='Struktur organisasi per site untuk karyawan Borongan dan Bulanan.'
+            onAdd={() =>
+              setDepartment({
+                uid: '',
+                code: '',
+                name: '',
+                site: 'JEPARA',
+                isActive: true,
+              })
+            }
+          />
+          <ProductionMasterTable
+            data={departments.data}
+            columns={departmentColumns(setDepartment, setDeleteTarget)}
+            search={search}
+            navigate={navigate as never}
+            isPending={departments.isPending}
+            isFetching={departments.isFetching}
+            isError={departments.isError}
+            onRetry={() => void departments.refetch()}
+            searchPlaceholder='Cari kode atau nama Departemen...'
+            hasSite
+          />
+        </TabsContent>
+        <TabsContent value='positions'>
+          <MasterHeader
+            title='Jabatan'
+            description='Master Jabatan global yang dapat digunakan lintas site.'
+            onAdd={() =>
+              setPosition({
+                uid: '',
+                code: '',
+                name: '',
+                category: 'PRODUCTION',
+                isActive: true,
+              })
+            }
+          />
+          <ProductionMasterTable
+            data={positions.data}
+            columns={positionColumns(setPosition, setDeleteTarget)}
+            search={search}
+            navigate={navigate as never}
+            isPending={positions.isPending}
+            isFetching={positions.isFetching}
+            isError={positions.isError}
+            onRetry={() => void positions.refetch()}
+            searchPlaceholder='Cari kode atau nama Jabatan...'
+          />
+        </TabsContent>
         <TabsContent value='modules'>
           <MasterHeader
             title='Modul Produksi'
@@ -151,7 +296,7 @@ export function ProductionStructurePage({
           />
           <ProductionMasterTable
             data={modules.data}
-            columns={moduleColumns(setModule)}
+            columns={moduleColumns(setModule, setDeleteTarget)}
             search={search}
             navigate={navigate as never}
             isPending={modules.isPending}
@@ -214,7 +359,7 @@ export function ProductionStructurePage({
           />
           <ProductionMasterTable
             data={sections.data}
-            columns={sectionColumns(setSection)}
+            columns={sectionColumns(setSection, setDeleteTarget)}
             search={search}
             navigate={navigate as never}
             isPending={sections.isPending}
@@ -284,7 +429,7 @@ export function ProductionStructurePage({
           />
           <ProductionMasterTable
             data={mappings.data}
-            columns={mappingColumns(setMapping)}
+            columns={mappingColumns(setMapping, setDeleteTarget)}
             search={search}
             navigate={navigate as never}
             isPending={mappings.isPending}
@@ -338,6 +483,16 @@ export function ProductionStructurePage({
         onClose={() => setModule(undefined)}
         onSaved={refresh}
       />
+      <DepartmentDialog
+        value={department}
+        onClose={() => setDepartment(undefined)}
+        onSaved={refresh}
+      />
+      <PositionDialog
+        value={position}
+        onClose={() => setPosition(undefined)}
+        onSaved={refresh}
+      />
       <SectionDialog
         value={section}
         onClose={() => setSection(undefined)}
@@ -349,6 +504,19 @@ export function ProductionStructurePage({
         sections={sections.data?.items ?? []}
         onClose={() => setMapping(undefined)}
         onSaved={refresh}
+      />
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(undefined)}
+        title={`Hapus ${deleteTarget?.label ?? 'data'}?`}
+        desc={`Data ${deleteTarget?.name ?? ''} akan dihapus permanen dan tidak dapat dikembalikan.`}
+        cancelBtnText='Batal'
+        confirmText='Hapus permanen'
+        destructive
+        isLoading={deleteMutation.isPending}
+        handleConfirm={() => {
+          if (deleteTarget) deleteMutation.mutate(deleteTarget)
+        }}
       />
     </Main>
   )
@@ -380,7 +548,152 @@ function Status({ active }: { active: boolean }) {
     <Badge variant={active ? 'secondary' : 'outline'}>{label(active)}</Badge>
   )
 }
-function moduleColumns(onEdit: (value: Module) => void): ColumnDef<Module>[] {
+function departmentColumns(
+  onEdit: (value: Department) => void,
+  onDelete: (value: DeleteTarget) => void
+): ColumnDef<Department>[] {
+  return [
+    {
+      accessorKey: 'site',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Site' />
+      ),
+      filterFn: (row, id, value: string[]) => value.includes(row.getValue(id)),
+    },
+    {
+      accessorKey: 'code',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Kode' />
+      ),
+    },
+    {
+      accessorKey: 'name',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Departemen' />
+      ),
+      cell: ({ row }) => (
+        <div>
+          <p className='font-medium'>{row.original.name}</p>
+          <p className='text-[11px] leading-3 text-muted-foreground'>
+            {row.original.description || '—'}
+          </p>
+        </div>
+      ),
+    },
+    {
+      accessorKey: 'isActive',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Status' />
+      ),
+      cell: ({ row }) => <Status active={row.original.isActive} />,
+      filterFn: (row, id, value: string[]) =>
+        value.includes(String(row.getValue(id))),
+    },
+    {
+      id: 'actions',
+      enableSorting: false,
+      cell: ({ row }) => (
+        <div className='flex items-center'>
+          <DataTableActionButton
+            label={`Ubah Departemen ${row.original.name}`}
+            onClick={() => onEdit(row.original)}
+          >
+            <Pencil />
+          </DataTableActionButton>
+          <DataTableActionButton
+            className='text-destructive hover:text-destructive'
+            label={`Hapus Departemen ${row.original.name}`}
+            onClick={() =>
+              onDelete({
+                uid: row.original.uid,
+                name: row.original.name,
+                label: 'Departemen',
+                endpoint: `/production-structure/departments/${row.original.uid}`,
+              })
+            }
+          >
+            <Trash2 />
+          </DataTableActionButton>
+        </div>
+      ),
+    },
+  ]
+}
+function positionColumns(
+  onEdit: (value: Position) => void,
+  onDelete: (value: DeleteTarget) => void
+): ColumnDef<Position>[] {
+  return [
+    {
+      accessorKey: 'code',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Kode' />
+      ),
+    },
+    {
+      accessorKey: 'name',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Jabatan' />
+      ),
+      cell: ({ row }) => (
+        <div>
+          <p className='font-medium'>{row.original.name}</p>
+          <p className='text-[11px] leading-3 text-muted-foreground'>
+            {row.original.description || '—'}
+          </p>
+        </div>
+      ),
+    },
+    {
+      accessorKey: 'category',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Kategori' />
+      ),
+      cell: ({ row }) => positionCategoryLabel[row.original.category],
+    },
+    {
+      accessorKey: 'isActive',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Status' />
+      ),
+      cell: ({ row }) => <Status active={row.original.isActive} />,
+      filterFn: (row, id, value: string[]) =>
+        value.includes(String(row.getValue(id))),
+    },
+    {
+      id: 'actions',
+      enableSorting: false,
+      cell: ({ row }) => (
+        <div className='flex items-center'>
+          <DataTableActionButton
+            label={`Ubah Jabatan ${row.original.name}`}
+            onClick={() => onEdit(row.original)}
+          >
+            <Pencil />
+          </DataTableActionButton>
+          <DataTableActionButton
+            className='text-destructive hover:text-destructive'
+            label={`Hapus Jabatan ${row.original.name}`}
+            onClick={() =>
+              onDelete({
+                uid: row.original.uid,
+                name: row.original.name,
+                label: 'Jabatan',
+                endpoint: `/production-structure/positions/${row.original.uid}`,
+              })
+            }
+          >
+            <Trash2 />
+          </DataTableActionButton>
+        </div>
+      ),
+    },
+  ]
+}
+function moduleColumns(
+  onEdit: (value: Module) => void,
+  onDelete: (value: DeleteTarget) => void
+): ColumnDef<Module>[] {
   return [
     {
       accessorKey: 'site',
@@ -422,18 +735,35 @@ function moduleColumns(onEdit: (value: Module) => void): ColumnDef<Module>[] {
       id: 'actions',
       enableSorting: false,
       cell: ({ row }) => (
-        <DataTableActionButton
-          label={`Ubah Modul ${row.original.name}`}
-          onClick={() => onEdit(row.original)}
-        >
-          <Pencil />
-        </DataTableActionButton>
+        <div className='flex items-center'>
+          <DataTableActionButton
+            label={`Ubah Modul ${row.original.name}`}
+            onClick={() => onEdit(row.original)}
+          >
+            <Pencil />
+          </DataTableActionButton>
+          <DataTableActionButton
+            className='text-destructive hover:text-destructive'
+            label={`Hapus Modul Produksi ${row.original.name}`}
+            onClick={() =>
+              onDelete({
+                uid: row.original.uid,
+                name: row.original.name,
+                label: 'Modul Produksi',
+                endpoint: `/production-structure/modules/${row.original.uid}`,
+              })
+            }
+          >
+            <Trash2 />
+          </DataTableActionButton>
+        </div>
       ),
     },
   ]
 }
 function sectionColumns(
-  onEdit: (value: Section) => void
+  onEdit: (value: Section) => void,
+  onDelete: (value: DeleteTarget) => void
 ): ColumnDef<Section>[] {
   return [
     {
@@ -469,18 +799,35 @@ function sectionColumns(
       id: 'actions',
       enableSorting: false,
       cell: ({ row }) => (
-        <DataTableActionButton
-          label={`Ubah Bagian ${row.original.name}`}
-          onClick={() => onEdit(row.original)}
-        >
-          <Pencil />
-        </DataTableActionButton>
+        <div className='flex items-center'>
+          <DataTableActionButton
+            label={`Ubah Bagian ${row.original.name}`}
+            onClick={() => onEdit(row.original)}
+          >
+            <Pencil />
+          </DataTableActionButton>
+          <DataTableActionButton
+            className='text-destructive hover:text-destructive'
+            label={`Hapus Bagian Produksi ${row.original.name}`}
+            onClick={() =>
+              onDelete({
+                uid: row.original.uid,
+                name: row.original.name,
+                label: 'Bagian Produksi',
+                endpoint: `/production-structure/sections/${row.original.uid}`,
+              })
+            }
+          >
+            <Trash2 />
+          </DataTableActionButton>
+        </div>
       ),
     },
   ]
 }
 function mappingColumns(
-  onEdit: (value: Mapping) => void
+  onEdit: (value: Mapping) => void,
+  onDelete: (value: DeleteTarget) => void
 ): ColumnDef<Mapping>[] {
   return [
     {
@@ -515,12 +862,28 @@ function mappingColumns(
       id: 'actions',
       enableSorting: false,
       cell: ({ row }) => (
-        <DataTableActionButton
-          label={`Ubah pemetaan ${row.original.moduleName} ${row.original.sectionName}`}
-          onClick={() => onEdit(row.original)}
-        >
-          <Pencil />
-        </DataTableActionButton>
+        <div className='flex items-center'>
+          <DataTableActionButton
+            label={`Ubah pemetaan ${row.original.moduleName} ${row.original.sectionName}`}
+            onClick={() => onEdit(row.original)}
+          >
+            <Pencil />
+          </DataTableActionButton>
+          <DataTableActionButton
+            className='text-destructive hover:text-destructive'
+            label={`Hapus pemetaan ${row.original.moduleName} ${row.original.sectionName}`}
+            onClick={() =>
+              onDelete({
+                uid: row.original.uid,
+                name: `${row.original.moduleName} • ${row.original.sectionName}`,
+                label: 'Pemetaan Modul & Bagian',
+                endpoint: `/production-structure/module-sections/${row.original.uid}`,
+              })
+            }
+          >
+            <Trash2 />
+          </DataTableActionButton>
+        </div>
       ),
     },
   ]
@@ -597,6 +960,201 @@ function ModuleDialog({
               label='Nama Modul'
               value={model.name}
               onChange={(name) => setForm({ ...model, name })}
+            />
+            <Text
+              label='Keterangan'
+              value={model.description ?? ''}
+              onChange={(description) => setForm({ ...model, description })}
+            />
+            <Active
+              active={model.isActive}
+              onChange={(isActive) => setForm({ ...model, isActive })}
+            />
+            <Button disabled={mutation.isPending}>Simpan</Button>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+function DepartmentDialog({
+  value,
+  onClose,
+  onSaved,
+}: {
+  value?: Department
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [form, setForm] = useState<Department>()
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setForm(value), [value])
+  const open = Boolean(value)
+  const model = form ?? value
+  const mutation = useMutation({
+    mutationFn: async (body: Department) => {
+      const payload = {
+        site: body.site,
+        code: body.code,
+        name: body.name,
+        description: body.description,
+        isActive: body.isActive,
+      }
+      if (body.uid)
+        await apiClient.patch(
+          `/production-structure/departments/${body.uid}`,
+          payload
+        )
+      else await apiClient.post('/production-structure/departments', payload)
+    },
+    onSuccess: () => {
+      toast.success('Departemen disimpan.')
+      onSaved()
+      onClose()
+    },
+    onError: (error) =>
+      toast.error(
+        isAxiosError<{ message?: string }>(error)
+          ? (error.response?.data.message ?? 'Departemen gagal disimpan.')
+          : 'Departemen gagal disimpan.'
+      ),
+  })
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {value?.uid ? 'Ubah Departemen' : 'Tambah Departemen'}
+          </DialogTitle>
+          <DialogDescription>
+            Departemen berlaku untuk karyawan Borongan dan Bulanan pada satu
+            site.
+          </DialogDescription>
+        </DialogHeader>
+        {model && (
+          <form
+            className='grid gap-3'
+            onSubmit={(event) => {
+              event.preventDefault()
+              mutation.mutate(form ?? model)
+            }}
+          >
+            <Select
+              label='Site'
+              value={model.site}
+              onChange={(site) => setForm({ ...model, site })}
+              options={sites.map((site) => ({ value: site, label: site }))}
+              disabled={Boolean(value?.uid)}
+            />
+            <Text
+              label='Kode'
+              value={model.code}
+              onChange={(code) => setForm({ ...model, code })}
+            />
+            <Text
+              label='Nama Departemen'
+              value={model.name}
+              onChange={(name) => setForm({ ...model, name })}
+            />
+            <Text
+              label='Keterangan'
+              value={model.description ?? ''}
+              onChange={(description) => setForm({ ...model, description })}
+            />
+            <Active
+              active={model.isActive}
+              onChange={(isActive) => setForm({ ...model, isActive })}
+            />
+            <Button disabled={mutation.isPending}>Simpan</Button>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+function PositionDialog({
+  value,
+  onClose,
+  onSaved,
+}: {
+  value?: Position
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [form, setForm] = useState<Position>()
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setForm(value), [value])
+  const open = Boolean(value)
+  const model = form ?? value
+  const mutation = useMutation({
+    mutationFn: async (body: Position) => {
+      const payload = {
+        code: body.code,
+        name: body.name,
+        category: body.category,
+        description: body.description,
+        isActive: body.isActive,
+      }
+      if (body.uid)
+        await apiClient.patch(
+          `/production-structure/positions/${body.uid}`,
+          payload
+        )
+      else await apiClient.post('/production-structure/positions', payload)
+    },
+    onSuccess: () => {
+      toast.success('Jabatan disimpan.')
+      onSaved()
+      onClose()
+    },
+    onError: (error) =>
+      toast.error(
+        isAxiosError<{ message?: string }>(error)
+          ? (error.response?.data.message ?? 'Jabatan gagal disimpan.')
+          : 'Jabatan gagal disimpan.'
+      ),
+  })
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {value?.uid ? 'Ubah Jabatan' : 'Tambah Jabatan'}
+          </DialogTitle>
+          <DialogDescription>
+            Jabatan bersifat global dan hanya dapat dikelola oleh Super Admin.
+          </DialogDescription>
+        </DialogHeader>
+        {model && (
+          <form
+            className='grid gap-3'
+            onSubmit={(event) => {
+              event.preventDefault()
+              mutation.mutate(form ?? model)
+            }}
+          >
+            <Text
+              label='Kode'
+              value={model.code}
+              onChange={(code) => setForm({ ...model, code })}
+            />
+            <Text
+              label='Nama Jabatan'
+              value={model.name}
+              onChange={(name) => setForm({ ...model, name })}
+            />
+            <Select
+              label='Kategori'
+              value={model.category}
+              onChange={(category) =>
+                setForm({
+                  ...model,
+                  category: category as Position['category'],
+                })
+              }
+              options={Object.entries(positionCategoryLabel).map(
+                ([value, label]) => ({ value, label })
+              )}
             />
             <Text
               label='Keterangan'

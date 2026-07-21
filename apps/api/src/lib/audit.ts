@@ -8,7 +8,7 @@ type AuditInput = {
   auth: AuthContext
   request?: Request
   siteId?: number | null
-  action: 'CREATE' | 'UPDATE' | 'OTHER'
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'OTHER'
   table: string
   recordId?: number | null
   recordUid?: string | null

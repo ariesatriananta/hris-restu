@@ -65,7 +65,26 @@ Saat membuat karyawan Borongan baru, HR wajib memilih Modul lalu Bagian. Karyawa
 
 Perubahan Modul, Bagian, atau perpindahan site dilakukan melalui **Catat Mutasi**, bukan Edit Data Karyawan. Saat Site diganti, pilihan Modul dan Bagian direset karena harus mengikuti struktur site tujuan. Sistem menyimpan perubahan tersebut sebagai `PRODUCTION_ASSIGNMENT_CHANGE` atau jenis mutasi yang dipilih HR.
 
-Master dikelola di **Administrasi Sistem → Master Data** pada tiga tab: Modul Produksi, Bagian Produksi, dan Mapping Modul & Bagian. Master tidak dihapus fisik. Jika dinonaktifkan, master tidak dapat dipilih untuk penempatan baru namun tetap terlihat pada histori lama.
+Master dikelola di **Administrasi Sistem → Master Data** pada tiga tab: Modul Produksi, Bagian Produksi, dan Mapping Modul & Bagian. Data yang belum pernah dipakai boleh **dihapus permanen**. Bila sudah dipakai oleh pemetaan, data karyawan, atau histori, sistem menolak penghapusan agar jejak lama tetap utuh; gunakan status Nonaktif. Master nonaktif tidak dapat dipilih untuk penempatan baru namun tetap terlihat pada histori lama.
+
+### Departemen
+
+Departemen adalah struktur organisasi per site yang dapat dipakai oleh karyawan `BORONGAN` maupun `BULANAN`. HR mengelolanya melalui **Administrasi Sistem → Master Data → Departemen**.
+
+- Setiap Departemen memiliki Site, kode manual yang unik dalam Site tersebut, nama, keterangan, dan status aktif.
+- Saat membuat atau mengubah penempatan karyawan, hanya Departemen aktif pada Site terkait yang dapat dipilih.
+- Perubahan penempatan Departemen dilakukan lewat **Catat Mutasi** agar histori penempatan tetap utuh.
+- Departemen yang belum pernah dipakai dapat dihapus permanen. Jika sudah menjadi referensi karyawan, histori penempatan, atau Kelompok Kerja, gunakan Nonaktif agar relasi dan histori tidak rusak.
+- Departemen yang masih dipakai oleh karyawan berstatus Aktif tidak dapat dinonaktifkan. Karyawan Aktif harus dimutasikan lebih dahulu ke Departemen lain.
+
+### Jabatan
+
+Jabatan adalah master global yang dapat digunakan lintas site untuk karyawan `BORONGAN` maupun `BULANAN`. HR memakai Jabatan saat membuat penempatan awal dan saat **Catat Mutasi**.
+
+- Setiap Jabatan memiliki kode unik global, nama, kategori, keterangan, dan status aktif.
+- Kategori Jabatan saat ini adalah `PRODUCTION`, `STAFF`, dan `MANAGEMENT` untuk membedakan konteks organisasi, bukan untuk membatasi jenis karyawan secara otomatis.
+- Master Jabatan dikelola melalui **Administrasi Sistem → Master Data → Jabatan** dan hanya dapat ditambah, diubah, atau dinonaktifkan oleh Super Admin.
+- Jabatan yang belum pernah dipakai dapat dihapus permanen oleh Super Admin. Jabatan yang sudah menjadi referensi karyawan atau histori harus dikelola melalui Nonaktif; jabatan yang masih dipakai karyawan Aktif harus diganti melalui Mutasi sebelum dapat dinonaktifkan.
 
 ## 5. PKWT dan lifecycle kontrak
 
