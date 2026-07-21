@@ -26,6 +26,11 @@ import {
   listContracts,
   listContractConflicts,
   listDocuments,
+  listScheduledMutations,
+  scheduledMutationsForEmployee,
+  scheduleMutation,
+  updateScheduledMutation,
+  cancelScheduledMutation,
 } from './http-employee-repository'
 
 export const employeeKeys = {
@@ -47,6 +52,10 @@ export const employeeKeys = {
   contract: (uid: string) => [...employeeKeys.all, 'contract', uid] as const,
   contractConflicts: () => [...employeeKeys.all, 'contract-conflicts'] as const,
   document: (uid: string) => [...employeeKeys.all, 'document', uid] as const,
+  scheduledMutationList: (params: EmployeeRecordListParams) =>
+    [...employeeKeys.all, 'scheduled-mutation-list', params] as const,
+  scheduledMutations: (employeeUid: string) =>
+    [...employeeKeys.all, 'scheduled-mutations', employeeUid] as const,
 }
 export type EmployeeLookups = {
   sites: LookupOption[]
@@ -146,6 +155,22 @@ export const useDocument = (uid: string) =>
       enabled: Boolean(uid),
     })
   )
+export const useScheduledMutationList = (params: EmployeeRecordListParams) =>
+  useQuery(
+    queryOptions({
+      queryKey: employeeKeys.scheduledMutationList(params),
+      queryFn: () => listScheduledMutations(params),
+      placeholderData: keepPreviousData,
+    })
+  )
+export const useScheduledMutations = (employeeUid: string) =>
+  useQuery(
+    queryOptions({
+      queryKey: employeeKeys.scheduledMutations(employeeUid),
+      queryFn: () => scheduledMutationsForEmployee(employeeUid),
+      enabled: Boolean(employeeUid),
+    })
+  )
 function invalidate(queryClient: ReturnType<typeof useQueryClient>) {
   return queryClient.invalidateQueries({ queryKey: employeeKeys.all })
 }
@@ -167,6 +192,34 @@ export function useApplyMutation() {
       employeeUid: string
       input: MutationInput
     }) => httpEmployeeRepository.applyMutation(employeeUid, input),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function useScheduleMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      employeeUid,
+      input,
+    }: {
+      employeeUid: string
+      input: MutationInput
+    }) => scheduleMutation(employeeUid, input),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function useUpdateScheduledMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ uid, input }: { uid: string; input: MutationInput }) =>
+      updateScheduledMutation(uid, input),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function useCancelScheduledMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (uid: string) => cancelScheduledMutation(uid),
     onSuccess: () => invalidate(queryClient),
   })
 }

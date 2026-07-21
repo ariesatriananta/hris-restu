@@ -29,6 +29,8 @@ export const statusLabel = (value: string) =>
     EXPIRED: 'Berakhir',
     TERMINATED: 'Dihentikan',
     CANCELLED: 'Dibatalkan',
+    APPLIED: 'Diterapkan',
+    FAILED: 'Gagal',
     REVOKED: 'Dicabut',
     ARCHIVED: 'Diarsipkan',
     BORONGAN: 'Borongan',

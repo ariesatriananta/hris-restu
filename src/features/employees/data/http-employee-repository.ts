@@ -9,7 +9,9 @@ import type {
   EmployeeRecordListParams,
   ContractLifecycleAction,
   ContractLifecycleConflict,
+  ScheduledEmployeeMutation,
   PaginatedResult,
+  MutationInput,
 } from '../domain'
 
 const params = (input: EmployeeListParams) => ({
@@ -174,3 +176,43 @@ export const transitionContract = async (
       input
     )
   ).data
+
+export const listScheduledMutations = async (input: EmployeeRecordListParams) =>
+  (
+    await apiClient.get<PaginatedResult<ScheduledEmployeeMutation>>(
+      '/employees/scheduled-mutations',
+      { params: recordParams(input) }
+    )
+  ).data
+
+export const scheduledMutationsForEmployee = async (employeeUid: string) =>
+  (
+    await apiClient.get<ScheduledEmployeeMutation[]>(
+      `/employees/${employeeUid}/scheduled-mutations`
+    )
+  ).data
+
+export const scheduleMutation = async (
+  employeeUid: string,
+  input: MutationInput
+) => {
+  const { productionModuleUid: _productionModuleUid, ...body } = input
+  return (
+    await apiClient.post<{ uid: string }>(
+      `/employees/${employeeUid}/scheduled-mutations`,
+      body
+    )
+  ).data
+}
+
+export const updateScheduledMutation = async (
+  uid: string,
+  input: MutationInput
+) => {
+  const { productionModuleUid: _productionModuleUid, ...body } = input
+  await apiClient.patch(`/employees/scheduled-mutations/${uid}`, body)
+}
+
+export const cancelScheduledMutation = async (uid: string) => {
+  await apiClient.post(`/employees/scheduled-mutations/${uid}/cancel`)
+}

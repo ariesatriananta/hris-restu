@@ -32,6 +32,24 @@ export const employees = mysqlTable('employees', {
   joinDateTraining: date('join_date_training', { mode: 'string' }),
   joinDateBorong: date('join_date_borong', { mode: 'string' }),
 }, (table) => [uniqueIndex('uq_employees_email').on(table.email)])
+export const scheduledEmployeeMutations = mysqlTable('scheduled_employee_mutations', {
+  id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+  uid: varchar('uid', { length: 36 }).notNull(),
+  employeeId: bigint('employee_id', { mode: 'number', unsigned: true }).notNull(),
+  baseHistoryId: bigint('base_history_id', { mode: 'number', unsigned: true }).notNull(),
+  targetSiteId: bigint('target_site_id', { mode: 'number', unsigned: true }).notNull(),
+  targetDepartmentId: bigint('target_department_id', { mode: 'number', unsigned: true }),
+  targetPositionId: bigint('target_position_id', { mode: 'number', unsigned: true }),
+  targetProductionModuleSectionId: bigint('target_production_module_section_id', { mode: 'number', unsigned: true }),
+  targetEmployeeTypeId: bigint('target_employee_type_id', { mode: 'number', unsigned: true }).notNull(),
+  effectiveFrom: date('effective_from', { mode: 'string' }).notNull(),
+  changeType: varchar('change_type', { length: 30 }).notNull(),
+  status: varchar('status', { length: 20 }).notNull(),
+  failureReason: varchar('failure_reason', { length: 500 }),
+  appliedAt: datetime('applied_at', { mode: 'date', fsp: 3 }),
+  cancelledAt: datetime('cancelled_at', { mode: 'date', fsp: 3 }),
+  ...audit,
+}, (table) => [uniqueIndex('uq_scheduled_employee_mutations_uid').on(table.uid)])
 export const contractTypes = mysqlTable('contract_types', {
   id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
   uid: varchar('uid', { length: 36 }).notNull(),

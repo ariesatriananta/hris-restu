@@ -28,6 +28,7 @@ import {
   useDocuments,
   useEmployee,
   useHistories,
+  useScheduledMutations,
 } from '../data/queries'
 import type { Employee, EmployeeContract } from '../domain'
 import { formatDate, maskValue, statusLabel } from '../utils'
@@ -42,6 +43,7 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
   const histories = useHistories(employeeUid)
   const contracts = useContracts(employeeUid)
   const documents = useDocuments(employeeUid)
+  const scheduledMutations = useScheduledMutations(employeeUid)
   const [mutationOpen, setMutationOpen] = useState(false)
   const [selectedHistoryUid, setSelectedHistoryUid] = useState<string>()
   const [selectedContractUid, setSelectedContractUid] = useState<string>()
@@ -264,57 +266,107 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
           )}
         </TabsContent>
         <TabsContent value='mutasi'>
-          <Card>
-            <CardHeader>
-              <div className='flex justify-between gap-3'>
-                <CardTitle>Histori penempatan</CardTitle>
-                <Button size='sm' onClick={() => setMutationOpen(true)}>
-                  <Plus /> Catat mutasi
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {histories.isPending ? (
-                <RecordSkeleton />
-              ) : histories.isError ? (
-                <Retry onClick={() => histories.refetch()} />
-              ) : !histories.data?.length ? (
-                <Empty text='Belum ada histori penempatan.' />
-              ) : (
-                <div className='space-y-4'>
-                  {histories.data.map((item) => (
-                    <div
-                      key={item.uid}
-                      className='flex flex-wrap items-center justify-between gap-3 border-s-2 border-primary ps-4'
-                    >
-                      <div>
-                        <div className='flex flex-wrap items-center gap-2'>
-                          <p className='font-semibold'>
-                            {item.site} · {item.position ?? 'Tanpa jabatan'}
+          <div className='space-y-4'>
+            <Card>
+              <CardHeader>
+                <div className='flex justify-between gap-3'>
+                  <CardTitle>Histori penempatan</CardTitle>
+                  <Button size='sm' onClick={() => setMutationOpen(true)}>
+                    <Plus /> Catat mutasi
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {histories.isPending ? (
+                  <RecordSkeleton />
+                ) : histories.isError ? (
+                  <Retry onClick={() => histories.refetch()} />
+                ) : !histories.data?.length ? (
+                  <Empty text='Belum ada histori penempatan.' />
+                ) : (
+                  <div className='space-y-4'>
+                    {histories.data.map((item) => (
+                      <div
+                        key={item.uid}
+                        className='flex flex-wrap items-center justify-between gap-3 border-s-2 border-primary ps-4'
+                      >
+                        <div>
+                          <div className='flex flex-wrap items-center gap-2'>
+                            <p className='font-semibold'>
+                              {item.site} · {item.position ?? 'Tanpa jabatan'}
+                            </p>
+                            <Badge variant='secondary'>
+                              {statusLabel(item.changeType)}
+                            </Badge>
+                          </div>
+                          <p className='text-sm text-muted-foreground'>
+                            {formatDate(item.effectiveFrom)} —{' '}
+                            {formatDate(item.effectiveTo)} ·{' '}
+                            {item.reason ?? 'Tidak ada alasan'}
                           </p>
-                          <Badge variant='secondary'>
-                            {statusLabel(item.changeType)}
+                        </div>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          onClick={() => setSelectedHistoryUid(item.uid)}
+                        >
+                          <Eye /> Detail
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className='text-base'>Mutasi terjadwal</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {scheduledMutations.isPending ? (
+                  <RecordSkeleton />
+                ) : scheduledMutations.isError ? (
+                  <Retry onClick={() => scheduledMutations.refetch()} />
+                ) : scheduledMutations.data?.length ? (
+                  <div className='space-y-2'>
+                    {scheduledMutations.data.map((item) => (
+                      <div
+                        key={item.uid}
+                        className='rounded-md border p-3 text-sm'
+                      >
+                        <div className='flex flex-wrap items-center justify-between gap-2'>
+                          <span className='font-medium'>
+                            {statusLabel(item.changeType)} ·{' '}
+                            {formatDate(item.effectiveFrom)}
+                          </span>
+                          <Badge
+                            variant={
+                              item.status === 'FAILED'
+                                ? 'destructive'
+                                : 'secondary'
+                            }
+                          >
+                            {statusLabel(item.status)}
                           </Badge>
                         </div>
-                        <p className='text-sm text-muted-foreground'>
-                          {formatDate(item.effectiveFrom)} —{' '}
-                          {formatDate(item.effectiveTo)} ·{' '}
-                          {item.reason ?? 'Tidak ada alasan'}
+                        <p className='mt-1 text-muted-foreground'>
+                          {item.site} · {item.department ?? '—'} ·{' '}
+                          {item.position ?? '—'}
                         </p>
+                        {item.failureReason && (
+                          <p className='mt-2 text-destructive'>
+                            {item.failureReason}
+                          </p>
+                        )}
                       </div>
-                      <Button
-                        size='sm'
-                        variant='outline'
-                        onClick={() => setSelectedHistoryUid(item.uid)}
-                      >
-                        <Eye /> Detail
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                    ))}
+                  </div>
+                ) : (
+                  <Empty text='Tidak ada mutasi terjadwal.' />
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
         <TabsContent value='kontrak'>
           <Records

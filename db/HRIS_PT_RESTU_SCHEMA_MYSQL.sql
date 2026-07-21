@@ -518,6 +518,53 @@ CREATE TABLE employee_employment_histories (
   CONSTRAINT fk_employment_history_status FOREIGN KEY (employee_status_id) REFERENCES employee_statuses (id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE scheduled_employee_mutations (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  employee_id BIGINT UNSIGNED NOT NULL,
+  base_history_id BIGINT UNSIGNED NOT NULL,
+  target_site_id BIGINT UNSIGNED NOT NULL,
+  target_department_id BIGINT UNSIGNED NULL,
+  target_position_id BIGINT UNSIGNED NULL,
+  target_work_group_id BIGINT UNSIGNED NULL,
+  target_production_module_section_id BIGINT UNSIGNED NULL,
+  target_employee_type_id BIGINT UNSIGNED NOT NULL,
+  effective_from DATE NOT NULL,
+  change_type VARCHAR(30) NOT NULL,
+  reference_number VARCHAR(100) NULL,
+  reason VARCHAR(255) NULL,
+  notes TEXT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'SCHEDULED',
+  failure_reason VARCHAR(500) NULL,
+  applied_at DATETIME(3) NULL,
+  cancelled_at DATETIME(3) NULL,
+  open_employee_id BIGINT UNSIGNED GENERATED ALWAYS AS (
+    CASE WHEN status IN ('SCHEDULED', 'FAILED') THEN employee_id ELSE NULL END
+  ) STORED,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_scheduled_employee_mutations_uid (uid),
+  UNIQUE KEY uq_scheduled_employee_mutations_open_employee (open_employee_id),
+  KEY idx_scheduled_employee_mutations_due (status, effective_from),
+  KEY idx_scheduled_employee_mutations_employee (employee_id, effective_from),
+  KEY idx_scheduled_employee_mutations_site (target_site_id),
+  CONSTRAINT chk_scheduled_employee_mutations_status CHECK (status IN ('SCHEDULED', 'APPLIED', 'FAILED', 'CANCELLED')),
+  CONSTRAINT chk_scheduled_employee_mutations_change CHECK (change_type IN ('TRANSFER', 'PROMOTION', 'DEMOTION', 'TYPE_CHANGE', 'GROUP_CHANGE', 'PRODUCTION_ASSIGNMENT_CHANGE', 'OTHER')),
+  CONSTRAINT fk_scheduled_employee_mutation_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_scheduled_employee_mutation_base_history FOREIGN KEY (base_history_id) REFERENCES employee_employment_histories (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_scheduled_employee_mutation_site FOREIGN KEY (target_site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_scheduled_employee_mutation_department FOREIGN KEY (target_department_id) REFERENCES departments (id) ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_scheduled_employee_mutation_position FOREIGN KEY (target_position_id) REFERENCES positions (id) ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_scheduled_employee_mutation_work_group FOREIGN KEY (target_work_group_id) REFERENCES work_groups (id) ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_scheduled_employee_mutation_production_mapping FOREIGN KEY (target_production_module_section_id) REFERENCES production_module_sections (id) ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_scheduled_employee_mutation_type FOREIGN KEY (target_employee_type_id) REFERENCES employee_types (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_scheduled_employee_mutation_created_by FOREIGN KEY (created_by) REFERENCES users (id) ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_scheduled_employee_mutation_updated_by FOREIGN KEY (updated_by) REFERENCES users (id) ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE employee_contracts (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   uid CHAR(36) NOT NULL,

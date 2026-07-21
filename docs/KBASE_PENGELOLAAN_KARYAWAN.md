@@ -57,7 +57,16 @@ Penempatan awal dibuat saat karyawan dibuat. Catat Mutasi dipakai untuk perubaha
 
 Jenis perubahan yang tersedia: `TRANSFER` (mutasi site), `PROMOTION`, `DEMOTION`, `TYPE_CHANGE`, `PRODUCTION_ASSIGNMENT_CHANGE`, dan `OTHER`. `GROUP_CHANGE` tetap ada sebagai nilai histori/compatibility namun tidak ditawarkan pada UI selama Kelompok Kerja disembunyikan.
 
-Saat mutasi disimpan, sistem menutup histori aktif sehari sebelum tanggal efektif, membuat histori baru, lalu memperbarui penempatan utama secara atomik. Tanggal efektif wajib setelah histori aktif sebelumnya. Mutasi tidak mengubah status kerja.
+Mutasi berlaku menurut tanggal bisnis WIB. Jika tanggal efektif **hari ini**, sistem langsung menutup histori aktif sehari sebelumnya, membuat histori baru, lalu memperbarui penempatan utama secara atomik. Jika tanggal efektif **masa depan**, sistem hanya membuat antrean mutasi; data karyawan dan histori penempatan belum berubah sampai cron menerapkannya pada tanggal efektif. Tanggal lampau tidak didukung dari alur normal. Mutasi tidak mengubah status kerja.
+
+### Mutasi Terjadwal
+
+Halaman **Karyawan → Riwayat Mutasi** memiliki dua tab:
+
+- **Riwayat Diterapkan** hanya berisi histori penempatan yang sudah benar-benar berlaku.
+- **Mutasi Terjadwal** berisi perubahan masa depan berikut statusnya: `Dijadwalkan`, `Diterapkan`, `Gagal`, atau `Dibatalkan`.
+
+Satu karyawan hanya boleh memiliki satu jadwal yang belum selesai. Sebelum tanggal efektif, HR dapat mengubah atau membatalkan jadwal. Saat cron menjalankannya, sistem memeriksa ulang bahwa histori aktif sumber belum berubah serta seluruh master tujuan masih aktif. Jika tidak valid, jadwal menjadi **Gagal**, tidak mengubah karyawan, dan HR perlu memperbaiki lalu menjadwalkan ulang. Ringkasan jadwal yang masih terbuka juga tampil pada tab **Penempatan & Mutasi** di detail karyawan.
 
 Setiap riwayat memiliki drawer Detail untuk melihat penempatan, alasan, catatan, tanggal berlaku, dan jenis perubahan.
 
@@ -131,7 +140,7 @@ Ada dua model. Untuk addendum atas kontrak yang sama, ubah tanggal akhir kontrak
 
 Server cron memanggil `POST /api/internal/contracts/reconcile` setiap hari pukul 00:05 WIB dengan header `X-Cron-Secret`. Endpoint ini bukan endpoint browser.
 
-Cron melakukan tiga hal: mengaktifkan kontrak `SCHEDULED` yang sudah mulai, mengubah kontrak `ACTIVE` yang melewati tanggal akhir menjadi `EXPIRED`, dan menyinkronkan seluruh status karyawan terhadap kontrak aktif yang berlaku.
+Cron melakukan empat hal: mengaktifkan kontrak `SCHEDULED` yang sudah mulai, mengubah kontrak `ACTIVE` yang melewati tanggal akhir menjadi `EXPIRED`, menyinkronkan seluruh status karyawan terhadap kontrak aktif yang berlaku, lalu menerapkan mutasi penempatan yang sudah jatuh tempo. Kegagalan mutasi terjadwal tidak dicoba ulang otomatis agar perubahan yang sudah tidak relevan tidak masuk diam-diam.
 
 Cron bersifat idempoten: pemanggilan ulang pada keadaan yang sudah sesuai tidak membuat histori/audit ganda. Konflik tidak diperbaiki secara spekulatif. Contoh konflik: lebih dari satu kontrak aktif valid, atau karyawan Resign/legacy Leave masih memiliki kontrak aktif.
 

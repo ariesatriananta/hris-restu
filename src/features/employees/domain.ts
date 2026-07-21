@@ -23,6 +23,11 @@ export type ContractStatus =
   | 'TERMINATED'
   | 'CANCELLED'
 export type DocumentStatus = 'ACTIVE' | 'EXPIRED' | 'REVOKED' | 'ARCHIVED'
+export type ScheduledMutationStatus =
+  | 'SCHEDULED'
+  | 'APPLIED'
+  | 'FAILED'
+  | 'CANCELLED'
 
 export interface LookupOption {
   uid: string
@@ -124,6 +129,8 @@ export type ContractLifecycleAction =
 export interface EmploymentHistory {
   uid: string
   employeeUid: string
+  employeeName?: string
+  employeeNumber?: string
   site: SiteCode
   department?: string
   position?: string
@@ -204,6 +211,31 @@ export interface MutationInput {
   referenceNumber?: string
   reason?: string
   notes?: string
+}
+export interface ScheduledEmployeeMutation {
+  uid: string
+  employeeUid: string
+  employeeName: string
+  employeeNumber: string
+  sourceSite: SiteCode
+  site: SiteCode
+  department?: string
+  position?: string
+  workGroup?: string
+  employeeType: EmployeeTypeCode
+  productionModuleSectionUid?: string
+  productionModuleUid?: string
+  productionModule?: string
+  productionSectionUid?: string
+  productionSection?: string
+  effectiveFrom: string
+  changeType: MutationChangeType
+  referenceNumber?: string
+  reason?: string
+  notes?: string
+  status: ScheduledMutationStatus
+  failureReason?: string
+  appliedAt?: string
 }
 export interface EmployeeListParams {
   query?: string

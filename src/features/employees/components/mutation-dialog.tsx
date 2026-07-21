@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { isAxiosError } from 'axios'
 import { useForm, useWatch } from 'react-hook-form'
@@ -20,8 +20,14 @@ import {
   useApplyMutation,
   useEmployeeLookups,
   useHistories,
+  useScheduleMutation,
+  useUpdateScheduledMutation,
 } from '../data/queries'
-import type { Employee, MutationInput } from '../domain'
+import type {
+  Employee,
+  MutationInput,
+  ScheduledEmployeeMutation,
+} from '../domain'
 import { statusLabel } from '../utils'
 
 const mutationSchema = z
@@ -61,12 +67,16 @@ export function MutationDialog({
   employee,
   open,
   onOpenChange,
+  schedule,
 }: {
   employee: Employee
   open: boolean
   onOpenChange: (open: boolean) => void
+  schedule?: ScheduledEmployeeMutation
 }) {
   const mutation = useApplyMutation()
+  const scheduleMutation = useScheduleMutation()
+  const updateSchedule = useUpdateScheduledMutation()
   const lookups = useEmployeeLookups()
   const histories = useHistories(employee.uid)
   const [pendingInput, setPendingInput] = useState<MutationInput>()
@@ -76,14 +86,34 @@ export function MutationDialog({
       site: employee.site,
       department: employee.department,
       position: employee.position,
-      workGroup: employee.workGroup,
+      workGroup: schedule?.workGroup ?? employee.workGroup,
       productionModuleUid: employee.productionModuleUid,
       productionModuleSectionUid: employee.productionModuleSectionUid,
       employeeType: employee.employeeType,
-      effectiveFrom: new Date().toISOString().slice(0, 10),
+      effectiveFrom: businessDateInput(),
       changeType: 'TRANSFER',
     },
   })
+  useEffect(() => {
+    if (!open) return
+    form.reset({
+      site: schedule?.site ?? employee.site,
+      department: schedule?.department ?? employee.department,
+      position: schedule?.position ?? employee.position,
+      workGroup: employee.workGroup,
+      productionModuleUid:
+        schedule?.productionModuleUid ?? employee.productionModuleUid,
+      productionModuleSectionUid:
+        schedule?.productionModuleSectionUid ??
+        employee.productionModuleSectionUid,
+      employeeType: schedule?.employeeType ?? employee.employeeType,
+      effectiveFrom: schedule?.effectiveFrom ?? businessDateInput(),
+      changeType: schedule?.changeType ?? 'TRANSFER',
+      referenceNumber: schedule?.referenceNumber,
+      reason: schedule?.reason,
+      notes: schedule?.notes,
+    })
+  }, [employee, form, open, schedule])
   const selectedSite = useWatch({ control: form.control, name: 'site' })
   const selectedEmployeeType = useWatch({
     control: form.control,
@@ -97,26 +127,51 @@ export function MutationDialog({
     control: form.control,
     name: 'effectiveFrom',
   })
-  const commit = (input: MutationInput) =>
+  const isFuture = Boolean(
+    pendingInput && pendingInput.effectiveFrom > businessDateInput()
+  )
+  const isSaving =
+    mutation.isPending || scheduleMutation.isPending || updateSchedule.isPending
+  const commit = (input: MutationInput) => {
+    const onSuccess = () => {
+      toast.success(
+        input.effectiveFrom > businessDateInput()
+          ? schedule
+            ? 'Jadwal mutasi diperbarui.'
+            : 'Mutasi berhasil dijadwalkan.'
+          : 'Mutasi dicatat sebagai histori baru.'
+      )
+      setPendingInput(undefined)
+      onOpenChange(false)
+    }
+    const onError = (error: unknown) => toast.error(mutationErrorMessage(error))
+    if (input.effectiveFrom > businessDateInput()) {
+      if (schedule)
+        updateSchedule.mutate(
+          { uid: schedule.uid, input },
+          { onSuccess, onError }
+        )
+      else
+        scheduleMutation.mutate(
+          { employeeUid: employee.uid, input },
+          { onSuccess, onError }
+        )
+      return
+    }
     mutation.mutate(
       { employeeUid: employee.uid, input },
-      {
-        onSuccess: () => {
-          toast.success('Mutasi dicatat sebagai histori baru.')
-          setPendingInput(undefined)
-          onOpenChange(false)
-        },
-        onError: (error) => toast.error(mutationErrorMessage(error)),
-      }
+      { onSuccess, onError }
     )
+  }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle>Catat mutasi</DialogTitle>
           <DialogDescription>
-            Histori aktif akan ditutup dan record baru ditambahkan. Record lama
-            tidak dapat diedit dari alur ini.
+            Tanggal hari ini diterapkan langsung. Tanggal masa depan masuk
+            antrean dan tidak mengubah penempatan karyawan sebelum tanggal
+            efektifnya.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -125,6 +180,12 @@ export function MutationDialog({
             const activeHistory = histories.data?.find(
               (history) => !history.effectiveTo
             )
+            if (input.effectiveFrom < businessDateInput()) {
+              form.setError('effectiveFrom', {
+                message: 'Tanggal efektif tidak boleh lampau.',
+              })
+              return
+            }
             if (
               activeHistory &&
               input.effectiveFrom <= activeHistory.effectiveFrom
@@ -263,14 +324,24 @@ export function MutationDialog({
             Catatan
             <Textarea {...form.register('notes')} />
           </label>
-          <Button disabled={mutation.isPending}>Tinjau mutasi</Button>
+          <Button disabled={isSaving}>
+            {effectiveFrom > businessDateInput()
+              ? schedule
+                ? 'Tinjau jadwal ulang'
+                : 'Tinjau jadwal mutasi'
+              : 'Tinjau mutasi'}
+          </Button>
         </form>
         <ConfirmDialog
           open={Boolean(pendingInput)}
           onOpenChange={(nextOpen) => {
-            if (!nextOpen && !mutation.isPending) setPendingInput(undefined)
+            if (!nextOpen && !isSaving) setPendingInput(undefined)
           }}
-          title='Konfirmasi perubahan mutasi'
+          title={
+            isFuture
+              ? 'Konfirmasi jadwal mutasi'
+              : 'Konfirmasi perubahan mutasi'
+          }
           desc={
             pendingInput ? (
               <MutationSummary employee={employee} input={pendingInput} />
@@ -279,8 +350,14 @@ export function MutationDialog({
             )
           }
           cancelBtnText='Kembali periksa'
-          confirmText='Simpan mutasi'
-          isLoading={mutation.isPending}
+          confirmText={
+            isFuture
+              ? schedule
+                ? 'Simpan jadwal ulang'
+                : 'Jadwalkan mutasi'
+              : 'Simpan mutasi'
+          }
+          isLoading={isSaving}
           handleConfirm={() => pendingInput && commit(pendingInput)}
         />
       </DialogContent>
@@ -303,7 +380,9 @@ function MutationSummary({
   return (
     <div className='grid gap-2 text-sm text-foreground'>
       <p className='text-muted-foreground'>
-        Periksa perubahan berikut sebelum histori baru dibuat.
+        {input.effectiveFrom > businessDateInput()
+          ? 'Data penempatan karyawan belum berubah sampai cron menerapkan jadwal pada tanggal efektif.'
+          : 'Periksa perubahan berikut sebelum histori baru dibuat.'}
       </p>
       <SummaryRow label='Site' before={employee.site} after={input.site} />
       <SummaryRow
@@ -329,7 +408,11 @@ function MutationSummary({
       )}
       <SummaryRow
         label='Tanggal efektif'
-        before='Histori aktif ditutup sehari sebelumnya'
+        before={
+          input.effectiveFrom > businessDateInput()
+            ? 'Belum diterapkan'
+            : 'Histori aktif ditutup sehari sebelumnya'
+        }
         after={input.effectiveFrom}
       />
     </div>
@@ -388,4 +471,16 @@ function dateToInput(value?: Date) {
   const month = String(value.getMonth() + 1).padStart(2, '0')
   const day = String(value.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function businessDateInput() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+  const value = (type: string) =>
+    parts.find((part) => part.type === type)?.value
+  return `${value('year')}-${value('month')}-${value('day')}`
 }
