@@ -1,4 +1,4 @@
-import { bigint, date, datetime, int, mysqlTable, text, varchar } from 'drizzle-orm/mysql-core'
+import { bigint, date, datetime, int, mysqlTable, text, uniqueIndex, varchar } from 'drizzle-orm/mysql-core'
 
 const audit = {
   createdAt: datetime('created_at', { mode: 'date', fsp: 3 }).notNull(),
@@ -21,6 +21,17 @@ export const employeeNumberSequences = mysqlTable('employee_number_sequences', {
   lastSequence: int('last_sequence', { unsigned: true }).notNull(),
   ...audit,
 })
+export const employees = mysqlTable('employees', {
+  id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+  uid: varchar('uid', { length: 36 }).notNull(),
+  rtrw: varchar('rtrw', { length: 7 }),
+  kelurahan: varchar('kelurahan', { length: 100 }),
+  kecamatan: varchar('kecamatan', { length: 100 }),
+  email: varchar('email', { length: 191 }),
+  joinDate: date('join_date', { mode: 'string' }).notNull(),
+  joinDateTraining: date('join_date_training', { mode: 'string' }),
+  joinDateBorong: date('join_date_borong', { mode: 'string' }),
+}, (table) => [uniqueIndex('uq_employees_email').on(table.email)])
 export const contractTypes = mysqlTable('contract_types', {
   id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
   uid: varchar('uid', { length: 36 }).notNull(),

@@ -24,6 +24,8 @@ Semua daftar operasional memakai pencarian/filter/pagination berbasis URL. Defau
 
 Saat membuat karyawan, HR mengisi identitas kerja, penempatan awal, tanggal bergabung, data pribadi, data kontak, informasi legal, serta foto bila tersedia. Karyawan baru **selalu dibuat Nonaktif**.
 
+Untuk data identitas baru, Jenis Kelamin mengikuti kode KTP: `LAKI-LAKI` atau `PEREMPUAN`. Status Perkawinan mengikuti `BELUM_KAWIN`, `KAWIN`, `CERAI_HIDUP`, atau `CERAI_MATI`. Data lama dengan kode sebelumnya tetap dipertahankan sebagai data legacy dan masih dapat dibuka atau disimpan tanpa dipaksa dikonversi.
+
 Employee ID dibuat server secara otomatis dan tidak dapat diedit. Formatnya:
 
 `P{prefix-site}-{YYMM}-{DD}{urut-3-digit}`
@@ -31,6 +33,12 @@ Employee ID dibuat server secara otomatis dan tidak dapat diedit. Formatnya:
 Contoh: `PSMG-2604-01002` berarti karyawan site Semarang, tanggal bergabung 1 April 2026, urutan ketiga pada tanggal tersebut. Prefix site saat ini: Jepara `KDS`, Semarang `SMG`, Klaten `SLO`. Urutan reset per site dan per tanggal bergabung.
 
 Barcode selalu sama persis dengan Employee ID. Barcode tidak dapat diisi atau diubah manual.
+
+### Data alamat, kontak, dan tanggal bergabung tambahan
+
+Alamat karyawan dapat mencatat **RT/RW**, Kelurahan, Kecamatan, Kota, Provinsi, dan Kode Pos. RT/RW bersifat opsional, tetapi bila diisi wajib memakai format `001/002`. Email pribadi juga opsional, wajib memakai format email yang benar, dan tidak boleh dipakai oleh lebih dari satu karyawan.
+
+`join_date` adalah tanggal bergabung resmi. Field ini tetap menjadi dasar Employee ID dan validasi awal kontrak. Sistem juga menyimpan `join_date_training` dan `join_date_borong` sebagai tanggal tambahan nullable untuk kebutuhan HR berikutnya. Kedua field tersebut belum ditampilkan di UI atau memengaruhi workflow apa pun, tetapi nilainya tidak boleh lebih awal daripada tanggal bergabung resmi.
 
 ### Status karyawan
 

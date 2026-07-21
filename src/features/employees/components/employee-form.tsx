@@ -18,6 +18,19 @@ import type {
 import { FormActionBar } from './form-action-bar'
 
 const optionalText = z.string().optional()
+const optionalRtrw = z
+  .string()
+  .refine(
+    (value) => !value || /^\d{3}\/\d{3}$/.test(value),
+    'RT/RW wajib berformat 001/002.'
+  )
+const optionalEmail = z
+  .string()
+  .trim()
+  .refine(
+    (value) => !value || z.string().email().safeParse(value).success,
+    'Email tidak valid.'
+  )
 const schema = z
   .object({
     fullName: z.string().min(2, 'Nama lengkap wajib diisi.'),
@@ -34,18 +47,32 @@ const schema = z
     permanentDate: optionalText,
     resignDate: optionalText,
     resignReason: optionalText,
-    gender: z.enum(['MALE', 'FEMALE']),
+    gender: z.enum(['LAKI-LAKI', 'PEREMPUAN', 'MALE', 'FEMALE']),
     birthPlace: optionalText,
     birthDate: optionalText,
     maritalStatus: z
-      .enum(['SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED', ''])
+      .enum([
+        'BELUM_KAWIN',
+        'KAWIN',
+        'CERAI_HIDUP',
+        'CERAI_MATI',
+        'SINGLE',
+        'MARRIED',
+        'DIVORCED',
+        'WIDOWED',
+        '',
+      ])
       .optional(),
     religion: optionalText,
     address: optionalText,
+    rtrw: optionalRtrw,
+    kelurahan: optionalText,
+    kecamatan: optionalText,
     city: optionalText,
     province: optionalText,
     postalCode: optionalText,
     phone: optionalText,
+    email: optionalEmail,
     emergencyContactName: optionalText,
     emergencyContactPhone: optionalText,
     emergencyContactRelation: optionalText,
@@ -76,6 +103,37 @@ const schema = z
 type Values = z.infer<typeof schema>
 const formFieldNames = new Set<keyof Values>(schema.keyof().options)
 const empty = (value?: string) => value?.trim() || undefined
+const legacyGenderCodes = new Set(['MALE', 'FEMALE'])
+const legacyMaritalStatusCodes = new Set([
+  'SINGLE',
+  'MARRIED',
+  'DIVORCED',
+  'WIDOWED',
+])
+function genderLabel(value?: string) {
+  return (
+    {
+      'LAKI-LAKI': 'Laki-laki',
+      PEREMPUAN: 'Perempuan',
+      MALE: 'Laki-laki (legacy)',
+      FEMALE: 'Perempuan (legacy)',
+    }[value ?? ''] ?? value
+  )
+}
+function maritalStatusLabel(value?: string) {
+  return (
+    {
+      BELUM_KAWIN: 'Belum Kawin',
+      KAWIN: 'Kawin',
+      CERAI_HIDUP: 'Cerai Hidup',
+      CERAI_MATI: 'Cerai Mati',
+      SINGLE: 'Belum menikah (legacy)',
+      MARRIED: 'Menikah (legacy)',
+      DIVORCED: 'Cerai (legacy)',
+      WIDOWED: 'Duda/Janda (legacy)',
+    }[value ?? ''] ?? value
+  )
+}
 
 const personalFields: [keyof Values, string, string?][] = [
   ['birthPlace', 'Tempat lahir'],
@@ -85,10 +143,14 @@ const personalFields: [keyof Values, string, string?][] = [
   ['familyCardNumber', 'Nomor kartu keluarga'],
 ]
 const contactFields: [keyof Values, string][] = [
+  ['rtrw', 'RT/RW'],
+  ['kelurahan', 'Kelurahan'],
+  ['kecamatan', 'Kecamatan'],
   ['city', 'Kota'],
   ['province', 'Provinsi'],
   ['postalCode', 'Kode pos'],
   ['phone', 'Nomor telepon'],
+  ['email', 'Email'],
 ]
 const sensitiveFields: [keyof Values, string][] = [
   ['emergencyContactName', 'Nama kontak darurat'],
@@ -151,16 +213,20 @@ export function EmployeeForm({
       permanentDate: dateInput(employee?.permanentDate),
       resignDate: dateInput(employee?.resignDate),
       resignReason: employee?.resignReason ?? '',
-      gender: employee?.gender ?? 'MALE',
+      gender: employee?.gender ?? 'LAKI-LAKI',
       birthPlace: employee?.birthPlace ?? '',
       birthDate: dateInput(employee?.birthDate),
       maritalStatus: employee?.maritalStatus ?? '',
       religion: employee?.religion ?? '',
       address: employee?.address ?? '',
+      rtrw: employee?.rtrw ?? '',
+      kelurahan: employee?.kelurahan ?? '',
+      kecamatan: employee?.kecamatan ?? '',
       city: employee?.city ?? '',
       province: employee?.province ?? '',
       postalCode: employee?.postalCode ?? '',
       phone: employee?.phone ?? '',
+      email: employee?.email ?? '',
       emergencyContactName: employee?.emergencyContactName ?? '',
       emergencyContactPhone: employee?.emergencyContactPhone ?? '',
       emergencyContactRelation: employee?.emergencyContactRelation ?? '',
@@ -233,10 +299,14 @@ export function EmployeeForm({
           maritalStatus: values.maritalStatus || undefined,
           religion: empty(values.religion),
           address: empty(values.address),
+          rtrw: empty(values.rtrw),
+          kelurahan: empty(values.kelurahan),
+          kecamatan: empty(values.kecamatan),
           city: empty(values.city),
           province: empty(values.province),
           postalCode: empty(values.postalCode),
           phone: empty(values.phone),
+          email: empty(values.email),
           emergencyContactName: empty(values.emergencyContactName),
           emergencyContactPhone: empty(values.emergencyContactPhone),
           emergencyContactRelation: empty(values.emergencyContactRelation),
@@ -337,6 +407,36 @@ export function EmployeeForm({
   const productionModuleSections = (
     lookups.data?.productionModuleSections ?? []
   ).filter((item) => item.moduleUid === selectedProductionModuleUid)
+  const genderOptions = [
+    { value: 'LAKI-LAKI', label: 'Laki-laki' },
+    { value: 'PEREMPUAN', label: 'Perempuan' },
+    ...(employee && legacyGenderCodes.has(employee.gender)
+      ? [
+          {
+            value: employee.gender,
+            label: genderLabel(employee.gender) ?? employee.gender,
+          },
+        ]
+      : []),
+  ]
+  const maritalStatusOptions = [
+    { value: '', label: 'Belum diisi' },
+    { value: 'BELUM_KAWIN', label: 'Belum Kawin' },
+    { value: 'KAWIN', label: 'Kawin' },
+    { value: 'CERAI_HIDUP', label: 'Cerai Hidup' },
+    { value: 'CERAI_MATI', label: 'Cerai Mati' },
+    ...(employee?.maritalStatus &&
+    legacyMaritalStatusCodes.has(employee.maritalStatus)
+      ? [
+          {
+            value: employee.maritalStatus,
+            label:
+              maritalStatusLabel(employee.maritalStatus) ??
+              employee.maritalStatus,
+          },
+        ]
+      : []),
+  ]
 
   useEffect(() => {
     if (
@@ -484,17 +584,8 @@ export function EmployeeForm({
             <Field label='Alasan resign'>
               <Input disabled {...form.register('resignReason')} />
             </Field>
-            {select('gender', 'Jenis kelamin', [
-              { value: 'MALE', label: 'Laki-laki' },
-              { value: 'FEMALE', label: 'Perempuan' },
-            ])}
-            {select('maritalStatus', 'Status perkawinan', [
-              { value: '', label: 'Belum diisi' },
-              { value: 'SINGLE', label: 'Belum menikah' },
-              { value: 'MARRIED', label: 'Menikah' },
-              { value: 'DIVORCED', label: 'Cerai' },
-              { value: 'WIDOWED', label: 'Duda/Janda' },
-            ])}
+            {select('gender', 'Jenis kelamin', genderOptions)}
+            {select('maritalStatus', 'Status perkawinan', maritalStatusOptions)}
           </div>
           {employee && (
             <p className='rounded-md bg-muted p-3 text-xs text-muted-foreground'>

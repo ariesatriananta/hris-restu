@@ -72,19 +72,33 @@ export interface Employee {
   productionSectionCode?: string
   productionSection?: string
   joinDate: string
+  joinDateTraining?: string
+  joinDateBorong?: string
   permanentDate?: string
   resignDate?: string
   resignReason?: string
-  gender: 'MALE' | 'FEMALE'
+  gender: 'LAKI-LAKI' | 'PEREMPUAN' | 'MALE' | 'FEMALE'
   birthPlace?: string
   birthDate?: string
-  maritalStatus?: 'SINGLE' | 'MARRIED' | 'DIVORCED' | 'WIDOWED'
+  maritalStatus?:
+    | 'BELUM_KAWIN'
+    | 'KAWIN'
+    | 'CERAI_HIDUP'
+    | 'CERAI_MATI'
+    | 'SINGLE'
+    | 'MARRIED'
+    | 'DIVORCED'
+    | 'WIDOWED'
   religion?: string
   address?: string
+  rtrw?: string
+  kelurahan?: string
+  kecamatan?: string
   city?: string
   province?: string
   postalCode?: string
   phone?: string
+  email?: string
   emergencyContactName?: string
   emergencyContactPhone?: string
   emergencyContactRelation?: string

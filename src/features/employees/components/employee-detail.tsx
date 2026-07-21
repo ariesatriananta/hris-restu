@@ -199,10 +199,7 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
               title='Identitas, domisili & kontak'
               rows={[
                 ['Nama panggilan', data.nickname],
-                [
-                  'Jenis kelamin',
-                  data.gender === 'MALE' ? 'Laki-laki' : 'Perempuan',
-                ],
+                ['Jenis kelamin', genderLabel(data.gender)],
                 [
                   'Tempat/tanggal lahir',
                   `${data.birthPlace ?? '—'} / ${formatDate(data.birthDate)}`,
@@ -210,10 +207,14 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
                 ['Status perkawinan', maritalStatusLabel(data.maritalStatus)],
                 ['Agama', data.religion],
                 ['Alamat', data.address],
+                ['RT/RW', data.rtrw],
+                ['Kelurahan', data.kelurahan],
+                ['Kecamatan', data.kecamatan],
                 ['Kota', data.city],
                 ['Provinsi', data.province],
                 ['Kode pos', data.postalCode],
                 ['Telepon', maskValue(data.phone)],
+                ['Email', data.email],
               ]}
             />
             <InfoCard
@@ -583,10 +584,25 @@ function Empty({ text }: { text: string }) {
 function maritalStatusLabel(value?: string) {
   return (
     {
-      SINGLE: 'Belum menikah',
-      MARRIED: 'Menikah',
-      DIVORCED: 'Cerai',
-      WIDOWED: 'Duda/Janda',
+      BELUM_KAWIN: 'Belum Kawin',
+      KAWIN: 'Kawin',
+      CERAI_HIDUP: 'Cerai Hidup',
+      CERAI_MATI: 'Cerai Mati',
+      SINGLE: 'Belum menikah (legacy)',
+      MARRIED: 'Menikah (legacy)',
+      DIVORCED: 'Cerai (legacy)',
+      WIDOWED: 'Duda/Janda (legacy)',
+    }[value ?? ''] ?? undefined
+  )
+}
+
+function genderLabel(value?: string) {
+  return (
+    {
+      'LAKI-LAKI': 'Laki-laki',
+      PEREMPUAN: 'Perempuan',
+      MALE: 'Laki-laki (legacy)',
+      FEMALE: 'Perempuan (legacy)',
     }[value ?? ''] ?? undefined
   )
 }
