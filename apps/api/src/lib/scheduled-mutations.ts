@@ -16,6 +16,37 @@ async function failMutation(conn: PoolConnection, schedule: RowDataPacket, reaso
   return { status: 'FAILED', uid: schedule.uid, employeeUid: schedule.employeeUid, employeeNumber: schedule.employeeNumber, fullName: schedule.fullName, site: schedule.site, reason }
 }
 
+async function failUnexpectedMutation(uid: string): Promise<ApplyResult | undefined> {
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query<RowDataPacket[]>(`
+      SELECT sm.*,e.uid employeeUid,e.employee_number employeeNumber,e.full_name fullName,s.code site
+      FROM scheduled_employee_mutations sm
+      JOIN employees e ON e.id=sm.employee_id
+      JOIN sites s ON s.id=e.current_site_id
+      WHERE sm.uid=? FOR UPDATE
+    `, [uid])
+    const schedule = rows[0]
+    if (!schedule || schedule.status !== 'SCHEDULED') {
+      await conn.rollback()
+      return undefined
+    }
+    const result = await failMutation(
+      conn,
+      schedule,
+      'Proses cron gagal sebelum mutasi diterapkan. Periksa log eksekusi cron.'
+    )
+    await conn.commit()
+    return result
+  } catch (error) {
+    await conn.rollback()
+    throw error
+  } finally {
+    conn.release()
+  }
+}
+
 async function targetIsValid(conn: PoolConnection, schedule: RowDataPacket) {
   const [rows] = await conn.query<RowDataPacket[]>(`
     SELECT
@@ -113,7 +144,17 @@ export async function reconcileScheduledMutations() {
       if (result.status === 'APPLIED') applied++
       else if (result.status === 'FAILED') { failed++; if (failures.length < 50) failures.push(result) }
       else skipped++
-    } catch { skipped++ }
+    } catch {
+      try {
+        const result = await failUnexpectedMutation(String(row.uid))
+        if (result?.status === 'FAILED') {
+          failed++
+          if (failures.length < 50) failures.push(result)
+        } else skipped++
+      } catch {
+        skipped++
+      }
+    }
   }
   return { due: rows.length, applied, failed, skipped, failures }
 }

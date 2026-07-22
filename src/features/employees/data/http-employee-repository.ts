@@ -9,6 +9,7 @@ import type {
   EmployeeRecordListParams,
   ContractLifecycleAction,
   ContractLifecycleConflict,
+  ContractKpiSummary,
   ScheduledEmployeeMutation,
   PaginatedResult,
   MutationInput,
@@ -141,6 +142,13 @@ export const listContracts = async (input: EmployeeRecordListParams) =>
         params: recordParams(input),
       }
     )
+  ).data
+
+export const getContractKpiSummary = async (site?: string[]) =>
+  (
+    await apiClient.get<ContractKpiSummary>('/employees/contracts/summary', {
+      params: site?.length ? { site: site.join(',') } : undefined,
+    })
   ).data
 
 export const listDocuments = async (input: EmployeeRecordListParams) =>

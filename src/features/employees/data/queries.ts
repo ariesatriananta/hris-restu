@@ -17,6 +17,8 @@ import type {
   ProductionModuleSectionLookup,
   MutationInput,
   ContractLifecycleAction,
+  ContractKpiSummary,
+  SiteCode,
 } from '../domain'
 import {
   httpEmployeeRepository,
@@ -24,6 +26,7 @@ import {
   getDocument,
   transitionContract,
   listContracts,
+  getContractKpiSummary,
   listContractConflicts,
   listDocuments,
   listScheduledMutations,
@@ -47,6 +50,8 @@ export const employeeKeys = {
   lookups: () => [...employeeKeys.all, 'lookups'] as const,
   contractList: (params: EmployeeRecordListParams) =>
     [...employeeKeys.all, 'contract-list', params] as const,
+  contractKpiSummary: (site?: SiteCode[]) =>
+    [...employeeKeys.all, 'contract-kpi-summary', site ?? []] as const,
   documentList: (params: EmployeeRecordListParams) =>
     [...employeeKeys.all, 'document-list', params] as const,
   contract: (uid: string) => [...employeeKeys.all, 'contract', uid] as const,
@@ -122,6 +127,14 @@ export const useContractList = (params: EmployeeRecordListParams) =>
     queryOptions({
       queryKey: employeeKeys.contractList(params),
       queryFn: () => listContracts(params),
+    })
+  )
+export const useContractKpiSummary = (site?: SiteCode[]) =>
+  useQuery(
+    queryOptions({
+      queryKey: employeeKeys.contractKpiSummary(site),
+      queryFn: (): Promise<ContractKpiSummary> => getContractKpiSummary(site),
+      staleTime: 30 * 1000,
     })
   )
 export const useContractConflicts = () =>

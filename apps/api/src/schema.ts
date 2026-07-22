@@ -21,6 +21,16 @@ export const employeeNumberSequences = mysqlTable('employee_number_sequences', {
   lastSequence: int('last_sequence', { unsigned: true }).notNull(),
   ...audit,
 })
+export const cronRuns = mysqlTable('cron_runs', {
+  id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+  uid: varchar('uid', { length: 36 }).notNull(),
+  jobCode: varchar('job_code', { length: 50 }).notNull(),
+  businessDate: date('business_date', { mode: 'string' }).notNull(),
+  status: varchar('status', { length: 20 }).notNull(),
+  errorMessage: varchar('error_message', { length: 500 }),
+  startedAt: datetime('started_at', { mode: 'date', fsp: 3 }).notNull(),
+  finishedAt: datetime('finished_at', { mode: 'date', fsp: 3 }),
+}, (table) => [uniqueIndex('uq_cron_runs_uid').on(table.uid)])
 export const employees = mysqlTable('employees', {
   id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
   uid: varchar('uid', { length: 36 }).notNull(),

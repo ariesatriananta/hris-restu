@@ -29,7 +29,7 @@ async function validActiveContracts(conn: PoolConnection, employeeId: number, da
 }
 
 async function employeeStatus(conn: PoolConnection, employeeId: number, next: 'ACTIVE' | 'INACTIVE' | 'RESIGNED', effectiveDate: string, source: 'MANUAL' | 'CRON', reason?: string, actor?: AuthContext) {
-  const [employees] = await conn.query<RowDataPacket[]>(`SELECT e.id,s.code currentStatus,e.current_site_id,e.current_department_id,e.current_position_id,e.current_work_group_id,e.employee_type_id FROM employees e JOIN employee_statuses s ON s.id=e.employee_status_id WHERE e.id=? FOR UPDATE`, [employeeId])
+  const [employees] = await conn.query<RowDataPacket[]>(`SELECT e.id,s.code currentStatus,e.current_site_id,e.current_department_id,e.current_position_id,e.current_work_group_id,e.current_production_module_section_id,e.employee_type_id FROM employees e JOIN employee_statuses s ON s.id=e.employee_status_id WHERE e.id=? FOR UPDATE`, [employeeId])
   const employee = employees[0]
   if (!employee) throw new ApiError(404, 'Karyawan tidak ditemukan.')
   if (next === 'ACTIVE' && employee.currentStatus === 'RESIGNED') throw new ApiError(422, 'Karyawan resign tidak dapat diaktifkan lewat kontrak.')
@@ -40,7 +40,7 @@ async function employeeStatus(conn: PoolConnection, employeeId: number, next: 'A
   const [active] = await conn.query<RowDataPacket[]>(`SELECT id,DATE_FORMAT(effective_from,'%Y-%m-%d') effectiveFrom FROM employee_employment_histories WHERE employee_id=? AND effective_to IS NULL FOR UPDATE`, [employeeId])
   if (active[0]?.effectiveFrom < effectiveDate) {
     await conn.execute('UPDATE employee_employment_histories SET effective_to=DATE_SUB(?,INTERVAL 1 DAY),updated_by=? WHERE id=?', [effectiveDate, actor?.id ?? null, active[0].id])
-    await conn.execute(`INSERT INTO employee_employment_histories(uid,employee_id,site_id,department_id,position_id,work_group_id,employee_type_id,employee_status_id,effective_from,change_type,reason,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,'STATUS_CHANGE',?,?,?,?)`, [randomUUID(),employeeId,employee.current_site_id,employee.current_department_id,employee.current_position_id,employee.current_work_group_id,employee.employee_type_id,target[0].id,effectiveDate,reason ?? null,`Perubahan otomatis dari lifecycle kontrak (${source}).`,actor?.id ?? null,actor?.id ?? null])
+    await conn.execute(`INSERT INTO employee_employment_histories(uid,employee_id,site_id,department_id,position_id,work_group_id,production_module_section_id,employee_type_id,employee_status_id,effective_from,change_type,reason,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,'STATUS_CHANGE',?,?,?,?)`, [randomUUID(),employeeId,employee.current_site_id,employee.current_department_id,employee.current_position_id,employee.current_work_group_id,employee.current_production_module_section_id,employee.employee_type_id,target[0].id,effectiveDate,reason ?? null,`Perubahan otomatis dari lifecycle kontrak (${source}).`,actor?.id ?? null,actor?.id ?? null])
   } else if (active[0]) {
     await conn.execute('UPDATE employee_employment_histories SET employee_status_id=?,updated_by=? WHERE id=?', [target[0].id, actor?.id ?? null, active[0].id])
   }
@@ -124,6 +124,31 @@ async function expireContract(contractUid: string, today: string) {
   }
 }
 
+async function recordCronContractFailure(contractUid: string, stage: 'activation' | 'expiry') {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT c.id,c.uid,e.current_site_id siteId
+     FROM employee_contracts c
+     JOIN employees e ON e.id=c.employee_id
+     WHERE c.uid=?`,
+    [contractUid]
+  )
+  const contract = rows[0]
+  if (!contract) return undefined
+  const reason =
+    stage === 'activation'
+      ? 'Cron tidak dapat mengaktifkan kontrak. Periksa audit trail.'
+      : 'Cron tidak dapat mengakhiri kontrak. Periksa audit trail.'
+  await writeSystemAudit({
+    siteId: contract.siteId,
+    action: 'OTHER',
+    table: 'employee_contracts',
+    recordId: contract.id,
+    recordUid: contract.uid,
+    description: reason,
+  })
+  return { contractUid, stage, reason }
+}
+
 export async function reconcileContracts() {
   const today = businessDate()
   const [scheduled] = await pool.query<RowDataPacket[]>("SELECT uid FROM employee_contracts WHERE status='SCHEDULED' AND start_date<=? AND (end_date IS NULL OR end_date>=?)", [today, today])
@@ -131,8 +156,34 @@ export async function reconcileContracts() {
   let activated = 0
   let expiredCount = 0
   let skippedConflicts = 0
-  for (const row of scheduled) { try { await transitionContract(row.uid, 'activate', {}, undefined); activated++ } catch { skippedConflicts++ } }
-  for (const row of expired) { try { if (await expireContract(row.uid, today)) expiredCount++ } catch { skippedConflicts++ } }
+  const failures: { contractUid: string; stage: 'activation' | 'expiry'; reason: string }[] = []
+  for (const row of scheduled) {
+    try {
+      await transitionContract(row.uid, 'activate', {}, undefined)
+      activated++
+    } catch {
+      skippedConflicts++
+      try {
+        const failure = await recordCronContractFailure(row.uid, 'activation')
+        if (failure && failures.length < 50) failures.push(failure)
+      } catch {
+        // Cron tidak boleh berhenti hanya karena audit failure.
+      }
+    }
+  }
+  for (const row of expired) {
+    try {
+      if (await expireContract(row.uid, today)) expiredCount++
+    } catch {
+      skippedConflicts++
+      try {
+        const failure = await recordCronContractFailure(row.uid, 'expiry')
+        if (failure && failures.length < 50) failures.push(failure)
+      } catch {
+        // Cron tidak boleh berhenti hanya karena audit failure.
+      }
+    }
+  }
 
   const [employees] = await pool.query<RowDataPacket[]>(`SELECT e.id,e.uid employeeUid,e.employee_number employeeNumber,e.full_name fullName,s.code site,e.current_site_id siteId,es.code currentStatus,COUNT(c.id) activeContracts,GROUP_CONCAT(c.contract_number ORDER BY c.start_date SEPARATOR ', ') activeContractNumbers FROM employees e JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN employee_contracts c ON c.employee_id=e.id AND c.status='ACTIVE' AND c.start_date<=? AND (c.end_date IS NULL OR c.end_date>=?) GROUP BY e.id,e.uid,e.employee_number,e.full_name,s.code,e.current_site_id,es.code`, [today, today])
   let activatedEmployees = 0
@@ -168,5 +219,5 @@ export async function reconcileContracts() {
       if (changed && next === 'INACTIVE') inactivatedEmployees++
     } catch { await conn.rollback(); skippedConflicts++ } finally { conn.release() }
   }
-  return { businessDate: today, activated, expired: expiredCount, activatedEmployees, inactivatedEmployees, legacyConflicts, skippedConflicts, conflicts }
+  return { businessDate: today, activated, expired: expiredCount, activatedEmployees, inactivatedEmployees, legacyConflicts, skippedConflicts, conflicts, failures }
 }

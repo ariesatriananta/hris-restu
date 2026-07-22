@@ -168,6 +168,12 @@ export interface EmployeeContract {
   employeeName?: string
   site?: SiteCode
 }
+export interface ContractKpiSummary {
+  activeValid: number
+  expiringWithin7Days: number
+  overdueActive: number
+  drafts: number
+}
 export interface EmployeeDocument {
   uid: string
   employeeUid: string

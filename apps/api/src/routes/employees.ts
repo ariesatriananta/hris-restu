@@ -192,6 +192,37 @@ employeesRouter.get('/contracts', requirePermission('employees.view'), async (re
     res.json({ items: rows.map(mapContract), total: Number(count[0].total), page, pageSize })
   } catch (error) { next(error) }
 })
+employeesRouter.get('/contracts/summary', requirePermission('employees.view'), async (req, res, next) => {
+  try {
+    const where = ['1=1']
+    const values: unknown[] = []
+    const sites = String(req.query.site ?? '').split(',').filter(Boolean)
+    if (sites.length) {
+      where.push(`s.code IN (${sites.map(() => '?').join(',')})`)
+      values.push(...sites)
+    }
+    const scoped = scopeWhere(res.locals.auth as AuthContext)
+    where.push(scoped.sql)
+    values.push(...scoped.params)
+    const today = businessDate()
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT
+        COALESCE(SUM(CASE WHEN c.status='ACTIVE' AND c.start_date<=? AND (c.end_date IS NULL OR c.end_date>=?) THEN 1 ELSE 0 END), 0) activeValid,
+        COALESCE(SUM(CASE WHEN c.status='ACTIVE' AND c.end_date BETWEEN ? AND DATE_ADD(?, INTERVAL 7 DAY) THEN 1 ELSE 0 END), 0) expiringWithin7Days,
+        COALESCE(SUM(CASE WHEN c.status='ACTIVE' AND c.end_date<? THEN 1 ELSE 0 END), 0) overdueActive,
+        COALESCE(SUM(CASE WHEN c.status='DRAFT' THEN 1 ELSE 0 END), 0) drafts
+      ${contractFrom()} WHERE ${where.join(' AND ')}`,
+      [today, today, today, today, today, ...values]
+    )
+    const summary = rows[0] ?? {}
+    res.json({
+      activeValid: Number(summary.activeValid ?? 0),
+      expiringWithin7Days: Number(summary.expiringWithin7Days ?? 0),
+      overdueActive: Number(summary.overdueActive ?? 0),
+      drafts: Number(summary.drafts ?? 0),
+    })
+  } catch (error) { next(error) }
+})
 employeesRouter.get('/contracts/conflicts', requirePermission('employees.view'), async (_req, res, next) => {
   try {
     const scope = scopeWhere(res.locals.auth as AuthContext)

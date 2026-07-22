@@ -219,7 +219,7 @@ export function MutationPage({
           })
         }
       >
-        <TabsList className='mb-5 h-auto w-full justify-start gap-1 overflow-x-auto rounded-xl p-1'>
+        <TabsList className='mb-5 h-auto w-full justify-start gap-1 overflow-x-auto rounded-xl p-1 sm:w-fit'>
           <TabsTrigger value='history' className='h-10 flex-none gap-2 px-4'>
             <GitBranch /> Riwayat diterapkan
           </TabsTrigger>

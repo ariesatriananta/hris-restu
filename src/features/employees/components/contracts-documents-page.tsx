@@ -1,18 +1,29 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { AlertTriangle, FileText, Plus, ScrollText } from 'lucide-react'
+import {
+  AlertTriangle,
+  CircleCheckBig,
+  Clock3,
+  FilePenLine,
+  FileText,
+  Plus,
+  ScrollText,
+} from 'lucide-react'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Main } from '@/components/layout/main'
 import {
   useContractConflicts,
+  useContractKpiSummary,
   useContractList,
   useDocumentList,
 } from '../data/queries'
 import type {
   EmployeeContract,
+  ContractKpiSummary,
   EmployeeDocument,
   EmployeeRecordListParams,
   PaginatedResult,
@@ -37,6 +48,7 @@ export function ContractsDocumentsPage({
   const contractParams = params(search, 'contract')
   const documentParams = params(search, 'document')
   const contracts = useContractList(contractParams)
+  const contractKpis = useContractKpiSummary(contractParams.site)
   const documents = useDocumentList(documentParams)
   const conflicts = useContractConflicts()
   const contractRows = useMemo(
@@ -118,6 +130,11 @@ export function ContractsDocumentsPage({
           </TabsTrigger>
         </TabsList>
         <TabsContent value='contracts' className='mt-4'>
+          <ContractKpiCards
+            data={contractKpis.data}
+            isPending={contractKpis.isPending}
+            isError={contractKpis.isError}
+          />
           <RecordsTable
             data={contractRows}
             search={search}
@@ -212,6 +229,95 @@ function params(
         : 100,
   }
 }
+function ContractKpiCards({
+  data,
+  isPending,
+  isError,
+}: {
+  data?: ContractKpiSummary
+  isPending: boolean
+  isError: boolean
+}) {
+  const cards = [
+    {
+      label: 'Kontrak aktif berlaku',
+      value: data?.activeValid,
+      description: 'Aktif dan masih dalam masa berlaku',
+      icon: CircleCheckBig,
+      className:
+        'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400',
+    },
+    {
+      label: 'Berakhir ≤ 7 hari',
+      value: data?.expiringWithin7Days,
+      description: 'Perlu tindak lanjut perpanjangan',
+      icon: Clock3,
+      className:
+        'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-400',
+    },
+    {
+      label: 'Tidak berlaku',
+      value: data?.overdueActive,
+      description: 'ACTIVE tetapi sudah melewati akhir',
+      icon: AlertTriangle,
+      className: 'border-destructive/30 bg-destructive/5 text-destructive',
+    },
+    {
+      label: 'Draft perlu diproses',
+      value: data?.drafts,
+      description: 'Belum dijadwalkan atau diaktifkan',
+      icon: FilePenLine,
+      className: 'border-primary/25 bg-primary/5 text-primary',
+    },
+  ]
+
+  if (isPending) {
+    return (
+      <div className='mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
+        {cards.map((card) => (
+          <Skeleton key={card.label} className='h-24 rounded-lg' />
+        ))}
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <p className='mb-4 text-sm text-muted-foreground'>
+        Ringkasan KPI kontrak belum dapat dimuat. Tabel kontrak tetap tersedia.
+      </p>
+    )
+  }
+
+  return (
+    <div className='mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
+      {cards.map((card) => {
+        const Icon = card.icon
+        return (
+          <section
+            key={card.label}
+            className={`rounded-lg border px-4 py-3 ${card.className}`}
+            aria-label={card.label}
+          >
+            <div className='flex items-start justify-between gap-3'>
+              <div>
+                <p className='text-xs font-medium'>{card.label}</p>
+                <p className='mt-1 text-2xl font-semibold tabular-nums'>
+                  {card.value ?? 0}
+                </p>
+              </div>
+              <Icon className='mt-0.5 size-4 shrink-0' aria-hidden='true' />
+            </div>
+            <p className='mt-1 text-xs text-muted-foreground'>
+              {card.description}
+            </p>
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
 function mapContracts(
   data?: PaginatedResult<EmployeeContract>
 ): PaginatedResult<EmployeeRecordRow> {
