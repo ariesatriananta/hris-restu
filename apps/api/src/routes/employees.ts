@@ -210,7 +210,9 @@ employeesRouter.get('/contracts/summary', requirePermission('employees.view'), a
         COALESCE(SUM(CASE WHEN c.status='ACTIVE' AND c.start_date<=? AND (c.end_date IS NULL OR c.end_date>=?) THEN 1 ELSE 0 END), 0) activeValid,
         COALESCE(SUM(CASE WHEN c.status='ACTIVE' AND c.end_date BETWEEN ? AND DATE_ADD(?, INTERVAL 7 DAY) THEN 1 ELSE 0 END), 0) expiringWithin7Days,
         COALESCE(SUM(CASE WHEN c.status='ACTIVE' AND c.end_date<? THEN 1 ELSE 0 END), 0) overdueActive,
-        COALESCE(SUM(CASE WHEN c.status='DRAFT' THEN 1 ELSE 0 END), 0) drafts
+        COALESCE(SUM(CASE WHEN c.status='DRAFT' THEN 1 ELSE 0 END), 0) drafts,
+        COALESCE(SUM(CASE WHEN c.status='SCHEDULED' THEN 1 ELSE 0 END), 0) scheduled,
+        COUNT(c.id) totalContracts
       ${contractFrom()} WHERE ${where.join(' AND ')}`,
       [today, today, today, today, today, ...values]
     )
@@ -220,6 +222,8 @@ employeesRouter.get('/contracts/summary', requirePermission('employees.view'), a
       expiringWithin7Days: Number(summary.expiringWithin7Days ?? 0),
       overdueActive: Number(summary.overdueActive ?? 0),
       drafts: Number(summary.drafts ?? 0),
+      scheduled: Number(summary.scheduled ?? 0),
+      totalContracts: Number(summary.totalContracts ?? 0),
     })
   } catch (error) { next(error) }
 })

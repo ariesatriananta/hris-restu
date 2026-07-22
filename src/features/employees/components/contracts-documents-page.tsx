@@ -4,10 +4,12 @@ import {
   AlertTriangle,
   CircleCheckBig,
   Clock3,
+  CalendarClock,
   FilePenLine,
   FileText,
   Plus,
   ScrollText,
+  Files,
 } from 'lucide-react'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -242,7 +244,6 @@ function ContractKpiCards({
     {
       label: 'Kontrak aktif berlaku',
       value: data?.activeValid,
-      description: 'Aktif dan masih dalam masa berlaku',
       icon: CircleCheckBig,
       className:
         'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400',
@@ -250,7 +251,6 @@ function ContractKpiCards({
     {
       label: 'Berakhir ≤ 7 hari',
       value: data?.expiringWithin7Days,
-      description: 'Perlu tindak lanjut perpanjangan',
       icon: Clock3,
       className:
         'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-400',
@@ -258,24 +258,35 @@ function ContractKpiCards({
     {
       label: 'Tidak berlaku',
       value: data?.overdueActive,
-      description: 'ACTIVE tetapi sudah melewati akhir',
       icon: AlertTriangle,
       className: 'border-destructive/30 bg-destructive/5 text-destructive',
     },
     {
       label: 'Draft perlu diproses',
       value: data?.drafts,
-      description: 'Belum dijadwalkan atau diaktifkan',
       icon: FilePenLine,
       className: 'border-primary/25 bg-primary/5 text-primary',
+    },
+    {
+      label: 'Terjadwal menunggu mulai',
+      value: data?.scheduled,
+      icon: CalendarClock,
+      className:
+        'border-sky-500/30 bg-sky-500/5 text-sky-700 dark:text-sky-400',
+    },
+    {
+      label: 'Total kontrak tercatat',
+      value: data?.totalContracts,
+      icon: Files,
+      className: 'border-muted-foreground/20 bg-muted/40 text-foreground',
     },
   ]
 
   if (isPending) {
     return (
-      <div className='mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
+      <div className='mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'>
         {cards.map((card) => (
-          <Skeleton key={card.label} className='h-24 rounded-lg' />
+          <Skeleton key={card.label} className='h-[68px] rounded-lg' />
         ))}
       </div>
     )
@@ -290,27 +301,26 @@ function ContractKpiCards({
   }
 
   return (
-    <div className='mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
+    <div className='mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'>
       {cards.map((card) => {
         const Icon = card.icon
         return (
           <section
             key={card.label}
-            className={`rounded-lg border px-4 py-3 ${card.className}`}
+            className={`min-h-[68px] rounded-lg border px-3 py-2.5 ${card.className}`}
             aria-label={card.label}
           >
             <div className='flex items-start justify-between gap-3'>
               <div>
-                <p className='text-xs font-medium'>{card.label}</p>
-                <p className='mt-1 text-2xl font-semibold tabular-nums'>
+                <p className='text-[11px] leading-3 font-medium'>
+                  {card.label}
+                </p>
+                <p className='mt-1 text-xl leading-none font-semibold tabular-nums'>
                   {card.value ?? 0}
                 </p>
               </div>
-              <Icon className='mt-0.5 size-4 shrink-0' aria-hidden='true' />
+              <Icon className='size-3.5 shrink-0' aria-hidden='true' />
             </div>
-            <p className='mt-1 text-xs text-muted-foreground'>
-              {card.description}
-            </p>
           </section>
         )
       })}

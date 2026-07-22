@@ -173,6 +173,8 @@ export interface ContractKpiSummary {
   expiringWithin7Days: number
   overdueActive: number
   drafts: number
+  scheduled: number
+  totalContracts: number
 }
 export interface EmployeeDocument {
   uid: string
