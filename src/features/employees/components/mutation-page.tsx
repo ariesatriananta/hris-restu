@@ -14,6 +14,7 @@ import {
   CalendarClock,
   Eye,
   GitBranch,
+  GitBranchPlus,
   Pencil,
   RefreshCcw,
   X,
@@ -49,6 +50,7 @@ import type {
   SiteCode,
 } from '../domain'
 import { formatDate, statusLabel } from '../utils'
+import { BatchMutationDialog } from './batch-mutation-dialog'
 import { MutationDetailDrawer } from './mutation-detail-drawer'
 import { MutationDialog } from './mutation-dialog'
 
@@ -76,6 +78,7 @@ const filters = [
       'DEMOTION',
       'STATUS_CHANGE',
       'TYPE_CHANGE',
+      'DEPARTMENT_CHANGE',
       'PRODUCTION_ASSIGNMENT_CHANGE',
       'OTHER',
     ].map((value) => ({ value, label: statusLabel(value) })),
@@ -160,6 +163,7 @@ export function MutationPage({
 }) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [selectedHistory, setSelectedHistory] = useState<MutationRow>()
+  const [batchMutationOpen, setBatchMutationOpen] = useState(false)
   const histories = useHistories()
   const rows = useMemo<MutationRow[]>(() => {
     return (histories.data ?? []).map((history) => {
@@ -202,11 +206,16 @@ export function MutationPage({
 
   return (
     <Main>
-      <div className='mb-6'>
-        <h1 className='text-2xl font-bold'>Riwayat Mutasi</h1>
-        <p className='text-muted-foreground'>
-          Jejak penempatan dan perubahan status yang bersifat append-only.
-        </p>
+      <div className='mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end'>
+        <div>
+          <h1 className='text-2xl font-bold'>Riwayat Mutasi</h1>
+          <p className='text-muted-foreground'>
+            Jejak penempatan dan perubahan status yang bersifat append-only.
+          </p>
+        </div>
+        <Button onClick={() => setBatchMutationOpen(true)}>
+          <GitBranchPlus /> Catat mutasi
+        </Button>
       </div>
       <Tabs
         value={(search.tab as string) ?? 'history'}
@@ -315,6 +324,10 @@ export function MutationPage({
         onOpenChange={(open) => {
           if (!open) setSelectedHistory(undefined)
         }}
+      />
+      <BatchMutationDialog
+        open={batchMutationOpen}
+        onOpenChange={setBatchMutationOpen}
       />
     </Main>
   )

@@ -16,6 +16,7 @@ import { DatePicker } from '@/components/date-picker'
 import { useTransitionContract } from '../data/queries'
 import type { EmployeeContract } from '../domain'
 import { formatDate, statusLabel } from '../utils'
+import { ContractLifecycleActionButtons } from './contract-lifecycle-action-buttons'
 
 type ContractDetailDrawerProps = {
   contract?: EmployeeContract
@@ -36,17 +37,27 @@ export function ContractDetailDrawer({
 }: ContractDetailDrawerProps) {
   const transition = useTransitionContract()
   const [action, setAction] = useState<
-    'schedule' | 'activate' | 'terminate' | 'resign' | 'cancel'
+    | 'schedule'
+    | 'activate'
+    | 'terminate'
+    | 'resign'
+    | 'cancel'
+    | 'close_expired_terminate'
+    | 'close_expired_resign'
   >()
   const [reason, setReason] = useState('')
   const today = new Date().toISOString().slice(0, 10)
   const [effectiveDate, setEffectiveDate] = useState(today)
-  const requiresReason = action === 'terminate' || action === 'resign'
+  const requiresReason = isReasonRequired(action)
+  const isExpiredStatusClosure = isExpiredClosure(action)
+  const minimumEffectiveDate = isExpiredStatusClosure
+    ? contract?.endDate
+    : contract?.startDate
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className='w-full sm:max-w-lg'>
         <SheetHeader className='pe-12'>
-          <SheetTitle>Detail PKWT</SheetTitle>
+          <SheetTitle>Detail kontrak</SheetTitle>
           <SheetDescription>
             Rincian kontrak kerja dan lampiran yang diterbitkan.
           </SheetDescription>
@@ -82,6 +93,13 @@ export function ContractDetailDrawer({
             )}
 
             <DetailSection title='Kontrak'>
+              {contract.isLegacyTypeMismatch && (
+                <div className='mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200'>
+                  Kontrak legacy tidak sesuai dengan jenis karyawan saat ini.
+                  Data lama tetap dapat dibaca, tetapi tidak dapat diproses
+                  lifecycle sebelum diperbaiki HR.
+                </div>
+              )}
               <DetailRow label='Nomor kontrak'>
                 {contract.contractNumber}
               </DetailRow>
@@ -157,9 +175,45 @@ export function ContractDetailDrawer({
                   >
                     Catat resign
                   </Button>
+                  <ContractLifecycleActionButtons
+                    contract={contract}
+                    onlyScheduled
+                    showLabels
+                  />
                 </div>
               </section>
             )}
+            {contract.status === 'EXPIRED' &&
+              contract.isLatestForEmployee &&
+              contract.employeeStatus === 'ACTIVE' && (
+                <section className='space-y-2 border-t pt-4'>
+                  <h3 className='text-sm font-semibold'>Status karyawan</h3>
+                  <p className='text-sm text-muted-foreground'>
+                    Kontrak tetap Expired; pilih status akhir karyawan.
+                  </p>
+                  <div className='flex flex-wrap gap-2'>
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      onClick={() => setAction('close_expired_terminate')}
+                    >
+                      Terminasi karyawan
+                    </Button>
+                    <Button
+                      size='sm'
+                      variant='destructive'
+                      onClick={() => setAction('close_expired_resign')}
+                    >
+                      Catat resign
+                    </Button>
+                    <ContractLifecycleActionButtons
+                      contract={contract}
+                      onlyScheduled
+                      showLabels
+                    />
+                  </div>
+                </section>
+              )}
 
             <DetailSection title='Masa berlaku'>
               <DetailRow label='Tanggal mulai'>
@@ -186,7 +240,7 @@ export function ContractDetailDrawer({
               </DetailRow>
             </DetailSection>
 
-            <DetailSection title='Lampiran PKWT'>
+            <DetailSection title='Lampiran kontrak'>
               {contract.issuedFile?.url ? (
                 <div className='rounded-md border p-3'>
                   <p className='mb-3 text-sm font-medium'>
@@ -232,7 +286,11 @@ export function ContractDetailDrawer({
             setEffectiveDate(today)
           }
         }}
-        title='Konfirmasi lifecycle kontrak'
+        title={
+          isExpiredStatusClosure
+            ? 'Konfirmasi perubahan status karyawan'
+            : 'Konfirmasi lifecycle kontrak'
+        }
         desc={
           <p>
             {!contract?.issuedFile && 'Lampiran belum tersedia. '}
@@ -240,9 +298,7 @@ export function ContractDetailDrawer({
           </p>
         }
         confirmText='Lanjutkan'
-        destructive={
-          action === 'cancel' || action === 'terminate' || action === 'resign'
-        }
+        destructive={action === 'cancel' || requiresReason}
         disabled={requiresReason && !reason.trim()}
         isLoading={transition.isPending}
         handleConfirm={() => {
@@ -273,16 +329,18 @@ export function ContractDetailDrawer({
               <DatePicker
                 selected={dateFromInput(effectiveDate)}
                 onSelect={(date) => date && setEffectiveDate(dateToInput(date))}
-                fromYear={new Date(contract?.startDate ?? today).getFullYear()}
+                fromYear={new Date(minimumEffectiveDate ?? today).getFullYear()}
                 toYear={new Date().getFullYear()}
                 disabledDates={(date) => {
                   const value = dateToInput(date)
-                  return value < (contract?.startDate ?? today) || value > today
+                  return (
+                    value < (minimumEffectiveDate ?? today) || value > today
+                  )
                 }}
               />
             </label>
             <label className='grid gap-2 text-sm font-medium'>
-              Alasan {action === 'resign' ? 'resign' : 'terminasi'}
+              Alasan {isResignAction(action) ? 'resign' : 'terminasi'}
               <Textarea
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
@@ -308,7 +366,14 @@ function dateToInput(date: Date) {
 }
 
 function lifecycleDescription(
-  action?: 'schedule' | 'activate' | 'terminate' | 'resign' | 'cancel'
+  action?:
+    | 'schedule'
+    | 'activate'
+    | 'terminate'
+    | 'resign'
+    | 'cancel'
+    | 'close_expired_terminate'
+    | 'close_expired_resign'
 ) {
   if (action === 'schedule') return 'Kontrak akan dijadwalkan.'
   if (action === 'activate')
@@ -317,7 +382,36 @@ function lifecycleDescription(
     return 'Kontrak akan diterminasi dan status karyawan menjadi Nonaktif.'
   if (action === 'resign')
     return 'Kontrak akan diterminasi dan status karyawan menjadi Resign.'
+  if (action === 'close_expired_terminate')
+    return 'Kontrak tetap Expired. Status karyawan akan diubah menjadi Nonaktif.'
+  if (action === 'close_expired_resign')
+    return 'Kontrak tetap Expired. Status karyawan akan diubah menjadi Resign.'
   return 'Kontrak akan dibatalkan.'
+}
+
+function isExpiredClosure(
+  action?: 'close_expired_terminate' | 'close_expired_resign' | string
+) {
+  return (
+    action === 'close_expired_terminate' || action === 'close_expired_resign'
+  )
+}
+
+function isReasonRequired(
+  action?:
+    | 'terminate'
+    | 'resign'
+    | 'close_expired_terminate'
+    | 'close_expired_resign'
+    | string
+) {
+  return (
+    action === 'terminate' || action === 'resign' || isExpiredClosure(action)
+  )
+}
+
+function isResignAction(action?: 'resign' | 'close_expired_resign' | string) {
+  return action === 'resign' || action === 'close_expired_resign'
 }
 
 function AttachmentPreview({

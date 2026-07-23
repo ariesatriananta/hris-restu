@@ -16,14 +16,17 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { useEmployee, useEmployeeList } from '../data/queries'
+import type { Employee } from '../domain'
 
 export function EmployeePicker({
   value,
   onChange,
+  onSelectEmployee,
   locked = false,
 }: {
   value: string
   onChange: (value: string) => void
+  onSelectEmployee?: (employee: Employee) => void
   locked?: boolean
 }) {
   const [open, setOpen] = useState(false)
@@ -79,6 +82,7 @@ export function EmployeePicker({
                       value={employee.uid}
                       onSelect={() => {
                         onChange(employee.uid)
+                        onSelectEmployee?.(employee)
                         setOpen(false)
                       }}
                     >

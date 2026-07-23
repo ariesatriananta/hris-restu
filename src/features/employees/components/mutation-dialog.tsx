@@ -28,6 +28,10 @@ import type {
   MutationInput,
   ScheduledEmployeeMutation,
 } from '../domain'
+import {
+  editableMutationFields,
+  selectableMutationChangeTypes,
+} from '../mutation-change-type'
 import { statusLabel } from '../utils'
 
 const mutationSchema = z
@@ -38,12 +42,13 @@ const mutationSchema = z
     workGroup: z.string().optional(),
     productionModuleUid: z.string().optional(),
     productionModuleSectionUid: z.string().optional(),
-    employeeType: z.enum(['BORONGAN', 'BULANAN']),
+    employeeType: z.enum(['BORONGAN', 'TRAINING', 'BULANAN']),
     effectiveFrom: z.string().min(1, 'Tanggal efektif wajib diisi.'),
     changeType: z.enum([
       'TRANSFER',
       'PROMOTION',
       'DEMOTION',
+      'DEPARTMENT_CHANGE',
       'TYPE_CHANGE',
       'GROUP_CHANGE',
       'PRODUCTION_ASSIGNMENT_CHANGE',
@@ -55,11 +60,15 @@ const mutationSchema = z
   })
   .refine(
     (value) =>
-      value.employeeType !== 'BORONGAN' ||
+      !editableMutationFields(value.changeType, value.employeeType).has(
+        'productionAssignment'
+      ) ||
+      !['BORONGAN', 'TRAINING'].includes(value.employeeType) ||
       Boolean(value.productionModuleSectionUid),
     {
       path: ['productionModuleSectionUid'],
-      message: 'Bagian produksi wajib dipilih untuk karyawan Borongan.',
+      message:
+        'Bagian produksi wajib dipilih untuk karyawan Borongan atau Training.',
     }
   )
 
@@ -115,6 +124,10 @@ export function MutationDialog({
     })
   }, [employee, form, open, schedule])
   const selectedSite = useWatch({ control: form.control, name: 'site' })
+  const selectedChangeType = useWatch({
+    control: form.control,
+    name: 'changeType',
+  })
   const selectedEmployeeType = useWatch({
     control: form.control,
     name: 'employeeType',
@@ -132,6 +145,34 @@ export function MutationDialog({
   )
   const isSaving =
     mutation.isPending || scheduleMutation.isPending || updateSchedule.isPending
+  const editableFields = editableMutationFields(
+    selectedChangeType,
+    selectedEmployeeType
+  )
+  const changeTypeOptions = [
+    ...selectableMutationChangeTypes,
+    ...(schedule &&
+    !selectableMutationChangeTypes.includes(schedule.changeType as never)
+      ? [schedule.changeType]
+      : []),
+  ]
+  const resetForChangeType = (changeType: MutationInput['changeType']) => {
+    const current = form.getValues()
+    form.reset({
+      site: employee.site,
+      department: employee.department,
+      position: employee.position,
+      workGroup: employee.workGroup,
+      productionModuleUid: employee.productionModuleUid,
+      productionModuleSectionUid: employee.productionModuleSectionUid,
+      employeeType: employee.employeeType,
+      effectiveFrom: current.effectiveFrom,
+      changeType,
+      referenceNumber: current.referenceNumber,
+      reason: current.reason,
+      notes: current.notes,
+    })
+  }
   const commit = (input: MutationInput) => {
     const onSuccess = () => {
       toast.success(
@@ -176,120 +217,41 @@ export function MutationDialog({
         </DialogHeader>
         <form
           className='grid gap-3'
-          onSubmit={form.handleSubmit((input) => {
-            const activeHistory = histories.data?.find(
-              (history) => !history.effectiveTo
-            )
-            if (input.effectiveFrom < businessDateInput()) {
-              form.setError('effectiveFrom', {
-                message: 'Tanggal efektif tidak boleh lampau.',
-              })
-              return
-            }
-            if (
-              activeHistory &&
-              input.effectiveFrom <= activeHistory.effectiveFrom
-            ) {
-              form.setError('effectiveFrom', {
-                message: `Tanggal efektif harus setelah ${activeHistory.effectiveFrom}.`,
-              })
-              return
-            }
-            setPendingInput(input as MutationInput)
-          })}
-        >
-          <Select
-            label='Site'
-            options={(lookups.data?.sites ?? []).map((item) => ({
-              value: item.code,
-              label: item.name,
-            }))}
-            {...form.register('site', {
-              onChange: () => {
-                form.setValue('productionModuleUid', '', { shouldDirty: true })
-                form.setValue('productionModuleSectionUid', '', {
-                  shouldDirty: true,
-                  shouldValidate: true,
-                })
-              },
-            })}
-          />
-          <Select
-            label='Departemen'
-            options={(lookups.data?.departments ?? [])
-              .filter(
-                (item) => !item.siteCode || item.siteCode === selectedSite
+          onSubmit={form.handleSubmit(
+            (input) => {
+              const activeHistory = histories.data?.find(
+                (history) => !history.effectiveTo
               )
-              .map((item) => ({
-                value: item.name,
-                label: item.name,
-              }))}
-            {...form.register('department')}
-          />
-          <Select
-            label='Jabatan'
-            options={(lookups.data?.positions ?? []).map((item) => ({
-              value: item.name,
-              label: item.name,
-            }))}
-            {...form.register('position')}
-          />
-          <Select
-            label='Jenis perubahan'
-            options={[
-              'TRANSFER',
-              'PROMOTION',
-              'DEMOTION',
-              'TYPE_CHANGE',
-              'PRODUCTION_ASSIGNMENT_CHANGE',
-              'OTHER',
-            ].map((value) => ({ value, label: statusLabel(value) }))}
-            {...form.register('changeType')}
-          />
-          <Select
-            label='Jenis karyawan baru'
-            options={[
-              { value: 'BORONGAN', label: 'Borongan' },
-              { value: 'BULANAN', label: 'Bulanan' },
-            ]}
-            {...form.register('employeeType')}
-          />
-          {selectedEmployeeType === 'BORONGAN' && (
-            <>
-              <Select
-                label='Modul produksi'
-                options={[
-                  { value: '', label: 'Pilih modul produksi' },
-                  ...(lookups.data?.productionModules ?? [])
-                    .filter((item) => item.siteCode === selectedSite)
-                    .map((item) => ({ value: item.uid, label: item.name })),
-                ]}
-                {...form.register('productionModuleUid', {
-                  onChange: () =>
-                    form.setValue('productionModuleSectionUid', '', {
-                      shouldDirty: true,
-                      shouldValidate: true,
-                    }),
-                })}
-              />
-              <Select
-                label='Bagian produksi'
-                options={[
-                  { value: '', label: 'Pilih Bagian produksi' },
-                  ...(lookups.data?.productionModuleSections ?? [])
-                    .filter(
-                      (item) => item.moduleUid === selectedProductionModuleUid
-                    )
-                    .map((item) => ({
-                      value: item.uid,
-                      label: item.sectionName,
-                    })),
-                ]}
-                disabled={!selectedProductionModuleUid}
-                {...form.register('productionModuleSectionUid')}
-              />
-            </>
+              if (input.effectiveFrom < businessDateInput()) {
+                form.setError('effectiveFrom', {
+                  message: 'Tanggal efektif tidak boleh lampau.',
+                })
+                return
+              }
+              if (
+                activeHistory &&
+                input.effectiveFrom <= activeHistory.effectiveFrom
+              ) {
+                form.setError('effectiveFrom', {
+                  message: `Tanggal efektif harus setelah ${activeHistory.effectiveFrom}.`,
+                })
+                return
+              }
+              const mutationError = mutationInputError(
+                employee,
+                input as MutationInput
+              )
+              if (mutationError) {
+                form.setError(mutationError.field, {
+                  message: mutationError.message,
+                })
+                return
+              }
+              setPendingInput(input as MutationInput)
+            },
+            () => toast.error('Periksa field mutasi yang masih belum valid.')
           )}
+        >
           <label className='grid gap-1 text-sm'>
             Tanggal efektif
             <DatePicker
@@ -307,6 +269,120 @@ export function MutationDialog({
               </span>
             )}
           </label>
+          <Select
+            label='Jenis perubahan'
+            error={form.formState.errors.changeType?.message}
+            options={changeTypeOptions.map((value) => ({
+              value,
+              label: statusLabel(value),
+            }))}
+            {...form.register('changeType', {
+              onChange: (event) =>
+                resetForChangeType(
+                  event.target.value as MutationInput['changeType']
+                ),
+            })}
+          />
+          <p className='text-xs text-muted-foreground'>
+            Hanya target yang relevan dengan jenis perubahan dapat diubah.
+          </p>
+          <Select
+            label='Site tujuan'
+            error={form.formState.errors.site?.message}
+            disabled={!editableFields.has('site')}
+            options={(lookups.data?.sites ?? []).map((item) => ({
+              value: item.code,
+              label: item.name,
+            }))}
+            {...form.register('site', {
+              onChange: () => {
+                form.setValue('productionModuleUid', '', { shouldDirty: true })
+                form.setValue('productionModuleSectionUid', '', {
+                  shouldDirty: true,
+                  shouldValidate: true,
+                })
+              },
+            })}
+          />
+          <Select
+            label='Departemen'
+            error={form.formState.errors.department?.message}
+            disabled={!editableFields.has('department')}
+            options={(lookups.data?.departments ?? [])
+              .filter(
+                (item) => !item.siteCode || item.siteCode === selectedSite
+              )
+              .map((item) => ({
+                value: item.name,
+                label: item.name,
+              }))}
+            {...form.register('department')}
+          />
+          <Select
+            label='Jabatan'
+            error={form.formState.errors.position?.message}
+            disabled={!editableFields.has('position')}
+            options={(lookups.data?.positions ?? []).map((item) => ({
+              value: item.name,
+              label: item.name,
+            }))}
+            {...form.register('position')}
+          />
+          <Select
+            label='Jenis karyawan baru'
+            error={form.formState.errors.employeeType?.message}
+            options={[
+              { value: 'BORONGAN', label: 'Borongan' },
+              { value: 'TRAINING', label: 'Training' },
+              { value: 'BULANAN', label: 'Bulanan' },
+            ]}
+            {...form.register('employeeType')}
+            disabled={!editableFields.has('employeeType')}
+          />
+          {['BORONGAN', 'TRAINING'].includes(selectedEmployeeType) && (
+            <>
+              <Select
+                label='Modul produksi'
+                error={form.formState.errors.productionModuleUid?.message}
+                disabled={!editableFields.has('productionAssignment')}
+                options={[
+                  { value: '', label: 'Pilih modul produksi' },
+                  ...(lookups.data?.productionModules ?? [])
+                    .filter((item) => item.siteCode === selectedSite)
+                    .map((item) => ({ value: item.uid, label: item.name })),
+                ]}
+                {...form.register('productionModuleUid', {
+                  onChange: () =>
+                    form.setValue('productionModuleSectionUid', '', {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    }),
+                })}
+              />
+              <Select
+                label='Bagian produksi'
+                error={
+                  form.formState.errors.productionModuleSectionUid?.message
+                }
+                options={[
+                  { value: '', label: 'Pilih Bagian produksi' },
+                  ...(lookups.data?.productionModuleSections ?? [])
+                    .filter(
+                      (item) => item.moduleUid === selectedProductionModuleUid
+                    )
+                    .map((item) => ({
+                      value: item.uid,
+                      label: item.sectionName,
+                    })),
+                ]}
+                disabled={
+                  !editableFields.has('productionAssignment') ||
+                  !selectedProductionModuleUid
+                }
+                {...form.register('productionModuleSectionUid')}
+              />
+            </>
+          )}
           <label className='grid gap-1 text-sm'>
             Nomor referensi
             <Input {...form.register('referenceNumber')} />
@@ -324,7 +400,7 @@ export function MutationDialog({
             Catatan
             <Textarea {...form.register('notes')} />
           </label>
-          <Button disabled={isSaving}>
+          <Button type='submit' disabled={isSaving}>
             {effectiveFrom > businessDateInput()
               ? schedule
                 ? 'Tinjau jadwal ulang'
@@ -364,6 +440,46 @@ export function MutationDialog({
     </Dialog>
   )
 }
+
+function mutationInputError(employee: Employee, input: MutationInput) {
+  if (input.changeType === 'TRANSFER' && input.site === employee.site) {
+    return {
+      field: 'site' as const,
+      message: 'Pilih site tujuan yang berbeda.',
+    }
+  }
+  if (
+    (input.changeType === 'PROMOTION' || input.changeType === 'DEMOTION') &&
+    input.position === employee.position
+  ) {
+    return { field: 'position' as const, message: 'Pilih jabatan baru.' }
+  }
+  if (
+    input.changeType === 'DEPARTMENT_CHANGE' &&
+    input.department === employee.department
+  ) {
+    return { field: 'department' as const, message: 'Pilih departemen baru.' }
+  }
+  if (
+    input.changeType === 'TYPE_CHANGE' &&
+    input.employeeType === employee.employeeType
+  ) {
+    return {
+      field: 'employeeType' as const,
+      message: 'Pilih jenis karyawan yang berbeda.',
+    }
+  }
+  if (
+    input.changeType === 'PRODUCTION_ASSIGNMENT_CHANGE' &&
+    input.productionModuleSectionUid === employee.productionModuleSectionUid
+  ) {
+    return {
+      field: 'productionModuleSectionUid' as const,
+      message: 'Pilih Modul atau Bagian yang berbeda.',
+    }
+  }
+  return undefined
+}
 function mutationErrorMessage(error: unknown) {
   if (isAxiosError<{ message?: string }>(error)) {
     return error.response?.data?.message ?? 'Mutasi gagal disimpan.'
@@ -395,7 +511,7 @@ function MutationSummary({
         before={employee.department}
         after={input.department}
       />
-      {input.employeeType === 'BORONGAN' && (
+      {['BORONGAN', 'TRAINING'].includes(input.employeeType) && (
         <SummaryRow
           label='Penempatan produksi'
           before={
@@ -440,21 +556,28 @@ function SummaryRow({
 function Select({
   label,
   options,
+  error,
   ...props
 }: {
   label: string
   options: { value: string; label: string }[]
+  error?: string
 } & React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <label className='grid gap-1 text-sm'>
       {label}
-      <select className='h-9 rounded-md border bg-background px-3' {...props}>
+      <select
+        className='h-9 rounded-md border bg-background px-3 transition-colors disabled:cursor-not-allowed disabled:border-muted disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100'
+        aria-invalid={Boolean(error)}
+        {...props}
+      >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>
         ))}
       </select>
+      {error && <span className='text-xs text-destructive'>{error}</span>}
     </label>
   )
 }

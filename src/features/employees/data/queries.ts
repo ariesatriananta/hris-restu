@@ -16,9 +16,12 @@ import type {
   ProductionModuleLookup,
   ProductionModuleSectionLookup,
   MutationInput,
+  BatchMutationItem,
   ContractLifecycleAction,
   ContractKpiSummary,
+  ContractReconcileResult,
   SiteCode,
+  ScheduledStatusChangeAction,
 } from '../domain'
 import {
   httpEmployeeRepository,
@@ -32,8 +35,14 @@ import {
   listScheduledMutations,
   scheduledMutationsForEmployee,
   scheduleMutation,
+  applyBatchMutation,
   updateScheduledMutation,
   cancelScheduledMutation,
+  listScheduledStatusChanges,
+  scheduleStatusChange,
+  updateScheduledStatusChange,
+  cancelScheduledStatusChange,
+  reconcileContracts,
 } from './http-employee-repository'
 
 export const employeeKeys = {
@@ -61,6 +70,8 @@ export const employeeKeys = {
     [...employeeKeys.all, 'scheduled-mutation-list', params] as const,
   scheduledMutations: (employeeUid: string) =>
     [...employeeKeys.all, 'scheduled-mutations', employeeUid] as const,
+  scheduledStatusChangeList: (params: EmployeeRecordListParams) =>
+    [...employeeKeys.all, 'scheduled-status-change-list', params] as const,
 }
 export type EmployeeLookups = {
   sites: LookupOption[]
@@ -184,6 +195,16 @@ export const useScheduledMutations = (employeeUid: string) =>
       enabled: Boolean(employeeUid),
     })
   )
+export const useScheduledStatusChangeList = (
+  params: EmployeeRecordListParams
+) =>
+  useQuery(
+    queryOptions({
+      queryKey: employeeKeys.scheduledStatusChangeList(params),
+      queryFn: () => listScheduledStatusChanges(params),
+      placeholderData: keepPreviousData,
+    })
+  )
 function invalidate(queryClient: ReturnType<typeof useQueryClient>) {
   return queryClient.invalidateQueries({ queryKey: employeeKeys.all })
 }
@@ -221,6 +242,13 @@ export function useScheduleMutation() {
     onSuccess: () => invalidate(queryClient),
   })
 }
+export function useApplyBatchMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (items: BatchMutationItem[]) => applyBatchMutation(items),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
 export function useUpdateScheduledMutation() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -233,6 +261,47 @@ export function useCancelScheduledMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (uid: string) => cancelScheduledMutation(uid),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function useScheduleStatusChange() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      contractUid,
+      input,
+    }: {
+      contractUid: string
+      input: {
+        action: ScheduledStatusChangeAction
+        effectiveDate: string
+        reason: string
+      }
+    }) => scheduleStatusChange(contractUid, input),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function useUpdateScheduledStatusChange() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      uid,
+      input,
+    }: {
+      uid: string
+      input: {
+        action: ScheduledStatusChangeAction
+        effectiveDate: string
+        reason: string
+      }
+    }) => updateScheduledStatusChange(uid, input),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function useCancelScheduledStatusChange() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (uid: string) => cancelScheduledStatusChange(uid),
     onSuccess: () => invalidate(queryClient),
   })
 }
@@ -261,6 +330,13 @@ export function useTransitionContract() {
       action: ContractLifecycleAction
       input: { effectiveDate?: string; reason?: string }
     }) => transitionContract(uid, action, input),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function useManualContractsReconcile() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (): Promise<ContractReconcileResult> => reconcileContracts(),
     onSuccess: () => invalidate(queryClient),
   })
 }

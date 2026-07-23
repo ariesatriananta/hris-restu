@@ -10,9 +10,14 @@ import type {
   ContractLifecycleAction,
   ContractLifecycleConflict,
   ContractKpiSummary,
+  ContractReconcileResult,
   ScheduledEmployeeMutation,
+  ScheduledEmployeeStatusChange,
+  ScheduledStatusChangeAction,
   PaginatedResult,
   MutationInput,
+  BatchMutationItem,
+  BatchMutationResult,
 } from '../domain'
 
 const params = (input: EmployeeListParams) => ({
@@ -132,6 +137,8 @@ const recordParams = (input: EmployeeRecordListParams) => ({
   ...input,
   site: input.site?.join(','),
   status: input.status?.join(','),
+  coverage: input.coverage?.join(','),
+  action: input.action?.join(','),
 })
 
 export const listContracts = async (input: EmployeeRecordListParams) =>
@@ -165,6 +172,13 @@ export const listContractConflicts = async () =>
   (
     await apiClient.get<{ items: ContractLifecycleConflict[]; total: number }>(
       '/employees/contracts/conflicts'
+    )
+  ).data
+
+export const reconcileContracts = async () =>
+  (
+    await apiClient.post<ContractReconcileResult>(
+      '/employees/contracts/reconcile'
     )
   ).data
 
@@ -213,6 +227,16 @@ export const scheduleMutation = async (
   ).data
 }
 
+export const applyBatchMutation = async (items: BatchMutationItem[]) =>
+  (
+    await apiClient.post<BatchMutationResult>('/employees/mutations/batch', {
+      items: items.map(({ employeeUid, input }) => {
+        const { productionModuleUid: _productionModuleUid, ...body } = input
+        return { employeeUid, input: body }
+      }),
+    })
+  ).data
+
 export const updateScheduledMutation = async (
   uid: string,
   input: MutationInput
@@ -223,4 +247,44 @@ export const updateScheduledMutation = async (
 
 export const cancelScheduledMutation = async (uid: string) => {
   await apiClient.post(`/employees/scheduled-mutations/${uid}/cancel`)
+}
+
+export const listScheduledStatusChanges = async (
+  input: EmployeeRecordListParams
+) =>
+  (
+    await apiClient.get<PaginatedResult<ScheduledEmployeeStatusChange>>(
+      '/employees/scheduled-status-changes',
+      { params: recordParams(input) }
+    )
+  ).data
+
+export const scheduleStatusChange = async (
+  contractUid: string,
+  input: {
+    action: ScheduledStatusChangeAction
+    effectiveDate: string
+    reason: string
+  }
+) =>
+  (
+    await apiClient.post<{ uid: string }>(
+      `/employees/contracts/${contractUid}/scheduled-status-changes`,
+      input
+    )
+  ).data
+
+export const updateScheduledStatusChange = async (
+  uid: string,
+  input: {
+    action: ScheduledStatusChangeAction
+    effectiveDate: string
+    reason: string
+  }
+) => {
+  await apiClient.patch(`/employees/scheduled-status-changes/${uid}`, input)
+}
+
+export const cancelScheduledStatusChange = async (uid: string) => {
+  await apiClient.post(`/employees/scheduled-status-changes/${uid}/cancel`)
 }

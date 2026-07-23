@@ -74,6 +74,8 @@ export function cronConflict(input: {
     reason:
       input.activeContracts > 1
         ? 'Lebih dari satu kontrak aktif yang masih berlaku.'
+        : input.activeContracts === 0
+          ? 'Karyawan Aktif belum memiliki kontrak aktif yang berlaku. Periksa kontrak berakhir dan buat kontrak pengganti bila diperlukan.'
         : `Status karyawan ${input.currentStatus} tetapi masih memiliki kontrak aktif.`,
     contractNumbers: String(input.activeContractNumbers ?? '')
       .split(', ')

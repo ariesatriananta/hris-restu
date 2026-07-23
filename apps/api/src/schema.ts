@@ -60,6 +60,20 @@ export const scheduledEmployeeMutations = mysqlTable('scheduled_employee_mutatio
   cancelledAt: datetime('cancelled_at', { mode: 'date', fsp: 3 }),
   ...audit,
 }, (table) => [uniqueIndex('uq_scheduled_employee_mutations_uid').on(table.uid)])
+export const scheduledEmployeeStatusChanges = mysqlTable('scheduled_employee_status_changes', {
+  id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+  uid: varchar('uid', { length: 36 }).notNull(),
+  employeeId: bigint('employee_id', { mode: 'number', unsigned: true }).notNull(),
+  contractId: bigint('contract_id', { mode: 'number', unsigned: true }),
+  action: varchar('action', { length: 20 }).notNull(),
+  effectiveDate: date('effective_date', { mode: 'string' }).notNull(),
+  reason: varchar('reason', { length: 500 }).notNull(),
+  status: varchar('status', { length: 20 }).notNull(),
+  failureReason: varchar('failure_reason', { length: 500 }),
+  appliedAt: datetime('applied_at', { mode: 'date', fsp: 3 }),
+  cancelledAt: datetime('cancelled_at', { mode: 'date', fsp: 3 }),
+  ...audit,
+}, (table) => [uniqueIndex('uq_scheduled_employee_status_changes_uid').on(table.uid)])
 export const contractTypes = mysqlTable('contract_types', {
   id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
   uid: varchar('uid', { length: 36 }).notNull(),

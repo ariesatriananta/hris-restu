@@ -10,6 +10,10 @@ import {
   lifecycleNextStatus,
   type ContractTransitionAction,
 } from './contract-lifecycle-policy.js'
+import {
+  contractTypeRuleMessage,
+  isContractTypeAllowed,
+} from './employee-contract-policy.js'
 import type { AuthContext } from '../middleware/authenticate.js'
 
 const endDateRequired = ['PKWT', 'TRAINING', 'PROJECT', 'RETAIN']
@@ -28,7 +32,7 @@ async function validActiveContracts(conn: PoolConnection, employeeId: number, da
   return rows
 }
 
-async function employeeStatus(conn: PoolConnection, employeeId: number, next: 'ACTIVE' | 'INACTIVE' | 'RESIGNED', effectiveDate: string, source: 'MANUAL' | 'CRON', reason?: string, actor?: AuthContext) {
+export async function employeeStatus(conn: PoolConnection, employeeId: number, next: 'ACTIVE' | 'INACTIVE' | 'RESIGNED', effectiveDate: string, source: 'MANUAL' | 'CRON', reason?: string, actor?: AuthContext) {
   const [employees] = await conn.query<RowDataPacket[]>(`SELECT e.id,s.code currentStatus,e.current_site_id,e.current_department_id,e.current_position_id,e.current_work_group_id,e.current_production_module_section_id,e.employee_type_id FROM employees e JOIN employee_statuses s ON s.id=e.employee_status_id WHERE e.id=? FOR UPDATE`, [employeeId])
   const employee = employees[0]
   if (!employee) throw new ApiError(404, 'Karyawan tidak ditemukan.')
@@ -48,10 +52,26 @@ async function employeeStatus(conn: PoolConnection, employeeId: number, next: 'A
   return true
 }
 
-async function auditLifecycle(connection: PoolConnection, input: { auth?: AuthContext; siteId: number; contractId: number; contractUid: string; description: string }) {
+export async function auditLifecycle(connection: PoolConnection, input: { auth?: AuthContext; siteId: number; contractId: number; contractUid: string; description: string }) {
   const audit = { siteId: input.siteId, action: 'OTHER' as const, table: 'employee_contracts', recordId: input.contractId, recordUid: input.contractUid, description: input.description }
   if (input.auth) await writeAudit({ ...audit, auth: input.auth }, connection)
   else await writeSystemAudit(audit, connection)
+}
+
+export async function assertNoOpenScheduledStatusChange(
+  conn: PoolConnection,
+  employeeId: number
+) {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    "SELECT id FROM scheduled_employee_status_changes WHERE employee_id=? AND status IN ('SCHEDULED','FAILED') FOR UPDATE",
+    [employeeId]
+  )
+  if (rows[0]) {
+    throw new ApiError(
+      409,
+      'Karyawan memiliki status kerja terjadwal yang belum diselesaikan. Batalkan jadwal tersebut terlebih dahulu.'
+    )
+  }
 }
 
 export async function synchronizeActiveContractAfterEdit(conn: PoolConnection, contract: { id: number; uid: string; employeeId: number; siteId: number; startDate: string; endDate?: string; status: string }, auth: AuthContext) {
@@ -60,10 +80,9 @@ export async function synchronizeActiveContractAfterEdit(conn: PoolConnection, c
   if (contract.startDate > today) throw new ApiError(422, 'Kontrak aktif tidak boleh memiliki tanggal mulai di masa depan. Jadwalkan kontrak tersebut.')
   if ((await validActiveContracts(conn, contract.employeeId, today, contract.id)).length) throw new ApiError(409, 'Ditemukan kontrak aktif lain yang masih berlaku. Selesaikan konflik kontrak terlebih dahulu.')
   if (contract.endDate && contract.endDate < today) {
-    await employeeStatus(conn, contract.employeeId, 'INACTIVE', today, 'MANUAL', 'Kontrak kedaluwarsa saat data kontrak diperbarui.', auth)
     await conn.execute("UPDATE employee_contracts SET status='EXPIRED',updated_by=? WHERE id=?", [auth.id, contract.id])
     await conn.execute("INSERT INTO employee_contract_lifecycle_events(uid,contract_id,from_status,to_status,effective_date,reason,source,actor_user_id) VALUES(?,?, 'ACTIVE','EXPIRED',?,'Kontrak kedaluwarsa saat data kontrak diperbarui.','MANUAL',?)", [randomUUID(), contract.id, today, auth.id])
-    await auditLifecycle(conn, { auth, siteId: contract.siteId, contractId: contract.id, contractUid: contract.uid, description: 'Kontrak aktif kedaluwarsa saat disimpan dan status karyawan disinkronkan.' })
+    await auditLifecycle(conn, { auth, siteId: contract.siteId, contractId: contract.id, contractUid: contract.uid, description: 'Kontrak aktif kedaluwarsa saat disimpan. Status karyawan tidak diubah.' })
     return
   }
   await employeeStatus(conn, contract.employeeId, 'ACTIVE', today, 'MANUAL', 'Sinkronisasi setelah perubahan kontrak aktif.', auth)
@@ -75,20 +94,25 @@ export async function transitionContract(contractUid: string, action: ContractTr
   const today = businessDate()
   try {
     await conn.beginTransaction()
-    const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.*,e.current_site_id siteId,s.code site FROM employee_contracts c JOIN employees e ON e.id=c.employee_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [contractUid])
+    const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.*,ct.code contractType,et.code employeeType,e.current_site_id siteId,s.code site FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [contractUid])
     const contract = rows[0]
     if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
     if (auth && !auth.roles.includes('SUPER_ADMIN') && !auth.siteAccess.includes(contract.site)) throw new ApiError(403, 'Akses site ditolak.')
+    if (!isContractTypeAllowed(contract.employeeType, contract.contractType)) throw new ApiError(422, contractTypeRuleMessage(contract.employeeType))
+    const source = auth ? 'MANUAL' : 'CRON'
     const effectiveDate = input.effectiveDate ?? today
     const next = lifecycleNextStatus({ action, status: contract.status, startDate: contract.start_date, today, effectiveDate, hasReason: Boolean(input.reason?.trim()) })
+    if (auth && (action === 'terminate' || action === 'resign')) {
+      await assertNoOpenScheduledStatusChange(conn, contract.employee_id)
+    }
     if (next === 'ACTIVE') {
       if ((await validActiveContracts(conn, contract.employee_id, today, contract.id)).length) throw new ApiError(409, 'Ditemukan kontrak aktif lain yang masih berlaku. Selesaikan konflik kontrak terlebih dahulu.')
     }
     if (next === 'TERMINATED') {
       if ((await validActiveContracts(conn, contract.employee_id, effectiveDate, contract.id)).length) throw new ApiError(409, 'Ditemukan kontrak aktif lain yang masih berlaku. Selesaikan konflik kontrak terlebih dahulu.')
     }
-    if (next === 'ACTIVE') await employeeStatus(conn, contract.employee_id, 'ACTIVE', today, 'MANUAL', undefined, auth)
-    if (next === 'TERMINATED') await employeeStatus(conn, contract.employee_id, action === 'resign' ? 'RESIGNED' : 'INACTIVE', effectiveDate, 'MANUAL', input.reason, auth)
+    if (next === 'ACTIVE') await employeeStatus(conn, contract.employee_id, 'ACTIVE', today, source, undefined, auth)
+    if (next === 'TERMINATED') await employeeStatus(conn, contract.employee_id, action === 'resign' ? 'RESIGNED' : 'INACTIVE', effectiveDate, source, input.reason, auth)
     await conn.execute('UPDATE employee_contracts SET status=?,terminated_at=?,termination_reason=?,updated_by=? WHERE id=?', [next,next === 'TERMINATED' ? effectiveDate : null,next === 'TERMINATED' ? input.reason?.trim() ?? null : null,auth?.id ?? null,contract.id])
     await conn.execute('INSERT INTO employee_contract_lifecycle_events(uid,contract_id,from_status,to_status,effective_date,reason,source,actor_user_id) VALUES(?,?,?,?,?,?,?,?)', [randomUUID(),contract.id,contract.status,next,effectiveDate,input.reason?.trim() ?? null,auth ? 'MANUAL' : 'CRON',auth?.id ?? null])
     await auditLifecycle(conn, { auth, siteId: contract.siteId, contractId: contract.id, contractUid, description: `Lifecycle kontrak: ${contract.status} menjadi ${next}.` })
@@ -102,15 +126,92 @@ export async function transitionContract(contractUid: string, action: ContractTr
   }
 }
 
+export async function closeExpiredContractEmployeeStatus(
+  contractUid: string,
+  action: 'close_expired_terminate' | 'close_expired_resign',
+  input: { effectiveDate?: string; reason?: string },
+  auth: AuthContext
+) {
+  const conn = await pool.getConnection()
+  const today = businessDate()
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query<RowDataPacket[]>(
+      `SELECT c.id,c.uid,c.employee_id,c.start_date,c.end_date,c.status,
+              e.uid employeeUid,e.current_site_id siteId,s.code site,es.code employeeStatus
+       FROM employee_contracts c
+       JOIN employees e ON e.id=c.employee_id
+       JOIN employee_statuses es ON es.id=e.employee_status_id
+       JOIN sites s ON s.id=e.current_site_id
+       WHERE c.uid=? FOR UPDATE`,
+      [contractUid]
+    )
+    const contract = rows[0]
+    if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
+    if (!auth.roles.includes('SUPER_ADMIN') && !auth.siteAccess.includes(contract.site)) {
+      throw new ApiError(403, 'Akses site ditolak.')
+    }
+    if (contract.status !== 'EXPIRED' || !contract.end_date) {
+      throw new ApiError(422, 'Aksi ini hanya tersedia untuk kontrak Expired.')
+    }
+    const effectiveDate = input.effectiveDate ?? today
+    if (!input.reason?.trim() || effectiveDate < contract.end_date || effectiveDate > today) {
+      throw new ApiError(422, 'Tanggal efektif harus berada antara tanggal akhir kontrak dan hari ini, serta alasan wajib diisi.')
+    }
+    if (contract.employeeStatus !== 'ACTIVE') {
+      throw new ApiError(409, 'Status karyawan sudah tidak Aktif.')
+    }
+    await assertNoOpenScheduledStatusChange(conn, contract.employee_id)
+    const [newerContracts] = await conn.query<RowDataPacket[]>(
+      `SELECT id FROM employee_contracts
+       WHERE employee_id=?
+         AND (start_date>? OR (start_date=? AND id>?))
+       LIMIT 1 FOR UPDATE`,
+      [contract.employee_id, contract.start_date, contract.start_date, contract.id]
+    )
+    if (newerContracts[0]) {
+      throw new ApiError(409, 'Aksi ini hanya tersedia untuk kontrak terakhir karyawan.')
+    }
+    if ((await validActiveContracts(conn, contract.employee_id, effectiveDate)).length) {
+      throw new ApiError(409, 'Masih ada kontrak aktif yang berlaku pada tanggal efektif tersebut.')
+    }
+
+    const nextStatus = action === 'close_expired_resign' ? 'RESIGNED' : 'INACTIVE'
+    await employeeStatus(conn, contract.employee_id, nextStatus, effectiveDate, 'MANUAL', input.reason.trim(), auth)
+    await writeAudit({
+      auth,
+      siteId: contract.siteId,
+      action: 'OTHER',
+      table: 'employees',
+      recordId: contract.employee_id,
+      recordUid: contract.employeeUid,
+      description: `Status karyawan diubah menjadi ${nextStatus} berdasarkan kontrak Expired ${contract.uid}.`,
+    }, conn)
+    await auditLifecycle(conn, {
+      auth,
+      siteId: contract.siteId,
+      contractId: contract.id,
+      contractUid: contract.uid,
+      description: `Kontrak tetap Expired; status karyawan diubah menjadi ${nextStatus} pada ${effectiveDate}.`,
+    })
+    await conn.commit()
+    return { uid: contractUid, status: 'EXPIRED', employeeStatus: nextStatus }
+  } catch (error) {
+    await conn.rollback()
+    throw error
+  } finally {
+    conn.release()
+  }
+}
+
 async function expireContract(contractUid: string, today: string) {
   const conn = await pool.getConnection()
   try {
     await conn.beginTransaction()
-    const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.employee_id,e.current_site_id siteId,c.status FROM employee_contracts c JOIN employees e ON e.id=c.employee_id WHERE c.uid=? FOR UPDATE`, [contractUid])
+    const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.employee_id,e.current_site_id siteId,c.status,ct.code contractType,et.code employeeType FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id WHERE c.uid=? FOR UPDATE`, [contractUid])
     const contract = rows[0]
     if (!contract || contract.status !== 'ACTIVE') { await conn.rollback(); return false }
-    const hasOtherActive = (await validActiveContracts(conn, contract.employee_id, today, contract.id)).length > 0
-    if (!hasOtherActive) await employeeStatus(conn, contract.employee_id, 'INACTIVE', today, 'CRON')
+    if (!isContractTypeAllowed(contract.employeeType, contract.contractType)) throw new ApiError(422, contractTypeRuleMessage(contract.employeeType))
     await conn.execute("UPDATE employee_contracts SET status='EXPIRED' WHERE id=?", [contract.id])
     await conn.execute("INSERT INTO employee_contract_lifecycle_events(uid,contract_id,from_status,to_status,effective_date,source) VALUES(?,?, 'ACTIVE','EXPIRED',?,'CRON')", [randomUUID(), contract.id, today])
     await auditLifecycle(conn, { siteId: contract.siteId, contractId: contract.id, contractUid: contract.uid, description: 'Kontrak kedaluwarsa diproses oleh cron.' })
@@ -192,7 +293,7 @@ export async function reconcileContracts() {
   const conflicts: { employeeUid: string; employeeNumber: string; fullName: string; site: string; reason: string; contractNumbers: string[] }[] = []
   for (const employee of employees) {
     const activeContracts = Number(employee.activeContracts)
-    if (activeContracts > 1 || ((employee.currentStatus === 'RESIGNED' || employee.currentStatus === 'LEAVE') && activeContracts)) {
+    if (activeContracts > 1 || ((employee.currentStatus === 'RESIGNED' || employee.currentStatus === 'LEAVE') && activeContracts) || (employee.currentStatus === 'ACTIVE' && activeContracts === 0)) {
       legacyConflicts++
       if (conflicts.length < 50) {
         conflicts.push(cronConflict({

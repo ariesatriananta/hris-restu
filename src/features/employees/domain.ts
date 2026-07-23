@@ -1,5 +1,5 @@
 export type SiteCode = 'JEPARA' | 'SEMARANG' | 'KLATEN'
-export type EmployeeTypeCode = 'BORONGAN' | 'BULANAN'
+export type EmployeeTypeCode = 'BORONGAN' | 'BULANAN' | 'TRAINING'
 export type EmployeeStatusCode = 'ACTIVE' | 'LEAVE' | 'RESIGNED' | 'INACTIVE'
 export type EmploymentChangeType =
   | 'INITIAL'
@@ -8,6 +8,7 @@ export type EmploymentChangeType =
   | 'DEMOTION'
   | 'STATUS_CHANGE'
   | 'TYPE_CHANGE'
+  | 'DEPARTMENT_CHANGE'
   | 'GROUP_CHANGE'
   | 'PRODUCTION_ASSIGNMENT_CHANGE'
   | 'OTHER'
@@ -22,6 +23,7 @@ export type ContractStatus =
   | 'EXPIRED'
   | 'TERMINATED'
   | 'CANCELLED'
+  | 'MISSING'
 export type DocumentStatus = 'ACTIVE' | 'EXPIRED' | 'REVOKED' | 'ARCHIVED'
 export type ScheduledMutationStatus =
   | 'SCHEDULED'
@@ -126,6 +128,8 @@ export type ContractLifecycleAction =
   | 'terminate'
   | 'resign'
   | 'cancel'
+  | 'close_expired_terminate'
+  | 'close_expired_resign'
 export interface EmploymentHistory {
   uid: string
   employeeUid: string
@@ -167,14 +171,45 @@ export interface EmployeeContract {
   issuedFile?: MockFileAttachment
   employeeName?: string
   site?: SiteCode
+  employeeType?: EmployeeTypeCode
+  employeeStatus?: EmployeeStatusCode
+  isLatestForEmployee?: boolean
+  isMissingContract?: boolean
+  isCoverageIssue?: boolean
+  isExpiringWithin7Days?: boolean
+  isLegacyTypeMismatch?: boolean
 }
 export interface ContractKpiSummary {
   activeValid: number
   expiringWithin7Days: number
-  overdueActive: number
+  activeWithoutValidContract: number
   drafts: number
   scheduled: number
   totalContracts: number
+}
+export interface ContractReconcileResult {
+  status: 'SUCCEEDED' | 'SKIPPED'
+  runUid: string
+  businessDate: string
+  activated?: number
+  expired?: number
+  activatedEmployees?: number
+  inactivatedEmployees?: number
+  legacyConflicts?: number
+  skippedConflicts?: number
+  reason?: string
+  scheduledMutations?: {
+    due: number
+    applied: number
+    failed: number
+    skipped: number
+  }
+  scheduledStatusChanges?: {
+    due: number
+    applied: number
+    failed: number
+    skipped: number
+  }
 }
 export interface EmployeeDocument {
   uid: string
@@ -220,6 +255,14 @@ export interface MutationInput {
   reason?: string
   notes?: string
 }
+export interface BatchMutationItem {
+  employeeUid: string
+  input: MutationInput
+}
+export interface BatchMutationResult {
+  applied: number
+  scheduled: number
+}
 export interface ScheduledEmployeeMutation {
   uid: string
   employeeUid: string
@@ -245,6 +288,27 @@ export interface ScheduledEmployeeMutation {
   failureReason?: string
   appliedAt?: string
 }
+export type ScheduledStatusChangeAction = 'TERMINATE' | 'RESIGN'
+export type ScheduledStatusChangeStatus =
+  | 'SCHEDULED'
+  | 'APPLIED'
+  | 'FAILED'
+  | 'CANCELLED'
+export interface ScheduledEmployeeStatusChange {
+  uid: string
+  employeeUid: string
+  employeeName: string
+  employeeNumber: string
+  site: SiteCode
+  contractUid?: string
+  contractNumber?: string
+  action: ScheduledStatusChangeAction
+  effectiveDate: string
+  reason: string
+  status: ScheduledStatusChangeStatus
+  failureReason?: string
+  appliedAt?: string
+}
 export interface EmployeeListParams {
   query?: string
   site?: SiteCode | SiteCode[] | 'ALL'
@@ -257,6 +321,8 @@ export interface EmployeeRecordListParams {
   query?: string
   site?: SiteCode[]
   status?: string[]
+  coverage?: string[]
+  action?: string[]
   page?: number
   pageSize?: number
 }

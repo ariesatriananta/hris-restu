@@ -30,6 +30,7 @@ import type {
   EmployeeDocument,
   MockFileAttachment,
 } from '../domain'
+import { requiredContractType } from '../employee-contract-policy'
 import { EmployeePicker } from './employee-picker'
 import { FormActionBar } from './form-action-bar'
 
@@ -150,6 +151,9 @@ function ContractForm({
     name: 'employeeUid',
   })
   const selectedEmployee = useEmployee(selectedEmployeeUid)
+  const allowedContractType = requiredContractType(
+    selectedEmployee.data?.employeeType
+  )
   const startDate = useWatch({ control: form.control, name: 'startDate' })
   const endDate = useWatch({ control: form.control, name: 'endDate' })
   const { confirmation } = useUnsavedChanges(form.formState.isDirty)
@@ -160,6 +164,12 @@ function ContractForm({
     }
   }, [attachment?.temporaryUrl])
   const submit = async (value: ContractValues) => {
+    if (!allowedContractType) {
+      form.setError('employeeUid', {
+        message: 'Pilih karyawan untuk menentukan tipe kontrak yang sesuai.',
+      })
+      return
+    }
     if (
       selectedEmployee.data?.joinDate &&
       value.startDate < selectedEmployee.data.joinDate
@@ -177,6 +187,7 @@ function ContractForm({
       uid: record?.uid,
       input: {
         ...value,
+        contractType: allowedContractType,
         status: record?.status ?? 'DRAFT',
         contractNumber: record?.contractNumber ?? '',
         sequenceNumber: record?.sequenceNumber ?? 0,
@@ -192,7 +203,7 @@ function ContractForm({
   return (
     <RecordLayout
       title={record ? 'Ubah kontrak' : 'Tambah kontrak'}
-      description='Kelola PKWT dan lampirannya pada halaman penuh.'
+      description='Kelola kontrak kerja dan lampirannya pada halaman penuh.'
       formId='contract-form'
       pending={save.isPending}
       submitLabel='Simpan kontrak'
@@ -226,13 +237,16 @@ function ContractForm({
           values={(lookups.data?.contractTypes ?? []).map((item) => ({
             value: item.code,
             label: item.name,
+            disabled: item.code !== allowedContractType,
           }))}
           disabled={
             lookups.isPending ||
             !lookups.data?.contractTypes.length ||
+            !allowedContractType ||
             record?.status === 'ACTIVE'
           }
-          {...form.register('contractType')}
+          value={record?.contractType ?? allowedContractType ?? ''}
+          onChange={() => undefined}
         />
         <Field label='Urutan kontrak'>
           <Input
@@ -574,7 +588,7 @@ function Native({
   ...props
 }: SelectHTMLAttributes<HTMLSelectElement> & {
   label: string
-  values: Array<string | { value: string; label: string }>
+  values: Array<string | { value: string; label: string; disabled?: boolean }>
 }) {
   return (
     <Field label={label}>
@@ -586,7 +600,11 @@ function Native({
           const option =
             typeof item === 'string' ? { value: item, label: item } : item
           return (
-            <option key={option.value} value={option.value}>
+            <option
+              key={option.value}
+              value={option.value}
+              disabled={option.disabled}
+            >
               {option.label}
             </option>
           )

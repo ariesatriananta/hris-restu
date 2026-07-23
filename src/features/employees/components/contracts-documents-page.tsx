@@ -10,18 +10,29 @@ import {
   Plus,
   ScrollText,
   Files,
+  RefreshCw,
+  ChevronDown,
 } from 'lucide-react'
+import { toast } from 'sonner'
+import { useAuthStore } from '@/stores/auth-store'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Main } from '@/components/layout/main'
 import {
   useContractConflicts,
   useContractKpiSummary,
   useContractList,
   useDocumentList,
+  useManualContractsReconcile,
 } from '../data/queries'
 import type {
   EmployeeContract,
@@ -34,6 +45,7 @@ import type {
 import { formatDate } from '../utils'
 import { ContractDetailDrawer } from './contract-detail-drawer'
 import { RecordsTable, type EmployeeRecordRow } from './records-table'
+import { ScheduledStatusChangesTable } from './scheduled-status-changes-table'
 
 export function ContractsDocumentsPage({
   search,
@@ -43,16 +55,21 @@ export function ContractsDocumentsPage({
   navigate: NavigateFn
 }) {
   const routerNavigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<'contracts' | 'documents'>(
-    'contracts'
-  )
+  const [activeTab, setActiveTab] = useState<
+    'contracts' | 'documents' | 'status-changes'
+  >('contracts')
   const [selectedContract, setSelectedContract] = useState<EmployeeContract>()
+  const [reconcileOpen, setReconcileOpen] = useState(false)
+  const [conflictsOpen, setConflictsOpen] = useState(false)
+  const user = useAuthStore((state) => state.session?.user)
   const contractParams = params(search, 'contract')
   const documentParams = params(search, 'document')
+  const statusChangeParams = statusChangeParamsFromSearch(search)
   const contracts = useContractList(contractParams)
   const contractKpis = useContractKpiSummary(contractParams.site)
   const documents = useDocumentList(documentParams)
   const conflicts = useContractConflicts()
+  const reconcile = useManualContractsReconcile()
   const contractRows = useMemo(
     () => mapContracts(contracts.data),
     [contracts.data]
@@ -70,53 +87,82 @@ export function ContractsDocumentsPage({
             Kontrak, masa berlaku, dan metadata lampiran karyawan.
           </p>
         </div>
-        <Button
-          onClick={() =>
-            routerNavigate({
-              to:
-                activeTab === 'contracts'
-                  ? '/karyawan/pkwt/tambah'
-                  : '/karyawan/dokumen/tambah',
-            })
-          }
-        >
-          <Plus />
-          {activeTab === 'contracts' ? 'Tambah kontrak' : 'Tambah dokumen'}
-        </Button>
+        <div className='flex flex-wrap gap-2'>
+          {activeTab === 'contracts' && user?.role === 'SUPER_ADMIN' && (
+            <Button variant='outline' onClick={() => setReconcileOpen(true)}>
+              <RefreshCw /> Jalankan rekonsiliasi
+            </Button>
+          )}
+          {activeTab !== 'status-changes' && (
+            <Button
+              onClick={() =>
+                routerNavigate({
+                  to:
+                    activeTab === 'contracts'
+                      ? '/karyawan/pkwt/tambah'
+                      : '/karyawan/dokumen/tambah',
+                })
+              }
+            >
+              <Plus />
+              {activeTab === 'contracts' ? 'Tambah kontrak' : 'Tambah dokumen'}
+            </Button>
+          )}
+        </div>
       </div>
       {activeTab === 'contracts' && conflicts.data?.items.length ? (
         <Alert variant='destructive' className='mb-4'>
           <AlertTriangle />
-          <AlertTitle>
-            {conflicts.data.total} konflik lifecycle kontrak perlu ditindak
-          </AlertTitle>
-          <AlertDescription>
-            <ul className='mt-2 space-y-1'>
-              {conflicts.data.items.map((conflict) => (
-                <li key={conflict.employeeUid}>
-                  <Button
-                    variant='link'
-                    className='h-auto p-0 text-inherit underline'
-                    onClick={() =>
-                      routerNavigate({
-                        to: '/karyawan/data-karyawan/$employeeUid',
-                        params: { employeeUid: conflict.employeeUid },
-                      })
-                    }
-                  >
-                    {conflict.employeeNumber} · {conflict.fullName}
-                  </Button>{' '}
-                  — {conflict.reason} ({conflict.contractNumbers.join(', ')})
-                </li>
-              ))}
-            </ul>
-          </AlertDescription>
+          <Collapsible
+            open={conflictsOpen}
+            onOpenChange={setConflictsOpen}
+            className='col-start-2 min-w-0'
+          >
+            <CollapsibleTrigger className='flex w-full items-center justify-between gap-3 text-left'>
+              <AlertTitle className='animate-pulse text-sm motion-reduce:animate-none'>
+                {conflicts.data.total} konflik lifecycle kontrak perlu ditindak
+              </AlertTitle>
+              <ChevronDown
+                className={`size-4 shrink-0 transition-transform ${
+                  conflictsOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent className='CollapsibleContent'>
+              <AlertDescription>
+                <ul className='mt-2 space-y-1 text-destructive'>
+                  {conflicts.data.items.map((conflict) => (
+                    <li key={conflict.employeeUid}>
+                      <Button
+                        variant='link'
+                        className='h-auto p-0 text-destructive underline hover:text-destructive/80'
+                        onClick={() =>
+                          routerNavigate({
+                            to: '/karyawan/data-karyawan/$employeeUid',
+                            params: { employeeUid: conflict.employeeUid },
+                          })
+                        }
+                      >
+                        {conflict.employeeNumber} · {conflict.fullName}
+                      </Button>{' '}
+                      — {conflict.reason} ({conflict.contractNumbers.join(', ')}
+                      )
+                    </li>
+                  ))}
+                </ul>
+              </AlertDescription>
+            </CollapsibleContent>
+          </Collapsible>
         </Alert>
       ) : null}
       <Tabs
         value={activeTab}
         onValueChange={(value) => {
-          if (value === 'contracts' || value === 'documents') {
+          if (
+            value === 'contracts' ||
+            value === 'documents' ||
+            value === 'status-changes'
+          ) {
             setActiveTab(value)
           }
         }}
@@ -129,6 +175,13 @@ export function ContractsDocumentsPage({
           <TabsTrigger value='documents' className='h-10 flex-none gap-2 px-4'>
             <FileText className='size-4' />
             Dokumen
+          </TabsTrigger>
+          <TabsTrigger
+            value='status-changes'
+            className='h-10 flex-none gap-2 px-4'
+          >
+            <CalendarClock className='size-4' />
+            Status Kerja Terjadwal
           </TabsTrigger>
         </TabsList>
         <TabsContent value='contracts' className='mt-4'>
@@ -160,6 +213,12 @@ export function ContractsDocumentsPage({
               !['EXPIRED', 'TERMINATED', 'CANCELLED'].includes(row.status)
             }
             onView={(row) => setSelectedContract(row.contract)}
+            onExtendContract={(contract) =>
+              routerNavigate({
+                to: '/karyawan/pkwt/tambah',
+                search: { employeeUid: contract.employeeUid },
+              })
+            }
             isPending={contracts.isPending}
             isError={contracts.isError}
             onRetry={() => contracts.refetch()}
@@ -183,6 +242,13 @@ export function ContractsDocumentsPage({
             onRetry={() => documents.refetch()}
           />
         </TabsContent>
+        <TabsContent value='status-changes' className='mt-4'>
+          <ScheduledStatusChangesTable
+            search={search}
+            navigate={navigate}
+            params={statusChangeParams}
+          />
+        </TabsContent>
       </Tabs>
       <ContractDetailDrawer
         contract={selectedContract}
@@ -198,6 +264,31 @@ export function ContractsDocumentsPage({
         onOpenChange={(open) => {
           if (!open) setSelectedContract(undefined)
         }}
+      />
+      <ConfirmDialog
+        open={reconcileOpen}
+        onOpenChange={(open) => {
+          if (!reconcile.isPending) setReconcileOpen(open)
+        }}
+        title='Jalankan rekonsiliasi kontrak sekarang?'
+        desc='Sistem akan menjalankan proses yang sama dengan webhook cron untuk seluruh site: aktivasi dan expiry kontrak, sinkronisasi status karyawan, mutasi terjadwal, serta status kerja terjadwal yang jatuh tempo.'
+        cancelBtnText='Batal'
+        confirmText='Jalankan sekarang'
+        isLoading={reconcile.isPending}
+        handleConfirm={() =>
+          reconcile.mutate(undefined, {
+            onSuccess: (result) => {
+              setReconcileOpen(false)
+              toast.success(
+                result.status === 'SKIPPED'
+                  ? 'Rekonsiliasi lain masih berjalan.'
+                  : `Rekonsiliasi selesai: ${result.activated ?? 0} kontrak aktif, ${result.expired ?? 0} kontrak berakhir.`
+              )
+            },
+            onError: () =>
+              toast.error('Rekonsiliasi kontrak gagal dijalankan.'),
+          })
+        }
       />
     </Main>
   )
@@ -221,6 +312,10 @@ function params(
     status: Array.isArray(search[`${prefix}Status`])
       ? (search[`${prefix}Status`] as string[])
       : undefined,
+    coverage:
+      prefix === 'contract' && Array.isArray(search.contractCoverage)
+        ? (search.contractCoverage as string[])
+        : undefined,
     page:
       typeof search[`${prefix}Page`] === 'number'
         ? (search[`${prefix}Page`] as number)
@@ -228,6 +323,31 @@ function params(
     pageSize:
       typeof search[`${prefix}PageSize`] === 'number'
         ? (search[`${prefix}PageSize`] as number)
+        : 100,
+  }
+}
+function statusChangeParamsFromSearch(
+  search: Record<string, unknown>
+): EmployeeRecordListParams {
+  return {
+    query:
+      typeof search.statusChangeFilter === 'string'
+        ? search.statusChangeFilter
+        : undefined,
+    site: Array.isArray(search.statusChangeSite)
+      ? (search.statusChangeSite as SiteCode[])
+      : undefined,
+    status: Array.isArray(search.statusChangeStatus)
+      ? (search.statusChangeStatus as string[])
+      : undefined,
+    action: Array.isArray(search.statusChangeAction)
+      ? (search.statusChangeAction as string[])
+      : undefined,
+    page:
+      typeof search.statusChangePage === 'number' ? search.statusChangePage : 1,
+    pageSize:
+      typeof search.statusChangePageSize === 'number'
+        ? search.statusChangePageSize
         : 100,
   }
 }
@@ -256,8 +376,8 @@ function ContractKpiCards({
         'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-400',
     },
     {
-      label: 'Tidak berlaku',
-      value: data?.overdueActive,
+      label: 'Aktif tanpa kontrak',
+      value: data?.activeWithoutValidContract,
       icon: AlertTriangle,
       className: 'border-destructive/30 bg-destructive/5 text-destructive',
     },
@@ -340,6 +460,11 @@ function mapContracts(
       site: item.site ?? '—',
       detail: `${item.contractType} · ${formatDate(item.startDate)} — ${formatDate(item.endDate)}`,
       status: item.status,
+      coverage: item.isCoverageIssue
+        ? 'ACTIVE_WITHOUT_VALID_CONTRACT'
+        : item.isExpiringWithin7Days
+          ? 'EXPIRING_WITHIN_7_DAYS'
+          : 'NORMAL',
       expiry: item.status === 'ACTIVE' ? expiry(item.endDate) : undefined,
       contract: item,
     })),

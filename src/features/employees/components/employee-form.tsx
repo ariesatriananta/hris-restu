@@ -35,7 +35,7 @@ const schema = z
   .object({
     fullName: z.string().min(2, 'Nama lengkap wajib diisi.'),
     nickname: optionalText,
-    employeeType: z.enum(['BORONGAN', 'BULANAN']),
+    employeeType: z.enum(['BORONGAN', 'TRAINING', 'BULANAN']),
     employeeStatus: z.enum(['ACTIVE', 'RESIGNED', 'INACTIVE', 'LEAVE']),
     site: z.enum(['JEPARA', 'SEMARANG', 'KLATEN']),
     department: optionalText,
@@ -92,11 +92,12 @@ const schema = z
   })
   .refine(
     (value) =>
-      value.employeeType !== 'BORONGAN' ||
+      !['BORONGAN', 'TRAINING'].includes(value.employeeType) ||
       Boolean(value.productionModuleSectionUid),
     {
       path: ['productionModuleSectionUid'],
-      message: 'Bagian produksi wajib dipilih untuk karyawan Borongan.',
+      message:
+        'Bagian produksi wajib dipilih untuk karyawan Borongan atau Training.',
     }
   )
 
@@ -279,10 +280,11 @@ export function EmployeeForm({
             department: empty(values.department),
             position: empty(values.position),
             workGroup: empty(values.workGroup),
-            productionModuleSectionUid:
-              values.employeeType === 'BORONGAN'
-                ? empty(values.productionModuleSectionUid)
-                : undefined,
+            productionModuleSectionUid: ['BORONGAN', 'TRAINING'].includes(
+              values.employeeType
+            )
+              ? empty(values.productionModuleSectionUid)
+              : undefined,
           }
       await onSubmit(
         {
@@ -481,6 +483,7 @@ export function EmployeeForm({
               'Jenis karyawan',
               [
                 { value: 'BORONGAN', label: 'Borongan' },
+                { value: 'TRAINING', label: 'Training' },
                 { value: 'BULANAN', label: 'Bulanan' },
               ],
               !!employee
@@ -523,7 +526,7 @@ export function EmployeeForm({
               ],
               !!employee
             )}
-            {selectedEmployeeType === 'BORONGAN' && (
+            {['BORONGAN', 'TRAINING'].includes(selectedEmployeeType) && (
               <>
                 <Field
                   label='Modul produksi'

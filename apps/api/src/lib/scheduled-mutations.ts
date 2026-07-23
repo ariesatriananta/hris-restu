@@ -76,7 +76,7 @@ async function targetIsValid(conn: PoolConnection, schedule: RowDataPacket) {
   if (schedule.target_position_id && !target.positionActive) return 'Jabatan tujuan sudah nonaktif.'
   if (schedule.target_work_group_id && !target.workGroupActive) return 'Kelompok kerja tujuan sudah nonaktif.'
   if (!target.typeActive) return 'Jenis karyawan tujuan sudah nonaktif.'
-  if (schedule.target_employee_type === 'BORONGAN') {
+  if (['BORONGAN', 'TRAINING'].includes(schedule.target_employee_type)) {
     if (!schedule.target_production_module_section_id) return 'Modul dan Bagian produksi tujuan belum dipilih.'
     if (!target.mappingActive || !target.moduleActive || !target.sectionActive || Number(target.mappingSiteId) !== Number(schedule.target_site_id)) return 'Pemetaan Modul dan Bagian tujuan sudah tidak valid atau nonaktif.'
   }
@@ -89,11 +89,12 @@ export async function applyScheduledMutation(uid: string): Promise<ApplyResult> 
     await conn.beginTransaction()
     const [rows] = await conn.query<RowDataPacket[]>(`
       SELECT sm.*,DATE_FORMAT(sm.effective_from,'%Y-%m-%d') effectiveFrom,e.uid employeeUid,e.employee_number employeeNumber,e.full_name fullName,s.code site,
-        et.code target_employee_type
+        et.code target_employee_type,currentType.code current_employee_type
       FROM scheduled_employee_mutations sm
       JOIN employees e ON e.id=sm.employee_id
       JOIN sites s ON s.id=e.current_site_id
       JOIN employee_types et ON et.id=sm.target_employee_type_id
+      JOIN employee_types currentType ON currentType.id=e.employee_type_id
       WHERE sm.uid=? FOR UPDATE
     `, [uid])
     const schedule = rows[0]
@@ -113,6 +114,17 @@ export async function applyScheduledMutation(uid: string): Promise<ApplyResult> 
       const result = await failMutation(conn, schedule, 'Histori sumber sudah berubah sejak mutasi dijadwalkan.')
       await conn.commit()
       return result
+    }
+    if (schedule.change_type === 'TYPE_CHANGE') {
+      const [openContracts] = await conn.query<RowDataPacket[]>(
+        "SELECT contract_number FROM employee_contracts WHERE employee_id=? AND status IN ('DRAFT','SCHEDULED','ACTIVE') FOR UPDATE",
+        [schedule.employee_id]
+      )
+      if (openContracts[0]) {
+        const result = await failMutation(conn, schedule, `Jenis karyawan tidak dapat diubah karena kontrak ${openContracts[0].contract_number} masih terbuka.`)
+        await conn.commit()
+        return result
+      }
     }
 
     const [employees] = await conn.query<RowDataPacket[]>(`SELECT employee_status_id FROM employees WHERE id=? FOR UPDATE`, [schedule.employee_id])

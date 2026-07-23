@@ -8,7 +8,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table'
-import { Eye, FileText, Pencil, RefreshCcw } from 'lucide-react'
+import { Eye, FilePlus2, FileText, Pencil, RefreshCcw } from 'lucide-react'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -39,6 +39,7 @@ export type EmployeeRecordRow = {
   status: string
   detail: string
   expiry?: string
+  coverage?: string
   contract?: EmployeeContract
 }
 
@@ -51,6 +52,7 @@ export function RecordsTable({
   onEdit,
   canEdit = () => true,
   onView,
+  onExtendContract,
   isPending,
   isError,
   onRetry,
@@ -63,6 +65,7 @@ export function RecordsTable({
   onEdit: (uid: string) => void
   canEdit?: (row: EmployeeRecordRow) => boolean
   onView?: (row: EmployeeRecordRow) => void
+  onExtendContract?: (contract: EmployeeContract) => void
   isPending: boolean
   isError: boolean
   onRetry: () => void
@@ -76,6 +79,15 @@ export function RecordsTable({
     columnFilters: [
       { columnId: 'site', searchKey: `${prefix}Site`, type: 'array' },
       { columnId: 'status', searchKey: `${prefix}Status`, type: 'array' },
+      ...(prefix === 'contract'
+        ? [
+            {
+              columnId: 'coverage',
+              searchKey: 'contractCoverage',
+              type: 'array' as const,
+            },
+          ]
+        : []),
     ],
   })
   const columns: ColumnDef<EmployeeRecordRow>[] = [
@@ -134,12 +146,18 @@ export function RecordsTable({
       filterFn: (row, id, value: string[]) => value.includes(row.getValue(id)),
     },
     {
+      id: 'coverage',
+      accessorFn: (row) => row.coverage ?? 'NORMAL',
+      enableHiding: false,
+      filterFn: (row, id, value: string[]) => value.includes(row.getValue(id)),
+    },
+    {
       id: 'actions',
       enableSorting: false,
       enableHiding: false,
       cell: ({ row }) => (
         <div className='flex items-center gap-1'>
-          {onView && (
+          {onView && !row.original.contract?.isMissingContract && (
             <DataTableActionButton
               onClick={() => onView(row.original)}
               label={`Lihat detail ${row.original.title}`}
@@ -147,16 +165,42 @@ export function RecordsTable({
               <Eye />
             </DataTableActionButton>
           )}
-          {canEdit(row.original) && (
-            <DataTableActionButton
-              onClick={() => onEdit(row.original.uid)}
-              label={`Ubah ${row.original.title}`}
-            >
-              <Pencil />
-            </DataTableActionButton>
-          )}
+          {canEdit(row.original) &&
+            !row.original.contract?.isMissingContract && (
+              <DataTableActionButton
+                onClick={() => onEdit(row.original.uid)}
+                label={`Ubah ${row.original.title}`}
+              >
+                <Pencil />
+              </DataTableActionButton>
+            )}
+          {prefix === 'contract' &&
+            row.original.contract?.isMissingContract &&
+            onExtendContract && (
+              <DataTableActionButton
+                onClick={() => onExtendContract(row.original.contract!)}
+                label={`Tambah kontrak untuk ${row.original.employee}`}
+              >
+                <FilePlus2 />
+              </DataTableActionButton>
+            )}
+          {prefix === 'contract' &&
+            (row.original.contract?.status === 'EXPIRED' ||
+              row.original.contract?.isExpiringWithin7Days) &&
+            row.original.contract.isLatestForEmployee &&
+            onExtendContract && (
+              <DataTableActionButton
+                onClick={() => onExtendContract(row.original.contract!)}
+                label={`Perpanjang kontrak ${row.original.title}`}
+              >
+                <FilePlus2 />
+              </DataTableActionButton>
+            )}
           {prefix === 'contract' && row.original.contract && (
-            <ContractLifecycleActionButtons contract={row.original.contract} />
+            <ContractLifecycleActionButtons
+              contract={row.original.contract}
+              compact
+            />
           )}
         </div>
       ),
@@ -171,6 +215,7 @@ export function RecordsTable({
       globalFilter: url.globalFilter,
       columnFilters: url.columnFilters,
       pagination: url.pagination,
+      columnVisibility: { coverage: false },
     },
     onSortingChange: setSorting,
     onGlobalFilterChange: url.onGlobalFilterChange,
@@ -205,6 +250,24 @@ export function RecordsTable({
               label: statusLabel(value),
             })),
           },
+          ...(prefix === 'contract'
+            ? [
+                {
+                  columnId: 'coverage',
+                  title: 'Status kontrak aktif',
+                  options: [
+                    {
+                      value: 'ACTIVE_WITHOUT_VALID_CONTRACT',
+                      label: 'Karyawan aktif tanpa kontrak aktif',
+                    },
+                    {
+                      value: 'EXPIRING_WITHIN_7_DAYS',
+                      label: 'Berakhir ≤ 7 hari',
+                    },
+                  ],
+                },
+              ]
+            : []),
         ]}
       />
       {isPending ? (

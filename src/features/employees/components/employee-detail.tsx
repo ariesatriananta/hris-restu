@@ -12,6 +12,7 @@ import {
   Pencil,
   LayoutDashboard,
   FileSignature,
+  FilePlus2,
   FileText,
   Plus,
   RefreshCcw,
@@ -172,7 +173,7 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
                 ['Jabatan', data.position],
                 [
                   'Penempatan produksi',
-                  data.employeeType === 'BORONGAN'
+                  ['BORONGAN', 'TRAINING'].includes(data.employeeType)
                     ? [data.productionModule, data.productionSection]
                         .filter(Boolean)
                         .join(' • ')
@@ -386,6 +387,7 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
               edit: ['EXPIRED', 'TERMINATED', 'CANCELLED'].includes(item.status)
                 ? undefined
                 : `/karyawan/pkwt/${item.uid}/ubah`,
+              extend: item.status === 'EXPIRED' && item.isLatestForEmployee,
               lifecycleActions: (
                 <ContractLifecycleActionButtons contract={item} />
               ),
@@ -494,6 +496,11 @@ function employmentStatusSummary(
     return `Aktif melalui kontrak ${active.contractNumber}${active.endDate ? ` hingga ${formatDate(active.endDate)}` : ''}.`
   }
 
+  const expired = contracts.find((contract) => contract.status === 'EXPIRED')
+  if (employee.employeeStatus === 'ACTIVE' && expired) {
+    return `Aktif, tetapi kontrak ${expired.contractNumber} sudah berakhir${expired.endDate ? ` pada ${formatDate(expired.endDate)}` : ''}. HR perlu membuat kontrak pengganti.`
+  }
+
   if (employee.employeeStatus === 'INACTIVE') {
     const terminated = contracts.find(
       (contract) => contract.status === 'TERMINATED'
@@ -502,7 +509,6 @@ function employmentStatusSummary(
       return `Nonaktif — kontrak ${terminated.contractNumber} dihentikan${terminated.terminatedAt ? ` pada ${formatDate(terminated.terminatedAt)}` : ''}.`
     }
 
-    const expired = contracts.find((contract) => contract.status === 'EXPIRED')
     if (expired) {
       return `Nonaktif — kontrak ${expired.contractNumber} berakhir${expired.endDate ? ` pada ${formatDate(expired.endDate)}` : ''}.`
     }
@@ -527,6 +533,7 @@ function Records({
     label: string
     actionLabel?: string
     edit?: string
+    extend?: boolean
     lifecycleActions?: ReactNode
     file?: string
     onDetail?: () => void
@@ -582,6 +589,19 @@ function Records({
                       <a href={item.edit}>
                         <Pencil />
                       </a>
+                    </DataTableActionButton>
+                  )}
+                  {item.extend && add.to === '/karyawan/pkwt/tambah' && (
+                    <DataTableActionButton
+                      label={`Perpanjang kontrak ${item.actionLabel ?? item.label}`}
+                      asChild
+                    >
+                      <Link
+                        to='/karyawan/pkwt/tambah'
+                        search={{ employeeUid: add.employeeUid }}
+                      >
+                        <FilePlus2 />
+                      </Link>
                     </DataTableActionButton>
                   )}
                   {item.lifecycleActions}

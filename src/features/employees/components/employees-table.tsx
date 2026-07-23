@@ -37,7 +37,7 @@ const filters = [
   {
     columnId: 'employeeType',
     title: 'Jenis',
-    options: ['BORONGAN', 'BULANAN'].map((value) => ({
+    options: ['BORONGAN', 'TRAINING', 'BULANAN'].map((value) => ({
       value,
       label: statusLabel(value),
     })),

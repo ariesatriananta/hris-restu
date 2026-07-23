@@ -41,4 +41,19 @@ describe('cronConflict', () => {
       contractNumbers: ['PKWT-PKDS-2607-15001-01'],
     })
   })
+
+  it('menandai karyawan aktif tanpa kontrak berlaku sebagai alert kontrak', () => {
+    expect(
+      cronConflict({
+        employeeUid: 'employee-uid',
+        employeeNumber: 'PSMG-2507-23007',
+        fullName: 'Karyawan Fiktif',
+        site: 'SEMARANG',
+        currentStatus: 'ACTIVE',
+        activeContracts: 0,
+      }).reason
+    ).toBe(
+      'Karyawan Aktif belum memiliki kontrak aktif yang berlaku. Periksa kontrak berakhir dan buat kontrak pengganti bila diperlukan.'
+    )
+  })
 })

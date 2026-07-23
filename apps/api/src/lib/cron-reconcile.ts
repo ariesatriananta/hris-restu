@@ -4,6 +4,7 @@ import type { PoolConnection } from 'mysql2/promise'
 import { pool } from '../db.js'
 import { businessDate, reconcileContracts } from './contract-lifecycle.js'
 import { reconcileScheduledMutations } from './scheduled-mutations.js'
+import { reconcileScheduledStatusChanges } from './scheduled-status-changes.js'
 
 const lockName = 'hris:contracts:reconcile'
 
@@ -81,9 +82,10 @@ export async function runContractsReconcile() {
     runUid = await createRun(connection, 'RUNNING', today)
     const contracts = await reconcileContracts()
     const scheduledMutations = await reconcileScheduledMutations()
-    const summary = { contracts, scheduledMutations }
+    const scheduledStatusChanges = await reconcileScheduledStatusChanges()
+    const summary = { contracts, scheduledMutations, scheduledStatusChanges }
     await finishRun(connection, runUid, 'SUCCEEDED', summary)
-    return { ...contracts, scheduledMutations, status: 'SUCCEEDED' as const, runUid }
+    return { ...contracts, scheduledMutations, scheduledStatusChanges, status: 'SUCCEEDED' as const, runUid }
   } catch (error) {
     if (runUid) {
       await finishRun(connection, runUid, 'FAILED', undefined, safeErrorMessage(error))

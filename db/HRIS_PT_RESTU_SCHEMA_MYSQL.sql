@@ -524,7 +524,7 @@ CREATE TABLE employee_employment_histories (
   KEY idx_employment_history_employee_date (employee_id, effective_from, effective_to),
   KEY idx_employment_history_site (site_id),
   CONSTRAINT chk_employment_history_dates CHECK (effective_to IS NULL OR effective_to >= effective_from),
-  CONSTRAINT chk_employment_history_change CHECK (change_type IN ('INITIAL', 'TRANSFER', 'PROMOTION', 'DEMOTION', 'STATUS_CHANGE', 'TYPE_CHANGE', 'GROUP_CHANGE', 'PRODUCTION_ASSIGNMENT_CHANGE', 'OTHER')),
+  CONSTRAINT chk_employment_history_change CHECK (change_type IN ('INITIAL', 'TRANSFER', 'PROMOTION', 'DEMOTION', 'STATUS_CHANGE', 'TYPE_CHANGE', 'DEPARTMENT_CHANGE', 'GROUP_CHANGE', 'PRODUCTION_ASSIGNMENT_CHANGE', 'OTHER')),
   CONSTRAINT fk_employment_history_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_employment_history_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_employment_history_department FOREIGN KEY (department_id) REFERENCES departments (id) ON UPDATE CASCADE ON DELETE SET NULL,
@@ -569,7 +569,7 @@ CREATE TABLE scheduled_employee_mutations (
   KEY idx_scheduled_employee_mutations_employee (employee_id, effective_from),
   KEY idx_scheduled_employee_mutations_site (target_site_id),
   CONSTRAINT chk_scheduled_employee_mutations_status CHECK (status IN ('SCHEDULED', 'APPLIED', 'FAILED', 'CANCELLED')),
-  CONSTRAINT chk_scheduled_employee_mutations_change CHECK (change_type IN ('TRANSFER', 'PROMOTION', 'DEMOTION', 'TYPE_CHANGE', 'GROUP_CHANGE', 'PRODUCTION_ASSIGNMENT_CHANGE', 'OTHER')),
+  CONSTRAINT chk_scheduled_employee_mutations_change CHECK (change_type IN ('TRANSFER', 'PROMOTION', 'DEMOTION', 'TYPE_CHANGE', 'DEPARTMENT_CHANGE', 'GROUP_CHANGE', 'PRODUCTION_ASSIGNMENT_CHANGE', 'OTHER')),
   CONSTRAINT fk_scheduled_employee_mutation_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_scheduled_employee_mutation_base_history FOREIGN KEY (base_history_id) REFERENCES employee_employment_histories (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_scheduled_employee_mutation_site FOREIGN KEY (target_site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT,
@@ -633,6 +633,36 @@ CREATE TABLE employee_contract_lifecycle_events (
   CONSTRAINT chk_contract_lifecycle_source CHECK (source IN ('MANUAL', 'CRON')),
   CONSTRAINT fk_contract_lifecycle_contract FOREIGN KEY (contract_id) REFERENCES employee_contracts (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_contract_lifecycle_actor FOREIGN KEY (actor_user_id) REFERENCES users (id) ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE scheduled_employee_status_changes (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  employee_id BIGINT UNSIGNED NOT NULL,
+  contract_id BIGINT UNSIGNED NULL,
+  action VARCHAR(20) NOT NULL,
+  effective_date DATE NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'SCHEDULED',
+  failure_reason VARCHAR(500) NULL,
+  applied_at DATETIME(3) NULL,
+  cancelled_at DATETIME(3) NULL,
+  open_employee_id BIGINT UNSIGNED GENERATED ALWAYS AS (CASE WHEN status IN ('SCHEDULED', 'FAILED') THEN employee_id ELSE NULL END) STORED,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_scheduled_employee_status_changes_uid (uid),
+  UNIQUE KEY uq_scheduled_employee_status_changes_open_employee (open_employee_id),
+  KEY idx_scheduled_employee_status_changes_due (status, effective_date),
+  KEY idx_scheduled_employee_status_changes_employee (employee_id, effective_date),
+  CONSTRAINT chk_scheduled_employee_status_changes_action CHECK (action IN ('TERMINATE', 'RESIGN')),
+  CONSTRAINT chk_scheduled_employee_status_changes_status CHECK (status IN ('SCHEDULED', 'APPLIED', 'FAILED', 'CANCELLED')),
+  CONSTRAINT fk_scheduled_employee_status_change_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_scheduled_employee_status_change_contract FOREIGN KEY (contract_id) REFERENCES employee_contracts(id) ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_scheduled_employee_status_change_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_scheduled_employee_status_change_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE employee_salary_histories (

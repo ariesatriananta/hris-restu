@@ -11,6 +11,11 @@ export const Route = createFileRoute('/_authenticated/karyawan/pkwt-dokumen')({
     contractStatus: z
       .array(z.enum(['DRAFT', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED']))
       .optional(),
+    contractCoverage: z
+      .array(
+        z.enum(['ACTIVE_WITHOUT_VALID_CONTRACT', 'EXPIRING_WITHIN_7_DAYS'])
+      )
+      .optional(),
     documentPage: z.number().int().positive().optional(),
     documentPageSize: z.number().int().min(1).max(500).optional(),
     documentFilter: z.string().optional(),
@@ -18,6 +23,16 @@ export const Route = createFileRoute('/_authenticated/karyawan/pkwt-dokumen')({
     documentStatus: z
       .array(z.enum(['ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED']))
       .optional(),
+    statusChangePage: z.number().int().positive().optional(),
+    statusChangePageSize: z.number().int().min(1).max(500).optional(),
+    statusChangeFilter: z.string().optional(),
+    statusChangeSite: z
+      .array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN']))
+      .optional(),
+    statusChangeStatus: z
+      .array(z.enum(['SCHEDULED', 'APPLIED', 'FAILED', 'CANCELLED']))
+      .optional(),
+    statusChangeAction: z.array(z.enum(['TERMINATE', 'RESIGN'])).optional(),
   }),
   component: RouteComponent,
 })

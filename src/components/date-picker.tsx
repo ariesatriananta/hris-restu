@@ -1,6 +1,7 @@
 import { format } from 'date-fns'
 import { id } from 'date-fns/locale'
 import { Calendar as CalendarIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import {
@@ -17,6 +18,7 @@ type DatePickerProps = {
   fromYear?: number
   toYear?: number
   disabledDates?: (date: Date) => boolean
+  triggerClassName?: string
 }
 
 export function DatePicker({
@@ -27,6 +29,7 @@ export function DatePicker({
   fromYear = 1900,
   toYear = new Date().getFullYear() + 20,
   disabledDates,
+  triggerClassName,
 }: DatePickerProps) {
   return (
     <Popover>
@@ -35,7 +38,10 @@ export function DatePicker({
           variant='outline'
           disabled={disabled}
           data-empty={!selected}
-          className='w-full justify-start text-start font-normal data-[empty=true]:text-muted-foreground'
+          className={cn(
+            'w-full justify-start text-start font-normal data-[empty=true]:text-muted-foreground',
+            triggerClassName
+          )}
         >
           {selected ? (
             format(selected, 'd MMMM yyyy', { locale: id })
