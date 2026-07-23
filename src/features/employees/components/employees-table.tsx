@@ -58,6 +58,7 @@ export function EmployeesTable({
   search,
   navigate,
   onEdit,
+  returnTo,
   isFetching,
 }: {
   data: PaginatedResult<Employee>
@@ -65,6 +66,7 @@ export function EmployeesTable({
   search: Record<string, unknown>
   navigate: NavigateFn
   onEdit: (employee: Employee) => void
+  returnTo?: string
   isFetching?: boolean
 }) {
   const [sorting, setSorting] = useState<SortingState>([])
@@ -171,6 +173,7 @@ export function EmployeesTable({
                         className='font-semibold hover:underline'
                         to='/karyawan/data-karyawan/$employeeUid'
                         params={{ employeeUid: employee.uid }}
+                        search={{ returnTo }}
                       >
                         {employee.fullName}
                       </Link>
@@ -190,6 +193,7 @@ export function EmployeesTable({
                         <Link
                           to='/karyawan/data-karyawan/$employeeUid'
                           params={{ employeeUid: employee.uid }}
+                          search={{ returnTo }}
                         >
                           <Eye /> Detail
                         </Link>
@@ -207,7 +211,17 @@ export function EmployeesTable({
               </Card>
             ))}
           </div>
-          <DataTablePagination table={table} />
+          <DataTablePagination
+            table={table}
+            summary={
+              <>
+                Menampilkan{' '}
+                {data.total ? (data.page - 1) * data.pageSize + 1 : 0}–
+                {Math.min(data.page * data.pageSize, data.total)} dari{' '}
+                {data.total} data.
+              </>
+            }
+          />
         </>
       )}
     </div>

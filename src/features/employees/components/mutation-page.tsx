@@ -19,6 +19,7 @@ import {
   RefreshCcw,
   X,
 } from 'lucide-react'
+import { currentListReturnTo } from '@/lib/list-return-to'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Button } from '@/components/ui/button'
 import {
@@ -86,7 +87,8 @@ const filters = [
 ]
 
 function getColumns(
-  onView: (history: MutationRow) => void
+  onView: (history: MutationRow) => void,
+  returnTo?: string
 ): ColumnDef<MutationRow>[] {
   return [
     {
@@ -100,6 +102,7 @@ function getColumns(
             className='font-medium hover:underline'
             to='/karyawan/data-karyawan/$employeeUid'
             params={{ employeeUid: row.original.employeeUid }}
+            search={{ returnTo }}
           >
             {row.original.employeeName}
           </Link>
@@ -161,6 +164,7 @@ export function MutationPage({
   search: Record<string, unknown>
   navigate: NavigateFn
 }) {
+  const returnTo = currentListReturnTo()
   const [sorting, setSorting] = useState<SortingState>([])
   const [selectedHistory, setSelectedHistory] = useState<MutationRow>()
   const [batchMutationOpen, setBatchMutationOpen] = useState(false)
@@ -187,7 +191,10 @@ export function MutationPage({
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: rows,
-    columns: useMemo(() => getColumns(setSelectedHistory), []),
+    columns: useMemo(
+      () => getColumns(setSelectedHistory, returnTo),
+      [returnTo]
+    ),
     state: {
       sorting,
       globalFilter: tableState.globalFilter,
@@ -301,7 +308,26 @@ export function MutationPage({
                   </TableBody>
                 </Table>
               </div>
-              <DataTablePagination table={table} />
+              <DataTablePagination
+                table={table}
+                summary={
+                  <>
+                    Menampilkan{' '}
+                    {table.getFilteredRowModel().rows.length
+                      ? table.getState().pagination.pageIndex *
+                          table.getState().pagination.pageSize +
+                        1
+                      : 0}
+                    –
+                    {Math.min(
+                      (table.getState().pagination.pageIndex + 1) *
+                        table.getState().pagination.pageSize,
+                      table.getFilteredRowModel().rows.length
+                    )}{' '}
+                    dari {table.getFilteredRowModel().rows.length} data.
+                  </>
+                }
+              />
             </>
           )}
         </TabsContent>
@@ -359,6 +385,7 @@ function ScheduledMutationsTable({
   search: Record<string, unknown>
   navigate: NavigateFn
 }) {
+  const returnTo = currentListReturnTo()
   const [selected, setSelected] = useState<ScheduledEmployeeMutation>()
   const [cancelTarget, setCancelTarget] = useState<ScheduledEmployeeMutation>()
   const urlState = useTableUrlState({
@@ -395,6 +422,7 @@ function ScheduledMutationsTable({
               className='font-medium hover:underline'
               to='/karyawan/data-karyawan/$employeeUid'
               params={{ employeeUid: row.original.employeeUid }}
+              search={{ returnTo }}
             >
               {row.original.employeeName}
             </Link>
@@ -481,7 +509,7 @@ function ScheduledMutationsTable({
         ),
       },
     ],
-    []
+    [returnTo]
   )
   // TanStack Table mengembalikan fungsi stateful; pola ini sama dengan tabel starter.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -533,10 +561,6 @@ function ScheduledMutationsTable({
         </div>
       ) : (
         <>
-          <p className='text-sm text-muted-foreground'>
-            Menampilkan {query.data?.items.length ?? 0} dari{' '}
-            {query.data?.total ?? 0} jadwal.
-          </p>
           <div className='overflow-x-auto rounded-md border'>
             <Table>
               <TableHeader>
@@ -571,7 +595,25 @@ function ScheduledMutationsTable({
               </TableBody>
             </Table>
           </div>
-          <DataTablePagination table={table} />
+          <DataTablePagination
+            table={table}
+            summary={
+              <>
+                Menampilkan{' '}
+                {(query.data?.total ?? 0)
+                  ? ((query.data?.page ?? 1) - 1) *
+                      (query.data?.pageSize ?? 50) +
+                    1
+                  : 0}
+                –
+                {Math.min(
+                  (query.data?.page ?? 1) * (query.data?.pageSize ?? 50),
+                  query.data?.total ?? 0
+                )}{' '}
+                dari {query.data?.total ?? 0} jadwal.
+              </>
+            }
+          />
         </>
       )}
       {selected && selectedEmployee.data && (

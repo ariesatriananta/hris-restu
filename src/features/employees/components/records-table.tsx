@@ -9,6 +9,7 @@ import {
   type SortingState,
 } from '@tanstack/react-table'
 import { Eye, FilePlus2, FileText, Pencil, RefreshCcw } from 'lucide-react'
+import { currentListReturnTo } from '@/lib/list-return-to'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -70,6 +71,7 @@ export function RecordsTable({
   isError: boolean
   onRetry: () => void
 }) {
+  const returnTo = currentListReturnTo()
   const [sorting, setSorting] = useState<SortingState>([])
   const url = useTableUrlState({
     search,
@@ -118,6 +120,7 @@ export function RecordsTable({
           className='font-medium text-primary hover:underline'
           to='/karyawan/data-karyawan/$employeeUid'
           params={{ employeeUid: row.original.employeeUid }}
+          search={{ returnTo }}
         >
           {row.original.employee}
         </Link>
@@ -322,12 +325,17 @@ export function RecordsTable({
               </TableBody>
             </Table>
           </div>
-          <p className='text-sm text-muted-foreground'>
-            Menampilkan {data.total ? (data.page - 1) * data.pageSize + 1 : 0}–
-            {Math.min(data.page * data.pageSize, data.total)} dari {data.total}{' '}
-            data.
-          </p>
-          <DataTablePagination table={table} />
+          <DataTablePagination
+            table={table}
+            summary={
+              <>
+                Menampilkan{' '}
+                {data.total ? (data.page - 1) * data.pageSize + 1 : 0}–
+                {Math.min(data.page * data.pageSize, data.total)} dari{' '}
+                {data.total} data.
+              </>
+            }
+          />
         </>
       )}
     </div>

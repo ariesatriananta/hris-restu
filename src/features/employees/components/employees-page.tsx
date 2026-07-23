@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Plus, RefreshCcw } from 'lucide-react'
+import { currentListReturnTo } from '@/lib/list-return-to'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Button } from '@/components/ui/button'
 import { Main } from '@/components/layout/main'
@@ -26,19 +27,23 @@ export function EmployeesPage({
       ? search.employeeStatus
       : undefined,
     page: typeof search.page === 'number' ? search.page : 1,
-    pageSize: typeof search.pageSize === 'number' ? search.pageSize : 100,
+    pageSize: typeof search.pageSize === 'number' ? search.pageSize : 50,
   }
   const query = useEmployeeList(params, { keepPreviousData: true })
+  const returnTo = currentListReturnTo()
   const routerNavigate = useNavigate()
   const columns = useMemo(
     () =>
-      createEmployeeColumns((employee) =>
-        routerNavigate({
-          to: '/karyawan/ubah-karyawan/$employeeUid',
-          params: { employeeUid: employee.uid },
-        })
+      createEmployeeColumns(
+        (employee) =>
+          routerNavigate({
+            to: '/karyawan/ubah-karyawan/$employeeUid',
+            params: { employeeUid: employee.uid },
+            search: { returnTo },
+          }),
+        returnTo
       ),
-    [routerNavigate]
+    [returnTo, routerNavigate]
   )
   return (
     <Main>
@@ -74,12 +79,14 @@ export function EmployeesPage({
         <EmployeesTable
           data={query.data}
           columns={columns}
+          returnTo={returnTo}
           search={search}
           navigate={navigate}
           onEdit={(employee) =>
             routerNavigate({
               to: '/karyawan/ubah-karyawan/$employeeUid',
               params: { employeeUid: employee.uid },
+              search: { returnTo },
             })
           }
           isFetching={query.isFetching}

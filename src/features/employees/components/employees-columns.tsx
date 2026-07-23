@@ -8,7 +8,8 @@ import type { Employee } from '../domain'
 import { statusLabel } from '../utils'
 
 export function createEmployeeColumns(
-  onEdit: (employee: Employee) => void
+  onEdit: (employee: Employee) => void,
+  returnTo?: string
 ): ColumnDef<Employee>[] {
   return [
     {
@@ -22,6 +23,7 @@ export function createEmployeeColumns(
             className='font-medium hover:underline'
             to='/karyawan/data-karyawan/$employeeUid'
             params={{ employeeUid: row.original.uid }}
+            search={{ returnTo }}
           >
             {row.original.fullName}
           </Link>
@@ -79,6 +81,7 @@ export function createEmployeeColumns(
             <Link
               to='/karyawan/data-karyawan/$employeeUid'
               params={{ employeeUid: row.original.uid }}
+              search={{ returnTo }}
             >
               <Eye />
               <span>Detail</span>

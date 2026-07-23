@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ExternalLink } from 'lucide-react'
+import { currentListReturnTo } from '@/lib/list-return-to'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -30,6 +31,7 @@ export function MutationDetailDrawer({
   onOpenChange,
   employee,
 }: MutationDetailDrawerProps) {
+  const returnTo = currentListReturnTo()
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className='w-full sm:max-w-lg'>
@@ -59,6 +61,7 @@ export function MutationDetailDrawer({
                   <Link
                     to='/karyawan/data-karyawan/$employeeUid'
                     params={{ employeeUid: employee.uid }}
+                    search={{ returnTo }}
                     onClick={() => onOpenChange(false)}
                   >
                     Buka detail karyawan <ExternalLink />

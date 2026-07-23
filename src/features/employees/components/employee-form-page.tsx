@@ -13,7 +13,13 @@ import {
 import type { EmployeeDocument } from '../domain'
 import { EmployeeForm } from './employee-form'
 
-export function EmployeeFormPage({ employeeUid }: { employeeUid?: string }) {
+export function EmployeeFormPage({
+  employeeUid,
+  returnTo,
+}: {
+  employeeUid?: string
+  returnTo?: string
+}) {
   const navigate = useNavigate()
   const employee = useEmployee(employeeUid ?? '')
   const documents = useDocuments(employeeUid)
@@ -41,6 +47,7 @@ export function EmployeeFormPage({ employeeUid }: { employeeUid?: string }) {
               : '/karyawan/data-karyawan'
           }
           params={isEdit ? { employeeUid: employeeUid! } : undefined}
+          search={isEdit ? { returnTo } : undefined}
         >
           <ArrowLeft /> {isEdit ? 'Detail karyawan' : 'Data Karyawan'}
         </Link>
@@ -78,6 +85,7 @@ export function EmployeeFormPage({ employeeUid }: { employeeUid?: string }) {
           await navigate({
             to: '/karyawan/data-karyawan/$employeeUid',
             params: { employeeUid: result.uid },
+            search: { returnTo },
             ignoreBlocker: true,
           })
         }}
@@ -87,6 +95,7 @@ export function EmployeeFormPage({ employeeUid }: { employeeUid?: string }) {
               ? '/karyawan/data-karyawan/$employeeUid'
               : '/karyawan/data-karyawan',
             params: isEdit ? { employeeUid: employeeUid! } : undefined,
+            search: isEdit ? { returnTo } : undefined,
           })
         }
       />

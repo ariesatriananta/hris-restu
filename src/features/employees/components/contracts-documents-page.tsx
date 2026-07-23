@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
+import { currentListReturnTo } from '@/lib/list-return-to'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -54,6 +55,7 @@ export function ContractsDocumentsPage({
   search: Record<string, unknown>
   navigate: NavigateFn
 }) {
+  const returnTo = currentListReturnTo()
   const routerNavigate = useNavigate()
   const [activeTab, setActiveTab] = useState<
     'contracts' | 'documents' | 'status-changes'
@@ -140,6 +142,7 @@ export function ContractsDocumentsPage({
                           routerNavigate({
                             to: '/karyawan/data-karyawan/$employeeUid',
                             params: { employeeUid: conflict.employeeUid },
+                            search: { returnTo },
                           })
                         }
                       >
@@ -470,7 +473,7 @@ function mapContracts(
     })),
     total: data?.total ?? 0,
     page: data?.page ?? 1,
-    pageSize: data?.pageSize ?? 100,
+    pageSize: data?.pageSize ?? 50,
   }
 }
 function mapDocuments(
@@ -489,7 +492,7 @@ function mapDocuments(
     })),
     total: data?.total ?? 0,
     page: data?.page ?? 1,
-    pageSize: data?.pageSize ?? 100,
+    pageSize: data?.pageSize ?? 50,
   }
 }
 function expiry(date?: string) {

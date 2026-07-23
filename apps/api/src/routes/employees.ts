@@ -220,7 +220,7 @@ employeesRouter.get('/lookups', requirePermission('employees.view'), async (_req
 
 employeesRouter.get('/', requirePermission('employees.view'), async (req, res, next) => {
   try {
-    const page = Math.max(1, Number(req.query.page ?? 1)); const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 100)))
+    const page = Math.max(1, Number(req.query.page ?? 1)); const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 50)))
     const where = ['1=1']; const values: unknown[] = []; const query = String(req.query.query ?? '')
     const addList = (field: string, raw: unknown) => { const list = String(raw ?? '').split(',').filter(Boolean); if (list.length) { where.push(`${field} IN (${list.map(() => '?').join(',')})`); values.push(...list) } }
     if (query) { where.push('(e.full_name LIKE ? OR e.employee_number LIKE ? OR e.barcode LIKE ?)'); values.push(`%${query}%`, `%${query}%`, `%${query}%`) }
@@ -243,7 +243,7 @@ employeesRouter.get('/histories', requirePermission('employees.view'), async (_r
 
 employeesRouter.get('/scheduled-mutations', requirePermission('employees.view'), async (req, res, next) => {
   try {
-    const page = Math.max(1, Number(req.query.page ?? 1)); const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 100)))
+    const page = Math.max(1, Number(req.query.page ?? 1)); const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 50)))
     const where = ['1=1']; const values: unknown[] = []; const query = String(req.query.query ?? '')
     if (query) { where.push('(e.full_name LIKE ? OR e.employee_number LIKE ? OR targetPosition.name LIKE ?)'); values.push(`%${query}%`, `%${query}%`, `%${query}%`) }
     const sites = String(req.query.site ?? '').split(',').filter(Boolean); if (sites.length) { where.push(`targetSite.code IN (${sites.map(() => '?').join(',')})`); values.push(...sites) }
@@ -259,7 +259,7 @@ employeesRouter.get('/scheduled-mutations', requirePermission('employees.view'),
 employeesRouter.get('/scheduled-status-changes', requirePermission('employees.view'), async (req, res, next) => {
   try {
     const page = Math.max(1, Number(req.query.page ?? 1))
-    const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 100)))
+    const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 50)))
     const where = ['1=1']; const values: unknown[] = []
     const query = String(req.query.query ?? '')
     if (query) { where.push('(e.full_name LIKE ? OR e.employee_number LIKE ? OR c.contract_number LIKE ?)'); values.push(`%${query}%`, `%${query}%`, `%${query}%`) }
@@ -280,7 +280,7 @@ employeesRouter.get('/scheduled-status-changes', requirePermission('employees.vi
 
 employeesRouter.get('/contracts', requirePermission('employees.view'), async (req, res, next) => {
   try {
-    const page = Math.max(1, Number(req.query.page ?? 1)); const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 100)))
+    const page = Math.max(1, Number(req.query.page ?? 1)); const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 50)))
     const where = ['1=1']; const values: unknown[] = []; const query = String(req.query.query ?? '')
     const coverage = String(req.query.coverage ?? '').split(',').filter(Boolean)
     const scoped = scopeWhere(res.locals.auth as AuthContext)
@@ -438,7 +438,7 @@ employeesRouter.post('/contracts/reconcile', requirePermission('employees.manage
 })
 employeesRouter.get('/documents', requirePermission('employees.view'), async (req, res, next) => {
   try {
-    const page = Math.max(1, Number(req.query.page ?? 1)); const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 100)))
+    const page = Math.max(1, Number(req.query.page ?? 1)); const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 50)))
     const where = ['1=1']; const values: unknown[] = []; const query = String(req.query.query ?? '')
     if (query) { where.push('(d.name LIKE ? OR d.document_number LIKE ? OR e.full_name LIKE ? OR e.employee_number LIKE ?)'); values.push(`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`) }
     const sites = String(req.query.site ?? '').split(',').filter(Boolean); if (sites.length) { where.push(`s.code IN (${sites.map(() => '?').join(',')})`); values.push(...sites) }

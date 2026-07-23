@@ -9,6 +9,7 @@ import {
   type SortingState,
 } from '@tanstack/react-table'
 import { Pencil, RefreshCcw, Trash2 } from 'lucide-react'
+import { currentListReturnTo } from '@/lib/list-return-to'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -57,6 +58,7 @@ export function ScheduledStatusChangesTable({
   navigate: NavigateFn
   params: EmployeeRecordListParams
 }) {
+  const returnTo = currentListReturnTo()
   const query = useScheduledStatusChangeList(params)
   const update = useUpdateScheduledStatusChange()
   const cancel = useCancelScheduledStatusChange()
@@ -97,6 +99,7 @@ export function ScheduledStatusChangesTable({
           className='font-medium text-primary hover:underline'
           to='/karyawan/data-karyawan/$employeeUid'
           params={{ employeeUid: row.original.employeeUid }}
+          search={{ returnTo }}
         >
           {row.original.employeeName}
           <span className='block text-[11px] leading-3 text-muted-foreground'>
@@ -196,7 +199,7 @@ export function ScheduledStatusChangesTable({
     manualPagination: true,
     pageCount: Math.max(
       1,
-      Math.ceil((query.data?.total ?? 0) / (query.data?.pageSize ?? 100))
+      Math.ceil((query.data?.total ?? 0) / (query.data?.pageSize ?? 50))
     ),
   })
   const itemCount = query.data?.total ?? 0
@@ -287,16 +290,23 @@ export function ScheduledStatusChangesTable({
               </TableBody>
             </Table>
           </div>
-          <p className='text-sm text-muted-foreground'>
-            Menampilkan{' '}
-            {itemCount ? (query.data!.page - 1) * query.data!.pageSize + 1 : 0}–
-            {Math.min(
-              (query.data?.page ?? 1) * (query.data?.pageSize ?? 100),
-              itemCount
-            )}{' '}
-            dari {itemCount} data.
-          </p>
-          <DataTablePagination table={table} />
+          <DataTablePagination
+            table={table}
+            summary={
+              <>
+                Menampilkan{' '}
+                {itemCount
+                  ? (query.data!.page - 1) * query.data!.pageSize + 1
+                  : 0}
+                –
+                {Math.min(
+                  (query.data?.page ?? 1) * (query.data?.pageSize ?? 50),
+                  itemCount
+                )}{' '}
+                dari {itemCount} data.
+              </>
+            }
+          />
         </>
       )}
       <ConfirmDialog

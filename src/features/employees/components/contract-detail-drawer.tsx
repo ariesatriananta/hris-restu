@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Download, ExternalLink, FileText, ImageIcon } from 'lucide-react'
+import { currentListReturnTo } from '@/lib/list-return-to'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -35,6 +36,7 @@ export function ContractDetailDrawer({
   onOpenChange,
   employee,
 }: ContractDetailDrawerProps) {
+  const returnTo = currentListReturnTo()
   const transition = useTransitionContract()
   const [action, setAction] = useState<
     | 'schedule'
@@ -84,6 +86,7 @@ export function ContractDetailDrawer({
                   <Link
                     to='/karyawan/data-karyawan/$employeeUid'
                     params={{ employeeUid: employee.uid }}
+                    search={{ returnTo }}
                     onClick={() => onOpenChange(false)}
                   >
                     Buka detail karyawan <ExternalLink />

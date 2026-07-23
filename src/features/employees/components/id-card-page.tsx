@@ -10,7 +10,7 @@ import { EmployeeIdCard } from './id-card'
 
 export function IdCardPage({ employeeUid }: { employeeUid?: string }) {
   const [query, setQuery] = useState('')
-  const list = useEmployeeList({ page: 1, pageSize: 100 })
+  const list = useEmployeeList({ page: 1, pageSize: 50 })
   const firstUid = list.data?.items[0]?.uid
   const selectedUid = employeeUid ?? firstUid ?? ''
   const selected = useEmployee(selectedUid)

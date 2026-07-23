@@ -37,7 +37,7 @@ function enforceSuperAdmin(auth: AuthContext) {
   }
 }
 function pageParams(raw: unknown, rawPageSize: unknown) {
-  return { page: Math.max(1, Number(raw ?? 1)), pageSize: Math.min(500, Math.max(1, Number(rawPageSize ?? 100))) }
+  return { page: Math.max(1, Number(raw ?? 1)), pageSize: Math.min(500, Math.max(1, Number(rawPageSize ?? 50))) }
 }
 function activeFilter(raw: unknown) {
   const values = String(raw ?? '')

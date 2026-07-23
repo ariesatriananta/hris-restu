@@ -1,3 +1,4 @@
+import { type ReactNode } from 'react'
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -19,12 +20,14 @@ type DataTablePaginationProps<TData> = {
   table: Table<TData>
   className?: string
   pageSizeOptions?: number[]
+  summary?: ReactNode
 }
 
 export function DataTablePagination<TData>({
   table,
   className,
-  pageSizeOptions = [100, 200, 300, 400, 500],
+  pageSizeOptions = [50, 100, 200, 300, 500],
+  summary,
 }: DataTablePaginationProps<TData>) {
   const currentPage = table.getState().pagination.pageIndex + 1
   const totalPages = table.getPageCount()
@@ -39,7 +42,10 @@ export function DataTablePagination<TData>({
       )}
       style={{ overflowClipMargin: 1 }}
     >
-      <div className='flex w-full items-center justify-between'>
+      <div className='flex w-full items-center justify-between gap-4'>
+        {summary && (
+          <div className='text-sm text-muted-foreground'>{summary}</div>
+        )}
         <div className='flex w-25 items-center justify-center text-sm font-medium @2xl/content:hidden'>
           Page {currentPage} of {totalPages}
         </div>

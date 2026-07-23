@@ -91,7 +91,7 @@ export function ProductionMasterTable<T extends { uid: string }>({
     },
     pageCount: Math.max(
       1,
-      Math.ceil((data?.total ?? 0) / (data?.pageSize ?? 100))
+      Math.ceil((data?.total ?? 0) / (data?.pageSize ?? 50))
     ),
     manualPagination: true,
     manualFiltering: true,
@@ -166,12 +166,16 @@ export function ProductionMasterTable<T extends { uid: string }>({
               </TableBody>
             </Table>
           </div>
-          <p className='text-sm text-muted-foreground'>
-            Menampilkan {(data.page - 1) * data.pageSize + 1}–
-            {Math.min(data.page * data.pageSize, data.total)} dari {data.total}{' '}
-            data.
-          </p>
-          <DataTablePagination table={table} />
+          <DataTablePagination
+            table={table}
+            summary={
+              <>
+                Menampilkan {(data.page - 1) * data.pageSize + 1}–
+                {Math.min(data.page * data.pageSize, data.total)} dari{' '}
+                {data.total} data.
+              </>
+            }
+          />
         </>
       )}
     </div>

@@ -123,7 +123,7 @@ export function ProductionStructurePage({
       ? search.isActive.join(',')
       : undefined,
     page: typeof search.page === 'number' ? search.page : 1,
-    pageSize: typeof search.pageSize === 'number' ? search.pageSize : 100,
+    pageSize: typeof search.pageSize === 'number' ? search.pageSize : 50,
   }
   const modules = useQuery({
     queryKey: [...key, 'modules', params],

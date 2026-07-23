@@ -17,6 +17,7 @@ import {
   Plus,
   RefreshCcw,
 } from 'lucide-react'
+import { returnToLabel, safeInternalReturnTo } from '@/lib/list-return-to'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -39,7 +40,15 @@ import { EmployeeIdCard } from './id-card'
 import { MutationDetailDrawer } from './mutation-detail-drawer'
 import { MutationDialog } from './mutation-dialog'
 
-export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
+export function EmployeeDetail({
+  employeeUid,
+  returnTo,
+}: {
+  employeeUid: string
+  returnTo?: string
+}) {
+  const listReturnTo = safeInternalReturnTo(returnTo, '/karyawan/data-karyawan')
+  const listReturnLabel = returnToLabel(listReturnTo, 'Data Karyawan')
   const employee = useEmployee(employeeUid)
   const histories = useHistories(employeeUid)
   const contracts = useContracts(employeeUid)
@@ -66,7 +75,7 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
       <Main>
         <h1 className='text-2xl font-bold'>Karyawan tidak ditemukan</h1>
         <Button className='mt-4' asChild>
-          <Link to='/karyawan/data-karyawan'>Kembali</Link>
+          <a href={listReturnTo}>Kembali ke {listReturnLabel}</a>
         </Button>
       </Main>
     )
@@ -75,9 +84,9 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
     <Main>
       <div className='mb-6'>
         <Button asChild variant='ghost' className='mb-3 -ml-3'>
-          <Link to='/karyawan/data-karyawan'>
-            <ArrowLeft /> Data Karyawan
-          </Link>
+          <a href={listReturnTo}>
+            <ArrowLeft /> {listReturnLabel}
+          </a>
         </Button>
         <div className='flex flex-col justify-between gap-4 sm:flex-row sm:items-start'>
           <div className='flex items-start gap-3'>
@@ -111,6 +120,7 @@ export function EmployeeDetail({ employeeUid }: { employeeUid: string }) {
               <Link
                 to='/karyawan/ubah-karyawan/$employeeUid'
                 params={{ employeeUid: data.uid }}
+                search={{ returnTo: listReturnTo }}
               >
                 <Pencil /> Ubah data
               </Link>
