@@ -1024,6 +1024,7 @@ CREATE TABLE production_jobs (
   name VARCHAR(150) NOT NULL,
   description VARCHAR(500) NULL,
   default_unit_id BIGINT UNSIGNED NOT NULL,
+  position_id BIGINT UNSIGNED NULL,
   category VARCHAR(50) NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -1033,9 +1034,11 @@ CREATE TABLE production_jobs (
   PRIMARY KEY (id),
   UNIQUE KEY uq_production_jobs_uid (uid),
   UNIQUE KEY uq_production_jobs_code (code),
+  KEY idx_production_jobs_position_active (position_id, is_active),
   KEY idx_production_jobs_active (is_active),
   CONSTRAINT chk_production_jobs_active CHECK (is_active IN (0, 1)),
-  CONSTRAINT fk_production_jobs_unit FOREIGN KEY (default_unit_id) REFERENCES work_units (id) ON UPDATE CASCADE ON DELETE RESTRICT
+  CONSTRAINT fk_production_jobs_unit FOREIGN KEY (default_unit_id) REFERENCES work_units (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_production_jobs_position FOREIGN KEY (position_id) REFERENCES positions (id) ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE production_job_rates (
@@ -1474,11 +1477,11 @@ CREATE TABLE audit_logs (
 -- H. SEED DATA DASAR
 -- ============================================================================
 
-INSERT INTO sites (uid, code, employee_number_prefix, name, city, province, timezone)
+INSERT INTO sites (uid, code, employee_number_prefix, name, address, city, province, timezone)
 VALUES
-  (UUID(), 'JEPARA', 'KDS', 'Site Jepara', 'Jepara', 'Jawa Tengah', 'Asia/Jakarta'),
-  (UUID(), 'SEMARANG', 'SMG', 'Site Semarang', 'Semarang', 'Jawa Tengah', 'Asia/Jakarta'),
-  (UUID(), 'KLATEN', 'SLO', 'Site Klaten', 'Klaten', 'Jawa Tengah', 'Asia/Jakarta');
+  (UUID(), 'JEPARA', 'KDS', 'Site Jepara', 'Jl Jepara Kudus No 149.', 'Jepara', 'Jawa Tengah', 'Asia/Jakarta'),
+  (UUID(), 'SEMARANG', 'SMG', 'Site Semarang', 'Jl Jend Sudirman No 114.', 'Semarang', 'Jawa Tengah', 'Asia/Jakarta'),
+  (UUID(), 'KLATEN', 'SLO', 'Site Klaten', 'Jl Mayjen Suprapto No 195.', 'Klaten', 'Jawa Tengah', 'Asia/Jakarta');
 
 INSERT INTO roles (uid, code, name, description, is_system)
 VALUES

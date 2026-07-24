@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Download, ExternalLink, FileText, ImageIcon } from 'lucide-react'
+import { Download, ExternalLink, FileText, ImageIcon, Printer } from 'lucide-react'
+import { toast } from 'sonner'
+import { apiClient } from '@/lib/api-client'
 import { currentListReturnTo } from '@/lib/list-return-to'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -55,6 +57,22 @@ export function ContractDetailDrawer({
   const minimumEffectiveDate = isExpiredStatusClosure
     ? contract?.endDate
     : contract?.startDate
+  const printContract = async () => {
+    if (!contract) return
+    const popup = window.open('', '_blank')
+    try {
+      await apiClient.post(`/employees/contracts/${contract.uid}/print-snapshot`)
+      await apiClient.post(
+        `/employees/contracts/${contract.uid}/normalize-print-snapshot`
+      )
+      if (popup) popup.location.href = `/karyawan/pkwt/${contract.uid}/cetak`
+      else window.open(`/karyawan/pkwt/${contract.uid}/cetak`, '_blank')
+    } catch (error) {
+      popup?.close()
+      const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message
+      toast.error(message ?? 'Preview kontrak gagal dibuat.')
+    }
+  }
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className='w-full sm:max-w-lg'>
@@ -117,6 +135,11 @@ export function ContractDetailDrawer({
               <DetailRow label='Urutan kontrak'>
                 {contract.sequenceNumber}
               </DetailRow>
+              {['PKWT', 'TRAINING'].includes(contract.contractType) && (
+                <Button size='sm' className='mt-3' onClick={printContract}>
+                  <Printer /> Buat preview cetak
+                </Button>
+              )}
             </DetailSection>
             {['DRAFT', 'SCHEDULED'].includes(contract.status) && (
               <section className='space-y-2 border-t pt-4'>
@@ -243,7 +266,7 @@ export function ContractDetailDrawer({
               </DetailRow>
             </DetailSection>
 
-            <DetailSection title='Lampiran kontrak'>
+            <DetailSection title='Scan kontrak asli bertanda tangan'>
               {contract.issuedFile?.url ? (
                 <div className='rounded-md border p-3'>
                   <p className='mb-3 text-sm font-medium'>
@@ -273,7 +296,7 @@ export function ContractDetailDrawer({
                 </div>
               ) : (
                 <p className='text-sm text-muted-foreground'>
-                  Belum ada lampiran PKWT.
+                  Belum ada scan kontrak asli.
                 </p>
               )}
             </DetailSection>

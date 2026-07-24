@@ -8,7 +8,7 @@ type AuditInput = {
   auth: AuthContext
   request?: Request
   siteId?: number | null
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'OTHER'
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'GENERATE' | 'OTHER'
   table: string
   recordId?: number | null
   recordUid?: string | null
@@ -17,11 +17,12 @@ type AuditInput = {
 
 export async function writeAudit(input: AuditInput, connection?: PoolConnection) {
   const executor = connection ?? pool
+  const action = input.action === 'GENERATE' ? 'OTHER' : input.action
   await executor.execute(
     `INSERT INTO audit_logs(uid,user_id,site_id,module,action,table_name,record_id,record_uid,description,ip_address,user_agent,created_by,updated_by)
      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
-      randomUUID(), input.auth.id, input.siteId ?? null, 'EMPLOYEES', input.action,
+      randomUUID(), input.auth.id, input.siteId ?? null, 'EMPLOYEES', action,
       input.table, input.recordId ?? null, input.recordUid ?? null, input.description,
       input.request?.ip ?? null, input.request?.get('user-agent') ?? null,
       input.auth.id, input.auth.id,

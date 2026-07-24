@@ -6,7 +6,6 @@ import {
   Clock3,
   CalendarClock,
   FilePenLine,
-  FileText,
   Plus,
   ScrollText,
   Files,
@@ -32,13 +31,11 @@ import {
   useContractConflicts,
   useContractKpiSummary,
   useContractList,
-  useDocumentList,
   useManualContractsReconcile,
 } from '../data/queries'
 import type {
   EmployeeContract,
   ContractKpiSummary,
-  EmployeeDocument,
   EmployeeRecordListParams,
   PaginatedResult,
   SiteCode,
@@ -57,28 +54,22 @@ export function ContractsDocumentsPage({
 }) {
   const returnTo = currentListReturnTo()
   const routerNavigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<
-    'contracts' | 'documents' | 'status-changes'
-  >('contracts')
+  const [activeTab, setActiveTab] = useState<'contracts' | 'status-changes'>(
+    'contracts'
+  )
   const [selectedContract, setSelectedContract] = useState<EmployeeContract>()
   const [reconcileOpen, setReconcileOpen] = useState(false)
   const [conflictsOpen, setConflictsOpen] = useState(false)
   const user = useAuthStore((state) => state.session?.user)
   const contractParams = params(search, 'contract')
-  const documentParams = params(search, 'document')
   const statusChangeParams = statusChangeParamsFromSearch(search)
   const contracts = useContractList(contractParams)
   const contractKpis = useContractKpiSummary(contractParams.site)
-  const documents = useDocumentList(documentParams)
   const conflicts = useContractConflicts()
   const reconcile = useManualContractsReconcile()
   const contractRows = useMemo(
     () => mapContracts(contracts.data),
     [contracts.data]
-  )
-  const documentRows = useMemo(
-    () => mapDocuments(documents.data),
-    [documents.data]
   )
   return (
     <Main>
@@ -95,19 +86,12 @@ export function ContractsDocumentsPage({
               <RefreshCw /> Jalankan rekonsiliasi
             </Button>
           )}
-          {activeTab !== 'status-changes' && (
+          {activeTab === 'contracts' && (
             <Button
-              onClick={() =>
-                routerNavigate({
-                  to:
-                    activeTab === 'contracts'
-                      ? '/karyawan/pkwt/tambah'
-                      : '/karyawan/dokumen/tambah',
-                })
-              }
+              onClick={() => routerNavigate({ to: '/karyawan/pkwt/tambah' })}
             >
               <Plus />
-              {activeTab === 'contracts' ? 'Tambah kontrak' : 'Tambah dokumen'}
+              Tambah kontrak
             </Button>
           )}
         </div>
@@ -161,11 +145,7 @@ export function ContractsDocumentsPage({
       <Tabs
         value={activeTab}
         onValueChange={(value) => {
-          if (
-            value === 'contracts' ||
-            value === 'documents' ||
-            value === 'status-changes'
-          ) {
+          if (value === 'contracts' || value === 'status-changes') {
             setActiveTab(value)
           }
         }}
@@ -174,10 +154,6 @@ export function ContractsDocumentsPage({
           <TabsTrigger value='contracts' className='h-10 flex-none gap-2 px-4'>
             <ScrollText className='size-4' />
             PKWT & Kontrak
-          </TabsTrigger>
-          <TabsTrigger value='documents' className='h-10 flex-none gap-2 px-4'>
-            <FileText className='size-4' />
-            Dokumen
           </TabsTrigger>
           <TabsTrigger
             value='status-changes'
@@ -225,24 +201,6 @@ export function ContractsDocumentsPage({
             isPending={contracts.isPending}
             isError={contracts.isError}
             onRetry={() => contracts.refetch()}
-          />
-        </TabsContent>
-        <TabsContent value='documents' className='mt-4'>
-          <RecordsTable
-            data={documentRows}
-            search={search}
-            navigate={navigate}
-            prefix='document'
-            statuses={['ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED']}
-            onEdit={(uid) =>
-              routerNavigate({
-                to: '/karyawan/dokumen/$documentUid/ubah',
-                params: { documentUid: uid },
-              })
-            }
-            isPending={documents.isPending}
-            isError={documents.isError}
-            onRetry={() => documents.refetch()}
           />
         </TabsContent>
         <TabsContent value='status-changes' className='mt-4'>
@@ -470,25 +428,6 @@ function mapContracts(
           : 'NORMAL',
       expiry: item.status === 'ACTIVE' ? expiry(item.endDate) : undefined,
       contract: item,
-    })),
-    total: data?.total ?? 0,
-    page: data?.page ?? 1,
-    pageSize: data?.pageSize ?? 50,
-  }
-}
-function mapDocuments(
-  data?: PaginatedResult<EmployeeDocument>
-): PaginatedResult<EmployeeRecordRow> {
-  return {
-    items: (data?.items ?? []).map((item) => ({
-      uid: item.uid,
-      employeeUid: item.employeeUid,
-      title: item.name,
-      employee: item.employeeName ?? 'Karyawan',
-      site: item.site ?? '—',
-      detail: `${item.documentType} · ${item.file.originalName}`,
-      status: item.status,
-      expiry: expiry(item.expiryDate),
     })),
     total: data?.total ?? 0,
     page: data?.page ?? 1,

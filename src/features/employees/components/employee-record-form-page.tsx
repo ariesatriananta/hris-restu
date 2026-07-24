@@ -286,11 +286,11 @@ function ContractForm({
         <Field label='Status workflow'>
           <Input value={record?.status ?? 'DRAFT'} readOnly disabled />
         </Field>
-        <Field label='Lampiran kontrak (opsional)'>
+        <Field label='Scan kontrak asli bertanda tangan (opsional)'>
           <ContractAttachmentPreview attachment={attachment} />
           <Input
             type='file'
-            accept='.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            accept='.pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png'
             onChange={(e) => {
               const nextFile = e.target.files?.[0]
               if (!nextFile) return

@@ -54,6 +54,7 @@ import { Route as AuthenticatedKaryawanDokumenDocumentUidRouteImport } from './r
 import { Route as AuthenticatedKaryawanDataKaryawanEmployeeUidRouteImport } from './routes/_authenticated/karyawan/data-karyawan_.$employeeUid'
 import { Route as AuthenticatedKaryawanDataKaryawanTambahRouteImport } from './routes/_authenticated/karyawan/data-karyawan.tambah'
 import { Route as AuthenticatedKaryawanPkwtContractUidUbahRouteImport } from './routes/_authenticated/karyawan/pkwt.$contractUid.ubah'
+import { Route as AuthenticatedKaryawanPkwtContractUidCetakRouteImport } from './routes/_authenticated/karyawan/pkwt.$contractUid.cetak'
 import { Route as AuthenticatedKaryawanDokumenDocumentUidUbahRouteImport } from './routes/_authenticated/karyawan/dokumen.$documentUid.ubah'
 import { Route as AuthenticatedKaryawanDataKaryawanEmployeeUidEditRouteImport } from './routes/_authenticated/karyawan/data-karyawan_.$employeeUid.edit'
 
@@ -317,6 +318,12 @@ const AuthenticatedKaryawanPkwtContractUidUbahRoute =
     path: '/ubah',
     getParentRoute: () => AuthenticatedKaryawanPkwtContractUidRoute,
   } as any)
+const AuthenticatedKaryawanPkwtContractUidCetakRoute =
+  AuthenticatedKaryawanPkwtContractUidCetakRouteImport.update({
+    id: '/cetak',
+    path: '/cetak',
+    getParentRoute: () => AuthenticatedKaryawanPkwtContractUidRoute,
+  } as any)
 const AuthenticatedKaryawanDokumenDocumentUidUbahRoute =
   AuthenticatedKaryawanDokumenDocumentUidUbahRouteImport.update({
     id: '/ubah',
@@ -376,6 +383,7 @@ export interface FileRoutesByFullPath {
   '/karyawan/ubah-karyawan/$employeeUid': typeof AuthenticatedKaryawanUbahKaryawanEmployeeUidRoute
   '/karyawan/data-karyawan/$employeeUid/edit': typeof AuthenticatedKaryawanDataKaryawanEmployeeUidEditRoute
   '/karyawan/dokumen/$documentUid/ubah': typeof AuthenticatedKaryawanDokumenDocumentUidUbahRoute
+  '/karyawan/pkwt/$contractUid/cetak': typeof AuthenticatedKaryawanPkwtContractUidCetakRoute
   '/karyawan/pkwt/$contractUid/ubah': typeof AuthenticatedKaryawanPkwtContractUidUbahRoute
 }
 export interface FileRoutesByTo {
@@ -424,6 +432,7 @@ export interface FileRoutesByTo {
   '/karyawan/ubah-karyawan/$employeeUid': typeof AuthenticatedKaryawanUbahKaryawanEmployeeUidRoute
   '/karyawan/data-karyawan/$employeeUid/edit': typeof AuthenticatedKaryawanDataKaryawanEmployeeUidEditRoute
   '/karyawan/dokumen/$documentUid/ubah': typeof AuthenticatedKaryawanDokumenDocumentUidUbahRoute
+  '/karyawan/pkwt/$contractUid/cetak': typeof AuthenticatedKaryawanPkwtContractUidCetakRoute
   '/karyawan/pkwt/$contractUid/ubah': typeof AuthenticatedKaryawanPkwtContractUidUbahRoute
 }
 export interface FileRoutesById {
@@ -474,6 +483,7 @@ export interface FileRoutesById {
   '/_authenticated/karyawan/ubah-karyawan/$employeeUid': typeof AuthenticatedKaryawanUbahKaryawanEmployeeUidRoute
   '/_authenticated/karyawan/data-karyawan_/$employeeUid/edit': typeof AuthenticatedKaryawanDataKaryawanEmployeeUidEditRoute
   '/_authenticated/karyawan/dokumen/$documentUid/ubah': typeof AuthenticatedKaryawanDokumenDocumentUidUbahRoute
+  '/_authenticated/karyawan/pkwt/$contractUid/cetak': typeof AuthenticatedKaryawanPkwtContractUidCetakRoute
   '/_authenticated/karyawan/pkwt/$contractUid/ubah': typeof AuthenticatedKaryawanPkwtContractUidUbahRoute
 }
 export interface FileRouteTypes {
@@ -524,6 +534,7 @@ export interface FileRouteTypes {
     | '/karyawan/ubah-karyawan/$employeeUid'
     | '/karyawan/data-karyawan/$employeeUid/edit'
     | '/karyawan/dokumen/$documentUid/ubah'
+    | '/karyawan/pkwt/$contractUid/cetak'
     | '/karyawan/pkwt/$contractUid/ubah'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -572,6 +583,7 @@ export interface FileRouteTypes {
     | '/karyawan/ubah-karyawan/$employeeUid'
     | '/karyawan/data-karyawan/$employeeUid/edit'
     | '/karyawan/dokumen/$documentUid/ubah'
+    | '/karyawan/pkwt/$contractUid/cetak'
     | '/karyawan/pkwt/$contractUid/ubah'
   id:
     | '__root__'
@@ -621,6 +633,7 @@ export interface FileRouteTypes {
     | '/_authenticated/karyawan/ubah-karyawan/$employeeUid'
     | '/_authenticated/karyawan/data-karyawan_/$employeeUid/edit'
     | '/_authenticated/karyawan/dokumen/$documentUid/ubah'
+    | '/_authenticated/karyawan/pkwt/$contractUid/cetak'
     | '/_authenticated/karyawan/pkwt/$contractUid/ubah'
   fileRoutesById: FileRoutesById
 }
@@ -951,6 +964,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedKaryawanPkwtContractUidUbahRouteImport
       parentRoute: typeof AuthenticatedKaryawanPkwtContractUidRoute
     }
+    '/_authenticated/karyawan/pkwt/$contractUid/cetak': {
+      id: '/_authenticated/karyawan/pkwt/$contractUid/cetak'
+      path: '/cetak'
+      fullPath: '/karyawan/pkwt/$contractUid/cetak'
+      preLoaderRoute: typeof AuthenticatedKaryawanPkwtContractUidCetakRouteImport
+      parentRoute: typeof AuthenticatedKaryawanPkwtContractUidRoute
+    }
     '/_authenticated/karyawan/dokumen/$documentUid/ubah': {
       id: '/_authenticated/karyawan/dokumen/$documentUid/ubah'
       path: '/ubah'
@@ -1017,11 +1037,14 @@ const AuthenticatedKaryawanDokumenRouteWithChildren =
   )
 
 interface AuthenticatedKaryawanPkwtContractUidRouteChildren {
+  AuthenticatedKaryawanPkwtContractUidCetakRoute: typeof AuthenticatedKaryawanPkwtContractUidCetakRoute
   AuthenticatedKaryawanPkwtContractUidUbahRoute: typeof AuthenticatedKaryawanPkwtContractUidUbahRoute
 }
 
 const AuthenticatedKaryawanPkwtContractUidRouteChildren: AuthenticatedKaryawanPkwtContractUidRouteChildren =
   {
+    AuthenticatedKaryawanPkwtContractUidCetakRoute:
+      AuthenticatedKaryawanPkwtContractUidCetakRoute,
     AuthenticatedKaryawanPkwtContractUidUbahRoute:
       AuthenticatedKaryawanPkwtContractUidUbahRoute,
   }

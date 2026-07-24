@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { ModulePlaceholder } from '@/features/placeholders/module-placeholder'
+import { ProductionRatePage } from '@/features/production/production-rate-pages'
 
 export const Route = createFileRoute('/_authenticated/produksi/tarif-site')({
-  component: () => <ModulePlaceholder path='/produksi/tarif-site' />,
+  component: ProductionRatePage,
 })
