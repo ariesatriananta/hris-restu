@@ -48,6 +48,7 @@ import { Route as AuthenticatedAdministrasiMasterDataRouteImport } from './route
 import { Route as AuthenticatedAdministrasiAuditTrailRouteImport } from './routes/_authenticated/administrasi/audit-trail'
 import { Route as AuthenticatedKaryawanUbahKaryawanEmployeeUidRouteImport } from './routes/_authenticated/karyawan/ubah-karyawan.$employeeUid'
 import { Route as AuthenticatedKaryawanPkwtTambahRouteImport } from './routes/_authenticated/karyawan/pkwt.tambah'
+import { Route as AuthenticatedKaryawanPkwtCetakBulkRouteImport } from './routes/_authenticated/karyawan/pkwt.cetak-bulk'
 import { Route as AuthenticatedKaryawanPkwtContractUidRouteImport } from './routes/_authenticated/karyawan/pkwt.$contractUid'
 import { Route as AuthenticatedKaryawanDokumenTambahRouteImport } from './routes/_authenticated/karyawan/dokumen.tambah'
 import { Route as AuthenticatedKaryawanDokumenDocumentUidRouteImport } from './routes/_authenticated/karyawan/dokumen.$documentUid'
@@ -282,6 +283,12 @@ const AuthenticatedKaryawanPkwtTambahRoute =
     path: '/tambah',
     getParentRoute: () => AuthenticatedKaryawanPkwtRoute,
   } as any)
+const AuthenticatedKaryawanPkwtCetakBulkRoute =
+  AuthenticatedKaryawanPkwtCetakBulkRouteImport.update({
+    id: '/cetak-bulk',
+    path: '/cetak-bulk',
+    getParentRoute: () => AuthenticatedKaryawanPkwtRoute,
+  } as any)
 const AuthenticatedKaryawanPkwtContractUidRoute =
   AuthenticatedKaryawanPkwtContractUidRouteImport.update({
     id: '/$contractUid',
@@ -379,6 +386,7 @@ export interface FileRoutesByFullPath {
   '/karyawan/dokumen/$documentUid': typeof AuthenticatedKaryawanDokumenDocumentUidRouteWithChildren
   '/karyawan/dokumen/tambah': typeof AuthenticatedKaryawanDokumenTambahRoute
   '/karyawan/pkwt/$contractUid': typeof AuthenticatedKaryawanPkwtContractUidRouteWithChildren
+  '/karyawan/pkwt/cetak-bulk': typeof AuthenticatedKaryawanPkwtCetakBulkRoute
   '/karyawan/pkwt/tambah': typeof AuthenticatedKaryawanPkwtTambahRoute
   '/karyawan/ubah-karyawan/$employeeUid': typeof AuthenticatedKaryawanUbahKaryawanEmployeeUidRoute
   '/karyawan/data-karyawan/$employeeUid/edit': typeof AuthenticatedKaryawanDataKaryawanEmployeeUidEditRoute
@@ -428,6 +436,7 @@ export interface FileRoutesByTo {
   '/karyawan/dokumen/$documentUid': typeof AuthenticatedKaryawanDokumenDocumentUidRouteWithChildren
   '/karyawan/dokumen/tambah': typeof AuthenticatedKaryawanDokumenTambahRoute
   '/karyawan/pkwt/$contractUid': typeof AuthenticatedKaryawanPkwtContractUidRouteWithChildren
+  '/karyawan/pkwt/cetak-bulk': typeof AuthenticatedKaryawanPkwtCetakBulkRoute
   '/karyawan/pkwt/tambah': typeof AuthenticatedKaryawanPkwtTambahRoute
   '/karyawan/ubah-karyawan/$employeeUid': typeof AuthenticatedKaryawanUbahKaryawanEmployeeUidRoute
   '/karyawan/data-karyawan/$employeeUid/edit': typeof AuthenticatedKaryawanDataKaryawanEmployeeUidEditRoute
@@ -479,6 +488,7 @@ export interface FileRoutesById {
   '/_authenticated/karyawan/dokumen/$documentUid': typeof AuthenticatedKaryawanDokumenDocumentUidRouteWithChildren
   '/_authenticated/karyawan/dokumen/tambah': typeof AuthenticatedKaryawanDokumenTambahRoute
   '/_authenticated/karyawan/pkwt/$contractUid': typeof AuthenticatedKaryawanPkwtContractUidRouteWithChildren
+  '/_authenticated/karyawan/pkwt/cetak-bulk': typeof AuthenticatedKaryawanPkwtCetakBulkRoute
   '/_authenticated/karyawan/pkwt/tambah': typeof AuthenticatedKaryawanPkwtTambahRoute
   '/_authenticated/karyawan/ubah-karyawan/$employeeUid': typeof AuthenticatedKaryawanUbahKaryawanEmployeeUidRoute
   '/_authenticated/karyawan/data-karyawan_/$employeeUid/edit': typeof AuthenticatedKaryawanDataKaryawanEmployeeUidEditRoute
@@ -530,6 +540,7 @@ export interface FileRouteTypes {
     | '/karyawan/dokumen/$documentUid'
     | '/karyawan/dokumen/tambah'
     | '/karyawan/pkwt/$contractUid'
+    | '/karyawan/pkwt/cetak-bulk'
     | '/karyawan/pkwt/tambah'
     | '/karyawan/ubah-karyawan/$employeeUid'
     | '/karyawan/data-karyawan/$employeeUid/edit'
@@ -579,6 +590,7 @@ export interface FileRouteTypes {
     | '/karyawan/dokumen/$documentUid'
     | '/karyawan/dokumen/tambah'
     | '/karyawan/pkwt/$contractUid'
+    | '/karyawan/pkwt/cetak-bulk'
     | '/karyawan/pkwt/tambah'
     | '/karyawan/ubah-karyawan/$employeeUid'
     | '/karyawan/data-karyawan/$employeeUid/edit'
@@ -629,6 +641,7 @@ export interface FileRouteTypes {
     | '/_authenticated/karyawan/dokumen/$documentUid'
     | '/_authenticated/karyawan/dokumen/tambah'
     | '/_authenticated/karyawan/pkwt/$contractUid'
+    | '/_authenticated/karyawan/pkwt/cetak-bulk'
     | '/_authenticated/karyawan/pkwt/tambah'
     | '/_authenticated/karyawan/ubah-karyawan/$employeeUid'
     | '/_authenticated/karyawan/data-karyawan_/$employeeUid/edit'
@@ -922,6 +935,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedKaryawanPkwtTambahRouteImport
       parentRoute: typeof AuthenticatedKaryawanPkwtRoute
     }
+    '/_authenticated/karyawan/pkwt/cetak-bulk': {
+      id: '/_authenticated/karyawan/pkwt/cetak-bulk'
+      path: '/cetak-bulk'
+      fullPath: '/karyawan/pkwt/cetak-bulk'
+      preLoaderRoute: typeof AuthenticatedKaryawanPkwtCetakBulkRouteImport
+      parentRoute: typeof AuthenticatedKaryawanPkwtRoute
+    }
     '/_authenticated/karyawan/pkwt/$contractUid': {
       id: '/_authenticated/karyawan/pkwt/$contractUid'
       path: '/$contractUid'
@@ -1056,6 +1076,7 @@ const AuthenticatedKaryawanPkwtContractUidRouteWithChildren =
 
 interface AuthenticatedKaryawanPkwtRouteChildren {
   AuthenticatedKaryawanPkwtContractUidRoute: typeof AuthenticatedKaryawanPkwtContractUidRouteWithChildren
+  AuthenticatedKaryawanPkwtCetakBulkRoute: typeof AuthenticatedKaryawanPkwtCetakBulkRoute
   AuthenticatedKaryawanPkwtTambahRoute: typeof AuthenticatedKaryawanPkwtTambahRoute
 }
 
@@ -1063,6 +1084,8 @@ const AuthenticatedKaryawanPkwtRouteChildren: AuthenticatedKaryawanPkwtRouteChil
   {
     AuthenticatedKaryawanPkwtContractUidRoute:
       AuthenticatedKaryawanPkwtContractUidRouteWithChildren,
+    AuthenticatedKaryawanPkwtCetakBulkRoute:
+      AuthenticatedKaryawanPkwtCetakBulkRoute,
     AuthenticatedKaryawanPkwtTambahRoute: AuthenticatedKaryawanPkwtTambahRoute,
   }
 

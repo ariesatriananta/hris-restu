@@ -137,6 +137,11 @@
     page-break-inside: auto;
   }
 
+  .contract-print-document:not(:last-child) {
+    break-after: page;
+    page-break-after: always;
+  }
+
   .contract-print-root table,
   .contract-print-root tr,
   .contract-print-root section {

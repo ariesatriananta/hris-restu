@@ -3,16 +3,29 @@ import { Link } from '@tanstack/react-router'
 import {
   flexRender,
   getCoreRowModel,
+  getFilteredRowModel,
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
+  type RowSelectionState,
   type SortingState,
 } from '@tanstack/react-table'
-import { Eye, FilePlus2, FileText, Pencil, RefreshCcw } from 'lucide-react'
+import {
+  Eye,
+  FilePlus2,
+  FileText,
+  Pencil,
+  Printer,
+  RefreshCcw,
+} from 'lucide-react'
+import { toast } from 'sonner'
 import { currentListReturnTo } from '@/lib/list-return-to'
+import { apiClient } from '@/lib/api-client'
+import { cn } from '@/lib/utils'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Table,
   TableBody,
@@ -23,6 +36,7 @@ import {
 } from '@/components/ui/table'
 import {
   DataTableActionButton,
+  DataTableBulkActions,
   DataTableColumnHeader,
   DataTablePagination,
   DataTableToolbar,
@@ -73,6 +87,8 @@ export function RecordsTable({
 }) {
   const returnTo = currentListReturnTo()
   const [sorting, setSorting] = useState<SortingState>([])
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const [isBulkPrintPending, setBulkPrintPending] = useState(false)
   const url = useTableUrlState({
     search,
     navigate,
@@ -93,6 +109,40 @@ export function RecordsTable({
     ],
   })
   const columns: ColumnDef<EmployeeRecordRow>[] = [
+    ...(prefix === 'contract'
+      ? [
+          {
+            id: 'select',
+            header: ({ table }) => (
+              <Checkbox
+                checked={
+                  table.getIsAllPageRowsSelected() ||
+                  (table.getIsSomePageRowsSelected() && 'indeterminate')
+                }
+                onCheckedChange={(value) =>
+                  table.toggleAllPageRowsSelected(!!value)
+                }
+                aria-label='Pilih semua kontrak di halaman ini'
+                className='translate-y-0.5'
+              />
+            ),
+            cell: ({ row }) => (
+              <Checkbox
+                checked={row.getIsSelected()}
+                onCheckedChange={(value) => row.toggleSelected(!!value)}
+                aria-label={`Pilih kontrak ${row.original.title}`}
+                className='translate-y-0.5'
+              />
+            ),
+            enableSorting: false,
+            enableHiding: false,
+            meta: {
+              className: 'w-9 px-2',
+              tdClassName: 'w-9 px-2',
+            },
+          } satisfies ColumnDef<EmployeeRecordRow>,
+        ]
+      : []),
     {
       accessorKey: 'title',
       header: ({ column }) => (
@@ -219,12 +269,18 @@ export function RecordsTable({
       columnFilters: url.columnFilters,
       pagination: url.pagination,
       columnVisibility: { coverage: false },
+      rowSelection,
     },
+    enableRowSelection: (row) =>
+      prefix === 'contract' && !row.original.contract?.isMissingContract,
+    getRowId: (row) => row.uid,
     onSortingChange: setSorting,
+    onRowSelectionChange: setRowSelection,
     onGlobalFilterChange: url.onGlobalFilterChange,
     onColumnFiltersChange: url.onColumnFiltersChange,
     onPaginationChange: url.onPaginationChange,
     getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     manualFiltering: true,
     manualPagination: true,
@@ -273,6 +329,49 @@ export function RecordsTable({
             : []),
         ]}
       />
+      {prefix === 'contract' && (
+        <DataTableBulkActions
+          table={table}
+          entityName='kontrak'
+          entityNamePlural='kontrak'
+        >
+          <Button
+            variant='outline'
+            size='sm'
+            className='h-8'
+            disabled={isBulkPrintPending}
+            onClick={async () => {
+              const contractUids = table
+                .getFilteredSelectedRowModel()
+                .rows.map((row) => row.original.uid)
+              if (!contractUids.length) return
+              if (contractUids.length > 50) {
+                toast.error('Bulk cetak maksimal 50 kontrak sekali proses.')
+                return
+              }
+              const popup = window.open('', '_blank')
+              setBulkPrintPending(true)
+              try {
+                await apiClient.post('/employees/contracts/print-snapshots', {
+                  contractUids,
+                })
+                const target = `/karyawan/pkwt/cetak-bulk?contractUids=${encodeURIComponent(contractUids.join(','))}`
+                if (popup) popup.location.href = target
+                else window.open(target, '_blank')
+                table.resetRowSelection()
+              } catch (error) {
+                popup?.close()
+                const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message
+                toast.error(message ?? 'Bulk preview PKWT gagal dibuat.')
+              } finally {
+                setBulkPrintPending(false)
+              }
+            }}
+          >
+            <Printer /> Cetak PKWT
+          </Button>
+        </DataTableBulkActions>
+      )}
       {isPending ? (
         <p className='py-10 text-center text-muted-foreground'>
           Memuat data...
@@ -297,7 +396,14 @@ export function RecordsTable({
                 {table.getHeaderGroups().map((group) => (
                   <TableRow key={group.id}>
                     {group.headers.map((header) => (
-                      <TableHead key={header.id}>
+                      <TableHead
+                        key={header.id}
+                        className={
+                          header.column.columnDef.meta?.className as
+                            | string
+                            | undefined
+                        }
+                      >
                         {header.isPlaceholder
                           ? null
                           : flexRender(
@@ -311,9 +417,22 @@ export function RecordsTable({
               </TableHeader>
               <TableBody>
                 {table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
+                  <TableRow
+                    key={row.id}
+                    data-state={row.getIsSelected() && 'selected'}
+                  >
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
+                      <TableCell
+                        key={cell.id}
+                        className={cn(
+                          cell.column.columnDef.meta?.className as
+                            | string
+                            | undefined,
+                          cell.column.columnDef.meta?.tdClassName as
+                            | string
+                            | undefined
+                        )}
+                      >
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext()
