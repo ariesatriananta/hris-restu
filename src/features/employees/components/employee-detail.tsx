@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+﻿import { useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import {
   ArrowLeft,
@@ -37,7 +37,13 @@ import {
   useScheduledMutations,
 } from '../data/queries'
 import type { Employee, EmployeeContract } from '../domain'
-import { formatDate, maskValue, statusLabel } from '../utils'
+import {
+  employeeStatusBadgeClassName,
+  employeeStatusBadgeVariant,
+  formatDate,
+  maskValue,
+  statusLabel,
+} from '../utils'
 import { ContractDetailDrawer } from './contract-detail-drawer'
 import { ContractLifecycleActionButtons } from './contract-lifecycle-action-buttons'
 import { EmployeeIdCard } from './id-card'
@@ -113,7 +119,7 @@ export function EmployeeDetail({
             <div>
               <div className='flex flex-wrap items-center gap-2'>
                 <h1 className='text-2xl font-bold'>{data.fullName}</h1>
-                <Badge>{statusLabel(data.employeeStatus)}</Badge>
+                <EmployeeStatusBadge status={data.employeeStatus} />
               </div>
               <p className='text-muted-foreground'>
                 {data.employeeNumber} · {data.barcode} · Site {data.site}
@@ -201,7 +207,7 @@ export function EmployeeDetail({
             <InfoCard
               title='Status kerja'
               rows={[
-                ['Status', statusLabel(data.employeeStatus)],
+                ['Status', <EmployeeStatusBadge status={data.employeeStatus} />],
                 ['Ringkasan', employmentStatusSummary(data, contracts.data)],
                 ['Tanggal tetap', formatDate(data.permanentDate)],
                 ['Tanggal resign', formatDate(data.resignDate)],
@@ -265,18 +271,21 @@ export function EmployeeDetail({
                 attachment={data.photo}
                 emptyText='Belum ada foto karyawan.'
                 employeeUid={data.uid}
+                returnTo={listReturnTo}
               />
               <IdentityPhotoCard
                 title='Foto KTP'
                 attachment={findIdentityDocument(documents.data, 'KTP')?.file}
                 emptyText='Belum ada foto KTP.'
                 employeeUid={data.uid}
+                returnTo={listReturnTo}
               />
               <IdentityPhotoCard
                 title='Foto KK'
                 attachment={findIdentityDocument(documents.data, 'KK')?.file}
                 emptyText='Belum ada foto KK.'
                 employeeUid={data.uid}
+                returnTo={listReturnTo}
               />
             </div>
           )}
@@ -477,7 +486,7 @@ function InfoCard({
   rows,
 }: {
   title: string
-  rows: [string, string | undefined][]
+  rows: [string, ReactNode][]
 }) {
   return (
     <Card>
@@ -495,6 +504,17 @@ function InfoCard({
         </dl>
       </CardContent>
     </Card>
+  )
+}
+
+function EmployeeStatusBadge({ status }: { status: string }) {
+  return (
+    <Badge
+      variant={employeeStatusBadgeVariant(status)}
+      className={employeeStatusBadgeClassName(status)}
+    >
+      {statusLabel(status)}
+    </Badge>
   )
 }
 
@@ -720,11 +740,13 @@ function IdentityPhotoCard({
   attachment,
   emptyText,
   employeeUid,
+  returnTo,
 }: {
   title: string
   attachment?: { url?: string; mimeType: string; originalName: string }
   emptyText: string
   employeeUid: string
+  returnTo?: string
 }) {
   const isImage = attachment?.mimeType.startsWith('image/')
   return (
@@ -758,6 +780,7 @@ function IdentityPhotoCard({
             <Link
               to='/karyawan/ubah-karyawan/$employeeUid'
               params={{ employeeUid }}
+              search={{ returnTo }}
             >
               <Pencil /> Tambahkan dari form
             </Link>

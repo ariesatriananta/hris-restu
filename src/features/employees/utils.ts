@@ -51,3 +51,17 @@ export const statusLabel = (value: string) =>
     PRODUCTION_ASSIGNMENT_CHANGE: 'Perubahan penempatan produksi',
     OTHER: 'Lainnya',
   })[value] ?? value
+
+export function employeeStatusBadgeVariant(
+  status: string
+): 'default' | 'secondary' | 'destructive' {
+  if (status === 'RESIGNED') return 'destructive'
+  return 'default'
+}
+
+export function employeeStatusBadgeClassName(status: string) {
+  if (status === 'INACTIVE') {
+    return 'border-transparent bg-amber-500 text-white dark:bg-amber-600'
+  }
+  return undefined
+}

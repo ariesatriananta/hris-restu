@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ChangeEvent } from 'react'
 import { z } from 'zod'
 import { useForm, useWatch, type UseFormSetValue } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -86,10 +86,6 @@ const schema = z
     bpjsEmploymentNumber: optionalText,
     notes: optionalText,
   })
-  .refine((value) => !value.resignDate || value.resignDate >= value.joinDate, {
-    path: ['resignDate'],
-    message: 'Tanggal resign tidak boleh sebelum tanggal bergabung.',
-  })
   .refine(
     (value) =>
       !['BORONGAN', 'TRAINING'].includes(value.employeeType) ||
@@ -164,6 +160,16 @@ const sensitiveFields: [keyof Values, string][] = [
   ['bankAccountNumber', 'Nomor rekening'],
   ['bankAccountName', 'Nama pemilik rekening'],
 ]
+const uppercaseFields = new Set<keyof Values>([
+  'fullName',
+  'birthPlace',
+  'religion',
+  'address',
+  'kelurahan',
+  'kecamatan',
+  'city',
+  'province',
+])
 
 export function EmployeeForm({
   employee,
@@ -341,7 +347,7 @@ export function EmployeeForm({
   const select = (
     name: keyof Values,
     label: string,
-    options: { value: string; label: string }[],
+    options: { value: string; label: string; disabled?: boolean }[],
     disabled = false
   ) => (
     <Field
@@ -355,7 +361,11 @@ export function EmployeeForm({
         {...form.register(name)}
       >
         {options.map((option) => (
-          <option key={option.value} value={option.value}>
+          <option
+            key={option.value}
+            value={option.value}
+            disabled={option.disabled}
+          >
             {option.label}
           </option>
         ))}
@@ -363,23 +373,40 @@ export function EmployeeForm({
     </Field>
   )
 
-  const textField = (name: keyof Values, label: string, type = 'text') => (
-    <Field
-      key={name}
-      label={label}
-      error={form.formState.errors[name]?.message}
-    >
-      {type === 'date' ? (
-        <FormDatePicker
-          control={form.control}
-          name={name}
-          setValue={form.setValue}
-        />
-      ) : (
-        <Input type={type} {...form.register(name)} />
-      )}
-    </Field>
-  )
+  const textField = (name: keyof Values, label: string, type = 'text') => {
+    const registration = form.register(name)
+    return (
+      <Field
+        key={name}
+        label={label}
+        error={form.formState.errors[name]?.message}
+      >
+        {type === 'date' ? (
+          <FormDatePicker
+            control={form.control}
+            name={name}
+            setValue={form.setValue}
+          />
+        ) : (
+          <Input
+            type={type}
+            inputMode={name === 'rtrw' ? 'numeric' : undefined}
+            maxLength={name === 'rtrw' ? 7 : undefined}
+            placeholder={name === 'rtrw' ? '001/002' : undefined}
+            {...registration}
+            onChange={formatFieldOnChange(name, registration.onChange)}
+          />
+        )}
+      </Field>
+    )
+  }
+  const formattedRegistration = (name: keyof Values) => {
+    const registration = form.register(name)
+    return {
+      ...registration,
+      onChange: formatFieldOnChange(name, registration.onChange),
+    }
+  }
   const selectedSite = useWatch({ control: form.control, name: 'site' })
   const selectedEmployeeType = useWatch({
     control: form.control,
@@ -391,7 +418,6 @@ export function EmployeeForm({
   })
   const selectedJoinDate = useWatch({ control: form.control, name: 'joinDate' })
   const currentFullName = useWatch({ control: form.control, name: 'fullName' })
-  const resignDate = useWatch({ control: form.control, name: 'resignDate' })
   const sites = lookups.data?.sites ?? []
   const employeeNumberPreview = employee
     ? employee.employeeNumber
@@ -484,7 +510,11 @@ export function EmployeeForm({
               [
                 { value: 'BORONGAN', label: 'Borongan' },
                 { value: 'TRAINING', label: 'Training' },
-                { value: 'BULANAN', label: 'Bulanan' },
+                {
+                  value: 'BULANAN',
+                  label: 'Bulanan',
+                  disabled: employee?.employeeType !== 'BULANAN',
+                },
               ],
               !!employee
             )}
@@ -574,19 +604,6 @@ export function EmployeeForm({
             )}
             {textField('joinDate', 'Tanggal bergabung', 'date')}
             {textField('permanentDate', 'Tanggal tetap', 'date')}
-            <Field
-              label='Tanggal resign'
-              error={form.formState.errors.resignDate?.message}
-            >
-              <DatePicker
-                selected={dateFromInput(resignDate)}
-                onSelect={() => undefined}
-                disabled
-              />
-            </Field>
-            <Field label='Alasan resign'>
-              <Input disabled {...form.register('resignReason')} />
-            </Field>
             {select('gender', 'Jenis kelamin', genderOptions)}
             {select('maritalStatus', 'Status perkawinan', maritalStatusOptions)}
           </div>
@@ -611,7 +628,7 @@ export function EmployeeForm({
         <section className='space-y-3 border-t pt-5'>
           <h3 className='font-semibold'>Alamat & kontak</h3>
           <Field label='Alamat'>
-            <Textarea {...form.register('address')} />
+            <Textarea {...formattedRegistration('address')} />
           </Field>
           <div className='grid gap-3 sm:grid-cols-2'>
             {contactFields.map(([name, label]) => textField(name, label))}
@@ -811,6 +828,29 @@ function applyServerFieldErrors(
 
 function isFormField(field: string): field is keyof Values {
   return formFieldNames.has(field as keyof Values)
+}
+
+function formatFieldOnChange(
+  name: keyof Values,
+  onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void
+) {
+  return (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const formatted = formatFieldValue(name, event.target.value)
+    if (formatted !== event.target.value) event.target.value = formatted
+    onChange(event)
+  }
+}
+
+function formatFieldValue(name: keyof Values, value: string) {
+  if (name === 'rtrw') return maskRtrw(value)
+  if (uppercaseFields.has(name)) return value.toUpperCase()
+  return value
+}
+
+function maskRtrw(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 6)
+  if (digits.length <= 3) return digits
+  return `${digits.slice(0, 3)}/${digits.slice(3)}`
 }
 
 function initials(name?: string) {

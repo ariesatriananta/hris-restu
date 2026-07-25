@@ -23,7 +23,11 @@ import {
 } from '@/components/ui/table'
 import { DataTablePagination, DataTableToolbar } from '@/components/data-table'
 import type { Employee, PaginatedResult } from '../domain'
-import { statusLabel } from '../utils'
+import {
+  employeeStatusBadgeClassName,
+  employeeStatusBadgeVariant,
+  statusLabel,
+} from '../utils'
 
 const filters = [
   {
@@ -182,7 +186,16 @@ export function EmployeesTable({
                         {employee.position ?? 'Belum ada jabatan'}
                       </p>
                     </div>
-                    <Badge>{statusLabel(employee.employeeStatus)}</Badge>
+                    <Badge
+                      variant={employeeStatusBadgeVariant(
+                        employee.employeeStatus
+                      )}
+                      className={employeeStatusBadgeClassName(
+                        employee.employeeStatus
+                      )}
+                    >
+                      {statusLabel(employee.employeeStatus)}
+                    </Badge>
                   </div>
                   <div className='mt-3 flex items-center justify-between gap-2 text-sm'>
                     <span>

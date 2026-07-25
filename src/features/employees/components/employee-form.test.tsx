@@ -40,6 +40,8 @@ describe('EmployeeForm', () => {
     await expect
       .element(screen.getByLabelText('Employee ID'))
       .toHaveValue('PSMG-2607-11001')
+    await userEvent.clear(screen.getByLabelText('Nama lengkap'))
+    await userEvent.fill(screen.getByLabelText('Nama lengkap'), 'Budi Santoso')
     await userEvent.fill(
       screen.getByRole('textbox', { name: 'NIK' }),
       'MOCK-NIK-1234'
@@ -48,7 +50,7 @@ describe('EmployeeForm', () => {
       screen.getByLabelText('Nomor rekening'),
       'MOCK-REKENING-5678'
     )
-    await userEvent.fill(screen.getByLabelText('RT/RW'), '001/002')
+    await userEvent.fill(screen.getByLabelText('RT/RW'), '001002')
     await userEvent.fill(screen.getByLabelText('Kelurahan'), 'Karanganyar')
     await userEvent.fill(screen.getByLabelText('Kecamatan'), 'Pecangaan')
     await userEvent.fill(
@@ -64,11 +66,12 @@ describe('EmployeeForm', () => {
     expect(submitted).not.toHaveProperty('employeeNumber')
     expect(submitted).not.toHaveProperty('barcode')
     expect(submitted).toMatchObject({
+      fullName: 'BUDI SANTOSO',
       nationalIdNumber: 'MOCK-NIK-1234',
       bankAccountNumber: 'MOCK-REKENING-5678',
       rtrw: '001/002',
-      kelurahan: 'Karanganyar',
-      kecamatan: 'Pecangaan',
+      kelurahan: 'KARANGANYAR',
+      kecamatan: 'PECANGAAN',
       email: 'karyawan.fiktif@example.test',
     })
   })

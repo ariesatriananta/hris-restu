@@ -18,6 +18,7 @@ import type {
   ScheduledStatusChangeAction,
   PaginatedResult,
   MutationInput,
+  RegistrationCorrectionInput,
   BatchMutationItem,
   BatchMutationResult,
 } from '../domain'
@@ -94,6 +95,10 @@ export const httpEmployeeRepository: EmployeeRepository = {
       body
     )
     return { uid: response.data.uid, employeeUid: uid, ...input }
+  },
+  async correctRegistration(uid, input) {
+    const { productionModuleUid: _productionModuleUid, ...body } = input
+    await apiClient.post(`/employees/${uid}/registration-correction`, body)
   },
   async contracts(uid) {
     return (
@@ -260,6 +265,11 @@ export const applyBatchMutation = async (items: BatchMutationItem[]) =>
       }),
     })
   ).data
+
+export const correctRegistration = async (
+  employeeUid: string,
+  input: RegistrationCorrectionInput
+) => httpEmployeeRepository.correctRegistration(employeeUid, input)
 
 export const saveContractsBatch = async (items: ContractBatchItem[]) =>
   (

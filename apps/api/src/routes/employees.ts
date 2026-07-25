@@ -74,6 +74,15 @@ const mutationInput = z.object({
   effectiveFrom: z.string().date(),
   changeType: z.enum(['TRANSFER', 'PROMOTION', 'DEMOTION', 'DEPARTMENT_CHANGE', 'TYPE_CHANGE', 'GROUP_CHANGE', 'PRODUCTION_ASSIGNMENT_CHANGE', 'OTHER']), referenceNumber: optional, reason: optional, notes: optional,
 })
+const registrationCorrectionInput = z.object({
+  site: siteCode,
+  department: optional,
+  position: optional,
+  workGroup: optional,
+  productionModuleSectionUid: z.string().uuid().optional(),
+  employeeType: z.enum(['BORONGAN', 'BULANAN', 'TRAINING']),
+  reason: z.string().trim().min(3, 'Alasan koreksi wajib diisi.'),
+})
 const mutationBatchInput = z
   .object({
     items: z
@@ -149,12 +158,24 @@ const printSnapshotsInput = z.object({
   contractUids: z.array(z.string().uuid()).min(1).max(50),
 })
 
-const employeeSelect = `SELECT e.uid,e.employee_number employeeNumber,e.barcode,e.full_name fullName,e.nickname,et.code employeeType,es.code employeeStatus,s.code site,d.name department,p.name position,w.name workGroup,pms.uid productionModuleSectionUid,pm.uid productionModuleUid,pm.code productionModuleCode,pm.name productionModule,ps.uid productionSectionUid,ps.code productionSectionCode,ps.name productionSection,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,DATE_FORMAT(e.join_date_training,'%Y-%m-%d') joinDateTraining,DATE_FORMAT(e.join_date_borong,'%Y-%m-%d') joinDateBorong,DATE_FORMAT(e.permanent_date,'%Y-%m-%d') permanentDate,DATE_FORMAT(e.resign_date,'%Y-%m-%d') resignDate,e.resign_reason resignReason,e.gender,e.birth_place birthPlace,DATE_FORMAT(e.birth_date,'%Y-%m-%d') birthDate,e.marital_status maritalStatus,e.religion,e.address,e.rtrw,e.kelurahan,e.kecamatan,e.city,e.province,e.postal_code postalCode,e.phone,e.email,e.emergency_contact_name emergencyContactName,e.emergency_contact_phone emergencyContactPhone,e.emergency_contact_relation emergencyContactRelation,e.national_id_number nationalIdNumber,e.family_card_number familyCardNumber,e.tax_number taxNumber,e.bank_name bankName,e.bank_account_number bankAccountNumber,e.bank_account_name bankAccountName,e.bpjs_health_number bpjsHealthNumber,e.bpjs_employment_number bpjsEmploymentNumber,e.notes,f.uid photoUid,f.original_name photoName,f.mime_type photoMimeType,f.size_bytes photoSizeBytes,f.extension photoExtension,f.storage_path photoPath FROM employees e JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN departments d ON d.id=e.current_department_id LEFT JOIN positions p ON p.id=e.current_position_id LEFT JOIN work_groups w ON w.id=e.current_work_group_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id LEFT JOIN files f ON f.id=e.photo_file_id`
+const registrationCorrectionEligibilitySql = `(
+  es.code='INACTIVE'
+  AND NOT EXISTS (SELECT 1 FROM employee_contracts c WHERE c.employee_id=e.id AND c.status<>'CANCELLED')
+  AND NOT EXISTS (SELECT 1 FROM scheduled_employee_mutations sm WHERE sm.employee_id=e.id AND sm.status IN ('SCHEDULED','FAILED'))
+  AND NOT EXISTS (SELECT 1 FROM scheduled_employee_status_changes sc WHERE sc.employee_id=e.id AND sc.status IN ('SCHEDULED','FAILED'))
+  AND NOT EXISTS (SELECT 1 FROM attendance_records ar WHERE ar.employee_id=e.id)
+  AND NOT EXISTS (SELECT 1 FROM attendance_scan_events ase WHERE ase.employee_id=e.id)
+  AND NOT EXISTS (SELECT 1 FROM production_transactions pt WHERE pt.employee_id=e.id)
+  AND NOT EXISTS (SELECT 1 FROM payroll_employee_results pr WHERE pr.employee_id=e.id)
+  AND (SELECT COUNT(*) FROM employee_employment_histories h WHERE h.employee_id=e.id)=1
+  AND EXISTS (SELECT 1 FROM employee_employment_histories h WHERE h.employee_id=e.id AND h.change_type='INITIAL' AND h.effective_to IS NULL)
+)`
+const employeeSelect = `SELECT e.uid,e.employee_number employeeNumber,e.barcode,e.full_name fullName,e.nickname,et.code employeeType,es.code employeeStatus,s.code site,d.name department,p.name position,w.name workGroup,pms.uid productionModuleSectionUid,pm.uid productionModuleUid,pm.code productionModuleCode,pm.name productionModule,ps.uid productionSectionUid,ps.code productionSectionCode,ps.name productionSection,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,DATE_FORMAT(e.join_date_training,'%Y-%m-%d') joinDateTraining,DATE_FORMAT(e.join_date_borong,'%Y-%m-%d') joinDateBorong,DATE_FORMAT(e.permanent_date,'%Y-%m-%d') permanentDate,DATE_FORMAT(e.resign_date,'%Y-%m-%d') resignDate,e.resign_reason resignReason,e.gender,e.birth_place birthPlace,DATE_FORMAT(e.birth_date,'%Y-%m-%d') birthDate,e.marital_status maritalStatus,e.religion,e.address,e.rtrw,e.kelurahan,e.kecamatan,e.city,e.province,e.postal_code postalCode,e.phone,e.email,e.emergency_contact_name emergencyContactName,e.emergency_contact_phone emergencyContactPhone,e.emergency_contact_relation emergencyContactRelation,e.national_id_number nationalIdNumber,e.family_card_number familyCardNumber,e.tax_number taxNumber,e.bank_name bankName,e.bank_account_number bankAccountNumber,e.bank_account_name bankAccountName,e.bpjs_health_number bpjsHealthNumber,e.bpjs_employment_number bpjsEmploymentNumber,e.notes,${registrationCorrectionEligibilitySql} canCorrectRegistration,f.uid photoUid,f.original_name photoName,f.mime_type photoMimeType,f.size_bytes photoSizeBytes,f.extension photoExtension,f.storage_path photoPath FROM employees e JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN departments d ON d.id=e.current_department_id LEFT JOIN positions p ON p.id=e.current_position_id LEFT JOIN work_groups w ON w.id=e.current_work_group_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id LEFT JOIN files f ON f.id=e.photo_file_id`
 const empty = (value?: string) => value?.trim() || null
 function enforceSite(auth: AuthContext, site: string) { if (!auth.roles.includes('SUPER_ADMIN') && !auth.siteAccess.includes(site)) throw new ApiError(403, 'Akses site ditolak.') }
 function mapEmployee(row: RowDataPacket) {
   const { photoUid, photoName, photoMimeType, photoSizeBytes, photoExtension, photoPath, ...employee } = row
-  return { ...employee, photo: photoUid ? { uid: photoUid, originalName: photoName, mimeType: photoMimeType, sizeBytes: Number(photoSizeBytes), extension: photoExtension, url: fileUrl(photoPath) } : undefined }
+  return { ...employee, canCorrectRegistration: Boolean(employee.canCorrectRegistration), photo: photoUid ? { uid: photoUid, originalName: photoName, mimeType: photoMimeType, sizeBytes: Number(photoSizeBytes), extension: photoExtension, url: fileUrl(photoPath) } : undefined }
 }
 const fileUrl = (path?: string) => path ? `${env.R2_PUBLIC_BASE_URL.replace(/\/$/, '')}/${path}` : undefined
 function formatContractNumber(contractType: string, employeeNumber: string, sequenceNumber: number) {
@@ -164,7 +185,7 @@ function formatContractNumber(contractType: string, employeeNumber: string, sequ
     .replace(/^-|-$/g, '')
   return `${prefix}-${employeeNumber}-${String(sequenceNumber).padStart(2, '0')}`
 }
-async function references(input: z.infer<typeof employeeInput> | z.infer<typeof mutationInput>, employeeStatus: string) {
+async function references(input: z.infer<typeof employeeInput> | z.infer<typeof mutationInput> | z.infer<typeof registrationCorrectionInput>, employeeStatus: string) {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT s.id siteId,s.employee_number_prefix employeeNumberPrefix,(SELECT id FROM departments WHERE site_id=s.id AND name=? AND is_active=1 LIMIT 1) departmentId,(SELECT id FROM positions WHERE name=? AND is_active=1 LIMIT 1) positionId,(SELECT id FROM work_groups WHERE site_id=s.id AND name=? AND is_active=1 LIMIT 1) workGroupId,(SELECT id FROM employee_types WHERE code=? AND is_active=1 LIMIT 1) typeId,(SELECT id FROM employee_statuses WHERE code=? LIMIT 1) statusId FROM sites s WHERE s.code=? AND s.is_active=1 LIMIT 1`,
     [empty(input.department), empty(input.position), empty(input.workGroup), input.employeeType, employeeStatus, input.site]
@@ -177,7 +198,7 @@ async function references(input: z.infer<typeof employeeInput> | z.infer<typeof 
   return { ...rows[0], productionModuleSectionId: assignments[0].id } as RowDataPacket
 }
 async function employeeAccess(uid: string, auth: AuthContext) {
-  const [rows] = await pool.query<RowDataPacket[]>(`SELECT e.id,e.employee_number employeeNumber,es.code employeeStatus,s.id siteId,s.code site,d.name department,p.name position,w.name workGroup,et.code employeeType,pms.uid productionModuleSectionUid,DATE_FORMAT(e.join_date_training,'%Y-%m-%d') joinDateTraining,DATE_FORMAT(e.join_date_borong,'%Y-%m-%d') joinDateBorong FROM employees e JOIN employee_statuses es ON es.id=e.employee_status_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN departments d ON d.id=e.current_department_id LEFT JOIN positions p ON p.id=e.current_position_id LEFT JOIN work_groups w ON w.id=e.current_work_group_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id WHERE e.uid=?`, [uid])
+  const [rows] = await pool.query<RowDataPacket[]>(`SELECT e.id,e.uid,e.employee_number employeeNumber,es.code employeeStatus,s.id siteId,s.code site,d.name department,p.name position,w.name workGroup,et.code employeeType,pms.uid productionModuleSectionUid,DATE_FORMAT(e.join_date_training,'%Y-%m-%d') joinDateTraining,DATE_FORMAT(e.join_date_borong,'%Y-%m-%d') joinDateBorong FROM employees e JOIN employee_statuses es ON es.id=e.employee_status_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN departments d ON d.id=e.current_department_id LEFT JOIN positions p ON p.id=e.current_position_id LEFT JOIN work_groups w ON w.id=e.current_work_group_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id WHERE e.uid=?`, [uid])
   if (!rows[0]) throw new ApiError(404, 'Karyawan tidak ditemukan.')
   enforceSite(auth, rows[0].site)
   return rows[0]
@@ -227,6 +248,18 @@ async function assertTypeChangeHasNoOpenContract(conn: PoolConnection, employeeI
     [employeeId]
   )
   if (contracts[0]) throw new ApiError(409, 'Jenis karyawan tidak dapat diubah selama masih ada kontrak DRAFT, SCHEDULED, atau ACTIVE. Selesaikan kontrak tersebut terlebih dahulu.')
+}
+async function assertRegistrationCorrectionAllowed(conn: PoolConnection, employeeId: number) {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT e.id
+     FROM employees e
+     JOIN employee_statuses es ON es.id=e.employee_status_id
+     WHERE e.id=?
+       AND ${registrationCorrectionEligibilitySql}
+     FOR UPDATE`,
+    [employeeId]
+  )
+  if (!rows[0]) throw new ApiError(409, 'Registrasi karyawan ini sudah tidak dapat dikoreksi. Gunakan proses mutasi atau lifecycle resmi.')
 }
 async function fileId(uid?: string) {
   if (!uid) return null
@@ -642,6 +675,84 @@ employeesRouter.post('/', requirePermission('employees.manage'), async (req, res
       throw error
     } finally { conn.release() }
     res.status(201).json({ uid })
+  } catch (error) { next(error) }
+})
+
+employeesRouter.post('/:uid/registration-correction', requirePermission('employees.manage'), async (req, res, next) => {
+  try {
+    const input = registrationCorrectionInput.parse(req.body)
+    const auth = res.locals.auth as AuthContext
+    const employee = await employeeAccess(routeParam(req.params.uid), auth)
+    if (input.site !== employee.site) {
+      throw new ApiError(422, 'Koreksi site belum tersedia karena berdampak ke Employee ID. Gunakan site yang sama.')
+    }
+    enforceSite(auth, input.site)
+    const target = {
+      ...input,
+      department: input.department || employee.department || undefined,
+      position: input.position || employee.position || undefined,
+      workGroup: input.workGroup || employee.workGroup || undefined,
+      productionModuleSectionUid: input.productionModuleSectionUid || employee.productionModuleSectionUid || undefined,
+      employeeType: input.employeeType || employee.employeeType,
+    }
+    const refs = await references(target, employee.employeeStatus)
+    const changed = !sameValue(target.site, employee.site)
+      || !sameValue(target.department, employee.department)
+      || !sameValue(target.position, employee.position)
+      || !sameValue(target.workGroup, employee.workGroup)
+      || !sameValue(target.employeeType, employee.employeeType)
+      || !sameValue(target.productionModuleSectionUid, employee.productionModuleSectionUid)
+    if (!changed) throw new ApiError(422, 'Tidak ada data registrasi yang berubah.')
+    const conn = await pool.getConnection()
+    try {
+      await conn.beginTransaction()
+      await assertRegistrationCorrectionAllowed(conn, employee.id)
+      const [histories] = await conn.query<RowDataPacket[]>(
+        "SELECT id,uid FROM employee_employment_histories WHERE employee_id=? AND change_type='INITIAL' AND effective_to IS NULL FOR UPDATE",
+        [employee.id]
+      )
+      const history = histories[0]
+      if (!history) throw new ApiError(409, 'Histori registrasi awal tidak ditemukan.')
+      await conn.execute(
+        `UPDATE employees
+         SET employee_type_id=?,current_site_id=?,current_department_id=?,current_position_id=?,current_work_group_id=?,current_production_module_section_id=?,updated_by=?
+         WHERE id=?`,
+        [refs.typeId, refs.siteId, refs.departmentId, refs.positionId, refs.workGroupId, refs.productionModuleSectionId, auth.id, employee.id]
+      )
+      await conn.execute(
+        `UPDATE employee_employment_histories
+         SET site_id=?,department_id=?,position_id=?,work_group_id=?,production_module_section_id=?,employee_type_id=?,notes=?,updated_by=?
+         WHERE id=?`,
+        [refs.siteId, refs.departmentId, refs.positionId, refs.workGroupId, refs.productionModuleSectionId, refs.typeId, `Koreksi data registrasi: ${input.reason}`, auth.id, history.id]
+      )
+      await writeAudit({
+        auth,
+        request: req,
+        siteId: refs.siteId,
+        action: 'UPDATE',
+        table: 'employees',
+        recordId: employee.id,
+        recordUid: employee.uid,
+        description: `Koreksi data registrasi karyawan ${employee.employeeNumber}.`,
+      }, conn)
+      await writeAudit({
+        auth,
+        request: req,
+        siteId: refs.siteId,
+        action: 'UPDATE',
+        table: 'employee_employment_histories',
+        recordId: history.id,
+        recordUid: history.uid,
+        description: `Koreksi histori registrasi awal karyawan ${employee.employeeNumber}.`,
+      }, conn)
+      await conn.commit()
+      res.status(204).end()
+    } catch (error) {
+      await conn.rollback()
+      throw error
+    } finally {
+      conn.release()
+    }
   } catch (error) { next(error) }
 })
 

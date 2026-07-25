@@ -40,6 +40,7 @@ export async function reserveEmployeeNumber(
   connection: PoolConnection,
   input: { siteId: number; prefix: string; joinDate: string }
 ) {
+  const formattedPrefix = employeeNumberPrefix(input.prefix, input.joinDate)
   await connection.execute(
     `INSERT INTO employee_number_sequences(site_id, join_date, last_sequence)
      VALUES (?, ?, 0)
@@ -53,7 +54,19 @@ export async function reserveEmployeeNumber(
      FOR UPDATE`,
     [input.siteId, input.joinDate]
   )
-  const nextSequence = Number(rows[0]?.lastSequence ?? 0) + 1
+  const [existingRows] = await connection.query<RowDataPacket[]>(
+    `SELECT COALESCE(MAX(CAST(RIGHT(employee_number, 3) AS UNSIGNED)), 0) maxSequence
+     FROM employees
+     WHERE current_site_id = ?
+       AND join_date = ?
+       AND employee_number LIKE ?`,
+    [input.siteId, input.joinDate, `${formattedPrefix}%`]
+  )
+  const lastSequence = Math.max(
+    Number(rows[0]?.lastSequence ?? 0),
+    Number(existingRows[0]?.maxSequence ?? 0)
+  )
+  const nextSequence = lastSequence + 1
   if (nextSequence > 999) throw new EmployeeNumberSequenceExhaustedError()
 
   await connection.execute(
@@ -64,4 +77,11 @@ export async function reserveEmployeeNumber(
   )
 
   return formatEmployeeNumber(input.prefix, input.joinDate, nextSequence)
+}
+
+function employeeNumberPrefix(prefix: string, joinDate: string) {
+  const match = datePattern.exec(joinDate)
+  if (!match) throw new Error('Tanggal bergabung tidak valid.')
+  const [, year, month, day] = match
+  return `P${prefix}-${year.slice(2)}${month}-${day}`
 }

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Plus, RefreshCcw } from 'lucide-react'
 import { currentListReturnTo } from '@/lib/list-return-to'
@@ -6,9 +6,10 @@ import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Button } from '@/components/ui/button'
 import { Main } from '@/components/layout/main'
 import { useEmployeeList } from '../data/queries'
-import type { EmployeeListParams } from '../domain'
+import type { Employee, EmployeeListParams } from '../domain'
 import { createEmployeeColumns } from './employees-columns'
 import { EmployeesTable } from './employees-table'
+import { RegistrationCorrectionDialog } from './registration-correction-dialog'
 
 export function EmployeesPage({
   search,
@@ -32,6 +33,7 @@ export function EmployeesPage({
   const query = useEmployeeList(params, { keepPreviousData: true })
   const returnTo = currentListReturnTo()
   const routerNavigate = useNavigate()
+  const [correctionEmployee, setCorrectionEmployee] = useState<Employee>()
   const columns = useMemo(
     () =>
       createEmployeeColumns(
@@ -41,6 +43,7 @@ export function EmployeesPage({
             params: { employeeUid: employee.uid },
             search: { returnTo },
           }),
+        setCorrectionEmployee,
         returnTo
       ),
     [returnTo, routerNavigate]
@@ -76,21 +79,30 @@ export function EmployeesPage({
           </Button>
         </div>
       ) : (
-        <EmployeesTable
-          data={query.data}
-          columns={columns}
-          returnTo={returnTo}
-          search={search}
-          navigate={navigate}
-          onEdit={(employee) =>
-            routerNavigate({
-              to: '/karyawan/ubah-karyawan/$employeeUid',
-              params: { employeeUid: employee.uid },
-              search: { returnTo },
-            })
-          }
-          isFetching={query.isFetching}
-        />
+        <>
+          <EmployeesTable
+            data={query.data}
+            columns={columns}
+            returnTo={returnTo}
+            search={search}
+            navigate={navigate}
+            onEdit={(employee) =>
+              routerNavigate({
+                to: '/karyawan/ubah-karyawan/$employeeUid',
+                params: { employeeUid: employee.uid },
+                search: { returnTo },
+              })
+            }
+            isFetching={query.isFetching}
+          />
+          <RegistrationCorrectionDialog
+            employee={correctionEmployee}
+            open={Boolean(correctionEmployee)}
+            onOpenChange={(open) => {
+              if (!open) setCorrectionEmployee(undefined)
+            }}
+          />
+        </>
       )}
     </Main>
   )

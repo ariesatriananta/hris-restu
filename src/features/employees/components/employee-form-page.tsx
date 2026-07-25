@@ -49,7 +49,7 @@ export function EmployeeFormPage({
               : listReturnTo
           }
           params={isEdit ? { employeeUid: employeeUid! } : undefined}
-          search={isEdit ? { returnTo } : undefined}
+          search={isEdit ? { returnTo: listReturnTo } : undefined}
         >
           <ArrowLeft /> {isEdit ? 'Detail karyawan' : 'Data Karyawan'}
         </Link>
@@ -87,7 +87,7 @@ export function EmployeeFormPage({
           await navigate({
             to: '/karyawan/data-karyawan/$employeeUid',
             params: { employeeUid: result.uid },
-            search: { returnTo },
+            search: { returnTo: listReturnTo },
             ignoreBlocker: true,
           })
         }}
@@ -96,7 +96,7 @@ export function EmployeeFormPage({
             ? navigate({
                 to: '/karyawan/data-karyawan/$employeeUid',
                 params: { employeeUid: employeeUid! },
-                search: { returnTo },
+                search: { returnTo: listReturnTo },
               })
             : navigate({ to: listReturnTo })
         }

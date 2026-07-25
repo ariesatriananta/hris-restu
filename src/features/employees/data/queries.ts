@@ -16,6 +16,7 @@ import type {
   ProductionModuleLookup,
   ProductionModuleSectionLookup,
   MutationInput,
+  RegistrationCorrectionInput,
   BatchMutationItem,
   ContractLifecycleAction,
   ContractBatchItem,
@@ -36,6 +37,7 @@ import {
   listScheduledMutations,
   scheduledMutationsForEmployee,
   scheduleMutation,
+  correctRegistration,
   applyBatchMutation,
   updateScheduledMutation,
   cancelScheduledMutation,
@@ -250,6 +252,19 @@ export function useApplyMutation() {
       employeeUid: string
       input: MutationInput
     }) => httpEmployeeRepository.applyMutation(employeeUid, input),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function useCorrectRegistration() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      employeeUid,
+      input,
+    }: {
+      employeeUid: string
+      input: RegistrationCorrectionInput
+    }) => correctRegistration(employeeUid, input),
     onSuccess: () => invalidate(queryClient),
   })
 }

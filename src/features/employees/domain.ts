@@ -121,6 +121,7 @@ export interface Employee {
   notes?: string
   terminatedAt?: string
   terminationReason?: string
+  canCorrectRegistration?: boolean
 }
 export type ContractLifecycleAction =
   | 'schedule'
@@ -257,6 +258,16 @@ export interface MutationInput {
   reason?: string
   notes?: string
 }
+export interface RegistrationCorrectionInput {
+  site: SiteCode
+  department?: string
+  position?: string
+  workGroup?: string
+  productionModuleUid?: string
+  productionModuleSectionUid?: string
+  employeeType: EmployeeTypeCode
+  reason: string
+}
 export interface BatchMutationItem {
   employeeUid: string
   input: MutationInput
@@ -366,6 +377,10 @@ export interface EmployeeRepository {
     employeeUid: string,
     input: MutationInput
   ): Promise<{ uid: string }>
+  correctRegistration(
+    employeeUid: string,
+    input: RegistrationCorrectionInput
+  ): Promise<void>
   contracts(employeeUid?: string): Promise<EmployeeContract[]>
   saveContract(
     input: Omit<EmployeeContract, 'uid'>,

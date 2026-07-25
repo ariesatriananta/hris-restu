@@ -1,14 +1,21 @@
 import { Link } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Eye, Pencil } from 'lucide-react'
+import { ClipboardPenLine, Eye, Pencil } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { DataTableColumnHeader } from '@/components/data-table'
+import {
+  DataTableActionButton,
+  DataTableColumnHeader,
+} from '@/components/data-table'
 import type { Employee } from '../domain'
-import { statusLabel } from '../utils'
+import {
+  employeeStatusBadgeClassName,
+  employeeStatusBadgeVariant,
+  statusLabel,
+} from '../utils'
 
 export function createEmployeeColumns(
   onEdit: (employee: Employee) => void,
+  onCorrectRegistration: (employee: Employee) => void,
   returnTo?: string
 ): ColumnDef<Employee>[] {
   return [
@@ -32,6 +39,9 @@ export function createEmployeeColumns(
           </p>
         </div>
       ),
+      meta: {
+        label: 'Karyawan',
+      },
     },
     {
       accessorKey: 'site',
@@ -39,21 +49,44 @@ export function createEmployeeColumns(
         <DataTableColumnHeader column={column} title='Site' />
       ),
       filterFn: (row, id, value: string[]) => value.includes(row.getValue(id)),
+      meta: {
+        label: 'Site',
+      },
     },
     {
       accessorKey: 'employeeType',
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title='Jenis' />
+        <DataTableColumnHeader column={column} title='Jenis & Jabatan' />
       ),
-      cell: ({ row }) => statusLabel(row.original.employeeType),
+      cell: ({ row }) => (
+        <div>
+          <p className='font-medium'>{statusLabel(row.original.employeeType)}</p>
+          <p className='text-[11px] leading-3 text-muted-foreground'>
+            {row.original.position || '-'}
+          </p>
+        </div>
+      ),
       filterFn: (row, id, value: string[]) => value.includes(row.getValue(id)),
+      meta: {
+        label: 'Jenis & Jabatan',
+      },
     },
     {
-      accessorKey: 'position',
+      id: 'productionArea',
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title='Jabatan' />
+        <DataTableColumnHeader column={column} title='Bagian Produksi' />
       ),
-      cell: ({ row }) => row.original.position ?? '—',
+      cell: ({ row }) => (
+        <div>
+          <p className='font-medium'>{row.original.productionModule || '-'}</p>
+          <p className='text-[11px] leading-3 text-muted-foreground'>
+            {row.original.productionSection || '-'}
+          </p>
+        </div>
+      ),
+      meta: {
+        label: 'Bagian Produksi',
+      },
     },
     {
       accessorKey: 'employeeStatus',
@@ -62,14 +95,16 @@ export function createEmployeeColumns(
       ),
       cell: ({ row }) => (
         <Badge
-          variant={
-            row.original.employeeStatus === 'ACTIVE' ? 'default' : 'secondary'
-          }
+          variant={employeeStatusBadgeVariant(row.original.employeeStatus)}
+          className={employeeStatusBadgeClassName(row.original.employeeStatus)}
         >
           {statusLabel(row.original.employeeStatus)}
         </Badge>
       ),
       filterFn: (row, id, value: string[]) => value.includes(row.getValue(id)),
+      meta: {
+        label: 'Status',
+      },
     },
     {
       id: 'actions',
@@ -77,24 +112,29 @@ export function createEmployeeColumns(
       enableHiding: false,
       cell: ({ row }) => (
         <div className='flex justify-end gap-1'>
-          <Button size='sm' variant='ghost' asChild>
+          <DataTableActionButton label={`Detail ${row.original.fullName}`} asChild>
             <Link
               to='/karyawan/data-karyawan/$employeeUid'
               params={{ employeeUid: row.original.uid }}
               search={{ returnTo }}
             >
               <Eye />
-              <span>Detail</span>
             </Link>
-          </Button>
-          <Button
-            size='sm'
-            variant='ghost'
+          </DataTableActionButton>
+          <DataTableActionButton
+            label={`Ubah data ${row.original.fullName}`}
             onClick={() => onEdit(row.original)}
           >
             <Pencil />
-            <span className='sr-only'>Ubah {row.original.fullName}</span>
-          </Button>
+          </DataTableActionButton>
+          {row.original.canCorrectRegistration && (
+            <DataTableActionButton
+              label={`Koreksi data registrasi ${row.original.fullName}`}
+              onClick={() => onCorrectRegistration(row.original)}
+            >
+              <ClipboardPenLine />
+            </DataTableActionButton>
+          )}
         </div>
       ),
     },
