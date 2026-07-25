@@ -493,7 +493,7 @@ export function RecordsTable({
                   options: [
                     {
                       value: 'ACTIVE_WITHOUT_VALID_CONTRACT',
-                      label: 'Karyawan aktif tanpa kontrak aktif',
+                      label: 'Perlu dibuatkan kontrak',
                     },
                     {
                       value: 'EXPIRING_WITHIN_7_DAYS',

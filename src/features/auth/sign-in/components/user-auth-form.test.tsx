@@ -18,14 +18,14 @@ vi.mock('@tanstack/react-router', async (importOriginal) => ({
 }))
 
 describe('UserAuthForm', () => {
-  it('menampilkan kredensial demo dan field berlabel', async () => {
+  it('menampilkan field login kosong dan tombol masuk', async () => {
     const screen = await render(<UserAuthForm />)
     await expect
       .element(screen.getByRole('textbox', { name: 'Email' }))
-      .toHaveValue('admin@hris-restu.test')
+      .toHaveValue('')
     await expect
       .element(screen.getByLabelText('Kata sandi'))
-      .toHaveValue('restu123')
+      .toHaveValue('')
     await expect
       .element(screen.getByRole('button', { name: 'Masuk ke HRIS' }))
       .toBeInTheDocument()

@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -19,7 +18,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/password-input'
 import { InvalidCredentialsError } from '@/features/auth/domain'
-import { apiCredentials } from '@/features/auth/http-auth-repository'
 import { safeRedirect } from '@/features/auth/safe-redirect'
 
 const formSchema = z.object({
@@ -43,7 +41,10 @@ export function UserAuthForm({
   const isSigningIn = useAuthStore((state) => state.isSigningIn)
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: apiCredentials,
+    defaultValues: {
+      email: '',
+      password: '',
+    },
   })
 
   async function onSubmit(values: FormValues) {
@@ -89,9 +90,6 @@ export function UserAuthForm({
               <FormControl>
                 <PasswordInput autoComplete='current-password' {...field} />
               </FormControl>
-              <FormDescription>
-                Akun local: {apiCredentials.email} / {apiCredentials.password}
-              </FormDescription>
               <FormMessage />
             </FormItem>
           )}

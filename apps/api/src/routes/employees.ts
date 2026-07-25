@@ -397,8 +397,11 @@ employeesRouter.get('/contracts', requirePermission('employees.view'), async (re
 
       if (coverage.includes('ACTIVE_WITHOUT_VALID_CONTRACT')) {
         const coverageWhere = [
-          "es.code='ACTIVE'",
-          "NOT EXISTS (SELECT 1 FROM employee_contracts active_contract WHERE active_contract.employee_id=e.id AND active_contract.status='ACTIVE' AND active_contract.start_date<=? AND (active_contract.end_date IS NULL OR active_contract.end_date>=?))",
+          `(
+            (es.code='ACTIVE' AND NOT EXISTS (SELECT 1 FROM employee_contracts active_contract WHERE active_contract.employee_id=e.id AND active_contract.status='ACTIVE' AND active_contract.start_date<=? AND (active_contract.end_date IS NULL OR active_contract.end_date>=?)))
+            OR
+            (es.code='INACTIVE' AND e.resign_date IS NULL AND NOT EXISTS (SELECT 1 FROM employee_contracts any_contract WHERE any_contract.employee_id=e.id AND any_contract.status<>'CANCELLED'))
+          )`,
           scoped.sql,
         ]
         const coverageValues: unknown[] = [today, today, ...scoped.params]
@@ -543,11 +546,25 @@ employeesRouter.get('/contracts/summary', requirePermission('employees.view'), a
        LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id
        LEFT JOIN production_modules pm ON pm.id=pms.production_module_id
        LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
-       WHERE es.code='ACTIVE' AND ${where.join(' AND ')}
-         AND NOT EXISTS (
-           SELECT 1 FROM employee_contracts c
-           WHERE c.employee_id=e.id AND c.status='ACTIVE' AND c.start_date<=?
-             AND (c.end_date IS NULL OR c.end_date>=?)
+       WHERE ${where.join(' AND ')}
+         AND (
+           (
+             es.code='ACTIVE'
+             AND NOT EXISTS (
+               SELECT 1 FROM employee_contracts c
+               WHERE c.employee_id=e.id AND c.status='ACTIVE' AND c.start_date<=?
+                 AND (c.end_date IS NULL OR c.end_date>=?)
+             )
+           )
+           OR
+           (
+             es.code='INACTIVE'
+             AND e.resign_date IS NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM employee_contracts c
+               WHERE c.employee_id=e.id AND c.status<>'CANCELLED'
+             )
+           )
          )`,
       [...values, today, today]
     )

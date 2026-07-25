@@ -395,7 +395,7 @@ function ContractKpiCards({
         'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-400',
     },
     {
-      label: 'Aktif tanpa kontrak',
+      label: 'Perlu kontrak',
       value: data?.activeWithoutValidContract,
       icon: AlertTriangle,
       className: 'border-destructive/30 bg-destructive/5 text-destructive',

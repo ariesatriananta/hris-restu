@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import JsBarcode from 'jsbarcode'
 import { Download, Printer } from 'lucide-react'
 import { toast } from 'sonner'
-import { APP_NAME } from '@/lib/app-branding'
+import { APP_LOGO_SRC, APP_NAME } from '@/lib/app-branding'
 import { Button } from '@/components/ui/button'
 import type { Employee } from '../domain'
 
@@ -17,7 +17,7 @@ export function EmployeeIdCard({ employee }: { employee: Employee }) {
 
   async function download() {
     try {
-      const logo = await imageToDataUrl('/brand/restu-logo.jpeg')
+      const logo = await imageToDataUrl(APP_LOGO_SRC)
       const photo = employee.photo?.temporaryUrl
         ? await imageToDataUrl(employee.photo.temporaryUrl).catch(() => '')
         : ''
@@ -77,7 +77,7 @@ export function EmployeeIdCard({ employee }: { employee: Employee }) {
       >
         <div className='flex flex-col items-center justify-between bg-primary p-4 text-center text-white'>
           <img
-            src='/brand/restu-logo.jpeg'
+            src={APP_LOGO_SRC}
             alt={`Logo ${APP_NAME}`}
             className='size-14 rounded-full bg-white object-contain p-1'
           />

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { APP_NAME, APP_SHORT_NAME } from '@/lib/app-branding'
+import { APP_LOGO_SRC, APP_NAME, APP_SHORT_NAME } from '@/lib/app-branding'
 import { cn } from '@/lib/utils'
 
 interface AppBrandProps {
@@ -20,7 +20,7 @@ export function AppBrand({ compact = false, className }: AppBrandProps) {
       <div className='flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary text-[10px] font-black tracking-wider text-primary-foreground'>
         {!imageFailed ? (
           <img
-            src='/brand/restu-logo.jpeg'
+            src={APP_LOGO_SRC}
             alt={`Logo ${APP_NAME}`}
             className='h-full w-full object-contain'
             onError={() => setImageFailed(true)}
