@@ -16,16 +16,16 @@ export function SignIn() {
 
   return (
     <AuthLayout>
-      <div className='w-full max-w-md space-y-4'>
-        <Card className='shadow-lg'>
-          <CardHeader className='items-center text-center'>
-            <div className='mb-2 flex w-full justify-center'>
-              <img
-                src={APP_LOGO_SRC}
-                alt={`Logo ${APP_NAME}`}
-                className='h-24 w-auto object-contain'
-              />
-            </div>
+      <div className='w-full space-y-4'>
+        <div className='flex justify-center'>
+          <img
+            src={APP_LOGO_SRC}
+            alt={`Logo ${APP_NAME}`}
+            className='h-40 w-auto drop-shadow-xl'
+          />
+        </div>
+        <Card className='border-white/70 bg-background/88 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-background/82'>
+          <CardHeader className='text-left'>
             <CardTitle>Masuk ke HRIS</CardTitle>
             <CardDescription>
               Gunakan akun Administrator HRIS untuk mengakses dashboard internal.
@@ -35,7 +35,7 @@ export function SignIn() {
             <UserAuthForm redirectTo={redirect} />
           </CardContent>
         </Card>
-        <p className='text-center text-xs text-muted-foreground'>
+        <p className='text-center text-xs text-white/70 lg:text-muted-foreground'>
           © {year} {COMPANY_NAME}. Seluruh hak cipta dilindungi.
         </p>
       </div>

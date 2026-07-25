@@ -16,7 +16,7 @@ export function AppHeader() {
   const group = pathname === '/' ? null : pathname.split('/')[1]
 
   return (
-    <Header fixed className='border-b bg-background/90'>
+    <Header fixed className='bg-transparent'>
       <nav aria-label='Breadcrumb' className='me-auto min-w-0'>
         <ol className='flex min-w-0 items-center gap-1.5 text-sm'>
           <li>
