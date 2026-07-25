@@ -3,11 +3,13 @@ import { Button } from '@/components/ui/button'
 export function FormActionBar({
   formId,
   isPending,
+  disabled,
   submitLabel,
   onCancel,
 }: {
   formId: string
   isPending?: boolean
+  disabled?: boolean
   submitLabel: string
   onCancel: () => void
 }) {
@@ -21,7 +23,7 @@ export function FormActionBar({
       >
         Batal
       </Button>
-      <Button type='submit' form={formId} disabled={isPending}>
+      <Button type='submit' form={formId} disabled={isPending || disabled}>
         {isPending ? 'Menyimpan...' : submitLabel}
       </Button>
     </div>

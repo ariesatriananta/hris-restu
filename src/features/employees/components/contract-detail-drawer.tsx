@@ -137,7 +137,7 @@ export function ContractDetailDrawer({
               </DetailRow>
               {['PKWT', 'TRAINING'].includes(contract.contractType) && (
                 <Button size='sm' className='mt-3' onClick={printContract}>
-                  <Printer /> Buat preview cetak
+                  <Printer /> Cetak Template Kontrak
                 </Button>
               )}
             </DetailSection>

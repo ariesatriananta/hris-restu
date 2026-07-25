@@ -23,7 +23,7 @@ export async function assertContractRules(conn: PoolConnection, employeeId: numb
   if (endDateRequired.includes(type) && !endDate) throw new ApiError(422, 'Tanggal berakhir wajib untuk jenis kontrak ini.')
   if (endDate && endDate < startDate) throw new ApiError(422, 'Tanggal kontrak tidak valid.')
   assertContractStartDate(startDate, joinDate)
-  const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.contract_number FROM employee_contracts c WHERE c.employee_id=? AND c.status IN ('DRAFT','SCHEDULED','ACTIVE') AND (? IS NULL OR c.id<>?) AND c.start_date<=COALESCE(?, '9999-12-31') AND COALESCE(c.end_date,'9999-12-31')>=? LIMIT 1`, [employeeId, exceptId ?? null, exceptId ?? 0, endDate ?? null, startDate])
+  const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.contract_number FROM employee_contracts c WHERE c.employee_id=? AND c.status<>'CANCELLED' AND (? IS NULL OR c.id<>?) AND c.start_date<=COALESCE(?, '9999-12-31') AND COALESCE(c.end_date,'9999-12-31')>=? LIMIT 1`, [employeeId, exceptId ?? null, exceptId ?? 0, endDate ?? null, startDate])
   if (rows[0]) throw new ApiError(409, `Periode kontrak bertumpang tindih dengan ${rows[0].contract_number}.`)
 }
 
@@ -286,14 +286,41 @@ export async function reconcileContracts() {
     }
   }
 
-  const [employees] = await pool.query<RowDataPacket[]>(`SELECT e.id,e.uid employeeUid,e.employee_number employeeNumber,e.full_name fullName,s.code site,e.current_site_id siteId,es.code currentStatus,COUNT(c.id) activeContracts,GROUP_CONCAT(c.contract_number ORDER BY c.start_date SEPARATOR ', ') activeContractNumbers FROM employees e JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN employee_contracts c ON c.employee_id=e.id AND c.status='ACTIVE' AND c.start_date<=? AND (c.end_date IS NULL OR c.end_date>=?) GROUP BY e.id,e.uid,e.employee_number,e.full_name,s.code,e.current_site_id,es.code`, [today, today])
+  const [employees] = await pool.query<RowDataPacket[]>(
+    `SELECT
+      e.id,
+      e.uid employeeUid,
+      e.employee_number employeeNumber,
+      e.full_name fullName,
+      s.code site,
+      e.current_site_id siteId,
+      es.code currentStatus,
+      e.resign_date resignDate,
+      COUNT(DISTINCT active_contract.id) activeContracts,
+      COUNT(DISTINCT any_contract.id) nonCancelledContracts,
+      GROUP_CONCAT(DISTINCT active_contract.contract_number ORDER BY active_contract.contract_number SEPARATOR ', ') activeContractNumbers
+     FROM employees e
+     JOIN employee_statuses es ON es.id=e.employee_status_id
+     JOIN sites s ON s.id=e.current_site_id
+     LEFT JOIN employee_contracts active_contract
+       ON active_contract.employee_id=e.id
+      AND active_contract.status='ACTIVE'
+      AND active_contract.start_date<=?
+      AND (active_contract.end_date IS NULL OR active_contract.end_date>=?)
+     LEFT JOIN employee_contracts any_contract
+       ON any_contract.employee_id=e.id
+      AND any_contract.status<>'CANCELLED'
+     GROUP BY e.id,e.uid,e.employee_number,e.full_name,s.code,e.current_site_id,es.code,e.resign_date`,
+    [today, today]
+  )
   let activatedEmployees = 0
   let inactivatedEmployees = 0
   let legacyConflicts = 0
   const conflicts: { employeeUid: string; employeeNumber: string; fullName: string; site: string; reason: string; contractNumbers: string[] }[] = []
   for (const employee of employees) {
     const activeContracts = Number(employee.activeContracts)
-    if (activeContracts > 1 || ((employee.currentStatus === 'RESIGNED' || employee.currentStatus === 'LEAVE') && activeContracts) || (employee.currentStatus === 'ACTIVE' && activeContracts === 0)) {
+    const nonCancelledContracts = Number(employee.nonCancelledContracts)
+    if (activeContracts > 1 || ((employee.currentStatus === 'RESIGNED' || employee.currentStatus === 'LEAVE') && activeContracts) || (employee.currentStatus === 'ACTIVE' && activeContracts === 0) || (employee.currentStatus === 'INACTIVE' && !employee.resignDate && activeContracts === 0 && nonCancelledContracts === 0)) {
       legacyConflicts++
       if (conflicts.length < 50) {
         conflicts.push(cronConflict({
@@ -303,6 +330,7 @@ export async function reconcileContracts() {
           site: employee.site,
           currentStatus: employee.currentStatus,
           activeContracts,
+          nonCancelledContracts,
           activeContractNumbers: employee.activeContractNumbers,
         }))
       }

@@ -56,4 +56,20 @@ describe('cronConflict', () => {
       'Karyawan Aktif belum memiliki kontrak aktif yang berlaku. Periksa kontrak berakhir dan buat kontrak pengganti bila diperlukan.'
     )
   })
+
+  it('menandai karyawan nonaktif tanpa kontrak sebagai alert onboarding', () => {
+    expect(
+      cronConflict({
+        employeeUid: 'employee-uid',
+        employeeNumber: 'PJPR-2607-00001',
+        fullName: 'Karyawan Baru',
+        site: 'JEPARA',
+        currentStatus: 'INACTIVE',
+        activeContracts: 0,
+        nonCancelledContracts: 0,
+      }).reason
+    ).toBe(
+      'Karyawan Nonaktif belum memiliki kontrak. Periksa onboarding dan buat kontrak bila karyawan siap diproses.'
+    )
+  })
 })

@@ -7,18 +7,21 @@ import {
 import { z } from 'zod'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Link, useNavigate } from '@tanstack/react-router'
-import { ArrowLeft } from 'lucide-react'
+import { useNavigate } from '@tanstack/react-router'
+import { AlertTriangle, ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
+import { safeInternalReturnTo } from '@/lib/list-return-to'
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
 import { uploadEmployeeFile } from '../data/files'
 import {
   useContract,
+  useContracts,
   useDocument,
   useEmployee,
   useEmployeeLookups,
@@ -65,12 +68,18 @@ export function EmployeeRecordFormPage({
   kind,
   recordUid,
   employeeUid,
+  returnTo,
 }: {
   kind: 'contract' | 'document'
   recordUid?: string
   employeeUid?: string
+  returnTo?: string
 }) {
   const navigate = useNavigate()
+  const listReturnTo = safeInternalReturnTo(returnTo, '/karyawan/pkwt-dokumen')
+  const goBack = (ignoreBlocker = false) => {
+    navigate({ to: listReturnTo, ignoreBlocker })
+  }
   const contract = useContract(
     kind === 'contract' && recordUid ? recordUid : ''
   )
@@ -92,7 +101,7 @@ export function EmployeeRecordFormPage({
       <Main>
         <p>Data tidak ditemukan.</p>
         <Button className='mt-3' asChild>
-          <Link to='/karyawan/pkwt-dokumen'>Kembali</Link>
+          <a href={listReturnTo}>Kembali</a>
         </Button>
       </Main>
     )
@@ -100,19 +109,15 @@ export function EmployeeRecordFormPage({
     <ContractForm
       record={contract.data}
       employeeUid={employeeUid}
-      onBack={() => navigate({ to: '/karyawan/pkwt-dokumen' })}
-      onSaved={() =>
-        navigate({ to: '/karyawan/pkwt-dokumen', ignoreBlocker: true })
-      }
+      onBack={() => goBack()}
+      onSaved={() => goBack(true)}
     />
   ) : (
     <DocumentForm
       record={document.data}
       employeeUid={employeeUid}
-      onBack={() => navigate({ to: '/karyawan/pkwt-dokumen' })}
-      onSaved={() =>
-        navigate({ to: '/karyawan/pkwt-dokumen', ignoreBlocker: true })
-      }
+      onBack={() => goBack()}
+      onSaved={() => goBack(true)}
     />
   )
 }
@@ -151,11 +156,21 @@ function ContractForm({
     name: 'employeeUid',
   })
   const selectedEmployee = useEmployee(selectedEmployeeUid)
+  const employeeContracts = useContracts(selectedEmployeeUid || undefined)
   const allowedContractType = requiredContractType(
     selectedEmployee.data?.employeeType
   )
   const startDate = useWatch({ control: form.control, name: 'startDate' })
   const endDate = useWatch({ control: form.control, name: 'endDate' })
+  const overlappingContract = findOverlappingContract(
+    employeeContracts.data,
+    startDate,
+    endDate,
+    record?.uid
+  )
+  const isCheckingContractOverlap = Boolean(
+    selectedEmployeeUid && startDate && employeeContracts.isPending
+  )
   const { confirmation } = useUnsavedChanges(form.formState.isDirty)
   useEffect(() => {
     const temporaryUrl = attachment?.temporaryUrl
@@ -177,6 +192,18 @@ function ContractForm({
       form.setError('startDate', {
         message:
           'Tanggal mulai kontrak tidak boleh sebelum tanggal bergabung karyawan.',
+      })
+      return
+    }
+    const overlap = findOverlappingContract(
+      employeeContracts.data,
+      value.startDate,
+      value.endDate,
+      record?.uid
+    )
+    if (overlap) {
+      form.setError('startDate', {
+        message: `Periode kontrak bertumpang tindih dengan ${overlap.contractNumber}.`,
       })
       return
     }
@@ -206,6 +233,7 @@ function ContractForm({
       description='Kelola kontrak kerja dan lampirannya pada halaman penuh.'
       formId='contract-form'
       pending={save.isPending}
+      submitDisabled={Boolean(overlappingContract) || isCheckingContractOverlap}
       submitLabel='Simpan kontrak'
       onCancel={onBack}
       confirmation={confirmation}
@@ -283,6 +311,23 @@ function ContractForm({
             })
           }
         />
+        {overlappingContract && (
+          <Alert variant='destructive' className='sm:col-span-2'>
+            <AlertTriangle className='size-4' />
+            <AlertDescription>
+              Periode kontrak bertumpang tindih dengan{' '}
+              {overlappingContract.contractNumber} (
+              {formatInputDate(overlappingContract.startDate)} -{' '}
+              {formatInputDate(overlappingContract.endDate)}). Ubah tanggal
+              mulai atau tanggal berakhir sebelum menyimpan.
+            </AlertDescription>
+          </Alert>
+        )}
+        {isCheckingContractOverlap && (
+          <p className='text-sm text-muted-foreground sm:col-span-2'>
+            Memeriksa periode kontrak karyawan...
+          </p>
+        )}
         <Field label='Status workflow'>
           <Input value={record?.status ?? 'DRAFT'} readOnly disabled />
         </Field>
@@ -503,6 +548,7 @@ function RecordLayout({
   description,
   formId,
   pending,
+  submitDisabled,
   submitLabel,
   onCancel,
   confirmation,
@@ -512,6 +558,7 @@ function RecordLayout({
   description: string
   formId: string
   pending: boolean
+  submitDisabled?: boolean
   submitLabel: string
   onCancel: () => void
   confirmation: ReactNode
@@ -530,6 +577,7 @@ function RecordLayout({
       <FormActionBar
         formId={formId}
         isPending={pending}
+        disabled={submitDisabled}
         submitLabel={submitLabel}
         onCancel={onCancel}
       />
@@ -537,6 +585,31 @@ function RecordLayout({
     </Main>
   )
 }
+
+function findOverlappingContract(
+  contracts: EmployeeContract[] | undefined,
+  startDate: string,
+  endDate: string | undefined,
+  exceptUid?: string
+) {
+  if (!contracts?.length || !startDate) return undefined
+  const nextEndDate = endDate || '9999-12-31'
+  return contracts.find((contract) => {
+    if (contract.uid === exceptUid) return false
+    if (contract.status === 'CANCELLED') {
+      return false
+    }
+    return (
+      contract.startDate <= nextEndDate &&
+      (contract.endDate || '9999-12-31') >= startDate
+    )
+  })
+}
+
+function formatInputDate(value?: string) {
+  return value?.slice(0, 10) || 'tanpa tanggal akhir'
+}
+
 function Field({
   label,
   error,

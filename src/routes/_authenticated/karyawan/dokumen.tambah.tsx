@@ -4,16 +4,21 @@ import { EmployeeRecordFormPage } from '@/features/employees/components/employee
 
 export const Route = createFileRoute('/_authenticated/karyawan/dokumen/tambah')(
   {
-    validateSearch: z.object({ employeeUid: z.string().uuid().optional() }),
+    validateSearch: z.object({
+      employeeUid: z.string().uuid().optional(),
+      returnTo: z.string().optional(),
+    }),
     component: DocumentCreatePage,
   }
 )
 
 function DocumentCreatePage() {
+  const search = Route.useSearch()
   return (
     <EmployeeRecordFormPage
       kind='document'
-      employeeUid={Route.useSearch().employeeUid}
+      employeeUid={search.employeeUid}
+      returnTo={search.returnTo}
     />
   )
 }

@@ -17,7 +17,11 @@ import {
   Plus,
   RefreshCcw,
 } from 'lucide-react'
-import { returnToLabel, safeInternalReturnTo } from '@/lib/list-return-to'
+import {
+  currentListReturnTo,
+  returnToLabel,
+  safeInternalReturnTo,
+} from '@/lib/list-return-to'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -49,6 +53,7 @@ export function EmployeeDetail({
 }) {
   const listReturnTo = safeInternalReturnTo(returnTo, '/karyawan/data-karyawan')
   const listReturnLabel = returnToLabel(listReturnTo, 'Data Karyawan')
+  const detailReturnTo = currentListReturnTo()
   const employee = useEmployee(employeeUid)
   const histories = useHistories(employeeUid)
   const contracts = useContracts(employeeUid)
@@ -386,6 +391,7 @@ export function EmployeeDetail({
             pending={contracts.isPending}
             error={contracts.isError}
             retry={() => contracts.refetch()}
+            returnTo={detailReturnTo}
             add={{
               to: '/karyawan/pkwt/tambah',
               employeeUid: data.uid,
@@ -412,6 +418,7 @@ export function EmployeeDetail({
             pending={documents.isPending}
             error={documents.isError}
             retry={() => documents.refetch()}
+            returnTo={detailReturnTo}
             add={{
               to: '/karyawan/dokumen/tambah',
               employeeUid: data.uid,
@@ -535,6 +542,7 @@ function Records({
   pending,
   error,
   retry,
+  returnTo,
   add,
 }: {
   title: string
@@ -551,6 +559,7 @@ function Records({
   pending: boolean
   error: boolean
   retry: () => void
+  returnTo?: string
   add: {
     to: '/karyawan/pkwt/tambah' | '/karyawan/dokumen/tambah'
     employeeUid: string
@@ -563,7 +572,10 @@ function Records({
         <div className='flex items-center justify-between gap-3'>
           <CardTitle>{title}</CardTitle>
           <Button size='sm' asChild>
-            <Link to={add.to} search={{ employeeUid: add.employeeUid }}>
+            <Link
+              to={add.to}
+              search={{ employeeUid: add.employeeUid, returnTo }}
+            >
               <Plus /> {add.label}
             </Link>
           </Button>
@@ -596,7 +608,7 @@ function Records({
                       label={`Ubah ${item.actionLabel ?? item.label}`}
                       asChild
                     >
-                      <a href={item.edit}>
+                      <a href={withReturnTo(item.edit, returnTo)}>
                         <Pencil />
                       </a>
                     </DataTableActionButton>
@@ -608,7 +620,7 @@ function Records({
                     >
                       <Link
                         to='/karyawan/pkwt/tambah'
-                        search={{ employeeUid: add.employeeUid }}
+                        search={{ employeeUid: add.employeeUid, returnTo }}
                       >
                         <FilePlus2 />
                       </Link>
@@ -640,6 +652,13 @@ function Records({
     </Card>
   )
 }
+
+function withReturnTo(href: string, returnTo?: string) {
+  if (!returnTo) return href
+  const separator = href.includes('?') ? '&' : '?'
+  return `${href}${separator}returnTo=${encodeURIComponent(returnTo)}`
+}
+
 function RecordSkeleton() {
   return (
     <div className='space-y-3'>

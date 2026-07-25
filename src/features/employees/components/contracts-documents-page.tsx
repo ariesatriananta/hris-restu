@@ -23,6 +23,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -31,6 +37,7 @@ import {
   useContractConflicts,
   useContractKpiSummary,
   useContractList,
+  useEmployeeLookups,
   useManualContractsReconcile,
 } from '../data/queries'
 import type {
@@ -40,7 +47,7 @@ import type {
   PaginatedResult,
   SiteCode,
 } from '../domain'
-import { formatDate } from '../utils'
+import { formatDate, statusLabel } from '../utils'
 import { ContractDetailDrawer } from './contract-detail-drawer'
 import { RecordsTable, type EmployeeRecordRow } from './records-table'
 import { ScheduledStatusChangesTable } from './scheduled-status-changes-table'
@@ -64,7 +71,12 @@ export function ContractsDocumentsPage({
   const contractParams = params(search, 'contract')
   const statusChangeParams = statusChangeParamsFromSearch(search)
   const contracts = useContractList(contractParams)
-  const contractKpis = useContractKpiSummary(contractParams.site)
+  const lookups = useEmployeeLookups()
+  const contractKpis = useContractKpiSummary({
+    site: contractParams.site,
+    productionModule: contractParams.productionModule,
+    productionSection: contractParams.productionSection,
+  })
   const conflicts = useContractConflicts()
   const reconcile = useManualContractsReconcile()
   const contractRows = useMemo(
@@ -87,12 +99,37 @@ export function ContractsDocumentsPage({
             </Button>
           )}
           {activeTab === 'contracts' && (
-            <Button
-              onClick={() => routerNavigate({ to: '/karyawan/pkwt/tambah' })}
-            >
-              <Plus />
-              Tambah kontrak
-            </Button>
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <Button>
+                  <Plus />
+                  Tambah kontrak
+                  <ChevronDown className='size-4' />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end' className='w-52'>
+                <DropdownMenuItem
+                  onSelect={() =>
+                    routerNavigate({
+                      to: '/karyawan/pkwt/tambah',
+                      search: { returnTo },
+                    })
+                  }
+                >
+                  Single Kontrak
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() =>
+                    routerNavigate({
+                      to: '/karyawan/pkwt/tambah-multiple',
+                      search: { returnTo },
+                    })
+                  }
+                >
+                  Multiple Kontrak
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       </div>
@@ -130,9 +167,9 @@ export function ContractsDocumentsPage({
                           })
                         }
                       >
-                        {conflict.employeeNumber} · {conflict.fullName}
+                        {conflict.employeeNumber} - {conflict.fullName}
                       </Button>{' '}
-                      — {conflict.reason} ({conflict.contractNumbers.join(', ')}
+                      - {conflict.reason} ({conflict.contractNumbers.join(', ')}
                       )
                     </li>
                   ))}
@@ -174,6 +211,18 @@ export function ContractsDocumentsPage({
             search={search}
             navigate={navigate}
             prefix='contract'
+            productionModuleOptions={(lookups.data?.productionModules ?? []).map(
+              (item) => ({
+                value: item.uid,
+                label: `${statusLabel(item.siteCode)} - ${item.name}`,
+              })
+            )}
+            productionSectionOptions={uniqueOptions(
+              (lookups.data?.productionModuleSections ?? []).map((item) => ({
+                value: item.sectionUid,
+                label: item.sectionName,
+              }))
+            )}
             statuses={[
               'DRAFT',
               'SCHEDULED',
@@ -186,6 +235,7 @@ export function ContractsDocumentsPage({
               routerNavigate({
                 to: '/karyawan/pkwt/$contractUid/ubah',
                 params: { contractUid: uid },
+                search: { returnTo },
               })
             }
             canEdit={(row) =>
@@ -195,7 +245,7 @@ export function ContractsDocumentsPage({
             onExtendContract={(contract) =>
               routerNavigate({
                 to: '/karyawan/pkwt/tambah',
-                search: { employeeUid: contract.employeeUid },
+                search: { employeeUid: contract.employeeUid, returnTo },
               })
             }
             isPending={contracts.isPending}
@@ -277,6 +327,14 @@ function params(
       prefix === 'contract' && Array.isArray(search.contractCoverage)
         ? (search.contractCoverage as string[])
         : undefined,
+    productionModule:
+      prefix === 'contract' && Array.isArray(search.contractProductionModule)
+        ? (search.contractProductionModule as string[])
+        : undefined,
+    productionSection:
+      prefix === 'contract' && Array.isArray(search.contractProductionSection)
+        ? (search.contractProductionSection as string[])
+        : undefined,
     page:
       typeof search[`${prefix}Page`] === 'number'
         ? (search[`${prefix}Page`] as number)
@@ -284,7 +342,7 @@ function params(
     pageSize:
       typeof search[`${prefix}PageSize`] === 'number'
         ? (search[`${prefix}PageSize`] as number)
-        : 100,
+        : 50,
   }
 }
 function statusChangeParamsFromSearch(
@@ -309,7 +367,7 @@ function statusChangeParamsFromSearch(
     pageSize:
       typeof search.statusChangePageSize === 'number'
         ? search.statusChangePageSize
-        : 100,
+        : 50,
   }
 }
 function ContractKpiCards({
@@ -330,7 +388,7 @@ function ContractKpiCards({
         'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400',
     },
     {
-      label: 'Berakhir ≤ 7 hari',
+      label: 'Berakhir <= 7 hari',
       value: data?.expiringWithin7Days,
       icon: Clock3,
       className:
@@ -418,8 +476,12 @@ function mapContracts(
       employeeUid: item.employeeUid,
       title: item.contractNumber,
       employee: item.employeeName ?? 'Karyawan',
-      site: item.site ?? '—',
-      detail: `${item.contractType} · ${formatDate(item.startDate)} — ${formatDate(item.endDate)}`,
+      site: item.site ?? '-',
+      employeeType: item.employeeType,
+      position: item.positionNameSnapshot,
+      productionModule: item.productionModule,
+      productionSection: item.productionSection,
+      detail: `${formatDate(item.startDate)} - ${formatDate(item.endDate)}`,
       status: item.status,
       coverage: item.isCoverageIssue
         ? 'ACTIVE_WITHOUT_VALID_CONTRACT'
@@ -444,4 +506,13 @@ function expiry(date?: string) {
     : days <= 30
       ? `${days} hari lagi`
       : undefined
+}
+
+function uniqueOptions(options: { value: string; label: string }[]) {
+  const seen = new Set<string>()
+  return options.filter((option) => {
+    if (seen.has(option.value)) return false
+    seen.add(option.value)
+    return true
+  })
 }

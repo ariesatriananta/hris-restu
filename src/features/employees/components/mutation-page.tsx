@@ -1,11 +1,8 @@
-import { useMemo, useState } from 'react'
+﻿import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import {
   flexRender,
   getCoreRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
   useReactTable,
   type ColumnDef,
   type SortingState,
@@ -42,7 +39,7 @@ import { Main } from '@/components/layout/main'
 import {
   useCancelScheduledMutation,
   useEmployee,
-  useHistories,
+  useHistoryList,
   useScheduledMutationList,
 } from '../data/queries'
 import type {
@@ -80,6 +77,7 @@ const filters = [
       'STATUS_CHANGE',
       'TYPE_CHANGE',
       'DEPARTMENT_CHANGE',
+      'GROUP_CHANGE',
       'PRODUCTION_ASSIGNMENT_CHANGE',
       'OTHER',
     ].map((value) => ({ value, label: statusLabel(value) })),
@@ -124,7 +122,7 @@ function getColumns(
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title='Jabatan' />
       ),
-      cell: ({ row }) => row.original.position ?? '—',
+      cell: ({ row }) => row.original.position ?? '-',
     },
     {
       accessorKey: 'changeType',
@@ -168,16 +166,6 @@ export function MutationPage({
   const [sorting, setSorting] = useState<SortingState>([])
   const [selectedHistory, setSelectedHistory] = useState<MutationRow>()
   const [batchMutationOpen, setBatchMutationOpen] = useState(false)
-  const histories = useHistories()
-  const rows = useMemo<MutationRow[]>(() => {
-    return (histories.data ?? []).map((history) => {
-      return {
-        ...history,
-        employeeName: history.employeeName ?? 'Karyawan tidak ditemukan',
-        employeeNumber: history.employeeNumber ?? '—',
-      }
-    })
-  }, [histories.data])
   const tableState = useTableUrlState({
     search,
     navigate,
@@ -187,6 +175,28 @@ export function MutationPage({
       { columnId: 'changeType', searchKey: 'changeType', type: 'array' },
     ],
   })
+  const histories = useHistoryList(
+    {
+      query: tableState.globalFilter,
+      site: tableState.columnFilters.find((item) => item.id === 'site')
+        ?.value as SiteCode[] | undefined,
+      changeType: tableState.columnFilters.find(
+        (item) => item.id === 'changeType'
+      )?.value as string[] | undefined,
+      page: tableState.pagination.pageIndex + 1,
+      pageSize: tableState.pagination.pageSize,
+    },
+    { keepPreviousData: true }
+  )
+  const rows = useMemo<MutationRow[]>(() => {
+    return (histories.data?.items ?? []).map((history) => {
+      return {
+        ...history,
+        employeeName: history.employeeName ?? 'Karyawan tidak ditemukan',
+        employeeNumber: history.employeeNumber ?? '—',
+      }
+    })
+  }, [histories.data?.items])
   // TanStack Table mengembalikan fungsi stateful; pola ini sama dengan tabel starter.
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
@@ -205,10 +215,12 @@ export function MutationPage({
     onGlobalFilterChange: tableState.onGlobalFilterChange,
     onColumnFiltersChange: tableState.onColumnFiltersChange,
     onPaginationChange: tableState.onPaginationChange,
+    manualFiltering: true,
+    manualPagination: true,
+    pageCount: histories.data
+      ? Math.ceil(histories.data.total / histories.data.pageSize)
+      : -1,
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   })
 
   return (
@@ -313,18 +325,18 @@ export function MutationPage({
                 summary={
                   <>
                     Menampilkan{' '}
-                    {table.getFilteredRowModel().rows.length
+                    {(histories.data?.total ?? 0) > 0
                       ? table.getState().pagination.pageIndex *
                           table.getState().pagination.pageSize +
                         1
                       : 0}
-                    –
+                    -
                     {Math.min(
                       (table.getState().pagination.pageIndex + 1) *
                         table.getState().pagination.pageSize,
-                      table.getFilteredRowModel().rows.length
+                      histories.data?.total ?? 0
                     )}{' '}
-                    dari {table.getFilteredRowModel().rows.length} data.
+                    dari {histories.data?.total ?? 0} data.
                   </>
                 }
               />
@@ -447,9 +459,9 @@ function ScheduledMutationsTable({
         ),
         cell: ({ row }) => (
           <div>
-            <p>{row.original.position ?? '—'}</p>
+            <p>{row.original.position ?? '-'}</p>
             <p className='text-[11px] leading-3 text-muted-foreground'>
-              {row.original.department ?? '—'}
+              {row.original.department ?? '-'}
             </p>
           </div>
         ),
@@ -605,7 +617,7 @@ function ScheduledMutationsTable({
                       (query.data?.pageSize ?? 50) +
                     1
                   : 0}
-                –
+                -
                 {Math.min(
                   (query.data?.page ?? 1) * (query.data?.pageSize ?? 50),
                   query.data?.total ?? 0

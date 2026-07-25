@@ -55,7 +55,7 @@ export function EmployeesPage({
           </p>
         </div>
         <Button asChild>
-          <Link to='/karyawan/tambah-karyawan'>
+          <Link to='/karyawan/tambah-karyawan' search={{ returnTo }}>
             <Plus /> Tambah karyawan
           </Link>
         </Button>

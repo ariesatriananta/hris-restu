@@ -166,6 +166,8 @@ export interface EmployeeContract {
   terminationReason?: string
   positionNameSnapshot?: string
   siteNameSnapshot?: string
+  productionModule?: string
+  productionSection?: string
   salaryOrRateNotes?: string
   notes?: string
   issuedFile?: MockFileAttachment
@@ -263,6 +265,17 @@ export interface BatchMutationResult {
   applied: number
   scheduled: number
 }
+export interface ContractBatchItem {
+  employeeUid: string
+  input: {
+    startDate: string
+    endDate: string
+    notes?: string
+  }
+}
+export interface ContractBatchResult {
+  created: { uid: string; employeeUid: string; contractNumber: string }[]
+}
 export interface ScheduledEmployeeMutation {
   uid: string
   employeeUid: string
@@ -321,8 +334,11 @@ export interface EmployeeRecordListParams {
   query?: string
   site?: SiteCode[]
   status?: string[]
+  changeType?: string[]
   coverage?: string[]
   action?: string[]
+  productionModule?: string[]
+  productionSection?: string[]
   page?: number
   pageSize?: number
 }
@@ -345,6 +361,7 @@ export interface EmployeeRepository {
   getByUid(uid: string): Promise<Employee | null>
   save(input: EmployeeInput, uid?: string): Promise<Employee>
   histories(employeeUid?: string): Promise<EmploymentHistory[]>
+  historyList(params: EmployeeRecordListParams): Promise<PaginatedResult<EmploymentHistory>>
   applyMutation(
     employeeUid: string,
     input: MutationInput

@@ -10,6 +10,8 @@ import type {
   ContractLifecycleAction,
   ContractLifecycleConflict,
   ContractKpiSummary,
+  ContractBatchItem,
+  ContractBatchResult,
   ContractReconcileResult,
   ScheduledEmployeeMutation,
   ScheduledEmployeeStatusChange,
@@ -75,6 +77,16 @@ export const httpEmployeeRepository: EmployeeRepository = {
       )
     ).data
   },
+  async historyList(input) {
+    return (
+      await apiClient.get<PaginatedResult<EmploymentHistory>>(
+        '/employees/histories',
+        {
+          params: recordParams(input),
+        }
+      )
+    ).data
+  },
   async applyMutation(uid, input) {
     const { productionModuleUid: _productionModuleUid, ...body } = input
     const response = await apiClient.post<{ uid: string }>(
@@ -137,8 +149,11 @@ const recordParams = (input: EmployeeRecordListParams) => ({
   ...input,
   site: input.site?.join(','),
   status: input.status?.join(','),
+  changeType: input.changeType?.join(','),
   coverage: input.coverage?.join(','),
   action: input.action?.join(','),
+  productionModule: input.productionModule?.join(','),
+  productionSection: input.productionSection?.join(','),
 })
 
 export const listContracts = async (input: EmployeeRecordListParams) =>
@@ -151,10 +166,19 @@ export const listContracts = async (input: EmployeeRecordListParams) =>
     )
   ).data
 
-export const getContractKpiSummary = async (site?: string[]) =>
+export const getContractKpiSummary = async (
+  input: Pick<
+    EmployeeRecordListParams,
+    'site' | 'productionModule' | 'productionSection'
+  >
+) =>
   (
     await apiClient.get<ContractKpiSummary>('/employees/contracts/summary', {
-      params: site?.length ? { site: site.join(',') } : undefined,
+      params: {
+        site: input.site?.join(','),
+        productionModule: input.productionModule?.join(','),
+        productionSection: input.productionSection?.join(','),
+      },
     })
   ).data
 
@@ -234,6 +258,13 @@ export const applyBatchMutation = async (items: BatchMutationItem[]) =>
         const { productionModuleUid: _productionModuleUid, ...body } = input
         return { employeeUid, input: body }
       }),
+    })
+  ).data
+
+export const saveContractsBatch = async (items: ContractBatchItem[]) =>
+  (
+    await apiClient.post<ContractBatchResult>('/employees/contracts/batch', {
+      items,
     })
   ).data
 

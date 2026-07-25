@@ -19,6 +19,7 @@ export const Route = createFileRoute('/_authenticated/karyawan/riwayat-mutasi')(
             'DEMOTION',
             'STATUS_CHANGE',
             'TYPE_CHANGE',
+            'DEPARTMENT_CHANGE',
             'GROUP_CHANGE',
             'PRODUCTION_ASSIGNMENT_CHANGE',
             'OTHER',

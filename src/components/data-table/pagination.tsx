@@ -46,9 +46,6 @@ export function DataTablePagination<TData>({
         {summary && (
           <div className='text-sm text-muted-foreground'>{summary}</div>
         )}
-        <div className='flex w-25 items-center justify-center text-sm font-medium @2xl/content:hidden'>
-          Page {currentPage} of {totalPages}
-        </div>
         <div className='flex items-center gap-2 @max-2xl/content:flex-row-reverse'>
           <Select
             value={`${table.getState().pagination.pageSize}`}

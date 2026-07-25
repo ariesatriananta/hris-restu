@@ -18,9 +18,9 @@ import type {
   MutationInput,
   BatchMutationItem,
   ContractLifecycleAction,
+  ContractBatchItem,
   ContractKpiSummary,
   ContractReconcileResult,
-  SiteCode,
   ScheduledStatusChangeAction,
 } from '../domain'
 import {
@@ -30,6 +30,7 @@ import {
   transitionContract,
   listContracts,
   getContractKpiSummary,
+  saveContractsBatch,
   listContractConflicts,
   listDocuments,
   listScheduledMutations,
@@ -52,6 +53,8 @@ export const employeeKeys = {
   detail: (uid: string) => [...employeeKeys.all, 'detail', uid] as const,
   histories: (uid?: string) =>
     [...employeeKeys.all, 'histories', uid ?? 'all'] as const,
+  historyList: (params: EmployeeRecordListParams) =>
+    [...employeeKeys.all, 'history-list', params] as const,
   contracts: (uid?: string) =>
     [...employeeKeys.all, 'contracts', uid ?? 'all'] as const,
   documents: (uid?: string) =>
@@ -59,8 +62,12 @@ export const employeeKeys = {
   lookups: () => [...employeeKeys.all, 'lookups'] as const,
   contractList: (params: EmployeeRecordListParams) =>
     [...employeeKeys.all, 'contract-list', params] as const,
-  contractKpiSummary: (site?: SiteCode[]) =>
-    [...employeeKeys.all, 'contract-kpi-summary', site ?? []] as const,
+  contractKpiSummary: (
+    params: Pick<
+      EmployeeRecordListParams,
+      'site' | 'productionModule' | 'productionSection'
+    >
+  ) => [...employeeKeys.all, 'contract-kpi-summary', params] as const,
   documentList: (params: EmployeeRecordListParams) =>
     [...employeeKeys.all, 'document-list', params] as const,
   contract: (uid: string) => [...employeeKeys.all, 'contract', uid] as const,
@@ -118,11 +125,23 @@ export const useHistories = (uid?: string) =>
       queryFn: () => httpEmployeeRepository.histories(uid),
     })
   )
+export const useHistoryList = (
+  params: EmployeeRecordListParams,
+  options?: { keepPreviousData?: boolean }
+) =>
+  useQuery(
+    queryOptions({
+      queryKey: employeeKeys.historyList(params),
+      queryFn: () => httpEmployeeRepository.historyList(params),
+      placeholderData: options?.keepPreviousData ? keepPreviousData : undefined,
+    })
+  )
 export const useContracts = (uid?: string) =>
   useQuery(
     queryOptions({
       queryKey: employeeKeys.contracts(uid),
       queryFn: () => httpEmployeeRepository.contracts(uid),
+      enabled: Boolean(uid),
     })
   )
 export const useDocuments = (uid?: string) =>
@@ -140,11 +159,16 @@ export const useContractList = (params: EmployeeRecordListParams) =>
       queryFn: () => listContracts(params),
     })
   )
-export const useContractKpiSummary = (site?: SiteCode[]) =>
+export const useContractKpiSummary = (
+  params: Pick<
+    EmployeeRecordListParams,
+    'site' | 'productionModule' | 'productionSection'
+  >
+) =>
   useQuery(
     queryOptions({
-      queryKey: employeeKeys.contractKpiSummary(site),
-      queryFn: (): Promise<ContractKpiSummary> => getContractKpiSummary(site),
+      queryKey: employeeKeys.contractKpiSummary(params),
+      queryFn: (): Promise<ContractKpiSummary> => getContractKpiSummary(params),
       staleTime: 30 * 1000,
     })
   )
@@ -246,6 +270,13 @@ export function useApplyBatchMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (items: BatchMutationItem[]) => applyBatchMutation(items),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function useSaveContractsBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (items: ContractBatchItem[]) => saveContractsBatch(items),
     onSuccess: () => invalidate(queryClient),
   })
 }

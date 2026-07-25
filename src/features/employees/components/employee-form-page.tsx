@@ -1,6 +1,7 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
+import { safeInternalReturnTo } from '@/lib/list-return-to'
 import { Button } from '@/components/ui/button'
 import { Main } from '@/components/layout/main'
 import { uploadEmployeeFile } from '../data/files'
@@ -26,6 +27,7 @@ export function EmployeeFormPage({
   const save = useSaveEmployee()
   const saveDocument = useSaveDocument()
   const isEdit = Boolean(employeeUid)
+  const listReturnTo = safeInternalReturnTo(returnTo, '/karyawan/data-karyawan')
 
   if (isEdit && employee.isPending) return <Main>Memuat data karyawan...</Main>
   if (isEdit && (!employee.data || employee.isError))
@@ -44,7 +46,7 @@ export function EmployeeFormPage({
           to={
             isEdit
               ? '/karyawan/data-karyawan/$employeeUid'
-              : '/karyawan/data-karyawan'
+              : listReturnTo
           }
           params={isEdit ? { employeeUid: employeeUid! } : undefined}
           search={isEdit ? { returnTo } : undefined}
@@ -90,13 +92,13 @@ export function EmployeeFormPage({
           })
         }}
         onCancel={() =>
-          navigate({
-            to: isEdit
-              ? '/karyawan/data-karyawan/$employeeUid'
-              : '/karyawan/data-karyawan',
-            params: isEdit ? { employeeUid: employeeUid! } : undefined,
-            search: isEdit ? { returnTo } : undefined,
-          })
+          isEdit
+            ? navigate({
+                to: '/karyawan/data-karyawan/$employeeUid',
+                params: { employeeUid: employeeUid! },
+                search: { returnTo },
+              })
+            : navigate({ to: listReturnTo })
         }
       />
     </Main>

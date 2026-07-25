@@ -64,6 +64,7 @@ export function cronConflict(input: {
   site: string
   currentStatus: string
   activeContracts: number
+  nonCancelledContracts?: number
   activeContractNumbers?: string | null
 }) {
   return {
@@ -74,6 +75,10 @@ export function cronConflict(input: {
     reason:
       input.activeContracts > 1
         ? 'Lebih dari satu kontrak aktif yang masih berlaku.'
+        : input.currentStatus === 'INACTIVE' &&
+            input.activeContracts === 0 &&
+            Number(input.nonCancelledContracts ?? 0) === 0
+          ? 'Karyawan Nonaktif belum memiliki kontrak. Periksa onboarding dan buat kontrak bila karyawan siap diproses.'
         : input.activeContracts === 0
           ? 'Karyawan Aktif belum memiliki kontrak aktif yang berlaku. Periksa kontrak berakhir dan buat kontrak pengganti bila diperlukan.'
         : `Status karyawan ${input.currentStatus} tetapi masih memiliki kontrak aktif.`,

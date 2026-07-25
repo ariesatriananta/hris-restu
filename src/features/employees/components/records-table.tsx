@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import {
   flexRender,
   getCoreRowModel,
@@ -11,12 +11,16 @@ import {
   type SortingState,
 } from '@tanstack/react-table'
 import {
+  Download,
   Eye,
+  ExternalLink,
   FilePlus2,
   FileText,
+  ImageIcon,
   Pencil,
   Printer,
   RefreshCcw,
+  ScrollText,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { currentListReturnTo } from '@/lib/list-return-to'
@@ -26,6 +30,14 @@ import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   Table,
   TableBody,
@@ -51,6 +63,10 @@ export type EmployeeRecordRow = {
   title: string
   employee: string
   site: string
+  employeeType?: string
+  position?: string
+  productionModule?: string
+  productionSection?: string
   status: string
   detail: string
   expiry?: string
@@ -68,6 +84,8 @@ export function RecordsTable({
   canEdit = () => true,
   onView,
   onExtendContract,
+  productionModuleOptions = [],
+  productionSectionOptions = [],
   isPending,
   isError,
   onRetry,
@@ -81,13 +99,17 @@ export function RecordsTable({
   canEdit?: (row: EmployeeRecordRow) => boolean
   onView?: (row: EmployeeRecordRow) => void
   onExtendContract?: (contract: EmployeeContract) => void
+  productionModuleOptions?: { value: string; label: string }[]
+  productionSectionOptions?: { value: string; label: string }[]
   isPending: boolean
   isError: boolean
   onRetry: () => void
 }) {
   const returnTo = currentListReturnTo()
+  const routerNavigate = useNavigate()
   const [sorting, setSorting] = useState<SortingState>([])
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const [previewContract, setPreviewContract] = useState<EmployeeContract>()
   const [isBulkPrintPending, setBulkPrintPending] = useState(false)
   const url = useTableUrlState({
     search,
@@ -102,6 +124,16 @@ export function RecordsTable({
             {
               columnId: 'coverage',
               searchKey: 'contractCoverage',
+              type: 'array' as const,
+            },
+            {
+              columnId: 'productionModule',
+              searchKey: 'contractProductionModule',
+              type: 'array' as const,
+            },
+            {
+              columnId: 'productionSection',
+              searchKey: 'contractProductionSection',
               type: 'array' as const,
             },
           ]
@@ -141,6 +173,20 @@ export function RecordsTable({
               tdClassName: 'w-9 px-2',
             },
           } satisfies ColumnDef<EmployeeRecordRow>,
+          {
+            id: 'productionModule',
+            accessorFn: (row) => row.contract?.productionModule,
+            enableHiding: false,
+            filterFn: (row, id, value: string[]) =>
+              value.includes(row.getValue(id)),
+          } satisfies ColumnDef<EmployeeRecordRow>,
+          {
+            id: 'productionSection',
+            accessorFn: (row) => row.contract?.productionSection,
+            enableHiding: false,
+            filterFn: (row, id, value: string[]) =>
+              value.includes(row.getValue(id)),
+          } satisfies ColumnDef<EmployeeRecordRow>,
         ]
       : []),
     {
@@ -153,12 +199,28 @@ export function RecordsTable({
       ),
       cell: ({ row }) => (
         <div>
-          <p className='font-medium'>{row.original.title}</p>
+          {prefix === 'contract' &&
+          onView &&
+          !row.original.contract?.isMissingContract ? (
+            <Button
+              type='button'
+              variant='link'
+              className='h-auto p-0 text-left font-medium'
+              onClick={() => onView(row.original)}
+            >
+              {row.original.title}
+            </Button>
+          ) : (
+            <p className='font-medium'>{row.original.title}</p>
+          )}
           <p className='text-[11px] leading-3 text-muted-foreground'>
             {row.original.detail}
           </p>
         </div>
       ),
+      meta: {
+        label: prefix === 'contract' ? 'Kontrak' : 'Dokumen',
+      },
     },
     {
       accessorKey: 'employee',
@@ -166,22 +228,80 @@ export function RecordsTable({
         <DataTableColumnHeader column={column} title='Karyawan' />
       ),
       cell: ({ row }) => (
-        <Link
-          className='font-medium text-primary hover:underline'
-          to='/karyawan/data-karyawan/$employeeUid'
-          params={{ employeeUid: row.original.employeeUid }}
-          search={{ returnTo }}
-        >
-          {row.original.employee}
-        </Link>
+        <div>
+          <Link
+            className='font-medium text-primary hover:underline'
+            to='/karyawan/data-karyawan/$employeeUid'
+            params={{ employeeUid: row.original.employeeUid }}
+            search={{ returnTo }}
+          >
+            {row.original.employee}
+          </Link>
+          {prefix === 'contract' && (
+            <p className='text-[11px] leading-3 text-muted-foreground'>
+              {row.original.site || '-'}
+            </p>
+          )}
+        </div>
       ),
+      meta: {
+        label: 'Karyawan',
+      },
     },
+    ...(prefix === 'contract'
+      ? [
+          {
+            id: 'typePosition',
+            header: ({ column }) => (
+              <DataTableColumnHeader column={column} title='Jenis & Jabatan' />
+            ),
+            cell: ({ row }) => (
+              <div>
+                <p className='font-medium'>
+                  {row.original.employeeType
+                    ? statusLabel(row.original.employeeType)
+                    : '-'}
+                </p>
+                <p className='text-[11px] leading-3 text-muted-foreground'>
+                  {row.original.position || '-'}
+                </p>
+              </div>
+            ),
+            meta: {
+              label: 'Jenis & Jabatan',
+            },
+          } satisfies ColumnDef<EmployeeRecordRow>,
+          {
+            id: 'productionArea',
+            header: ({ column }) => (
+              <DataTableColumnHeader column={column} title='Bagian Produksi' />
+            ),
+            cell: ({ row }) => (
+              <div>
+                <p className='font-medium'>
+                  {row.original.productionModule || '-'}
+                </p>
+                <p className='text-[11px] leading-3 text-muted-foreground'>
+                  {row.original.productionSection || '-'}
+                </p>
+              </div>
+            ),
+            meta: {
+              label: 'Bagian Produksi',
+            },
+          } satisfies ColumnDef<EmployeeRecordRow>,
+        ]
+      : []),
     {
       accessorKey: 'site',
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title='Site' />
       ),
+      enableHiding: prefix !== 'contract',
       filterFn: (row, id, value: string[]) => value.includes(row.getValue(id)),
+      meta: {
+        label: 'Site',
+      },
     },
     {
       accessorKey: 'status',
@@ -190,14 +310,65 @@ export function RecordsTable({
       ),
       cell: ({ row }) => (
         <div className='flex gap-1'>
-          <Badge variant='secondary'>{statusLabel(row.original.status)}</Badge>
+          <Badge
+            variant={
+              prefix === 'contract'
+                ? contractStatusBadgeVariant(row.original.status)
+                : 'secondary'
+            }
+            className={
+              prefix === 'contract'
+                ? contractStatusBadgeClassName(row.original.status)
+                : undefined
+            }
+          >
+            {statusLabel(row.original.status)}
+          </Badge>
           {row.original.expiry && (
             <Badge variant='outline'>{row.original.expiry}</Badge>
           )}
         </div>
       ),
       filterFn: (row, id, value: string[]) => value.includes(row.getValue(id)),
+      meta: {
+        label: 'Status',
+      },
     },
+    ...(prefix === 'contract'
+      ? [
+          {
+            id: 'issuedFile',
+            header: ({ column }) => (
+              <DataTableColumnHeader column={column} title='Dokumen Kontrak' />
+            ),
+            cell: ({ row }) => {
+              const file = row.original.contract?.issuedFile
+              return (
+                <Button
+                  type='button'
+                  variant='link'
+                  className={cn(
+                    'h-auto max-w-32 justify-start truncate px-0 text-left text-xs',
+                    !file?.url && 'text-destructive hover:text-destructive/80'
+                  )}
+                  title={file?.originalName ?? 'Belum ada'}
+                  onClick={() => setPreviewContract(row.original.contract)}
+                >
+                  <span className='block truncate'>
+                    {file?.originalName ?? 'Belum ada'}
+                  </span>
+                </Button>
+              )
+            },
+            enableSorting: false,
+            meta: {
+              label: 'Dokumen Kontrak',
+              className: 'w-36 max-w-36',
+              tdClassName: 'w-36 max-w-36',
+            },
+          } satisfies ColumnDef<EmployeeRecordRow>,
+        ]
+      : []),
     {
       id: 'coverage',
       accessorFn: (row) => row.coverage ?? 'NORMAL',
@@ -268,11 +439,15 @@ export function RecordsTable({
       globalFilter: url.globalFilter,
       columnFilters: url.columnFilters,
       pagination: url.pagination,
-      columnVisibility: { coverage: false },
+      columnVisibility: {
+        coverage: false,
+        ...(prefix === 'contract'
+          ? { site: false, productionModule: false, productionSection: false }
+          : {}),
+      },
       rowSelection,
     },
-    enableRowSelection: (row) =>
-      prefix === 'contract' && !row.original.contract?.isMissingContract,
+    enableRowSelection: prefix === 'contract',
     getRowId: (row) => row.uid,
     onSortingChange: setSorting,
     onRowSelectionChange: setRowSelection,
@@ -287,6 +462,7 @@ export function RecordsTable({
     pageCount: Math.max(1, Math.ceil(data.total / data.pageSize)),
   })
   return (
+    <>
     <div className='space-y-4'>
       <DataTableToolbar
         table={table}
@@ -321,9 +497,19 @@ export function RecordsTable({
                     },
                     {
                       value: 'EXPIRING_WITHIN_7_DAYS',
-                      label: 'Berakhir ≤ 7 hari',
+                      label: 'Berakhir <= 7 hari',
                     },
                   ],
+                },
+                {
+                  columnId: 'productionModule',
+                  title: 'Modul Produksi',
+                  options: productionModuleOptions,
+                },
+                {
+                  columnId: 'productionSection',
+                  title: 'Bagian Produksi',
+                  options: productionSectionOptions,
                 },
               ]
             : []),
@@ -341,9 +527,10 @@ export function RecordsTable({
             className='h-8'
             disabled={isBulkPrintPending}
             onClick={async () => {
-              const contractUids = table
-                .getFilteredSelectedRowModel()
-                .rows.map((row) => row.original.uid)
+              const selectedRows = table.getFilteredSelectedRowModel().rows
+              const contractUids = selectedRows
+                .filter((row) => !row.original.contract?.isMissingContract)
+                .map((row) => row.original.uid)
               if (!contractUids.length) return
               if (contractUids.length > 50) {
                 toast.error('Bulk cetak maksimal 50 kontrak sekali proses.')
@@ -368,7 +555,46 @@ export function RecordsTable({
               }
             }}
           >
-            <Printer /> Cetak PKWT
+            <Printer /> Cetak Template
+          </Button>
+          <Button
+            variant='outline'
+            size='sm'
+            className='h-8'
+            onClick={() => {
+              const selectedRows = table.getFilteredSelectedRowModel().rows
+              const employeeUids = [
+                ...new Set(selectedRows.map((row) => row.original.employeeUid)),
+              ]
+              if (!employeeUids.length) return
+              if (employeeUids.length > 25) {
+                toast.error('Create multiple kontrak maksimal 25 karyawan.')
+                return
+              }
+              const unsupported = selectedRows.filter(
+                (row) =>
+                  !['BORONGAN', 'TRAINING'].includes(
+                    row.original.contract?.employeeType ??
+                      row.original.employeeType ??
+                      ''
+                  )
+              )
+              if (unsupported.length) {
+                toast.error(
+                  'Multiple kontrak hanya untuk karyawan Borongan atau Training.'
+                )
+                return
+              }
+              routerNavigate({
+                to: '/karyawan/pkwt/tambah-multiple',
+                search: {
+                  returnTo,
+                  employeeUids: employeeUids.join(','),
+                },
+              })
+            }}
+          >
+            <ScrollText /> Create Multiple Kontrak
           </Button>
         </DataTableBulkActions>
       )}
@@ -449,7 +675,7 @@ export function RecordsTable({
             summary={
               <>
                 Menampilkan{' '}
-                {data.total ? (data.page - 1) * data.pageSize + 1 : 0}–
+                {data.total ? (data.page - 1) * data.pageSize + 1 : 0}-
                 {Math.min(data.page * data.pageSize, data.total)} dari{' '}
                 {data.total} data.
               </>
@@ -457,6 +683,178 @@ export function RecordsTable({
           />
         </>
       )}
+    </div>
+    {prefix === 'contract' && (
+      <ContractFilePreviewDialog
+        contract={previewContract}
+        returnTo={returnTo}
+        onOpenChange={(open) => {
+          if (!open) setPreviewContract(undefined)
+        }}
+      />
+    )}
+    </>
+  )
+}
+
+function contractStatusBadgeVariant(
+  status: string
+): 'default' | 'secondary' | 'destructive' {
+  if (status === 'ACTIVE') return 'default'
+  if (status === 'SCHEDULED') return 'default'
+  if (status === 'DRAFT') return 'secondary'
+  if (['EXPIRED', 'TERMINATED', 'MISSING'].includes(status)) {
+    return 'destructive'
+  }
+  return 'secondary'
+}
+
+function contractStatusBadgeClassName(status: string) {
+  if (status === 'CANCELLED') {
+    return 'border-transparent bg-amber-500 text-white dark:bg-amber-600'
+  }
+  return undefined
+}
+
+function ContractFilePreviewDialog({
+  contract,
+  returnTo,
+  onOpenChange,
+}: {
+  contract?: EmployeeContract
+  returnTo?: string
+  onOpenChange: (open: boolean) => void
+}) {
+  const file = contract?.issuedFile
+  const open = Boolean(contract)
+  const [isTemplatePending, setTemplatePending] = useState(false)
+  const downloadTemplate = async () => {
+    if (!contract || contract.isMissingContract) return
+    const popup = window.open('', '_blank')
+    setTemplatePending(true)
+    try {
+      await apiClient.post(`/employees/contracts/${contract.uid}/print-snapshot`)
+      await apiClient.post(
+        `/employees/contracts/${contract.uid}/normalize-print-snapshot`
+      )
+      const target = `/karyawan/pkwt/${contract.uid}/cetak`
+      if (popup) popup.location.href = target
+      else window.open(target, '_blank')
+    } catch (error) {
+      popup?.close()
+      const message = (error as { response?: { data?: { message?: string } } })
+        .response?.data?.message
+      toast.error(message ?? 'Template kontrak gagal dibuat.')
+    } finally {
+      setTemplatePending(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-3xl'>
+        <DialogHeader>
+          <DialogTitle>Preview dokumen kontrak</DialogTitle>
+          <DialogDescription>
+            {contract?.contractNumber ?? 'Kontrak'} -{' '}
+            {file?.originalName ?? 'Dokumen belum diunggah'}
+          </DialogDescription>
+        </DialogHeader>
+        {file?.url ? (
+          <>
+            <AttachmentPreview
+              url={file.url}
+              mimeType={file.mimeType}
+              originalName={file.originalName}
+            />
+            <DialogFooter className='gap-2 sm:justify-end'>
+              <Button size='sm' variant='outline' asChild>
+                <a href={file.url} target='_blank' rel='noreferrer'>
+                  <ExternalLink /> Buka File
+                </a>
+              </Button>
+              <Button size='sm' variant='outline' asChild>
+                <a href={file.url} download>
+                  <Download /> Download
+                </a>
+              </Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <div className='flex items-center gap-2 rounded-md border border-dashed p-4 text-sm text-muted-foreground'>
+              <FileText />
+              {contract?.isMissingContract
+                ? 'Kontrak belum dibuat, sehingga dokumen kontrak belum dapat diunggah.'
+                : 'Scan kontrak asli bertanda tangan belum diunggah.'}
+            </div>
+            <DialogFooter className='gap-2 sm:justify-end'>
+              {!contract?.isMissingContract && contract && (
+                <Button size='sm' variant='outline' asChild>
+                  <Link
+                    to='/karyawan/pkwt/$contractUid/ubah'
+                    params={{ contractUid: contract.uid }}
+                    search={{ returnTo }}
+                  >
+                    <FilePlus2 /> Upload Dokumen
+                  </Link>
+                </Button>
+              )}
+              {!contract?.isMissingContract && contract && (
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={isTemplatePending}
+                  onClick={() => void downloadTemplate()}
+                >
+                  <Printer /> Cetak Template Kontrak
+                </Button>
+              )}
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function AttachmentPreview({
+  url,
+  mimeType,
+  originalName,
+}: {
+  url: string
+  mimeType: string
+  originalName: string
+}) {
+  if (mimeType.startsWith('image/')) {
+    return (
+      <div className='overflow-hidden rounded-md border bg-muted'>
+        <img
+          src={url}
+          alt={`Pratinjau ${originalName}`}
+          className='max-h-[60svh] w-full object-contain'
+        />
+      </div>
+    )
+  }
+
+  if (mimeType === 'application/pdf') {
+    return (
+      <div className='overflow-hidden rounded-md border bg-muted'>
+        <iframe
+          title={`Pratinjau ${originalName}`}
+          src={url}
+          className='h-[60svh] w-full bg-background'
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className='flex items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground'>
+      {mimeType.startsWith('image/') ? <ImageIcon /> : <FileText />}
+      Pratinjau tidak tersedia untuk tipe file ini.
     </div>
   )
 }

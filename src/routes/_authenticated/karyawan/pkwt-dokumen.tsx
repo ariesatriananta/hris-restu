@@ -9,13 +9,24 @@ export const Route = createFileRoute('/_authenticated/karyawan/pkwt-dokumen')({
     contractFilter: z.string().optional(),
     contractSite: z.array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])).optional(),
     contractStatus: z
-      .array(z.enum(['DRAFT', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED']))
+      .array(
+        z.enum([
+          'DRAFT',
+          'SCHEDULED',
+          'ACTIVE',
+          'EXPIRED',
+          'TERMINATED',
+          'CANCELLED',
+        ])
+      )
       .optional(),
     contractCoverage: z
       .array(
         z.enum(['ACTIVE_WITHOUT_VALID_CONTRACT', 'EXPIRING_WITHIN_7_DAYS'])
       )
       .optional(),
+    contractProductionModule: z.array(z.string()).optional(),
+    contractProductionSection: z.array(z.string()).optional(),
     documentPage: z.number().int().positive().optional(),
     documentPageSize: z.number().int().min(1).max(500).optional(),
     documentFilter: z.string().optional(),
