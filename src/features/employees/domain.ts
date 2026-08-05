@@ -129,6 +129,7 @@ export type ContractLifecycleAction =
   | 'terminate'
   | 'resign'
   | 'cancel'
+  | 'cancel_activation'
   | 'close_expired_terminate'
   | 'close_expired_resign'
 export interface EmploymentHistory {
@@ -287,11 +288,6 @@ export interface ContractBatchItem {
 export interface ContractBatchResult {
   created: { uid: string; employeeUid: string; contractNumber: string }[]
 }
-export interface ContractPeriodCorrectionInput {
-  startDate: string
-  endDate?: string
-  reason: string
-}
 export interface ScheduledEmployeeMutation {
   uid: string
   employeeUid: string
@@ -377,7 +373,9 @@ export interface EmployeeRepository {
   getByUid(uid: string): Promise<Employee | null>
   save(input: EmployeeInput, uid?: string): Promise<Employee>
   histories(employeeUid?: string): Promise<EmploymentHistory[]>
-  historyList(params: EmployeeRecordListParams): Promise<PaginatedResult<EmploymentHistory>>
+  historyList(
+    params: EmployeeRecordListParams
+  ): Promise<PaginatedResult<EmploymentHistory>>
   applyMutation(
     employeeUid: string,
     input: MutationInput

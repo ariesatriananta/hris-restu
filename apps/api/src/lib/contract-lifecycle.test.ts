@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from './errors.js'
 import {
+  activeCancellationBlockReason,
   assertContractStartDate,
   cronConflict,
   lifecycleNextStatus,
@@ -71,5 +72,35 @@ describe('cronConflict', () => {
     ).toBe(
       'Karyawan Nonaktif belum memiliki kontrak. Periksa onboarding dan buat kontrak bila karyawan siap diproses.'
     )
+  })
+})
+
+describe('activeCancellationBlockReason', () => {
+  const emptyUsage = {
+    hasSignedContract: false,
+    hasAttendance: false,
+    hasProduction: false,
+    hasPayroll: false,
+    hasLaterHistory: false,
+    hasLaterLifecycle: false,
+    hasOpenScheduledStatusChange: false,
+  }
+
+  it('mengizinkan pembatalan aktivasi yang belum dipakai operasional', () => {
+    expect(activeCancellationBlockReason(emptyUsage)).toBeUndefined()
+  })
+
+  it.each([
+    ['hasSignedContract', 'tanda tangan'],
+    ['hasAttendance', 'attendance'],
+    ['hasProduction', 'produksi'],
+    ['hasPayroll', 'payroll'],
+    ['hasLaterHistory', 'histori'],
+    ['hasLaterLifecycle', 'lifecycle'],
+    ['hasOpenScheduledStatusChange', 'terjadwal'],
+  ] as const)('menolak ketika %s terdeteksi', (key, message) => {
+    expect(
+      activeCancellationBlockReason({ ...emptyUsage, [key]: true })
+    ).toContain(message)
   })
 })

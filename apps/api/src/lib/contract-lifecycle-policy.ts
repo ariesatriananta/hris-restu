@@ -87,3 +87,37 @@ export function cronConflict(input: {
       .filter(Boolean),
   }
 }
+
+export type ActiveCancellationUsage = {
+  hasSignedContract: boolean
+  hasAttendance: boolean
+  hasProduction: boolean
+  hasPayroll: boolean
+  hasLaterHistory: boolean
+  hasLaterLifecycle: boolean
+  hasOpenScheduledStatusChange: boolean
+}
+
+export function activeCancellationBlockReason(
+  usage: ActiveCancellationUsage
+) {
+  if (usage.hasSignedContract) {
+    return 'Aktivasi tidak dapat dibatalkan karena kontrak sudah memiliki tanggal tanda tangan atau scan kontrak asli.'
+  }
+  if (usage.hasAttendance) {
+    return 'Aktivasi tidak dapat dibatalkan karena sudah ada data attendance sejak kontrak diaktifkan.'
+  }
+  if (usage.hasProduction) {
+    return 'Aktivasi tidak dapat dibatalkan karena sudah ada transaksi produksi sejak kontrak diaktifkan.'
+  }
+  if (usage.hasPayroll) {
+    return 'Aktivasi tidak dapat dibatalkan karena kontrak sudah masuk proses payroll.'
+  }
+  if (usage.hasLaterHistory || usage.hasLaterLifecycle) {
+    return 'Aktivasi tidak dapat dibatalkan karena sudah ada histori kerja atau lifecycle lanjutan.'
+  }
+  if (usage.hasOpenScheduledStatusChange) {
+    return 'Aktivasi tidak dapat dibatalkan karena masih ada status kerja terjadwal. Batalkan jadwal tersebut terlebih dahulu.'
+  }
+  return undefined
+}

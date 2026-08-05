@@ -404,36 +404,42 @@ export function EmployeeDetail({
               employeeUid: data.uid,
               label: 'Tambah PKWT',
             }}
-            items={contracts.data?.map((item) => ({
-              actionLabel: item.contractNumber,
-              label: item.contractNumber,
-              content: (
-                <div className='min-w-0 flex-1'>
-                  <div className='flex flex-wrap items-center gap-2'>
-                    <span className='font-medium'>{item.contractNumber}</span>
-                    <Badge
-                      variant={contractStatusBadgeVariant(item.status)}
-                      className={contractStatusBadgeClassName(item.status)}
-                    >
-                      {statusLabel(item.status)}
-                    </Badge>
+            items={contracts.data
+              ?.slice()
+              .sort((a, b) => b.sequenceNumber - a.sequenceNumber)
+              .map((item) => ({
+                actionLabel: item.contractNumber,
+                label: item.contractNumber,
+                content: (
+                  <div className='min-w-0 flex-1'>
+                    <div className='flex flex-wrap items-center gap-2'>
+                      <span className='font-medium'>{item.contractNumber}</span>
+                      <Badge
+                        variant={contractStatusBadgeVariant(item.status)}
+                        className={contractStatusBadgeClassName(item.status)}
+                      >
+                        {statusLabel(item.status)}
+                      </Badge>
+                    </div>
+                    <div className='mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground'>
+                      <span>{item.contractType}</span>
+                      <span aria-hidden='true'>·</span>
+                      <span>
+                        {formatDate(item.startDate)} —{' '}
+                        {formatDate(item.endDate)}
+                      </span>
+                      <span aria-hidden='true'>·</span>
+                      <span>Kontrak ke-{item.sequenceNumber}</span>
+                    </div>
                   </div>
-                  <div className='mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground'>
-                    <span>{item.contractType}</span>
-                    <span aria-hidden='true'>·</span>
-                    <span>
-                      {formatDate(item.startDate)} — {formatDate(item.endDate)}
-                    </span>
-                    <span aria-hidden='true'>·</span>
-                    <span>Kontrak ke-{item.sequenceNumber}</span>
-                  </div>
-                </div>
-              ),
-              edit: ['EXPIRED', 'TERMINATED', 'CANCELLED'].includes(item.status)
-                ? undefined
-                : `/karyawan/pkwt/${item.uid}/ubah`,
-              onDetail: () => setSelectedContractUid(item.uid),
-            }))}
+                ),
+                edit: ['EXPIRED', 'TERMINATED', 'CANCELLED'].includes(
+                  item.status
+                )
+                  ? undefined
+                  : `/karyawan/pkwt/${item.uid}/ubah`,
+                onDetail: () => setSelectedContractUid(item.uid),
+              }))}
           />
         </TabsContent>
         <TabsContent value='dokumen'>

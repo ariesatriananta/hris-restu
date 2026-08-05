@@ -5,6 +5,7 @@ import { pool } from '../db.js'
 import { writeAudit, writeSystemAudit } from './audit.js'
 import { ApiError } from './errors.js'
 import {
+  activeCancellationBlockReason,
   cronConflict,
   assertContractStartDate,
   lifecycleNextStatus,
@@ -191,6 +192,167 @@ export async function closeExpiredContractEmployeeStatus(
     })
     await conn.commit()
     return { uid: contractUid, status: 'EXPIRED', employeeStatus: nextStatus }
+  } catch (error) {
+    await conn.rollback()
+    throw error
+  } finally {
+    conn.release()
+  }
+}
+
+export async function cancelActiveContractActivation(
+  contractUid: string,
+  input: { reason?: string },
+  auth: AuthContext,
+  request?: { ip?: string | null; userAgent?: string | null }
+) {
+  const reason = input.reason?.trim() ?? ''
+  if (reason.length < 5) {
+    throw new ApiError(422, 'Alasan pembatalan aktivasi minimal 5 karakter.')
+  }
+
+  const conn = await pool.getConnection()
+  const today = businessDate()
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query<RowDataPacket[]>(
+      `SELECT c.id,c.uid,c.employee_id,c.contract_number,c.status,
+              c.signed_date,c.issued_file_id,e.uid employeeUid,
+              es.code employeeStatus,e.current_site_id siteId,s.code site
+       FROM employee_contracts c
+       JOIN employees e ON e.id=c.employee_id
+       JOIN employee_statuses es ON es.id=e.employee_status_id
+       JOIN sites s ON s.id=e.current_site_id
+       WHERE c.uid=? FOR UPDATE`,
+      [contractUid]
+    )
+    const contract = rows[0]
+    if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
+    if (!auth.roles.includes('SUPER_ADMIN') && !auth.siteAccess.includes(contract.site)) {
+      throw new ApiError(403, 'Akses site ditolak.')
+    }
+    if (contract.status !== 'ACTIVE') {
+      throw new ApiError(409, 'Batalkan aktivasi hanya tersedia untuk kontrak Aktif.')
+    }
+    if (contract.employeeStatus !== 'ACTIVE') {
+      throw new ApiError(409, 'Status karyawan tidak konsisten dengan kontrak Aktif. Jalankan rekonsiliasi terlebih dahulu.')
+    }
+
+    const [activationEvents] = await conn.query<RowDataPacket[]>(
+      `SELECT id,DATE_FORMAT(effective_date,'%Y-%m-%d') activationDate
+       FROM employee_contract_lifecycle_events
+       WHERE contract_id=? AND to_status='ACTIVE'
+       ORDER BY id DESC LIMIT 1 FOR UPDATE`,
+      [contract.id]
+    )
+    const activation = activationEvents[0]
+    if (!activation) {
+      throw new ApiError(409, 'Event aktivasi kontrak tidak ditemukan. Kontrak legacy ini tidak dapat dibatalkan otomatis.')
+    }
+
+    const [usageRows] = await conn.query<RowDataPacket[]>(
+      `SELECT
+        EXISTS(SELECT 1 FROM attendance_records ar WHERE ar.employee_id=? AND ar.business_date>=?)
+          OR EXISTS(SELECT 1 FROM attendance_scan_events ase WHERE ase.employee_id=? AND DATE(ase.scanned_at)>=?) hasAttendance,
+        EXISTS(SELECT 1 FROM production_transactions pt WHERE pt.employee_id=? AND pt.business_date>=?) hasProduction,
+        EXISTS(
+          SELECT 1 FROM payroll_employee_results per
+          JOIN payroll_periods pp ON pp.id=per.payroll_period_id
+          WHERE per.employee_id=? AND pp.period_end>=?
+        ) hasPayroll,
+        EXISTS(SELECT 1 FROM employee_employment_histories h WHERE h.employee_id=? AND h.effective_from>?) hasLaterHistory,
+        EXISTS(SELECT 1 FROM employee_contract_lifecycle_events ev WHERE ev.contract_id=? AND ev.id>?) hasLaterLifecycle,
+        EXISTS(
+          SELECT 1 FROM scheduled_employee_status_changes sc
+          WHERE sc.employee_id=? AND sc.status IN ('SCHEDULED','FAILED')
+        ) hasOpenScheduledStatusChange`,
+      [
+        contract.employee_id,
+        activation.activationDate,
+        contract.employee_id,
+        activation.activationDate,
+        contract.employee_id,
+        activation.activationDate,
+        contract.employee_id,
+        activation.activationDate,
+        contract.employee_id,
+        activation.activationDate,
+        contract.id,
+        activation.id,
+        contract.employee_id,
+      ]
+    )
+    const usage = usageRows[0]
+    const blocked = activeCancellationBlockReason({
+      hasSignedContract: Boolean(contract.signed_date || contract.issued_file_id),
+      hasAttendance: Number(usage.hasAttendance) === 1,
+      hasProduction: Number(usage.hasProduction) === 1,
+      hasPayroll: Number(usage.hasPayroll) === 1,
+      hasLaterHistory: Number(usage.hasLaterHistory) === 1,
+      hasLaterLifecycle: Number(usage.hasLaterLifecycle) === 1,
+      hasOpenScheduledStatusChange:
+        Number(usage.hasOpenScheduledStatusChange) === 1,
+    })
+    if (blocked) throw new ApiError(409, blocked)
+
+    const otherActive = await validActiveContracts(
+      conn,
+      contract.employee_id,
+      today,
+      contract.id
+    )
+    const nextEmployeeStatus = otherActive.length ? 'ACTIVE' : 'INACTIVE'
+
+    await conn.execute(
+      "UPDATE employee_contracts SET status='CANCELLED',terminated_at=NULL,termination_reason=NULL,updated_by=? WHERE id=?",
+      [auth.id, contract.id]
+    )
+    await employeeStatus(
+      conn,
+      contract.employee_id,
+      nextEmployeeStatus,
+      nextEmployeeStatus === 'INACTIVE' ? activation.activationDate : today,
+      'MANUAL',
+      `Pembatalan aktivasi kontrak: ${reason}`,
+      auth
+    )
+    await conn.execute(
+      `INSERT INTO employee_contract_lifecycle_events(
+         uid,contract_id,from_status,to_status,effective_date,reason,source,actor_user_id
+       ) VALUES(?,?,'ACTIVE','CANCELLED',?,?,'MANUAL',?)`,
+      [randomUUID(), contract.id, today, reason, auth.id]
+    )
+    await conn.execute(
+      `INSERT INTO audit_logs(
+         uid,user_id,site_id,module,action,table_name,record_id,record_uid,
+         description,reason,before_data,after_data,ip_address,user_agent,
+         created_by,updated_by
+       ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        randomUUID(),
+        auth.id,
+        contract.siteId,
+        'EMPLOYEES',
+        'UPDATE',
+        'employee_contracts',
+        contract.id,
+        contractUid,
+        `Membatalkan aktivasi kontrak ${contract.contract_number}.`,
+        reason,
+        JSON.stringify({ contractStatus: 'ACTIVE', employeeStatus: contract.employeeStatus }),
+        JSON.stringify({ contractStatus: 'CANCELLED', employeeStatus: nextEmployeeStatus }),
+        request?.ip ?? null,
+        request?.userAgent ?? null,
+        auth.id,
+        auth.id,
+      ]
+    )
+    await conn.commit()
+    return {
+      uid: contractUid,
+      status: 'CANCELLED' as const,
+      employeeStatus: nextEmployeeStatus,
+    }
   } catch (error) {
     await conn.rollback()
     throw error

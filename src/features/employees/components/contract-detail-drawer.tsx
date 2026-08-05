@@ -1,12 +1,12 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import {
-  CalendarRange,
   Download,
   ExternalLink,
   FileText,
   ImageIcon,
   Printer,
+  Undo2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { apiClient } from '@/lib/api-client'
@@ -23,12 +23,8 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DatePicker } from '@/components/date-picker'
-import {
-  useCorrectContractPeriod,
-  useTransitionContract,
-} from '../data/queries'
+import { useTransitionContract } from '../data/queries'
 import type { EmployeeContract } from '../domain'
-import { contractTypeRequiresEndDate } from '../employee-contract-policy'
 import { formatDate, statusLabel } from '../utils'
 import { ContractLifecycleActionButtons } from './contract-lifecycle-action-buttons'
 
@@ -51,77 +47,32 @@ export function ContractDetailDrawer({
 }: ContractDetailDrawerProps) {
   const returnTo = currentListReturnTo()
   const transition = useTransitionContract()
-  const correctPeriod = useCorrectContractPeriod()
   const [action, setAction] = useState<
     | 'schedule'
     | 'activate'
     | 'terminate'
     | 'resign'
     | 'cancel'
+    | 'cancel_activation'
     | 'close_expired_terminate'
     | 'close_expired_resign'
   >()
   const [reason, setReason] = useState('')
   const today = new Date().toISOString().slice(0, 10)
   const [effectiveDate, setEffectiveDate] = useState(today)
-  const [periodCorrectionOpen, setPeriodCorrectionOpen] = useState(false)
-  const [correctedStartDate, setCorrectedStartDate] = useState('')
-  const [correctedEndDate, setCorrectedEndDate] = useState('')
-  const [correctionReason, setCorrectionReason] = useState('')
-  const [correctionPeriod, setCorrectionPeriod] =
-    useState<ContractPeriod>('CUSTOM')
   const requiresReason = isReasonRequired(action)
+  const showsEffectiveDate = isEffectiveDateRequired(action)
   const isExpiredStatusClosure = isExpiredClosure(action)
   const minimumEffectiveDate = isExpiredStatusClosure
     ? contract?.endDate
     : contract?.startDate
-  const openPeriodCorrection = () => {
-    if (!contract) return
-    const startDate = contract.startDate.slice(0, 10)
-    const endDate = contract.endDate?.slice(0, 10) ?? ''
-    setCorrectedStartDate(startDate)
-    setCorrectedEndDate(endDate)
-    setCorrectionReason('')
-    setCorrectionPeriod(deriveContractPeriod(startDate, endDate))
-    setPeriodCorrectionOpen(true)
-  }
-  const correctionRequiresEndDate = contractTypeRequiresEndDate(
-    contract?.contractType
-  )
-  const correctionHasChanged = Boolean(
-    contract &&
-      (correctedStartDate !== contract.startDate.slice(0, 10) ||
-        (correctedEndDate || '') !== (contract.endDate?.slice(0, 10) ?? ''))
-  )
-  const correctionIsValid = Boolean(
-    correctedStartDate &&
-      correctionReason.trim().length >= 5 &&
-      (!correctionRequiresEndDate || correctedEndDate) &&
-      (!correctedEndDate || correctedEndDate >= correctedStartDate) &&
-      correctedStartDate <= today &&
-      (!correctedEndDate || correctedEndDate >= today) &&
-      correctionHasChanged
-  )
-  const correctionValidationMessage = !correctedStartDate
-    ? 'Tanggal mulai wajib diisi.'
-    : correctedStartDate > today
-      ? 'Tanggal mulai kontrak aktif tidak boleh di masa depan.'
-      : correctionRequiresEndDate && !correctedEndDate
-        ? 'Tanggal berakhir wajib diisi.'
-        : correctedEndDate && correctedEndDate < correctedStartDate
-          ? 'Tanggal berakhir tidak boleh sebelum tanggal mulai.'
-          : correctedEndDate && correctedEndDate < today
-            ? 'Tanggal berakhir kontrak aktif tidak boleh sebelum hari ini.'
-            : correctionReason.trim().length < 5
-              ? 'Alasan koreksi minimal 5 karakter.'
-              : !correctionHasChanged
-                ? 'Ubah tanggal mulai atau tanggal berakhir.'
-                : undefined
   const printContract = async () => {
     if (!contract) return
     const popup = window.open('', '_blank')
     try {
-      await apiClient.post(`/employees/contracts/${contract.uid}/print-snapshot`)
+      await apiClient.post(
+        `/employees/contracts/${contract.uid}/print-snapshot`
+      )
       await apiClient.post(
         `/employees/contracts/${contract.uid}/normalize-print-snapshot`
       )
@@ -129,7 +80,8 @@ export function ContractDetailDrawer({
       else window.open(`/karyawan/pkwt/${contract.uid}/cetak`, '_blank')
     } catch (error) {
       popup?.close()
-      const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message
+      const message = (error as { response?: { data?: { message?: string } } })
+        .response?.data?.message
       toast.error(message ?? 'Preview kontrak gagal dibuat.')
     }
   }
@@ -190,10 +142,10 @@ export function ContractDetailDrawer({
               </DetailRow>
               {contract.employeeType === 'BORONGAN' &&
                 contract.contractType === 'PKWT' && (
-                <Button size='sm' className='mt-3' onClick={printContract}>
-                  <Printer /> Cetak Template Kontrak
-                </Button>
-              )}
+                  <Button size='sm' className='mt-3' onClick={printContract}>
+                    <Printer /> Cetak Template Kontrak
+                  </Button>
+                )}
             </DetailSection>
             {['DRAFT', 'SCHEDULED'].includes(contract.status) && (
               <section className='space-y-2 border-t pt-4'>
@@ -250,10 +202,10 @@ export function ContractDetailDrawer({
                   </Button>
                   <Button
                     size='sm'
-                    variant='outline'
-                    onClick={openPeriodCorrection}
+                    variant='destructive'
+                    onClick={() => setAction('cancel_activation')}
                   >
-                    <CalendarRange /> Koreksi periode
+                    <Undo2 /> Batalkan aktivasi
                   </Button>
                   <Button
                     size='sm'
@@ -385,8 +337,15 @@ export function ContractDetailDrawer({
           </p>
         }
         confirmText='Lanjutkan'
-        destructive={action === 'cancel' || requiresReason}
-        disabled={requiresReason && !reason.trim()}
+        destructive={
+          action === 'cancel' ||
+          action === 'cancel_activation' ||
+          requiresReason
+        }
+        disabled={
+          requiresReason &&
+          reason.trim().length < (action === 'cancel_activation' ? 5 : 1)
+        }
         isLoading={transition.isPending}
         handleConfirm={() => {
           if (contract && action) {
@@ -395,7 +354,10 @@ export function ContractDetailDrawer({
                 uid: contract.uid,
                 action,
                 input: requiresReason
-                  ? { reason: reason.trim(), effectiveDate }
+                  ? {
+                      reason: reason.trim(),
+                      ...(showsEffectiveDate ? { effectiveDate } : {}),
+                    }
                   : {},
               },
               {
@@ -411,149 +373,54 @@ export function ContractDetailDrawer({
       >
         {requiresReason ? (
           <div className='grid gap-4'>
+            {showsEffectiveDate && (
+              <label className='grid gap-2 text-sm font-medium'>
+                Tanggal efektif
+                <DatePicker
+                  selected={dateFromInput(effectiveDate)}
+                  onSelect={(date) =>
+                    date && setEffectiveDate(dateToInput(date))
+                  }
+                  fromYear={new Date(
+                    minimumEffectiveDate ?? today
+                  ).getFullYear()}
+                  toYear={new Date().getFullYear()}
+                  disabledDates={(date) => {
+                    const value = dateToInput(date)
+                    return (
+                      value < (minimumEffectiveDate ?? today) || value > today
+                    )
+                  }}
+                />
+              </label>
+            )}
             <label className='grid gap-2 text-sm font-medium'>
-              Tanggal efektif
-              <DatePicker
-                selected={dateFromInput(effectiveDate)}
-                onSelect={(date) => date && setEffectiveDate(dateToInput(date))}
-                fromYear={new Date(minimumEffectiveDate ?? today).getFullYear()}
-                toYear={new Date().getFullYear()}
-                disabledDates={(date) => {
-                  const value = dateToInput(date)
-                  return (
-                    value < (minimumEffectiveDate ?? today) || value > today
-                  )
-                }}
-              />
-            </label>
-            <label className='grid gap-2 text-sm font-medium'>
-              Alasan {isResignAction(action) ? 'resign' : 'terminasi'}
+              {action === 'cancel_activation'
+                ? 'Alasan pembatalan aktivasi'
+                : `Alasan ${isResignAction(action) ? 'resign' : 'terminasi'}`}
               <Textarea
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
-                placeholder='Wajib diisi'
+                placeholder={
+                  action === 'cancel_activation'
+                    ? 'Jelaskan kesalahan input yang menyebabkan aktivasi harus dibatalkan'
+                    : 'Wajib diisi'
+                }
+                maxLength={500}
               />
+              {action === 'cancel_activation' && (
+                <span className='text-xs text-muted-foreground'>
+                  Minimal 5 karakter. Sistem akan menolak jika kontrak sudah
+                  digunakan secara operasional.
+                </span>
+              )}
             </label>
           </div>
         ) : null}
       </ConfirmDialog>
-      <ConfirmDialog
-        open={periodCorrectionOpen}
-        onOpenChange={(nextOpen) => {
-          if (!correctPeriod.isPending) setPeriodCorrectionOpen(nextOpen)
-        }}
-        title='Koreksi Periode Kontrak Aktif'
-        desc='Gunakan hanya untuk memperbaiki kesalahan input agar data sistem sesuai dokumen kontrak asli.'
-        confirmText='Simpan koreksi'
-        disabled={!correctionIsValid}
-        isLoading={correctPeriod.isPending}
-        handleConfirm={() => {
-          if (!contract || !correctionIsValid) return
-          correctPeriod.mutate(
-            {
-              uid: contract.uid,
-              input: {
-                startDate: correctedStartDate,
-                endDate: correctedEndDate || undefined,
-                reason: correctionReason.trim(),
-              },
-            },
-            {
-              onSuccess: () => {
-                toast.success('Periode kontrak aktif berhasil dikoreksi.')
-                setPeriodCorrectionOpen(false)
-              },
-              onError: (error) => {
-                const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message
-                toast.error(message ?? 'Periode kontrak gagal dikoreksi.')
-              },
-            }
-          )
-        }}
-      >
-        <div className='grid gap-4'>
-          <label className='grid gap-2 text-sm font-medium'>
-            Tanggal mulai
-            <DatePicker
-              selected={dateFromInput(correctedStartDate)}
-              onSelect={(date) => {
-                if (!date) return
-                const value = dateToInput(date)
-                setCorrectedStartDate(value)
-                if (correctionPeriod !== 'CUSTOM') {
-                  setCorrectedEndDate(
-                    calculateContractEndDate(value, Number(correctionPeriod))
-                  )
-                }
-              }}
-              fromYear={1900}
-              toYear={new Date().getFullYear()}
-              disabledDates={(date) => dateToInput(date) > today}
-            />
-          </label>
-          <label className='grid gap-2 text-sm font-medium'>
-            Periode kontrak
-            <select
-              className='h-9 rounded-md border bg-background px-3 text-sm'
-              value={correctionPeriod}
-              onChange={(event) => {
-                const value = event.target.value as ContractPeriod
-                setCorrectionPeriod(value)
-                if (value !== 'CUSTOM') {
-                  setCorrectedEndDate(
-                    calculateContractEndDate(correctedStartDate, Number(value))
-                  )
-                }
-              }}
-            >
-              <option value='1'>1 bulan</option>
-              <option value='3'>3 bulan</option>
-              <option value='12'>12 bulan</option>
-              <option value='CUSTOM'>Custom</option>
-            </select>
-          </label>
-          <label className='grid gap-2 text-sm font-medium'>
-            {correctionRequiresEndDate
-              ? 'Tanggal berakhir'
-              : 'Tanggal berakhir (opsional)'}
-            <DatePicker
-              selected={dateFromInput(correctedEndDate)}
-              onSelect={(date) => {
-                setCorrectionPeriod('CUSTOM')
-                setCorrectedEndDate(date ? dateToInput(date) : '')
-              }}
-              fromYear={new Date().getFullYear()}
-              toYear={new Date().getFullYear() + 20}
-              disabledDates={(date) => {
-                const value = dateToInput(date)
-                return value < today || value < correctedStartDate
-              }}
-            />
-          </label>
-          <label className='grid gap-2 text-sm font-medium'>
-            Alasan koreksi
-            <Textarea
-              value={correctionReason}
-              onChange={(event) => setCorrectionReason(event.target.value)}
-              placeholder='Jelaskan kesalahan input yang diperbaiki (wajib)'
-              maxLength={500}
-            />
-            <span className='text-xs text-muted-foreground'>
-              Minimal 5 karakter. Perubahan akan dicatat di audit log.
-            </span>
-          </label>
-          {correctionValidationMessage && (
-            <p className='text-sm text-destructive'>
-              {correctionValidationMessage}
-            </p>
-          )}
-        </div>
-      </ConfirmDialog>
     </Sheet>
   )
 }
-
-type ContractPeriod = '1' | '3' | '12' | 'CUSTOM'
 
 function dateFromInput(value?: string) {
   if (!value) return undefined
@@ -568,37 +435,6 @@ function dateToInput(date: Date) {
   return `${year}-${month}-${day}`
 }
 
-function calculateContractEndDate(startDate: string, months: number) {
-  if (!startDate) return ''
-  const [year, month, day] = startDate.split('-').map(Number)
-  const targetMonthIndex = month - 1 + months
-  const targetYear = year + Math.floor(targetMonthIndex / 12)
-  const targetMonth = targetMonthIndex % 12
-  const lastDayOfTargetMonth = new Date(
-    targetYear,
-    targetMonth + 1,
-    0
-  ).getDate()
-  const endDate = new Date(
-    targetYear,
-    targetMonth,
-    Math.min(day, lastDayOfTargetMonth)
-  )
-  endDate.setDate(endDate.getDate() - 1)
-  return dateToInput(endDate)
-}
-
-function deriveContractPeriod(startDate?: string, endDate?: string) {
-  const normalizedStartDate = startDate?.slice(0, 10) ?? ''
-  const normalizedEndDate = endDate?.slice(0, 10) ?? ''
-  const months = ([1, 3, 12] as const).find(
-    (value) =>
-      calculateContractEndDate(normalizedStartDate, value) ===
-      normalizedEndDate
-  )
-  return months ? (String(months) as ContractPeriod) : 'CUSTOM'
-}
-
 function lifecycleDescription(
   action?:
     | 'schedule'
@@ -606,6 +442,7 @@ function lifecycleDescription(
     | 'terminate'
     | 'resign'
     | 'cancel'
+    | 'cancel_activation'
     | 'close_expired_terminate'
     | 'close_expired_resign'
 ) {
@@ -620,6 +457,8 @@ function lifecycleDescription(
     return 'Kontrak tetap Expired. Status karyawan akan diubah menjadi Nonaktif.'
   if (action === 'close_expired_resign')
     return 'Kontrak tetap Expired. Status karyawan akan diubah menjadi Resign.'
+  if (action === 'cancel_activation')
+    return 'Kontrak Aktif akan menjadi Dibatalkan. Aksi hanya diproses bila belum ada data operasional sejak aktivasi.'
   return 'Kontrak akan dibatalkan.'
 }
 
@@ -640,8 +479,15 @@ function isReasonRequired(
     | string
 ) {
   return (
-    action === 'terminate' || action === 'resign' || isExpiredClosure(action)
+    action === 'terminate' ||
+    action === 'resign' ||
+    action === 'cancel_activation' ||
+    isExpiredClosure(action)
   )
+}
+
+function isEffectiveDateRequired(action?: string) {
+  return action !== 'cancel_activation' && isReasonRequired(action)
 }
 
 function isResignAction(action?: 'resign' | 'close_expired_resign' | string) {
