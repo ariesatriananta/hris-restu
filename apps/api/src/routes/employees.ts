@@ -131,6 +131,16 @@ const contractFields = {
 const contractCreateInput = z.object(contractFields).refine((value) => !value.endDate || value.endDate >= value.startDate, { message: 'Tanggal kontrak tidak valid.', path: ['endDate'] })
 const contractUpdateInput = z.object(contractFields).strict()
   .refine((value) => !value.endDate || value.endDate >= value.startDate, { message: 'Tanggal kontrak tidak valid.', path: ['endDate'] })
+const contractPeriodCorrectionInput = z
+  .object({
+    startDate: z.string().date(),
+    endDate: optionalDate,
+    reason: z.string().trim().min(5, 'Alasan koreksi minimal 5 karakter.').max(500),
+  })
+  .refine((value) => !value.endDate || value.endDate >= value.startDate, {
+    message: 'Tanggal kontrak tidak valid.',
+    path: ['endDate'],
+  })
 const contractBatchInput = z
   .object({
     items: z
@@ -1528,12 +1538,13 @@ employeesRouter.patch('/contracts/:contractUid', requirePermission('employees.ma
     const conn = await pool.getConnection()
     try {
       await conn.beginTransaction()
-      const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.employee_id,c.contract_number,c.sequence_number,c.status,ct.code contractType,et.code employeeType,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,s.id siteId,s.code site FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [contractUid])
+      const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.employee_id,c.contract_number,c.sequence_number,c.status,ct.code contractType,et.code employeeType,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,s.id siteId,s.code site FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [contractUid])
       const contract = rows[0]
       if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
       enforceSite(auth, contract.site)
       if (['EXPIRED', 'TERMINATED', 'CANCELLED'].includes(contract.status)) throw new ApiError(409, 'Kontrak final tidak dapat diubah.')
       if (!['DRAFT', 'SCHEDULED'].includes(contract.status) && input.contractType !== contract.contractType) throw new ApiError(422, 'Jenis kontrak hanya dapat diubah saat status Draft atau Dijadwalkan.')
+      if (contract.status === 'ACTIVE' && (input.startDate !== contract.startDate || (input.endDate ?? null) !== (contract.endDate ?? null))) throw new ApiError(422, 'Periode kontrak aktif tidak dapat diubah. Terminasi kontrak lama lalu buat kontrak baru.')
       const [types] = await conn.query<RowDataPacket[]>('SELECT id,code FROM contract_types WHERE code=? AND is_active=1 FOR UPDATE', [input.contractType])
       const type = types[0]
       if (!type) throw new ApiError(422, 'Tipe kontrak tidak valid atau tidak aktif.')
@@ -1547,6 +1558,63 @@ employeesRouter.patch('/contracts/:contractUid', requirePermission('employees.ma
     } catch (error) { await conn.rollback(); throw error } finally { conn.release() }
     res.status(204).end()
   } catch (error) { next(error) }
+})
+employeesRouter.post('/contracts/:contractUid/correct-period', requirePermission('employees.manage'), async (req, res, next) => {
+  const conn = await pool.getConnection()
+  try {
+    const input = contractPeriodCorrectionInput.parse(req.body)
+    const auth = res.locals.auth as AuthContext
+    const contractUid = routeParam(req.params.contractUid)
+    const today = businessDate()
+    await conn.beginTransaction()
+    const [rows] = await conn.query<RowDataPacket[]>(
+      `SELECT c.id,c.employee_id employeeId,c.contract_number contractNumber,c.status,
+              ct.code contractType,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,
+              DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,
+              DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,s.id siteId,s.code site
+       FROM employee_contracts c
+       JOIN contract_types ct ON ct.id=c.contract_type_id
+       JOIN employees e ON e.id=c.employee_id
+       JOIN sites s ON s.id=e.current_site_id
+       WHERE c.uid=? FOR UPDATE`,
+      [contractUid]
+    )
+    const contract = rows[0]
+    if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
+    enforceSite(auth, contract.site)
+    if (contract.status !== 'ACTIVE') throw new ApiError(409, 'Koreksi periode hanya tersedia untuk kontrak Aktif.')
+    if (input.startDate === contract.startDate && (input.endDate ?? null) === (contract.endDate ?? null)) throw new ApiError(422, 'Periode kontrak tidak berubah.')
+    if (input.startDate > today) throw new ApiError(422, 'Tanggal mulai hasil koreksi tidak boleh berada di masa depan.')
+    if (input.endDate && input.endDate < today) throw new ApiError(422, 'Tanggal akhir hasil koreksi tidak boleh sebelum hari ini. Gunakan lifecycle kontrak untuk menyelesaikan kontrak.')
+    await assertContractRules(conn, contract.employeeId, contract.contractType, input.startDate, input.endDate, contract.id, contract.joinDate)
+    await conn.execute(
+      "UPDATE employee_contracts SET start_date=?,end_date=?,terms_json=JSON_REMOVE(COALESCE(terms_json,JSON_OBJECT()), '$.contractPrintV1'),updated_by=? WHERE id=?",
+      [input.startDate, empty(input.endDate), auth.id, contract.id]
+    )
+    await conn.execute(
+      `INSERT INTO audit_logs(
+         uid,user_id,site_id,module,action,table_name,record_id,record_uid,
+         description,reason,before_data,after_data,ip_address,user_agent,
+         created_by,updated_by
+       ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        randomUUID(), auth.id, contract.siteId, 'EMPLOYEES', 'UPDATE',
+        'employee_contracts', contract.id, contractUid,
+        `Mengoreksi periode kontrak aktif ${contract.contractNumber}.`,
+        input.reason,
+        JSON.stringify({ startDate: contract.startDate, endDate: contract.endDate }),
+        JSON.stringify({ startDate: input.startDate, endDate: input.endDate ?? null }),
+        req.ip ?? null, req.get('user-agent') ?? null, auth.id, auth.id,
+      ]
+    )
+    await conn.commit()
+    res.status(204).end()
+  } catch (error) {
+    await conn.rollback()
+    next(error)
+  } finally {
+    conn.release()
+  }
 })
 employeesRouter.post('/contracts/:contractUid/:action', requirePermission('employees.manage'), async (req,res,next)=>{ try { const action=z.enum(['schedule','activate','terminate','resign','cancel','close_expired_terminate','close_expired_resign']).parse(req.params.action); const input=z.object({effectiveDate:z.string().date().optional(),reason:z.string().trim().min(1).max(500).optional()}).parse(req.body); const contractUid=routeParam(req.params.contractUid); if (action === 'close_expired_terminate' || action === 'close_expired_resign') { res.json(await closeExpiredContractEmployeeStatus(contractUid,action,input,res.locals.auth)); return } res.json(await transitionContract(contractUid,action,input,res.locals.auth)) }catch(error){next(error)} })
 employeesRouter.post('/:uid/documents', requirePermission('documents.manage'), async (req, res, next) => {

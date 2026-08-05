@@ -21,6 +21,7 @@ import type {
   ContractLifecycleAction,
   ContractBatchItem,
   ContractKpiSummary,
+  ContractPeriodCorrectionInput,
   ContractReconcileResult,
   ScheduledStatusChangeAction,
 } from '../domain'
@@ -46,6 +47,7 @@ import {
   updateScheduledStatusChange,
   cancelScheduledStatusChange,
   reconcileContracts,
+  correctContractPeriod,
 } from './http-employee-repository'
 
 export const employeeKeys = {
@@ -376,6 +378,19 @@ export function useTransitionContract() {
       action: ContractLifecycleAction
       input: { effectiveDate?: string; reason?: string }
     }) => transitionContract(uid, action, input),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function useCorrectContractPeriod() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      uid,
+      input,
+    }: {
+      uid: string
+      input: ContractPeriodCorrectionInput
+    }) => correctContractPeriod(uid, input),
     onSuccess: () => invalidate(queryClient),
   })
 }

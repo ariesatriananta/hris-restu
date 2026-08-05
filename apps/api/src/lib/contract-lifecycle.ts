@@ -19,7 +19,7 @@ export async function assertContractRules(conn: PoolConnection, employeeId: numb
   if (endDateRequired.includes(type) && !endDate) throw new ApiError(422, 'Tanggal berakhir wajib untuk jenis kontrak ini.')
   if (endDate && endDate < startDate) throw new ApiError(422, 'Tanggal kontrak tidak valid.')
   assertContractStartDate(startDate, joinDate)
-  const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.contract_number FROM employee_contracts c WHERE c.employee_id=? AND c.status<>'CANCELLED' AND (? IS NULL OR c.id<>?) AND c.start_date<=COALESCE(?, '9999-12-31') AND COALESCE(c.end_date,'9999-12-31')>=? LIMIT 1`, [employeeId, exceptId ?? null, exceptId ?? 0, endDate ?? null, startDate])
+  const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.contract_number FROM employee_contracts c WHERE c.employee_id=? AND c.status<>'CANCELLED' AND (? IS NULL OR c.id<>?) AND c.start_date<=COALESCE(?, '9999-12-31') AND COALESCE(CASE WHEN c.status='TERMINATED' THEN COALESCE(c.terminated_at,c.end_date) ELSE c.end_date END,'9999-12-31')>=? LIMIT 1`, [employeeId, exceptId ?? null, exceptId ?? 0, endDate ?? null, startDate])
   if (rows[0]) throw new ApiError(409, `Periode kontrak bertumpang tindih dengan ${rows[0].contract_number}.`)
 }
 

@@ -186,6 +186,7 @@ function ContractForm({
   const isCheckingContractOverlap = Boolean(
     selectedEmployeeUid && startDate && employeeContracts.isPending
   )
+  const isActiveContract = record?.status === 'ACTIVE'
   const { confirmation } = useUnsavedChanges(form.formState.isDirty)
   useEffect(() => {
     const temporaryUrl = attachment?.temporaryUrl
@@ -298,6 +299,7 @@ function ContractForm({
           label='Tanggal mulai'
           error={form.formState.errors.startDate?.message}
           value={startDate}
+          disabled={isActiveContract}
           disabledDates={(date) =>
             Boolean(
               selectedEmployee.data?.joinDate &&
@@ -328,6 +330,7 @@ function ContractForm({
             { value: 'CUSTOM', label: 'Custom' },
           ]}
           value={contractPeriod}
+          disabled={isActiveContract}
           onChange={(event) => {
             const value = event.target.value as ContractPeriod
             setContractPeriod(value)
@@ -348,6 +351,7 @@ function ContractForm({
           }
           error={form.formState.errors.endDate?.message}
           value={endDate}
+          disabled={isActiveContract}
           onChange={(date) => {
             setContractPeriod('CUSTOM')
             form.setValue('endDate', dateToInput(date), {
@@ -363,7 +367,7 @@ function ContractForm({
               Periode kontrak bertumpang tindih dengan{' '}
               {overlappingContract.contractNumber} (
               {formatInputDate(overlappingContract.startDate)} -{' '}
-              {formatInputDate(overlappingContract.endDate)}). Ubah tanggal
+              {formatInputDate(effectiveContractEndDate(overlappingContract))}). Ubah tanggal
               mulai atau tanggal berakhir sebelum menyimpan.
             </AlertDescription>
           </Alert>
@@ -537,12 +541,14 @@ function DateField({
   value,
   onChange,
   disabledDates,
+  disabled,
 }: {
   label: string
   error?: string
   value?: string
   onChange: (date: Date | undefined) => void
   disabledDates?: (date: Date) => boolean
+  disabled?: boolean
 }) {
   return (
     <Field label={label} error={error}>
@@ -550,6 +556,7 @@ function DateField({
         selected={dateFromInput(value)}
         onSelect={onChange}
         disabledDates={disabledDates}
+        disabled={disabled}
       />
     </Field>
   )
@@ -646,9 +653,16 @@ function findOverlappingContract(
     }
     return (
       contract.startDate <= nextEndDate &&
-      (contract.endDate || '9999-12-31') >= startDate
+      effectiveContractEndDate(contract) >= startDate
     )
   })
+}
+
+function effectiveContractEndDate(contract: EmployeeContract) {
+  if (contract.status === 'TERMINATED') {
+    return contract.terminatedAt || contract.endDate || '9999-12-31'
+  }
+  return contract.endDate || '9999-12-31'
 }
 
 function formatInputDate(value?: string) {

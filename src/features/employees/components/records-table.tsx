@@ -54,7 +54,11 @@ import {
   DataTableToolbar,
 } from '@/components/data-table'
 import type { EmployeeContract, PaginatedResult } from '../domain'
-import { statusLabel } from '../utils'
+import {
+  contractStatusBadgeClassName,
+  contractStatusBadgeVariant,
+  statusLabel,
+} from '../utils'
 import { ContractLifecycleActionButtons } from './contract-lifecycle-action-buttons'
 
 export type EmployeeRecordRow = {
@@ -691,25 +695,6 @@ export function RecordsTable({
     )}
     </>
   )
-}
-
-function contractStatusBadgeVariant(
-  status: string
-): 'default' | 'secondary' | 'destructive' {
-  if (status === 'ACTIVE') return 'default'
-  if (status === 'SCHEDULED') return 'default'
-  if (status === 'DRAFT') return 'secondary'
-  if (['EXPIRED', 'TERMINATED', 'MISSING'].includes(status)) {
-    return 'destructive'
-  }
-  return 'secondary'
-}
-
-function contractStatusBadgeClassName(status: string) {
-  if (status === 'CANCELLED') {
-    return 'border-transparent bg-amber-500 text-white dark:bg-amber-600'
-  }
-  return undefined
 }
 
 function ContractFilePreviewDialog({

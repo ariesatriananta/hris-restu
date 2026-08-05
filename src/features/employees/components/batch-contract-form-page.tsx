@@ -501,7 +501,9 @@ function findOverlappingContract(
     if (contract.status === 'CANCELLED') return false
     return (
       contract.startDate <= effectiveEndDate &&
-      (contract.endDate || '9999-12-31') >= startDate
+      (contract.status === 'TERMINATED'
+        ? contract.terminatedAt || contract.endDate || '9999-12-31'
+        : contract.endDate || '9999-12-31') >= startDate
     )
   })
 }

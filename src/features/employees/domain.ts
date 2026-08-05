@@ -287,6 +287,11 @@ export interface ContractBatchItem {
 export interface ContractBatchResult {
   created: { uid: string; employeeUid: string; contractNumber: string }[]
 }
+export interface ContractPeriodCorrectionInput {
+  startDate: string
+  endDate?: string
+  reason: string
+}
 export interface ScheduledEmployeeMutation {
   uid: string
   employeeUid: string

@@ -66,3 +66,21 @@ export function employeeStatusBadgeClassName(status: string) {
   }
   return undefined
 }
+
+export function contractStatusBadgeVariant(
+  status: string
+): 'default' | 'secondary' | 'destructive' {
+  if (status === 'ACTIVE' || status === 'SCHEDULED') return 'default'
+  if (status === 'DRAFT') return 'secondary'
+  if (['EXPIRED', 'TERMINATED', 'MISSING'].includes(status)) {
+    return 'destructive'
+  }
+  return 'secondary'
+}
+
+export function contractStatusBadgeClassName(status: string) {
+  if (status === 'CANCELLED') {
+    return 'border-transparent bg-amber-500 text-white dark:bg-amber-600'
+  }
+  return undefined
+}

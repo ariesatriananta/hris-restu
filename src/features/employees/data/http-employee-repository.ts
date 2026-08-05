@@ -12,6 +12,7 @@ import type {
   ContractKpiSummary,
   ContractBatchItem,
   ContractBatchResult,
+  ContractPeriodCorrectionInput,
   ContractReconcileResult,
   ScheduledEmployeeMutation,
   ScheduledEmployeeStatusChange,
@@ -227,6 +228,13 @@ export const transitionContract = async (
       input
     )
   ).data
+
+export const correctContractPeriod = async (
+  uid: string,
+  input: ContractPeriodCorrectionInput
+) => {
+  await apiClient.post(`/employees/contracts/${uid}/correct-period`, input)
+}
 
 export const listScheduledMutations = async (input: EmployeeRecordListParams) =>
   (

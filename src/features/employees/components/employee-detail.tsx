@@ -12,7 +12,6 @@ import {
   Pencil,
   LayoutDashboard,
   FileSignature,
-  FilePlus2,
   FileText,
   Plus,
   RefreshCcw,
@@ -38,6 +37,8 @@ import {
 } from '../data/queries'
 import type { Employee, EmployeeContract } from '../domain'
 import {
+  contractStatusBadgeClassName,
+  contractStatusBadgeVariant,
   employeeStatusBadgeClassName,
   employeeStatusBadgeVariant,
   formatDate,
@@ -45,7 +46,6 @@ import {
   statusLabel,
 } from '../utils'
 import { ContractDetailDrawer } from './contract-detail-drawer'
-import { ContractLifecycleActionButtons } from './contract-lifecycle-action-buttons'
 import { EmployeeIdCard } from './id-card'
 import { MutationDetailDrawer } from './mutation-detail-drawer'
 import { MutationDialog } from './mutation-dialog'
@@ -406,14 +406,32 @@ export function EmployeeDetail({
             }}
             items={contracts.data?.map((item) => ({
               actionLabel: item.contractNumber,
-              label: `${item.contractNumber} · ${statusLabel(item.status)} · ${formatDate(item.startDate)} — ${formatDate(item.endDate)}`,
+              label: item.contractNumber,
+              content: (
+                <div className='min-w-0 flex-1'>
+                  <div className='flex flex-wrap items-center gap-2'>
+                    <span className='font-medium'>{item.contractNumber}</span>
+                    <Badge
+                      variant={contractStatusBadgeVariant(item.status)}
+                      className={contractStatusBadgeClassName(item.status)}
+                    >
+                      {statusLabel(item.status)}
+                    </Badge>
+                  </div>
+                  <div className='mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground'>
+                    <span>{item.contractType}</span>
+                    <span aria-hidden='true'>·</span>
+                    <span>
+                      {formatDate(item.startDate)} — {formatDate(item.endDate)}
+                    </span>
+                    <span aria-hidden='true'>·</span>
+                    <span>Kontrak ke-{item.sequenceNumber}</span>
+                  </div>
+                </div>
+              ),
               edit: ['EXPIRED', 'TERMINATED', 'CANCELLED'].includes(item.status)
                 ? undefined
                 : `/karyawan/pkwt/${item.uid}/ubah`,
-              extend: item.status === 'EXPIRED' && item.isLatestForEmployee,
-              lifecycleActions: (
-                <ContractLifecycleActionButtons contract={item} />
-              ),
               onDetail: () => setSelectedContractUid(item.uid),
             }))}
           />
@@ -567,10 +585,9 @@ function Records({
   empty: string
   items?: {
     label: string
+    content?: ReactNode
     actionLabel?: string
     edit?: string
-    extend?: boolean
-    lifecycleActions?: ReactNode
     file?: string
     onDetail?: () => void
   }[]
@@ -609,10 +626,20 @@ function Records({
             {items.map((item) => (
               <li
                 key={item.edit ?? item.label}
-                className='flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm'
+                className={
+                  item.content
+                    ? 'flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-3 text-sm transition-colors hover:bg-muted/30'
+                    : 'flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm'
+                }
               >
-                <span>{item.label}</span>
-                <span className='flex gap-1'>
+                {item.content ?? <span>{item.label}</span>}
+                <span
+                  className={
+                    item.content
+                      ? 'flex shrink-0 items-center gap-1'
+                      : 'flex gap-1'
+                  }
+                >
                   {item.onDetail && (
                     <DataTableActionButton
                       onClick={item.onDetail}
@@ -631,20 +658,6 @@ function Records({
                       </a>
                     </DataTableActionButton>
                   )}
-                  {item.extend && add.to === '/karyawan/pkwt/tambah' && (
-                    <DataTableActionButton
-                      label={`Perpanjang kontrak ${item.actionLabel ?? item.label}`}
-                      asChild
-                    >
-                      <Link
-                        to='/karyawan/pkwt/tambah'
-                        search={{ employeeUid: add.employeeUid, returnTo }}
-                      >
-                        <FilePlus2 />
-                      </Link>
-                    </DataTableActionButton>
-                  )}
-                  {item.lifecycleActions}
                   {item.file && !item.onDetail && (
                     <>
                       <Button size='sm' variant='ghost' asChild>
