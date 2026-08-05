@@ -1,15 +1,22 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { Plus, RefreshCcw } from 'lucide-react'
+import { ChevronDown, Plus, RefreshCcw } from 'lucide-react'
 import { currentListReturnTo } from '@/lib/list-return-to'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Main } from '@/components/layout/main'
 import { useEmployeeList } from '../data/queries'
 import type { Employee, EmployeeListParams } from '../domain'
 import { createEmployeeColumns } from './employees-columns'
 import { EmployeesTable } from './employees-table'
 import { RegistrationCorrectionDialog } from './registration-correction-dialog'
+import { EmployeeImportDialog } from './employee-import-dialog'
 
 export function EmployeesPage({
   search,
@@ -34,6 +41,7 @@ export function EmployeesPage({
   const returnTo = currentListReturnTo()
   const routerNavigate = useNavigate()
   const [correctionEmployee, setCorrectionEmployee] = useState<Employee>()
+  const [importOpen, setImportOpen] = useState(false)
   const columns = useMemo(
     () =>
       createEmployeeColumns(
@@ -57,11 +65,23 @@ export function EmployeesPage({
             Master karyawan aktif dan histori dasar tiga site.
           </p>
         </div>
-        <Button asChild>
-          <Link to='/karyawan/tambah-karyawan' search={{ returnTo }}>
-            <Plus /> Tambah karyawan
-          </Link>
-        </Button>
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild>
+            <Button>
+              <Plus /> Tambah karyawan <ChevronDown className='size-4' />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align='end' className='w-52'>
+            <DropdownMenuItem asChild>
+              <Link to='/karyawan/tambah-karyawan' search={{ returnTo }}>
+                Single Karyawan
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setImportOpen(true)}>
+              Import Excel
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       {query.isPending && !query.data ? (
         <p className='py-10 text-center text-muted-foreground'>
@@ -104,6 +124,7 @@ export function EmployeesPage({
           />
         </>
       )}
+      <EmployeeImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </Main>
   )
 }

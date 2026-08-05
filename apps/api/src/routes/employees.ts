@@ -56,7 +56,7 @@ const optionalEmail = z
   .optional()
   .nullable()
   .transform((value) => value ?? undefined)
-const employeeInput = z.object({
+const employeeInputShape = {
   fullName: z.string().trim().min(2), nickname: optional,
   employeeType: z.enum(['BORONGAN', 'BULANAN', 'TRAINING']), employeeStatus: z.enum(['ACTIVE', 'RESIGNED', 'INACTIVE', 'LEAVE']), site: siteCode,
   department: optional, position: optional, workGroup: optional, productionModuleSectionUid: z.string().uuid().optional(), joinDate: z.string().date(), permanentDate: optionalDate,
@@ -66,9 +66,30 @@ const employeeInput = z.object({
   nationalIdNumber: optional, familyCardNumber: optional, taxNumber: optional, bankName: optional, bankAccountNumber: optional, bankAccountName: optional,
   bpjsHealthNumber: optional, bpjsEmploymentNumber: optional, photoUid: z.string().uuid().optional(), notes: optional,
   joinDateTraining: apiOptionalDate, joinDateBorong: apiOptionalDate,
-}).strict()
+}
+const employeeInput = z.object(employeeInputShape).strict()
   .refine((value) => !value.joinDateTraining || value.joinDateTraining >= value.joinDate, { path: ['joinDateTraining'], message: 'Tanggal join training tidak boleh sebelum tanggal bergabung.' })
   .refine((value) => !value.joinDateBorong || value.joinDateBorong >= value.joinDate, { path: ['joinDateBorong'], message: 'Tanggal join borong tidak boleh sebelum tanggal bergabung.' })
+const {
+  employeeStatus: _employeeStatus,
+  photoUid: _photoUid,
+  productionModuleSectionUid: _productionModuleSectionUid,
+  ...employeeImportShape
+} = employeeInputShape
+const employeeImportRowInput = z
+  .object({
+    ...employeeImportShape,
+    employeeType: z.enum(['BORONGAN', 'TRAINING']),
+    departmentCode: optional,
+    positionCode: optional,
+    workGroupCode: optional,
+    productionModuleCode: optional,
+    productionSectionCode: optional,
+  })
+  .strict()
+const employeeImportInput = z.object({
+  items: z.array(z.unknown()).min(1, 'File tidak memiliki baris data.').max(200, 'Satu file maksimal 200 karyawan.'),
+})
 const mutationInput = z.object({
   site: siteCode, department: optional, position: optional, workGroup: optional, productionModuleSectionUid: z.string().uuid().optional(), employeeType: z.enum(['BORONGAN', 'BULANAN', 'TRAINING']),
   effectiveFrom: z.string().date(),
@@ -196,6 +217,167 @@ async function references(input: z.infer<typeof employeeInput> | z.infer<typeof 
   const [assignments] = await pool.query<RowDataPacket[]>(`SELECT pms.id FROM production_module_sections pms JOIN production_modules pm ON pm.id=pms.production_module_id JOIN production_sections ps ON ps.id=pms.production_section_id JOIN sites s ON s.id=pm.site_id WHERE pms.uid=? AND s.code=? AND pms.is_active=1 AND pm.is_active=1 AND ps.is_active=1`, [input.productionModuleSectionUid, input.site])
   if (!assignments[0]) throw new ApiError(422, 'Pasangan Modul dan Bagian tidak valid untuk site tersebut.')
   return { ...rows[0], productionModuleSectionId: assignments[0].id } as RowDataPacket
+}
+
+type ImportPreviewRow = {
+  rowNumber: number
+  fullName?: string
+  employeeType?: string
+  site?: string
+  valid: boolean
+  issues: string[]
+  input?: z.infer<typeof employeeInput>
+}
+
+async function normalizeImportEmployee(
+  raw: z.infer<typeof employeeImportRowInput>,
+  auth: AuthContext
+) {
+  enforceSite(auth, raw.site)
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT s.code site,
+      d.name department,
+      p.name position,
+      w.name workGroup,
+      pms.uid productionModuleSectionUid
+     FROM sites s
+     LEFT JOIN departments d ON d.site_id=s.id AND d.code=? AND d.is_active=1
+     LEFT JOIN positions p ON p.code=? AND p.is_active=1
+     LEFT JOIN work_groups w ON w.site_id=s.id AND w.code=? AND w.is_active=1
+     LEFT JOIN production_modules pm ON pm.site_id=s.id AND pm.code=? AND pm.is_active=1
+     LEFT JOIN production_sections ps ON ps.code=? AND ps.is_active=1
+     LEFT JOIN production_module_sections pms ON pms.production_module_id=pm.id AND pms.production_section_id=ps.id AND pms.is_active=1
+     WHERE s.code=? AND s.is_active=1
+     LIMIT 1`,
+    [
+      raw.departmentCode ?? '__EMPTY__',
+      raw.positionCode ?? '__EMPTY__',
+      raw.workGroupCode ?? '__EMPTY__',
+      raw.productionModuleCode ?? '__EMPTY__',
+      raw.productionSectionCode ?? '__EMPTY__',
+      raw.site,
+    ]
+  )
+  const refs = rows[0]
+  if (!refs) throw new ApiError(422, 'Site tidak aktif atau tidak ditemukan.')
+  if (raw.departmentCode && !refs.department) throw new ApiError(422, 'Kode departemen tidak valid untuk site ini.')
+  if (raw.positionCode && !refs.position) throw new ApiError(422, 'Kode jabatan tidak valid.')
+  if (raw.workGroupCode && !refs.workGroup) throw new ApiError(422, 'Kode kelompok kerja tidak valid untuk site ini.')
+  if (!raw.productionModuleCode || !raw.productionSectionCode) {
+    throw new ApiError(422, 'Kode modul dan bagian produksi wajib diisi.')
+  }
+  if (!refs.productionModuleSectionUid) {
+    throw new ApiError(422, 'Pasangan kode modul dan bagian produksi tidak valid untuk site ini.')
+  }
+  const {
+    departmentCode: _departmentCode,
+    positionCode: _positionCode,
+    workGroupCode: _workGroupCode,
+    productionModuleCode: _productionModuleCode,
+    productionSectionCode: _productionSectionCode,
+    department: _department,
+    position: _position,
+    workGroup: _workGroup,
+    ...values
+  } = raw
+  return employeeInput.parse({
+    ...values,
+    employeeStatus: 'INACTIVE',
+    department: refs.department ?? undefined,
+    position: refs.position ?? undefined,
+    workGroup: refs.workGroup ?? undefined,
+    productionModuleSectionUid: refs.productionModuleSectionUid,
+  })
+}
+
+function issueMessage(error: unknown) {
+  if (error instanceof ApiError) return error.message
+  if (error instanceof z.ZodError) {
+    return error.issues.map((issue) => issue.message).join(' ')
+  }
+  return 'Data baris tidak dapat divalidasi.'
+}
+
+async function validateEmployeeImport(
+  items: unknown[],
+  auth: AuthContext
+): Promise<ImportPreviewRow[]> {
+  const rows: ImportPreviewRow[] = []
+  for (const [index, item] of items.entries()) {
+    const parsed = employeeImportRowInput.safeParse(item)
+    const base = typeof item === 'object' && item ? item as Record<string, unknown> : {}
+    const row: ImportPreviewRow = {
+      rowNumber: index + 2,
+      fullName: typeof base.fullName === 'string' ? base.fullName : undefined,
+      employeeType: typeof base.employeeType === 'string' ? base.employeeType : undefined,
+      site: typeof base.site === 'string' ? base.site : undefined,
+      valid: false,
+      issues: [],
+    }
+    if (!parsed.success) {
+      row.issues = parsed.error.issues.map((issue) => issue.message)
+      rows.push(row)
+      continue
+    }
+    try {
+      row.input = await normalizeImportEmployee(parsed.data, auth)
+      row.fullName = row.input.fullName
+      row.employeeType = row.input.employeeType
+      row.site = row.input.site
+      row.valid = true
+    } catch (error) {
+      row.issues = [issueMessage(error)]
+    }
+    rows.push(row)
+  }
+
+  const markDuplicate = (value: string | undefined, field: 'nationalIdNumber' | 'email', message: string) => {
+    if (!value) return
+    const matches = rows.filter((row) => row.input?.[field]?.toLowerCase() === value.toLowerCase())
+    if (matches.length > 1) matches.forEach((row) => { row.valid = false; row.issues.push(message) })
+  }
+  rows.forEach((row) => {
+    markDuplicate(row.input?.nationalIdNumber, 'nationalIdNumber', 'NIK duplikat dalam file.')
+    markDuplicate(row.input?.email, 'email', 'Email duplikat dalam file.')
+  })
+
+  const nationalIds = [...new Set(rows.flatMap((row) => row.input?.nationalIdNumber ? [row.input.nationalIdNumber] : []))]
+  const emails = [...new Set(rows.flatMap((row) => row.input?.email ? [row.input.email.toLowerCase()] : []))]
+  if (nationalIds.length || emails.length) {
+    const where: string[] = []
+    const params: string[] = []
+    if (nationalIds.length) { where.push(`national_id_number IN (${nationalIds.map(() => '?').join(',')})`); params.push(...nationalIds) }
+    if (emails.length) { where.push(`email IN (${emails.map(() => '?').join(',')})`); params.push(...emails) }
+    const [existing] = await pool.query<RowDataPacket[]>(`SELECT national_id_number nationalIdNumber,email FROM employees WHERE ${where.join(' OR ')}`, params)
+    const existingNiks = new Set(existing.map((row) => row.nationalIdNumber).filter(Boolean))
+    const existingEmails = new Set(existing.map((row) => String(row.email ?? '').toLowerCase()).filter(Boolean))
+    rows.forEach((row) => {
+      if (row.input?.nationalIdNumber && existingNiks.has(row.input.nationalIdNumber)) { row.valid = false; row.issues.push('NIK sudah digunakan.') }
+      if (row.input?.email && existingEmails.has(row.input.email.toLowerCase())) { row.valid = false; row.issues.push('Email sudah digunakan.') }
+    })
+  }
+  return rows
+}
+
+async function createEmployeeInTransaction(
+  conn: PoolConnection,
+  input: z.infer<typeof employeeInput>,
+  auth: AuthContext,
+  request: Request
+) {
+  enforceSite(auth, input.site)
+  const refs = await references(input, 'INACTIVE')
+  const uid = randomUUID()
+  const employeeNumber = await reserveEmployeeNumber(conn, {
+    siteId: Number(refs.siteId),
+    prefix: String(refs.employeeNumberPrefix),
+    joinDate: input.joinDate,
+  })
+  await conn.execute(`INSERT INTO employees(uid,employee_number,employee_type_id,employee_status_id,current_site_id,current_department_id,current_position_id,current_work_group_id,current_production_module_section_id,full_name,nickname,national_id_number,family_card_number,gender,birth_place,birth_date,marital_status,religion,address,rtrw,kelurahan,kecamatan,city,province,postal_code,phone,email,emergency_contact_name,emergency_contact_phone,emergency_contact_relation,bank_name,bank_account_number,bank_account_name,tax_number,bpjs_health_number,bpjs_employment_number,join_date,join_date_training,join_date_borong,permanent_date,resign_date,resign_reason,photo_file_id,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [uid,employeeNumber,refs.typeId,refs.statusId,refs.siteId,refs.departmentId,refs.positionId,refs.workGroupId,refs.productionModuleSectionId,input.fullName,empty(input.nickname),empty(input.nationalIdNumber),empty(input.familyCardNumber),input.gender,empty(input.birthPlace),empty(input.birthDate),empty(input.maritalStatus),empty(input.religion),empty(input.address),empty(input.rtrw),empty(input.kelurahan),empty(input.kecamatan),empty(input.city),empty(input.province),empty(input.postalCode),empty(input.phone),empty(input.email),empty(input.emergencyContactName),empty(input.emergencyContactPhone),empty(input.emergencyContactRelation),empty(input.bankName),empty(input.bankAccountNumber),empty(input.bankAccountName),empty(input.taxNumber),empty(input.bpjsHealthNumber),empty(input.bpjsEmploymentNumber),input.joinDate,input.joinDateTraining ?? null,input.joinDateBorong ?? null,empty(input.permanentDate),empty(input.resignDate),empty(input.resignReason),null,empty(input.notes),auth.id,auth.id])
+  const [created] = await conn.query<RowDataPacket[]>('SELECT id FROM employees WHERE uid=?', [uid])
+  await conn.execute(`INSERT INTO employee_employment_histories(uid,employee_id,site_id,department_id,position_id,work_group_id,production_module_section_id,employee_type_id,employee_status_id,effective_from,change_type,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,'INITIAL',?,?,?)`, [randomUUID(),created[0].id,refs.siteId,refs.departmentId,refs.positionId,refs.workGroupId,refs.productionModuleSectionId,refs.typeId,refs.statusId,input.joinDate,'Penempatan awal.',auth.id,auth.id])
+  await writeAudit({ auth, request, siteId: refs.siteId, action: 'CREATE', table: 'employees', recordId: created[0].id, recordUid: uid, description: `Membuat karyawan ${employeeNumber}.` }, conn)
+  return { uid, employeeNumber }
 }
 async function employeeAccess(uid: string, auth: AuthContext) {
   const [rows] = await pool.query<RowDataPacket[]>(`SELECT e.id,e.uid,e.employee_number employeeNumber,es.code employeeStatus,s.id siteId,s.code site,d.name department,p.name position,w.name workGroup,et.code employeeType,pms.uid productionModuleSectionUid,DATE_FORMAT(e.join_date_training,'%Y-%m-%d') joinDateTraining,DATE_FORMAT(e.join_date_borong,'%Y-%m-%d') joinDateBorong FROM employees e JOIN employee_statuses es ON es.id=e.employee_status_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN departments d ON d.id=e.current_department_id LEFT JOIN positions p ON p.id=e.current_position_id LEFT JOIN work_groups w ON w.id=e.current_work_group_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id WHERE e.uid=?`, [uid])
@@ -665,25 +847,63 @@ employeesRouter.post('/contracts/:contractUid/normalize-print-snapshot', require
 employeesRouter.post('/contracts/print-snapshots', requirePermission('employees.manage'), async (req,res,next)=>{ const conn=await pool.getConnection();try{const auth=res.locals.auth as AuthContext;const input=printSnapshotsInput.parse(req.body);const contractUids=[...new Set(input.contractUids)];await conn.beginTransaction();const items=[];for(const uid of contractUids){items.push(await ensureContractPrintSnapshot(conn,auth,req,uid))}await conn.commit();res.json({items})}catch(e){await conn.rollback();next(e)}finally{conn.release()} })
 employeesRouter.post('/contracts/:contractUid/print-snapshot', requirePermission('employees.manage'), async (req,res,next)=>{ const conn=await pool.getConnection();try{const auth=res.locals.auth as AuthContext;const uid=routeParam(req.params.contractUid);await conn.beginTransaction();const snapshot=await ensureContractPrintSnapshot(conn,auth,req,uid);await conn.commit();res.json(snapshot)}catch(e){await conn.rollback();next(e)}finally{conn.release()} })
 
+employeesRouter.post('/import/preview', requirePermission('employees.manage'), async (req, res, next) => {
+  try {
+    const { items } = employeeImportInput.parse(req.body)
+    const rows = await validateEmployeeImport(items, res.locals.auth as AuthContext)
+    res.json({
+      rows: rows.map(({ input: _input, ...row }) => row),
+      total: rows.length,
+      valid: rows.filter((row) => row.valid).length,
+      invalid: rows.filter((row) => !row.valid).length,
+    })
+  } catch (error) { next(error) }
+})
+
+employeesRouter.post('/import', requirePermission('employees.manage'), async (req, res, next) => {
+  const conn = await pool.getConnection()
+  try {
+    const { items } = employeeImportInput.parse(req.body)
+    const auth = res.locals.auth as AuthContext
+    const rows = await validateEmployeeImport(items, auth)
+    const invalid = rows.filter((row) => !row.valid || !row.input)
+    if (invalid.length) {
+      throw new ApiError(422, 'Import belum dapat dieksekusi. Perbaiki seluruh baris yang tidak valid.')
+    }
+    await conn.beginTransaction()
+    const created = []
+    for (const row of rows) {
+      created.push(await createEmployeeInTransaction(conn, row.input!, auth, req))
+    }
+    await conn.commit()
+    res.status(201).json({ created })
+  } catch (error) {
+    await conn.rollback()
+    if (error instanceof EmployeeNumberSequenceExhaustedError) {
+      next(new ApiError(422, error.message))
+      return
+    }
+    if ((error as { code?: string }).code === 'ER_DUP_ENTRY') {
+      next(new ApiError(409, 'Data unik sudah digunakan oleh karyawan lain. Muat ulang preview lalu periksa kembali.'))
+      return
+    }
+    next(error)
+  } finally { conn.release() }
+})
+
 employeesRouter.get('/:uid', requirePermission('employees.view'), async (req, res, next) => {
   try { const uid = routeParam(req.params.uid); const [rows] = await pool.query<RowDataPacket[]>(`${employeeSelect} WHERE e.uid=?`, [uid]); if (!rows[0]) throw new ApiError(404, 'Karyawan tidak ditemukan.'); enforceSite(res.locals.auth, rows[0].site); res.json(mapEmployee(rows[0])) } catch (error) { next(error) }
 })
 
 employeesRouter.post('/', requirePermission('employees.manage'), async (req, res, next) => {
   try {
-    const input = employeeInput.parse(req.body); if (input.employeeStatus !== 'INACTIVE') throw new ApiError(422, 'Karyawan baru harus dibuat dengan status Nonaktif. Buat dan aktifkan kontrak terlebih dahulu untuk mengaktifkannya.'); const auth = res.locals.auth as AuthContext; enforceSite(auth, input.site); const refs = await references(input, input.employeeStatus); const photoId = await fileId(input.photoUid); const uid = randomUUID(); const conn = await pool.getConnection()
+    const input = employeeInput.parse(req.body); if (input.employeeStatus !== 'INACTIVE') throw new ApiError(422, 'Karyawan baru harus dibuat dengan status Nonaktif. Buat dan aktifkan kontrak terlebih dahulu untuk mengaktifkannya.'); const auth = res.locals.auth as AuthContext; const photoId = await fileId(input.photoUid); const conn = await pool.getConnection()
     try {
       await conn.beginTransaction()
-      const employeeNumber = await reserveEmployeeNumber(conn, {
-        siteId: Number(refs.siteId),
-        prefix: String(refs.employeeNumberPrefix),
-        joinDate: input.joinDate,
-      })
-      await conn.execute(`INSERT INTO employees(uid,employee_number,employee_type_id,employee_status_id,current_site_id,current_department_id,current_position_id,current_work_group_id,current_production_module_section_id,full_name,nickname,national_id_number,family_card_number,gender,birth_place,birth_date,marital_status,religion,address,rtrw,kelurahan,kecamatan,city,province,postal_code,phone,email,emergency_contact_name,emergency_contact_phone,emergency_contact_relation,bank_name,bank_account_number,bank_account_name,tax_number,bpjs_health_number,bpjs_employment_number,join_date,join_date_training,join_date_borong,permanent_date,resign_date,resign_reason,photo_file_id,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [uid,employeeNumber,refs.typeId,refs.statusId,refs.siteId,refs.departmentId,refs.positionId,refs.workGroupId,refs.productionModuleSectionId,input.fullName,empty(input.nickname),empty(input.nationalIdNumber),empty(input.familyCardNumber),input.gender,empty(input.birthPlace),empty(input.birthDate),empty(input.maritalStatus),empty(input.religion),empty(input.address),empty(input.rtrw),empty(input.kelurahan),empty(input.kecamatan),empty(input.city),empty(input.province),empty(input.postalCode),empty(input.phone),empty(input.email),empty(input.emergencyContactName),empty(input.emergencyContactPhone),empty(input.emergencyContactRelation),empty(input.bankName),empty(input.bankAccountNumber),empty(input.bankAccountName),empty(input.taxNumber),empty(input.bpjsHealthNumber),empty(input.bpjsEmploymentNumber),input.joinDate,input.joinDateTraining ?? null,input.joinDateBorong ?? null,empty(input.permanentDate),empty(input.resignDate),empty(input.resignReason),photoId,empty(input.notes),auth.id,auth.id])
-      const [created] = await conn.query<RowDataPacket[]>('SELECT id FROM employees WHERE uid=?', [uid])
-      await conn.execute(`INSERT INTO employee_employment_histories(uid,employee_id,site_id,department_id,position_id,work_group_id,production_module_section_id,employee_type_id,employee_status_id,effective_from,change_type,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,'INITIAL',?,?,?)`, [randomUUID(),created[0].id,refs.siteId,refs.departmentId,refs.positionId,refs.workGroupId,refs.productionModuleSectionId,refs.typeId,refs.statusId,input.joinDate,'Penempatan awal.',auth.id,auth.id])
-      await writeAudit({ auth, request: req, siteId: refs.siteId, action: 'CREATE', table: 'employees', recordId: created[0].id, recordUid: uid, description: `Membuat karyawan ${employeeNumber}.` }, conn)
+      const created = await createEmployeeInTransaction(conn, input, auth, req)
+      if (photoId) await conn.execute('UPDATE employees SET photo_file_id=? WHERE uid=?', [photoId, created.uid])
       await conn.commit()
+      res.status(201).json({ uid: created.uid })
     } catch (error) {
       await conn.rollback()
       if (error instanceof EmployeeNumberSequenceExhaustedError) {
@@ -691,7 +911,6 @@ employeesRouter.post('/', requirePermission('employees.manage'), async (req, res
       }
       throw error
     } finally { conn.release() }
-    res.status(201).json({ uid })
   } catch (error) { next(error) }
 })
 

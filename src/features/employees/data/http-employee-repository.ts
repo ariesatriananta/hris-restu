@@ -278,6 +278,34 @@ export const saveContractsBatch = async (items: ContractBatchItem[]) =>
     })
   ).data
 
+export type EmployeeImportPreview = {
+  rows: {
+    rowNumber: number
+    fullName?: string
+    employeeType?: string
+    site?: string
+    valid: boolean
+    issues: string[]
+  }[]
+  total: number
+  valid: number
+  invalid: number
+}
+
+export const previewEmployeeImport = async (items: unknown[]) =>
+  (
+    await apiClient.post<EmployeeImportPreview>('/employees/import/preview', {
+      items,
+    })
+  ).data
+
+export const importEmployees = async (items: unknown[]) =>
+  (
+    await apiClient.post<{
+      created: { uid: string; employeeNumber: string }[]
+    }>('/employees/import', { items })
+  ).data
+
 export const updateScheduledMutation = async (
   uid: string,
   input: MutationInput
