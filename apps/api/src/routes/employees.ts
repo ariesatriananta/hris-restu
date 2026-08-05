@@ -23,7 +23,6 @@ import { cronConflict } from '../lib/contract-lifecycle-policy.js'
 import {
   contractTypeRuleMessage,
   isContractTypeAllowed,
-  requiredContractType,
 } from '../lib/employee-contract-policy.js'
 import { authenticate, requirePermission, type AuthContext } from '../middleware/authenticate.js'
 
@@ -58,7 +57,7 @@ const optionalEmail = z
   .transform((value) => value ?? undefined)
 const employeeInputShape = {
   fullName: z.string().trim().min(2), nickname: optional,
-  employeeType: z.enum(['BORONGAN', 'BULANAN', 'TRAINING']), employeeStatus: z.enum(['ACTIVE', 'RESIGNED', 'INACTIVE', 'LEAVE']), site: siteCode,
+  employeeType: z.enum(['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING']), employeeStatus: z.enum(['ACTIVE', 'RESIGNED', 'INACTIVE', 'LEAVE']), site: siteCode,
   department: optional, position: optional, workGroup: optional, productionModuleSectionUid: z.string().uuid().optional(), joinDate: z.string().date(), permanentDate: optionalDate,
   resignDate: optionalDate, resignReason: optional, gender: z.enum(['LAKI-LAKI', 'PEREMPUAN', 'MALE', 'FEMALE']), birthPlace: optional, birthDate: optionalDate,
   maritalStatus: z.enum(['BELUM_KAWIN', 'KAWIN', 'CERAI_HIDUP', 'CERAI_MATI', 'SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED']).optional(), religion: optional, address: optional, rtrw: optionalRtrw, kelurahan: optional, kecamatan: optional, city: optional, province: optional,
@@ -79,7 +78,7 @@ const {
 const employeeImportRowInput = z
   .object({
     ...employeeImportShape,
-    employeeType: z.enum(['BORONGAN', 'TRAINING']),
+    employeeType: z.enum(['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING']),
     departmentCode: optional,
     positionCode: optional,
     workGroupCode: optional,
@@ -91,7 +90,7 @@ const employeeImportInput = z.object({
   items: z.array(z.unknown()).min(1, 'File tidak memiliki baris data.').max(200, 'Satu file maksimal 200 karyawan.'),
 })
 const mutationInput = z.object({
-  site: siteCode, department: optional, position: optional, workGroup: optional, productionModuleSectionUid: z.string().uuid().optional(), employeeType: z.enum(['BORONGAN', 'BULANAN', 'TRAINING']),
+  site: siteCode, department: optional, position: optional, workGroup: optional, productionModuleSectionUid: z.string().uuid().optional(), employeeType: z.enum(['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING']),
   effectiveFrom: z.string().date(),
   changeType: z.enum(['TRANSFER', 'PROMOTION', 'DEMOTION', 'DEPARTMENT_CHANGE', 'TYPE_CHANGE', 'GROUP_CHANGE', 'PRODUCTION_ASSIGNMENT_CHANGE', 'OTHER']), referenceNumber: optional, reason: optional, notes: optional,
 })
@@ -101,7 +100,7 @@ const registrationCorrectionInput = z.object({
   position: optional,
   workGroup: optional,
   productionModuleSectionUid: z.string().uuid().optional(),
-  employeeType: z.enum(['BORONGAN', 'BULANAN', 'TRAINING']),
+  employeeType: z.enum(['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING']),
   reason: z.string().trim().min(3, 'Alasan koreksi wajib diisi.'),
 })
 const mutationBatchInput = z
@@ -140,11 +139,12 @@ const contractBatchInput = z
           employeeUid: z.string().uuid(),
           input: z
             .object({
+              contractType: z.string().trim().min(1),
               startDate: z.string().date(),
-              endDate: z.string().date(),
+              endDate: optionalDate,
               notes: optional,
             })
-            .refine((value) => value.endDate >= value.startDate, {
+            .refine((value) => !value.endDate || value.endDate >= value.startDate, {
               message: 'Tanggal kontrak tidak valid.',
               path: ['endDate'],
             }),
@@ -212,8 +212,7 @@ async function references(input: z.infer<typeof employeeInput> | z.infer<typeof 
     [empty(input.department), empty(input.position), empty(input.workGroup), input.employeeType, employeeStatus, input.site]
   )
   if (!rows[0]?.siteId || !rows[0].typeId || !rows[0].statusId || !rows[0].employeeNumberPrefix) throw new ApiError(422, 'Referensi penempatan tidak valid.')
-  if (input.employeeType === 'BULANAN') return { ...rows[0], productionModuleSectionId: null } as RowDataPacket
-  if (!input.productionModuleSectionUid) throw new ApiError(422, 'Modul dan Bagian wajib dipilih untuk karyawan Borongan atau Training.')
+  if (!input.productionModuleSectionUid) throw new ApiError(422, 'Modul dan Bagian produksi wajib dipilih.')
   const [assignments] = await pool.query<RowDataPacket[]>(`SELECT pms.id FROM production_module_sections pms JOIN production_modules pm ON pm.id=pms.production_module_id JOIN production_sections ps ON ps.id=pms.production_section_id JOIN sites s ON s.id=pm.site_id WHERE pms.uid=? AND s.code=? AND pms.is_active=1 AND pm.is_active=1 AND ps.is_active=1`, [input.productionModuleSectionUid, input.site])
   if (!assignments[0]) throw new ApiError(422, 'Pasangan Modul dan Bagian tidak valid untuk site tersebut.')
   return { ...rows[0], productionModuleSectionId: assignments[0].id } as RowDataPacket
@@ -416,7 +415,6 @@ function validateMutationChange(
       unchanged('site', 'department', 'position', 'workGroup')
       return
     case 'PRODUCTION_ASSIGNMENT_CHANGE':
-      if (!['BORONGAN', 'TRAINING'].includes(employee.employeeType) || !['BORONGAN', 'TRAINING'].includes(input.employeeType)) throw new ApiError(422, 'Perubahan penempatan produksi hanya berlaku untuk karyawan Borongan atau Training.')
       if (sameValue(input.productionModuleSectionUid, employee.productionModuleSectionUid)) throw new ApiError(422, 'Pilih Modul atau Bagian produksi yang berbeda.')
       unchanged('site', 'department', 'position', 'employeeType', 'workGroup')
       return
@@ -452,12 +450,18 @@ async function fileId(uid?: string) {
 function scopeWhere(auth: AuthContext, column = 's.code') { return auth.roles.includes('SUPER_ADMIN') ? { sql: '1=1', params: [] as string[] } : { sql: `${column} IN (${auth.siteAccess.map(() => '?').join(',') || "''"})`, params: auth.siteAccess } }
 const routeParam = (value: string | string[]) => Array.isArray(value) ? value[0] : value
 
+function assertContractPrintEligible(employeeType: string, contractType: string) {
+  if (employeeType !== 'BORONGAN' || contractType !== 'PKWT') {
+    throw new ApiError(422, 'Cetak template tahap ini hanya tersedia untuk karyawan Borongan dengan kontrak PKWT.')
+  }
+}
+
 async function ensureContractPrintSnapshot(conn: PoolConnection, auth: AuthContext, request: Request, uid: string) {
-  const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.contract_number contractNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.terms_json termsJson,ct.code contractType,e.id employeeId,e.full_name fullName,e.employee_number employeeNumber,e.national_id_number nationalIdNumber,e.address,e.rtrw,e.kelurahan,e.kecamatan,e.city,e.province,s.code currentSite FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [uid])
+  const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.contract_number contractNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.terms_json termsJson,ct.code contractType,et.code employeeType,e.id employeeId,e.full_name fullName,e.employee_number employeeNumber,e.national_id_number nationalIdNumber,e.address,e.rtrw,e.kelurahan,e.kecamatan,e.city,e.province,s.code currentSite FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [uid])
   const c = rows[0]
   if (!c) throw new ApiError(404, 'Kontrak tidak ditemukan.')
   enforceSite(auth, c.currentSite)
-  if (!['PKWT', 'TRAINING'].includes(c.contractType)) throw new ApiError(422, 'Cetak kontrak hanya tersedia untuk PKWT dan Training.')
+  assertContractPrintEligible(c.employeeType, c.contractType)
   const terms = typeof c.termsJson === 'string' ? JSON.parse(c.termsJson || '{}') : c.termsJson ?? {}
   if (terms.contractPrintV1?.version === 'PKWT_PRODUCTION_POSITION_V1') return terms.contractPrintV1
   if (!c.nationalIdNumber || !c.address) throw new ApiError(422, `NIK dan alamat karyawan wajib tersedia sebelum kontrak ${c.contractNumber} dicetak.`)
@@ -834,7 +838,33 @@ employeesRouter.get('/documents', requirePermission('employees.view'), async (re
     res.json({ items: rows.map(mapDocument), total: Number(count[0].total), page, pageSize })
   } catch (error) { next(error) }
 })
-employeesRouter.get('/contracts/print-previews', requirePermission('employees.view'), async (req,res,next)=>{ try { const contractUids=z.array(z.string().uuid()).min(1).max(50).parse(String(req.query.contractUids??'').split(',').filter(Boolean)); const unique=[...new Set(contractUids)]; const [rows]=await pool.query<RowDataPacket[]>(`SELECT c.uid,c.terms_json termsJson,s.code site FROM employee_contracts c JOIN employees e ON e.id=c.employee_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid IN (${unique.map(()=>'?').join(',')})`,unique); const byUid=new Map(rows.map(row=>[row.uid,row])); const items=unique.map(uid=>{const row=byUid.get(uid); if(!row) throw new ApiError(404,'Kontrak tidak ditemukan.'); enforceSite(res.locals.auth as AuthContext,row.site); const terms=typeof row.termsJson==='string'?JSON.parse(row.termsJson||'{}'):row.termsJson??{}; if(!terms.contractPrintV1) throw new ApiError(409,'Preview belum dibuat. Buat snapshot kontrak terlebih dahulu.'); return terms.contractPrintV1}); res.json({items}) }catch(e){next(e)} })
+employeesRouter.get('/contracts/print-previews', requirePermission('employees.view'), async (req, res, next) => {
+  try {
+    const contractUids = z.array(z.string().uuid()).min(1).max(50).parse(String(req.query.contractUids ?? '').split(',').filter(Boolean))
+    const unique = [...new Set(contractUids)]
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT c.uid,c.terms_json termsJson,s.code site,ct.code contractType,et.code employeeType
+       FROM employee_contracts c
+       JOIN contract_types ct ON ct.id=c.contract_type_id
+       JOIN employees e ON e.id=c.employee_id
+       JOIN employee_types et ON et.id=e.employee_type_id
+       JOIN sites s ON s.id=e.current_site_id
+       WHERE c.uid IN (${unique.map(() => '?').join(',')})`,
+      unique
+    )
+    const byUid = new Map(rows.map((row) => [row.uid, row]))
+    const items = unique.map((uid) => {
+      const row = byUid.get(uid)
+      if (!row) throw new ApiError(404, 'Kontrak tidak ditemukan.')
+      enforceSite(res.locals.auth as AuthContext, row.site)
+      assertContractPrintEligible(row.employeeType, row.contractType)
+      const terms = typeof row.termsJson === 'string' ? JSON.parse(row.termsJson || '{}') : row.termsJson ?? {}
+      if (!terms.contractPrintV1) throw new ApiError(409, 'Preview belum dibuat. Buat snapshot kontrak terlebih dahulu.')
+      return terms.contractPrintV1
+    })
+    res.json({ items })
+  } catch (error) { next(error) }
+})
 employeesRouter.get('/contracts/:contractUid', requirePermission('employees.view'), async (req, res, next) => {
   try { const uid = routeParam(req.params.contractUid); const [rows] = await pool.query<RowDataPacket[]>(`${contractSelect()} WHERE c.uid=?`, [uid]); if (!rows[0]) throw new ApiError(404, 'Kontrak tidak ditemukan.'); enforceSite(res.locals.auth as AuthContext, rows[0].site); res.json(mapContract(rows[0])) } catch (error) { next(error) }
 })
@@ -842,8 +872,56 @@ employeesRouter.get('/documents/:documentUid', requirePermission('employees.view
   try { const uid = routeParam(req.params.documentUid); const [rows] = await pool.query<RowDataPacket[]>(`${documentSelect()} WHERE d.uid=?`, [uid]); if (!rows[0]) throw new ApiError(404, 'Dokumen tidak ditemukan.'); enforceSite(res.locals.auth as AuthContext, rows[0].site); res.json(mapDocument(rows[0])) } catch (error) { next(error) }
 })
 
-employeesRouter.get('/contracts/:contractUid/print-preview', requirePermission('employees.view'), async (req,res,next)=>{ try { const uid=routeParam(req.params.contractUid); const [rows]=await pool.query<RowDataPacket[]>(`SELECT c.terms_json termsJson,s.code site FROM employee_contracts c JOIN employees e ON e.id=c.employee_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=?`,[uid]); if(!rows[0])throw new ApiError(404,'Kontrak tidak ditemukan.'); enforceSite(res.locals.auth as AuthContext,rows[0].site); const terms=typeof rows[0].termsJson==='string'?JSON.parse(rows[0].termsJson||'{}'):rows[0].termsJson??{}; if(!terms.contractPrintV1)throw new ApiError(409,'Preview belum dibuat. Buat snapshot kontrak terlebih dahulu.');res.json(terms.contractPrintV1) }catch(e){next(e)} })
-employeesRouter.post('/contracts/:contractUid/normalize-print-snapshot', requirePermission('employees.manage'), async (req,res,next)=>{ try { const auth=res.locals.auth as AuthContext; const uid=routeParam(req.params.contractUid); const [rows]=await pool.query<RowDataPacket[]>(`SELECT c.id,c.terms_json termsJson,s.code site,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate FROM employee_contracts c JOIN employees e ON e.id=c.employee_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=?`,[uid]); const row=rows[0]; if(!row)throw new ApiError(404,'Kontrak tidak ditemukan.'); enforceSite(auth,row.site); const terms=typeof row.termsJson==='string'?JSON.parse(row.termsJson||'{}'):row.termsJson??{}; if(!terms.contractPrintV1)throw new ApiError(409,'Snapshot kontrak belum tersedia.'); terms.contractPrintV1.contract={...terms.contractPrintV1.contract,startDate:row.startDate,endDate:row.endDate,signedDate:row.signedDate}; await pool.execute('UPDATE employee_contracts SET terms_json=?,updated_by=? WHERE id=?',[JSON.stringify(terms),auth.id,row.id]); res.status(204).end() } catch(e){next(e)} })
+employeesRouter.get('/contracts/:contractUid/print-preview', requirePermission('employees.view'), async (req, res, next) => {
+  try {
+    const uid = routeParam(req.params.contractUid)
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT c.terms_json termsJson,s.code site,ct.code contractType,et.code employeeType
+       FROM employee_contracts c
+       JOIN contract_types ct ON ct.id=c.contract_type_id
+       JOIN employees e ON e.id=c.employee_id
+       JOIN employee_types et ON et.id=e.employee_type_id
+       JOIN sites s ON s.id=e.current_site_id
+       WHERE c.uid=?`,
+      [uid]
+    )
+    const row = rows[0]
+    if (!row) throw new ApiError(404, 'Kontrak tidak ditemukan.')
+    enforceSite(res.locals.auth as AuthContext, row.site)
+    assertContractPrintEligible(row.employeeType, row.contractType)
+    const terms = typeof row.termsJson === 'string' ? JSON.parse(row.termsJson || '{}') : row.termsJson ?? {}
+    if (!terms.contractPrintV1) throw new ApiError(409, 'Preview belum dibuat. Buat snapshot kontrak terlebih dahulu.')
+    res.json(terms.contractPrintV1)
+  } catch (error) { next(error) }
+})
+employeesRouter.post('/contracts/:contractUid/normalize-print-snapshot', requirePermission('employees.manage'), async (req, res, next) => {
+  try {
+    const auth = res.locals.auth as AuthContext
+    const uid = routeParam(req.params.contractUid)
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT c.id,c.terms_json termsJson,s.code site,ct.code contractType,et.code employeeType,
+              DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,
+              DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,
+              DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate
+       FROM employee_contracts c
+       JOIN contract_types ct ON ct.id=c.contract_type_id
+       JOIN employees e ON e.id=c.employee_id
+       JOIN employee_types et ON et.id=e.employee_type_id
+       JOIN sites s ON s.id=e.current_site_id
+       WHERE c.uid=?`,
+      [uid]
+    )
+    const row = rows[0]
+    if (!row) throw new ApiError(404, 'Kontrak tidak ditemukan.')
+    enforceSite(auth, row.site)
+    assertContractPrintEligible(row.employeeType, row.contractType)
+    const terms = typeof row.termsJson === 'string' ? JSON.parse(row.termsJson || '{}') : row.termsJson ?? {}
+    if (!terms.contractPrintV1) throw new ApiError(409, 'Snapshot kontrak belum tersedia.')
+    terms.contractPrintV1.contract = { ...terms.contractPrintV1.contract, startDate: row.startDate, endDate: row.endDate, signedDate: row.signedDate }
+    await pool.execute('UPDATE employee_contracts SET terms_json=?,updated_by=? WHERE id=?', [JSON.stringify(terms), auth.id, row.id])
+    res.status(204).end()
+  } catch (error) { next(error) }
+})
 employeesRouter.post('/contracts/print-snapshots', requirePermission('employees.manage'), async (req,res,next)=>{ const conn=await pool.getConnection();try{const auth=res.locals.auth as AuthContext;const input=printSnapshotsInput.parse(req.body);const contractUids=[...new Set(input.contractUids)];await conn.beginTransaction();const items=[];for(const uid of contractUids){items.push(await ensureContractPrintSnapshot(conn,auth,req,uid))}await conn.commit();res.json({items})}catch(e){await conn.rollback();next(e)}finally{conn.release()} })
 employeesRouter.post('/contracts/:contractUid/print-snapshot', requirePermission('employees.manage'), async (req,res,next)=>{ const conn=await pool.getConnection();try{const auth=res.locals.auth as AuthContext;const uid=routeParam(req.params.contractUid);await conn.beginTransaction();const snapshot=await ensureContractPrintSnapshot(conn,auth,req,uid);await conn.commit();res.json(snapshot)}catch(e){await conn.rollback();next(e)}finally{conn.release()} })
 
@@ -1345,14 +1423,14 @@ async function createDraftContract(
   const employee = employees[0]
   if (!employee) throw new ApiError(404, 'Karyawan tidak ditemukan.')
   enforceSite(auth, employee.site)
-  const contractTypeCode = input.contractType || requiredContractType(employee.employeeType)
+  const contractTypeCode = input.contractType
   const [contractTypes] = await conn.query<RowDataPacket[]>(
     'SELECT id,code FROM contract_types WHERE code=? AND is_active=1 FOR UPDATE',
     [contractTypeCode]
   )
   const contractType = contractTypes[0]
   if (!contractType) throw new ApiError(422, 'Tipe kontrak tidak valid atau tidak aktif.')
-  if (!isContractTypeAllowed(employee.employeeType, contractType.code)) throw new ApiError(422, contractTypeRuleMessage(employee.employeeType))
+  if (!isContractTypeAllowed(contractType.code)) throw new ApiError(422, contractTypeRuleMessage())
   const [sequences] = await conn.query<RowDataPacket[]>(
     'SELECT COALESCE(MAX(sequence_number), 0) + 1 nextSequence FROM employee_contracts WHERE employee_id=?',
     [employee.id]
@@ -1415,7 +1493,6 @@ employeesRouter.post('/contracts/batch', requirePermission('employees.manage'), 
       created.push(
         await createDraftContract(conn, auth, req, item.employeeUid, {
           ...item.input,
-          contractType: '',
           signedDate: undefined,
         })
       )
@@ -1456,11 +1533,11 @@ employeesRouter.patch('/contracts/:contractUid', requirePermission('employees.ma
       if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
       enforceSite(auth, contract.site)
       if (['EXPIRED', 'TERMINATED', 'CANCELLED'].includes(contract.status)) throw new ApiError(409, 'Kontrak final tidak dapat diubah.')
-      if (contract.status === 'ACTIVE' && input.contractType !== contract.contractType) throw new ApiError(422, 'Jenis kontrak aktif tidak dapat diubah.')
+      if (!['DRAFT', 'SCHEDULED'].includes(contract.status) && input.contractType !== contract.contractType) throw new ApiError(422, 'Jenis kontrak hanya dapat diubah saat status Draft atau Dijadwalkan.')
       const [types] = await conn.query<RowDataPacket[]>('SELECT id,code FROM contract_types WHERE code=? AND is_active=1 FOR UPDATE', [input.contractType])
       const type = types[0]
       if (!type) throw new ApiError(422, 'Tipe kontrak tidak valid atau tidak aktif.')
-      if (!isContractTypeAllowed(contract.employeeType, type.code)) throw new ApiError(422, contractTypeRuleMessage(contract.employeeType))
+      if (!isContractTypeAllowed(type.code)) throw new ApiError(422, contractTypeRuleMessage())
       await assertContractRules(conn, contract.employee_id, type.code, input.startDate, input.endDate, contract.id, contract.joinDate)
       const contractNumber = contract.status === 'ACTIVE' ? contract.contract_number : formatContractNumber(type.code, (await conn.query<RowDataPacket[]>('SELECT employee_number employeeNumber FROM employees WHERE id=? FOR UPDATE', [contract.employee_id]))[0][0].employeeNumber, contract.sequence_number)
       await conn.execute("UPDATE employee_contracts SET contract_number=?,contract_type_id=?,start_date=?,end_date=?,signed_date=?,issued_file_id=?,notes=?,terms_json=JSON_REMOVE(COALESCE(terms_json,JSON_OBJECT()), '$.contractPrintV1'),updated_by=? WHERE id=?", [contractNumber,type.id,input.startDate,empty(input.endDate),empty(input.signedDate),await fileId(input.issuedFileUid),empty(input.notes),auth.id,contract.id])
@@ -1483,7 +1560,7 @@ function contractFrom() { return `FROM employee_contracts c JOIN contract_types 
 function contractCoverageFrom() { return `FROM employees e JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id LEFT JOIN employee_contracts c ON c.employee_id=e.id AND NOT EXISTS(SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=e.id AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id))) LEFT JOIN contract_types ct ON ct.id=c.contract_type_id LEFT JOIN files f ON f.id=c.issued_file_id` }
 function contractSelect() { return `SELECT c.uid,e.uid employeeUid,e.full_name employeeName,et.code employeeType,currentEs.code employeeStatus,s.code site,pm.name productionModule,ps.name productionSection,c.contract_number contractNumber,ct.code contractType,c.sequence_number sequenceNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.status,DATE_FORMAT(c.terminated_at,'%Y-%m-%d') terminatedAt,c.termination_reason terminationReason,c.position_name_snapshot positionNameSnapshot,c.site_name_snapshot siteNameSnapshot,c.salary_or_rate_notes salaryOrRateNotes,c.notes,NOT EXISTS(SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=c.employee_id AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id))) isLatestForEmployee,0 isMissingContract,0 isCoverageIssue,f.uid issuedFileUid,f.original_name issuedFileName,f.mime_type issuedFileMimeType,f.size_bytes issuedFileSizeBytes,f.extension issuedFileExtension,f.storage_path issuedFilePath ${contractFrom()} JOIN employee_types et ON et.id=e.employee_type_id` }
 function contractCoverageSelect() { return `SELECT COALESCE(c.uid,e.uid) uid,e.uid employeeUid,e.full_name employeeName,et.code employeeType,es.code employeeStatus,s.code site,pm.name productionModule,ps.name productionSection,COALESCE(c.contract_number,'Belum ada kontrak') contractNumber,COALESCE(ct.code,'MISSING') contractType,COALESCE(c.sequence_number,0) sequenceNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,COALESCE(c.status,'MISSING') status,DATE_FORMAT(c.terminated_at,'%Y-%m-%d') terminatedAt,c.termination_reason terminationReason,c.position_name_snapshot positionNameSnapshot,c.site_name_snapshot siteNameSnapshot,c.salary_or_rate_notes salaryOrRateNotes,c.notes,1 isLatestForEmployee,(c.id IS NULL) isMissingContract,1 isCoverageIssue,f.uid issuedFileUid,f.original_name issuedFileName,f.mime_type issuedFileMimeType,f.size_bytes issuedFileSizeBytes,f.extension issuedFileExtension,f.storage_path issuedFilePath ${contractCoverageFrom()}` }
-function mapContract(row: RowDataPacket) { const { issuedFileUid, issuedFileName, issuedFileMimeType, issuedFileSizeBytes, issuedFileExtension, issuedFilePath, employeeName, site, employeeType, employeeStatus, isLatestForEmployee, isMissingContract, isCoverageIssue, ...contract } = row; const today = businessDate(); const endDate = String(contract.endDate ?? ''); const isExpiringWithin7Days = contract.status === 'ACTIVE' && endDate >= today && endDate <= addBusinessDays(today, 7); return { ...contract, employeeName, site, employeeType, employeeStatus, isLatestForEmployee: Boolean(isLatestForEmployee), isMissingContract: Boolean(isMissingContract), isCoverageIssue: Boolean(isCoverageIssue), isExpiringWithin7Days, isLegacyTypeMismatch: !isMissingContract && !isContractTypeAllowed(employeeType, contract.contractType), issuedFile: issuedFileUid ? { uid: issuedFileUid, originalName: issuedFileName, mimeType: issuedFileMimeType, sizeBytes: Number(issuedFileSizeBytes), extension: issuedFileExtension, url: fileUrl(issuedFilePath) } : undefined } }
+function mapContract(row: RowDataPacket) { const { issuedFileUid, issuedFileName, issuedFileMimeType, issuedFileSizeBytes, issuedFileExtension, issuedFilePath, employeeName, site, employeeType, employeeStatus, isLatestForEmployee, isMissingContract, isCoverageIssue, ...contract } = row; const today = businessDate(); const endDate = String(contract.endDate ?? ''); const isExpiringWithin7Days = contract.status === 'ACTIVE' && endDate >= today && endDate <= addBusinessDays(today, 7); return { ...contract, employeeName, site, employeeType, employeeStatus, isLatestForEmployee: Boolean(isLatestForEmployee), isMissingContract: Boolean(isMissingContract), isCoverageIssue: Boolean(isCoverageIssue), isExpiringWithin7Days, issuedFile: issuedFileUid ? { uid: issuedFileUid, originalName: issuedFileName, mimeType: issuedFileMimeType, sizeBytes: Number(issuedFileSizeBytes), extension: issuedFileExtension, url: fileUrl(issuedFilePath) } : undefined } }
 function addBusinessDays(date: string, days: number) { const value = new Date(`${date}T00:00:00.000Z`); value.setUTCDate(value.getUTCDate() + days); return value.toISOString().slice(0, 10) }
 function documentFrom() { return `FROM employee_documents d JOIN employees e ON e.id=d.employee_id JOIN sites s ON s.id=e.current_site_id JOIN files f ON f.id=d.file_id` }
 function documentSelect() { return `SELECT d.uid,e.uid employeeUid,e.full_name employeeName,s.code site,d.document_type documentType,d.document_number documentNumber,d.name,DATE_FORMAT(d.issued_date,'%Y-%m-%d') issuedDate,DATE_FORMAT(d.expiry_date,'%Y-%m-%d') expiryDate,d.status,d.notes,f.uid fileUid,f.original_name originalName,f.mime_type mimeType,f.size_bytes sizeBytes,f.extension,f.storage_path filePath ${documentFrom()}` }

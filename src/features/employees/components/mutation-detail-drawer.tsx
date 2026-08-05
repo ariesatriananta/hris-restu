@@ -89,14 +89,10 @@ export function MutationDetailDrawer({
               <DetailRow label='Departemen'>{history.department}</DetailRow>
               <DetailRow label='Jabatan'>{history.position}</DetailRow>
               <DetailRow label='Modul produksi'>
-                {['BORONGAN', 'TRAINING'].includes(history.employeeType)
-                  ? history.productionModule
-                  : undefined}
+                {history.productionModule}
               </DetailRow>
               <DetailRow label='Bagian produksi'>
-                {['BORONGAN', 'TRAINING'].includes(history.employeeType)
-                  ? history.productionSection
-                  : undefined}
+                {history.productionSection}
               </DetailRow>
               <DetailRow label='Jenis karyawan'>
                 {statusLabel(history.employeeType)}

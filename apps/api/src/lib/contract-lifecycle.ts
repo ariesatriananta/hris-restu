@@ -10,13 +10,9 @@ import {
   lifecycleNextStatus,
   type ContractTransitionAction,
 } from './contract-lifecycle-policy.js'
-import {
-  contractTypeRuleMessage,
-  isContractTypeAllowed,
-} from './employee-contract-policy.js'
 import type { AuthContext } from '../middleware/authenticate.js'
 
-const endDateRequired = ['PKWT', 'TRAINING', 'PROJECT', 'RETAIN']
+const endDateRequired = ['PKWT', 'TRAINING']
 export const businessDate = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
 
 export async function assertContractRules(conn: PoolConnection, employeeId: number, type: string, startDate: string, endDate?: string, exceptId?: number, joinDate?: string) {
@@ -98,7 +94,6 @@ export async function transitionContract(contractUid: string, action: ContractTr
     const contract = rows[0]
     if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
     if (auth && !auth.roles.includes('SUPER_ADMIN') && !auth.siteAccess.includes(contract.site)) throw new ApiError(403, 'Akses site ditolak.')
-    if (!isContractTypeAllowed(contract.employeeType, contract.contractType)) throw new ApiError(422, contractTypeRuleMessage(contract.employeeType))
     const source = auth ? 'MANUAL' : 'CRON'
     const effectiveDate = input.effectiveDate ?? today
     const next = lifecycleNextStatus({ action, status: contract.status, startDate: contract.start_date, today, effectiveDate, hasReason: Boolean(input.reason?.trim()) })
@@ -211,7 +206,6 @@ async function expireContract(contractUid: string, today: string) {
     const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.employee_id,e.current_site_id siteId,c.status,ct.code contractType,et.code employeeType FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id WHERE c.uid=? FOR UPDATE`, [contractUid])
     const contract = rows[0]
     if (!contract || contract.status !== 'ACTIVE') { await conn.rollback(); return false }
-    if (!isContractTypeAllowed(contract.employeeType, contract.contractType)) throw new ApiError(422, contractTypeRuleMessage(contract.employeeType))
     await conn.execute("UPDATE employee_contracts SET status='EXPIRED' WHERE id=?", [contract.id])
     await conn.execute("INSERT INTO employee_contract_lifecycle_events(uid,contract_id,from_status,to_status,effective_date,source) VALUES(?,?, 'ACTIVE','EXPIRED',?,'CRON')", [randomUUID(), contract.id, today])
     await auditLifecycle(conn, { siteId: contract.siteId, contractId: contract.id, contractUid: contract.uid, description: 'Kontrak kedaluwarsa diproses oleh cron.' })

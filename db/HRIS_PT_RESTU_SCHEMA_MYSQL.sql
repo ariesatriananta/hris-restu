@@ -378,7 +378,7 @@ CREATE TABLE employee_types (
   PRIMARY KEY (id),
   UNIQUE KEY uq_employee_types_uid (uid),
   UNIQUE KEY uq_employee_types_code (code),
-  CONSTRAINT chk_employee_types_basis CHECK (payroll_basis IN ('PIECE_RATE', 'MONTHLY')),
+  CONSTRAINT chk_employee_types_basis CHECK (payroll_basis IN ('PIECE_RATE', 'MONTHLY', 'TIME_BASED')),
   CONSTRAINT chk_employee_types_active CHECK (is_active IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -1495,7 +1495,9 @@ VALUES
 INSERT INTO employee_types (uid, code, name, payroll_basis, description)
 VALUES
   (UUID(), 'BORONGAN', 'Pekerja Borongan', 'PIECE_RATE', 'Pekerja produksi yang dibayar berdasarkan hasil kerja.'),
-  (UUID(), 'BULANAN', 'Karyawan Bulanan', 'MONTHLY', 'Staff/non-produksi yang dibayar bulanan dan dapat menggunakan aturan shift.');
+  (UUID(), 'HARIAN', 'Karyawan Harian', 'TIME_BASED', 'Karyawan dengan satuan upah berbasis waktu dan pembayaran harian atau mingguan.'),
+  (UUID(), 'BULANAN', 'Karyawan Bulanan', 'MONTHLY', 'Staff/non-produksi yang dibayar bulanan dan dapat menggunakan aturan shift.'),
+  (UUID(), 'TRAINING', 'Karyawan Training', 'TIME_BASED', 'Karyawan dalam masa pelatihan dengan satuan upah berbasis waktu.');
 
 INSERT INTO employee_statuses (uid, code, name, allows_attendance, allows_production)
 VALUES

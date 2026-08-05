@@ -35,7 +35,7 @@ const schema = z
   .object({
     fullName: z.string().min(2, 'Nama lengkap wajib diisi.'),
     nickname: optionalText,
-    employeeType: z.enum(['BORONGAN', 'TRAINING', 'BULANAN']),
+    employeeType: z.enum(['BORONGAN', 'HARIAN', 'TRAINING', 'BULANAN']),
     employeeStatus: z.enum(['ACTIVE', 'RESIGNED', 'INACTIVE', 'LEAVE']),
     site: z.enum(['JEPARA', 'SEMARANG', 'KLATEN']),
     department: optionalText,
@@ -87,13 +87,10 @@ const schema = z
     notes: optionalText,
   })
   .refine(
-    (value) =>
-      !['BORONGAN', 'TRAINING'].includes(value.employeeType) ||
-      Boolean(value.productionModuleSectionUid),
+    (value) => Boolean(value.productionModuleSectionUid),
     {
       path: ['productionModuleSectionUid'],
-      message:
-        'Bagian produksi wajib dipilih untuk karyawan Borongan atau Training.',
+      message: 'Bagian produksi wajib dipilih.',
     }
   )
 
@@ -286,11 +283,9 @@ export function EmployeeForm({
             department: empty(values.department),
             position: empty(values.position),
             workGroup: empty(values.workGroup),
-            productionModuleSectionUid: ['BORONGAN', 'TRAINING'].includes(
-              values.employeeType
-            )
-              ? empty(values.productionModuleSectionUid)
-              : undefined,
+            productionModuleSectionUid: empty(
+              values.productionModuleSectionUid
+            ),
           }
       await onSubmit(
         {
@@ -509,12 +504,9 @@ export function EmployeeForm({
               'Jenis karyawan',
               [
                 { value: 'BORONGAN', label: 'Borongan' },
+                { value: 'HARIAN', label: 'Harian' },
                 { value: 'TRAINING', label: 'Training' },
-                {
-                  value: 'BULANAN',
-                  label: 'Bulanan',
-                  disabled: employee?.employeeType !== 'BULANAN',
-                },
+                { value: 'BULANAN', label: 'Bulanan' },
               ],
               !!employee
             )}
@@ -556,7 +548,7 @@ export function EmployeeForm({
               ],
               !!employee
             )}
-            {['BORONGAN', 'TRAINING'].includes(selectedEmployeeType) && (
+            {selectedEmployeeType && (
               <>
                 <Field
                   label='Modul produksi'

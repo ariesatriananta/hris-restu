@@ -536,6 +536,16 @@ export function RecordsTable({
                 toast.error('Bulk cetak maksimal 50 kontrak sekali proses.')
                 return
               }
+              const unsupported = selectedRows.filter((row) => {
+                const contract = row.original.contract
+                return !contract?.isMissingContract &&
+                  (contract?.employeeType !== 'BORONGAN' ||
+                    contract?.contractType !== 'PKWT')
+              })
+              if (unsupported.length) {
+                toast.error('Cetak template hanya untuk karyawan Borongan dengan kontrak PKWT.')
+                return
+              }
               const popup = window.open('', '_blank')
               setBulkPrintPending(true)
               try {
@@ -569,20 +579,6 @@ export function RecordsTable({
               if (!employeeUids.length) return
               if (employeeUids.length > 25) {
                 toast.error('Create multiple kontrak maksimal 25 karyawan.')
-                return
-              }
-              const unsupported = selectedRows.filter(
-                (row) =>
-                  !['BORONGAN', 'TRAINING'].includes(
-                    row.original.contract?.employeeType ??
-                      row.original.employeeType ??
-                      ''
-                  )
-              )
-              if (unsupported.length) {
-                toast.error(
-                  'Multiple kontrak hanya untuk karyawan Borongan atau Training.'
-                )
                 return
               }
               routerNavigate({
@@ -800,7 +796,9 @@ function ContractFilePreviewDialog({
                   </Link>
                 </Button>
               )}
-              {!contract?.isMissingContract && contract && (
+              {!contract?.isMissingContract &&
+                contract?.employeeType === 'BORONGAN' &&
+                contract.contractType === 'PKWT' && (
                 <Button
                   size='sm'
                   variant='outline'

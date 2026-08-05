@@ -25,17 +25,14 @@ const schema = z
     workGroup: z.string().optional(),
     productionModuleUid: z.string().optional(),
     productionModuleSectionUid: z.string().optional(),
-    employeeType: z.enum(['BORONGAN', 'TRAINING', 'BULANAN']),
+    employeeType: z.enum(['BORONGAN', 'HARIAN', 'TRAINING', 'BULANAN']),
     reason: z.string().trim().min(3, 'Alasan koreksi wajib diisi.'),
   })
   .refine(
-    (value) =>
-      !['BORONGAN', 'TRAINING'].includes(value.employeeType) ||
-      Boolean(value.productionModuleSectionUid),
+    (value) => Boolean(value.productionModuleSectionUid),
     {
       path: ['productionModuleSectionUid'],
-      message:
-        'Bagian produksi wajib dipilih untuk karyawan Borongan atau Training.',
+      message: 'Bagian produksi wajib dipilih.',
     }
   )
 
@@ -88,9 +85,7 @@ export function RegistrationCorrectionDialog({
   const productionModuleSections = (
     lookups.data?.productionModuleSections ?? []
   ).filter((item) => item.moduleUid === selectedProductionModuleUid)
-  const requiresProduction = ['BORONGAN', 'TRAINING'].includes(
-    selectedEmployeeType
-  )
+  const requiresProduction = Boolean(selectedEmployeeType)
   const controlledSelect = (
     name: keyof RegistrationCorrectionInput,
     value: string | undefined,
@@ -184,27 +179,12 @@ export function RegistrationCorrectionDialog({
           <SelectField
             label='Jenis karyawan'
             error={form.formState.errors.employeeType?.message}
-            {...controlledSelect(
-              'employeeType',
-              selectedEmployeeType,
-              (event) => {
-                if (event.target.value === 'BULANAN') {
-                  form.setValue('productionModuleUid', '', {
-                    shouldDirty: true,
-                  })
-                  form.setValue('productionModuleSectionUid', '', {
-                    shouldDirty: true,
-                    shouldValidate: true,
-                  })
-                }
-              }
-            )}
+            {...controlledSelect('employeeType', selectedEmployeeType)}
           >
             <option value='BORONGAN'>Borongan</option>
+            <option value='HARIAN'>Harian</option>
             <option value='TRAINING'>Training</option>
-            <option value='BULANAN' disabled>
-              Bulanan
-            </option>
+            <option value='BULANAN'>Bulanan</option>
           </SelectField>
           {requiresProduction && (
             <>

@@ -313,7 +313,6 @@ function batchRowError(row: BatchRow) {
     editableMutationFields(row.input.changeType, row.input.employeeType).has(
       'productionAssignment'
     ) &&
-    ['BORONGAN', 'TRAINING'].includes(row.input.employeeType) &&
     !row.input.productionModuleSectionUid
   ) {
     return 'Modul dan Bagian wajib dipilih.'
@@ -493,18 +492,14 @@ function BatchMutationTableRow({
               }
             >
               <option value='BORONGAN'>Borongan</option>
+              <option value='HARIAN'>Harian</option>
               <option value='TRAINING'>Training</option>
               <option value='BULANAN'>Bulanan</option>
             </InlineSelect>
             <InlineSelect
               aria-label='Modul produksi'
-              value={
-                ['BORONGAN', 'TRAINING'].includes(row.input.employeeType)
-                  ? (row.input.productionModuleUid ?? '')
-                  : ''
-              }
+              value={row.input.productionModuleUid ?? ''}
               disabled={
-                !['BORONGAN', 'TRAINING'].includes(row.input.employeeType) ||
                 !editableFields.has('productionAssignment')
               }
               onChange={(event) =>
@@ -515,9 +510,7 @@ function BatchMutationTableRow({
               }
             >
               <option value=''>
-                {['BORONGAN', 'TRAINING'].includes(row.input.employeeType)
-                  ? 'Pilih modul'
-                  : 'Tidak berlaku'}
+                Pilih modul
               </option>
               {modules.map((item) => (
                 <option key={item.uid} value={item.uid}>
@@ -527,13 +520,8 @@ function BatchMutationTableRow({
             </InlineSelect>
             <InlineSelect
               aria-label='Bagian produksi'
-              value={
-                ['BORONGAN', 'TRAINING'].includes(row.input.employeeType)
-                  ? (row.input.productionModuleSectionUid ?? '')
-                  : ''
-              }
+              value={row.input.productionModuleSectionUid ?? ''}
               disabled={
-                !['BORONGAN', 'TRAINING'].includes(row.input.employeeType) ||
                 !editableFields.has('productionAssignment') ||
                 !row.input.productionModuleUid
               }
@@ -544,9 +532,7 @@ function BatchMutationTableRow({
               }
             >
               <option value=''>
-                {['BORONGAN', 'TRAINING'].includes(row.input.employeeType)
-                  ? 'Pilih Bagian'
-                  : 'Tidak berlaku'}
+                Pilih Bagian
               </option>
               {sections.map((item) => (
                 <option key={item.uid} value={item.uid}>

@@ -1,16 +1,15 @@
-import type { EmployeeTypeCode } from './domain'
+export const selectableContractTypes = ['TRAINING', 'PKWT', 'PKWTT'] as const
 
-export const requiredContractTypeByEmployeeType: Record<
-  EmployeeTypeCode,
-  string
-> = {
-  BORONGAN: 'PKWT',
-  TRAINING: 'TRAINING',
-  BULANAN: 'PKWTT',
+export type SelectableContractType = (typeof selectableContractTypes)[number]
+
+export function isSelectableContractType(
+  contractType?: string
+): contractType is SelectableContractType {
+  return selectableContractTypes.includes(
+    contractType as SelectableContractType
+  )
 }
 
-export function requiredContractType(employeeType?: EmployeeTypeCode) {
-  return employeeType
-    ? requiredContractTypeByEmployeeType[employeeType]
-    : undefined
+export function contractTypeRequiresEndDate(contractType?: string) {
+  return contractType === 'TRAINING' || contractType === 'PKWT'
 }

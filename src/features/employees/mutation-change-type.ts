@@ -17,7 +17,7 @@ export type MutationEditableField =
   | 'productionAssignment'
 
 export function requiresProductionAssignment(employeeType: EmployeeTypeCode) {
-  return employeeType === 'BORONGAN' || employeeType === 'TRAINING'
+  return Boolean(employeeType)
 }
 
 export function editableMutationFields(

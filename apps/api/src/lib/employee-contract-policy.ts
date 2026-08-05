@@ -1,24 +1,11 @@
-export const requiredContractTypeByEmployeeType = {
-  BORONGAN: 'PKWT',
-  TRAINING: 'TRAINING',
-  BULANAN: 'PKWTT',
-} as const
+export const selectableContractTypes = ['TRAINING', 'PKWT', 'PKWTT'] as const
 
-export type SupportedEmployeeType = keyof typeof requiredContractTypeByEmployeeType
+export type SelectableContractType = (typeof selectableContractTypes)[number]
 
-export function requiredContractType(employeeType: string) {
-  return requiredContractTypeByEmployeeType[
-    employeeType as SupportedEmployeeType
-  ]
+export function isContractTypeAllowed(contractType: string) {
+  return selectableContractTypes.includes(contractType as SelectableContractType)
 }
 
-export function isContractTypeAllowed(employeeType: string, contractType: string) {
-  return requiredContractType(employeeType) === contractType
-}
-
-export function contractTypeRuleMessage(employeeType: string) {
-  const required = requiredContractType(employeeType)
-  return required
-    ? `Jenis karyawan ${employeeType} wajib memakai tipe kontrak ${required}.`
-    : `Jenis karyawan ${employeeType} belum dapat dibuatkan kontrak baru.`
+export function contractTypeRuleMessage() {
+  return 'Jenis kontrak hanya dapat dipilih dari Training, PKWT, atau PKWTT.'
 }

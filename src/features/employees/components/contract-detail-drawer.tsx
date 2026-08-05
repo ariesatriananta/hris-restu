@@ -114,13 +114,6 @@ export function ContractDetailDrawer({
             )}
 
             <DetailSection title='Kontrak'>
-              {contract.isLegacyTypeMismatch && (
-                <div className='mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200'>
-                  Kontrak legacy tidak sesuai dengan jenis karyawan saat ini.
-                  Data lama tetap dapat dibaca, tetapi tidak dapat diproses
-                  lifecycle sebelum diperbaiki HR.
-                </div>
-              )}
               <DetailRow label='Nomor kontrak'>
                 {contract.contractNumber}
               </DetailRow>
@@ -135,7 +128,8 @@ export function ContractDetailDrawer({
               <DetailRow label='Urutan kontrak'>
                 {contract.sequenceNumber}
               </DetailRow>
-              {['PKWT', 'TRAINING'].includes(contract.contractType) && (
+              {contract.employeeType === 'BORONGAN' &&
+                contract.contractType === 'PKWT' && (
                 <Button size='sm' className='mt-3' onClick={printContract}>
                   <Printer /> Cetak Template Kontrak
                 </Button>

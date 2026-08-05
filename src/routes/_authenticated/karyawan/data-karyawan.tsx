@@ -9,7 +9,7 @@ export const Route = createFileRoute('/_authenticated/karyawan/data-karyawan')({
     filter: z.string().optional(),
     site: z.array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])).optional(),
     employeeType: z
-      .array(z.enum(['BORONGAN', 'TRAINING', 'BULANAN']))
+      .array(z.enum(['BORONGAN', 'HARIAN', 'TRAINING', 'BULANAN']))
       .optional(),
     employeeStatus: z
       .array(z.enum(['ACTIVE', 'LEAVE', 'RESIGNED', 'INACTIVE']))

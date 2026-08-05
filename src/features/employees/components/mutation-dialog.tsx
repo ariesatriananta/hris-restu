@@ -42,7 +42,7 @@ const mutationSchema = z
     workGroup: z.string().optional(),
     productionModuleUid: z.string().optional(),
     productionModuleSectionUid: z.string().optional(),
-    employeeType: z.enum(['BORONGAN', 'TRAINING', 'BULANAN']),
+    employeeType: z.enum(['BORONGAN', 'HARIAN', 'TRAINING', 'BULANAN']),
     effectiveFrom: z.string().min(1, 'Tanggal efektif wajib diisi.'),
     changeType: z.enum([
       'TRANSFER',
@@ -63,12 +63,10 @@ const mutationSchema = z
       !editableMutationFields(value.changeType, value.employeeType).has(
         'productionAssignment'
       ) ||
-      !['BORONGAN', 'TRAINING'].includes(value.employeeType) ||
       Boolean(value.productionModuleSectionUid),
     {
       path: ['productionModuleSectionUid'],
-      message:
-        'Bagian produksi wajib dipilih untuk karyawan Borongan atau Training.',
+      message: 'Bagian produksi wajib dipilih.',
     }
   )
 
@@ -333,13 +331,14 @@ export function MutationDialog({
             error={form.formState.errors.employeeType?.message}
             options={[
               { value: 'BORONGAN', label: 'Borongan' },
+              { value: 'HARIAN', label: 'Harian' },
               { value: 'TRAINING', label: 'Training' },
               { value: 'BULANAN', label: 'Bulanan' },
             ]}
             {...form.register('employeeType')}
             disabled={!editableFields.has('employeeType')}
           />
-          {['BORONGAN', 'TRAINING'].includes(selectedEmployeeType) && (
+          {selectedEmployeeType && (
             <>
               <Select
                 label='Modul produksi'
@@ -511,7 +510,7 @@ function MutationSummary({
         before={employee.department}
         after={input.department}
       />
-      {['BORONGAN', 'TRAINING'].includes(input.employeeType) && (
+      {input.employeeType && (
         <SummaryRow
           label='Penempatan produksi'
           before={

@@ -20,6 +20,8 @@ describe('EmployeeForm', () => {
       employeeType: 'BULANAN',
       employeeStatus: 'INACTIVE',
       site: 'SEMARANG',
+      productionModuleUid: 'd42fc166-b62e-4cea-b89e-04f434d079f0',
+      productionModuleSectionUid: '1514bce8-dab7-4d40-a217-5c6471134aca',
       joinDate: '2026-07-11',
       gender: 'MALE',
     } satisfies Employee

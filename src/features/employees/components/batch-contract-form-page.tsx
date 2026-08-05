@@ -7,7 +7,6 @@ import { safeInternalReturnTo } from '@/lib/list-return-to'
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   Table,
   TableBody,
@@ -23,7 +22,7 @@ import { Main } from '@/components/layout/main'
 import { httpEmployeeRepository } from '../data/http-employee-repository'
 import { useSaveContractsBatch } from '../data/queries'
 import type { Employee, EmployeeContract } from '../domain'
-import { requiredContractType } from '../employee-contract-policy'
+import { contractTypeRequiresEndDate } from '../employee-contract-policy'
 import { formatDate, statusLabel } from '../utils'
 import { EmployeePicker } from './employee-picker'
 
@@ -31,6 +30,7 @@ type BatchContractRow = {
   employee: Employee
   contracts: EmployeeContract[]
   input: {
+    contractType: 'TRAINING' | 'PKWT' | 'PKWTT'
     startDate: string
     endDate: string
     notes: string
@@ -73,11 +73,6 @@ export function BatchContractFormPage({
       setPickerValue('')
       return
     }
-    if (!['BORONGAN', 'TRAINING'].includes(employee.employeeType)) {
-      toast.error('Multiple kontrak hanya untuk karyawan Borongan atau Training.')
-      setPickerValue('')
-      return
-    }
     setLoadingEmployeeUid(employee.uid)
     try {
       const contracts = await httpEmployeeRepository.contracts(employee.uid)
@@ -109,7 +104,9 @@ export function BatchContractFormPage({
       return
     }
     let cancelled = false
-    setLoadingEmployeeUid('batch')
+    queueMicrotask(() => {
+      if (!cancelled) setLoadingEmployeeUid('batch')
+    })
     Promise.all(
       uniqueEmployeeUids.map(async (uid) => {
         const employee = await httpEmployeeRepository.getByUid(uid)
@@ -120,15 +117,7 @@ export function BatchContractFormPage({
     )
       .then((nextRows) => {
         if (cancelled) return
-        const eligibleRows = nextRows.filter((row) =>
-          ['BORONGAN', 'TRAINING'].includes(row.employee.employeeType)
-        )
-        if (eligibleRows.length !== nextRows.length) {
-          toast.error(
-            'Sebagian karyawan dilewati karena bukan Borongan atau Training.'
-          )
-        }
-        setRows(eligibleRows)
+        setRows(nextRows)
       })
       .catch((error) =>
         toast.error(
@@ -188,8 +177,9 @@ export function BatchContractFormPage({
       rows.map((row) => ({
         employeeUid: row.employee.uid,
         input: {
+          contractType: row.input.contractType,
           startDate: row.input.startDate,
-          endDate: row.input.endDate,
+          endDate: row.input.endDate || undefined,
           notes: row.input.notes || undefined,
         },
       })),
@@ -355,7 +345,6 @@ function BatchContractTableRow({
   onChange: (patch: Partial<BatchContractRow['input']>) => void
   onRemove: () => void
 }) {
-  const contractType = requiredContractType(row.employee.employeeType)
   return (
     <TableRow className={error ? 'bg-destructive/5' : undefined}>
       <TableCell className='py-2 text-center align-top text-[11px] text-muted-foreground tabular-nums'>
@@ -374,12 +363,20 @@ function BatchContractTableRow({
         </p>
       </TableCell>
       <TableCell className='py-2 align-top'>
-        <Input
-          className='h-8 px-2 text-xs'
-          value={contractType ?? '-'}
-          readOnly
-          disabled
-        />
+        <select
+          aria-label='Jenis kontrak'
+          className='h-8 w-full rounded-md border bg-background px-2 text-xs'
+          value={row.input.contractType}
+          onChange={(event) =>
+            onChange({
+              contractType: event.target.value as BatchContractRow['input']['contractType'],
+            })
+          }
+        >
+          <option value='TRAINING'>Training</option>
+          <option value='PKWT'>PKWT</option>
+          <option value='PKWTT'>PKWTT</option>
+        </select>
       </TableCell>
       <TableCell className='py-2 align-top'>
         <DatePicker
@@ -446,7 +443,7 @@ function BatchContractSummary({ rows }: { rows: BatchContractRow[] }) {
           <div className='flex flex-wrap justify-between gap-x-3 gap-y-1'>
             <strong>{row.employee.fullName}</strong>
             <span className='text-muted-foreground'>
-              {requiredContractType(row.employee.employeeType)}
+              {row.input.contractType}
             </span>
           </div>
           <p className='mt-1 text-muted-foreground'>
@@ -472,12 +469,11 @@ function validateRows(rows: BatchContractRow[]) {
 }
 
 function batchContractRowError(row: BatchContractRow) {
-  if (!['BORONGAN', 'TRAINING'].includes(row.employee.employeeType)) {
-    return 'Multiple kontrak hanya untuk Borongan atau Training.'
-  }
   if (!row.input.startDate) return 'Tanggal mulai wajib diisi.'
-  if (!row.input.endDate) return 'Tanggal berakhir wajib diisi.'
-  if (row.input.endDate < row.input.startDate) {
+  if (contractTypeRequiresEndDate(row.input.contractType) && !row.input.endDate) {
+    return 'Tanggal berakhir wajib untuk kontrak Training atau PKWT.'
+  }
+  if (row.input.endDate && row.input.endDate < row.input.startDate) {
     return 'Tanggal berakhir tidak boleh sebelum tanggal mulai.'
   }
   if (row.employee.joinDate && row.input.startDate < row.employee.joinDate) {
@@ -497,13 +493,14 @@ function batchContractRowError(row: BatchContractRow) {
 function findOverlappingContract(
   contracts: EmployeeContract[],
   startDate: string,
-  endDate: string
+  endDate?: string
 ) {
-  if (!startDate || !endDate) return undefined
+  if (!startDate) return undefined
+  const effectiveEndDate = endDate || '9999-12-31'
   return contracts.find((contract) => {
     if (contract.status === 'CANCELLED') return false
     return (
-      contract.startDate <= endDate &&
+      contract.startDate <= effectiveEndDate &&
       (contract.endDate || '9999-12-31') >= startDate
     )
   })
@@ -521,6 +518,7 @@ function createBatchContractRow(
     employee,
     contracts,
     input: {
+      contractType: 'PKWT',
       startDate,
       endDate: '',
       notes: '',

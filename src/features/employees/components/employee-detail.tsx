@@ -194,11 +194,9 @@ export function EmployeeDetail({
                 ['Jabatan', data.position],
                 [
                   'Penempatan produksi',
-                  ['BORONGAN', 'TRAINING'].includes(data.employeeType)
-                    ? [data.productionModule, data.productionSection]
-                        .filter(Boolean)
-                        .join(' • ')
-                    : undefined,
+                  [data.productionModule, data.productionSection]
+                    .filter(Boolean)
+                    .join(' • '),
                 ],
                 ['Jenis', statusLabel(data.employeeType)],
                 ['Bergabung', formatDate(data.joinDate)],

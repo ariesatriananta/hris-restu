@@ -76,10 +76,8 @@ async function targetIsValid(conn: PoolConnection, schedule: RowDataPacket) {
   if (schedule.target_position_id && !target.positionActive) return 'Jabatan tujuan sudah nonaktif.'
   if (schedule.target_work_group_id && !target.workGroupActive) return 'Kelompok kerja tujuan sudah nonaktif.'
   if (!target.typeActive) return 'Jenis karyawan tujuan sudah nonaktif.'
-  if (['BORONGAN', 'TRAINING'].includes(schedule.target_employee_type)) {
-    if (!schedule.target_production_module_section_id) return 'Modul dan Bagian produksi tujuan belum dipilih.'
-    if (!target.mappingActive || !target.moduleActive || !target.sectionActive || Number(target.mappingSiteId) !== Number(schedule.target_site_id)) return 'Pemetaan Modul dan Bagian tujuan sudah tidak valid atau nonaktif.'
-  }
+  if (!schedule.target_production_module_section_id) return 'Modul dan Bagian produksi tujuan belum dipilih.'
+  if (!target.mappingActive || !target.moduleActive || !target.sectionActive || Number(target.mappingSiteId) !== Number(schedule.target_site_id)) return 'Pemetaan Modul dan Bagian tujuan sudah tidak valid atau nonaktif.'
   return undefined
 }
 

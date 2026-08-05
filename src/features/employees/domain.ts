@@ -1,5 +1,5 @@
 export type SiteCode = 'JEPARA' | 'SEMARANG' | 'KLATEN'
-export type EmployeeTypeCode = 'BORONGAN' | 'BULANAN' | 'TRAINING'
+export type EmployeeTypeCode = 'BORONGAN' | 'HARIAN' | 'BULANAN' | 'TRAINING'
 export type EmployeeStatusCode = 'ACTIVE' | 'LEAVE' | 'RESIGNED' | 'INACTIVE'
 export type EmploymentChangeType =
   | 'INITIAL'
@@ -180,7 +180,6 @@ export interface EmployeeContract {
   isMissingContract?: boolean
   isCoverageIssue?: boolean
   isExpiringWithin7Days?: boolean
-  isLegacyTypeMismatch?: boolean
 }
 export interface ContractKpiSummary {
   activeValid: number
@@ -279,8 +278,9 @@ export interface BatchMutationResult {
 export interface ContractBatchItem {
   employeeUid: string
   input: {
+    contractType: string
     startDate: string
-    endDate: string
+    endDate?: string
     notes?: string
   }
 }

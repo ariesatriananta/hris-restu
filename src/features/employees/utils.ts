@@ -35,6 +35,7 @@ export const statusLabel = (value: string) =>
     REVOKED: 'Dicabut',
     ARCHIVED: 'Diarsipkan',
     BORONGAN: 'Borongan',
+    HARIAN: 'Harian',
     BULANAN: 'Bulanan',
     TRAINING: 'Training',
     JEPARA: 'Jepara',

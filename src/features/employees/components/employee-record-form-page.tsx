@@ -33,7 +33,10 @@ import type {
   EmployeeDocument,
   MockFileAttachment,
 } from '../domain'
-import { requiredContractType } from '../employee-contract-policy'
+import {
+  contractTypeRequiresEndDate,
+  isSelectableContractType,
+} from '../employee-contract-policy'
 import { EmployeePicker } from './employee-picker'
 import { FormActionBar } from './form-action-bar'
 
@@ -51,6 +54,13 @@ const contractSchema = z
     path: ['endDate'],
     message: 'Tanggal berakhir tidak boleh sebelum tanggal mulai.',
   })
+  .refine(
+    (v) => !contractTypeRequiresEndDate(v.contractType) || Boolean(v.endDate),
+    {
+      path: ['endDate'],
+      message: 'Tanggal berakhir wajib untuk kontrak Training atau PKWT.',
+    }
+  )
 const documentSchema = z.object({
   employeeUid: z.string().min(1, 'Karyawan wajib dipilih.'),
   documentType: z.string().min(1, 'Tipe dokumen wajib diisi.'),
@@ -161,9 +171,10 @@ function ContractForm({
   })
   const selectedEmployee = useEmployee(selectedEmployeeUid)
   const employeeContracts = useContracts(selectedEmployeeUid || undefined)
-  const allowedContractType = requiredContractType(
-    selectedEmployee.data?.employeeType
-  )
+  const selectedContractType = useWatch({
+    control: form.control,
+    name: 'contractType',
+  })
   const startDate = useWatch({ control: form.control, name: 'startDate' })
   const endDate = useWatch({ control: form.control, name: 'endDate' })
   const overlappingContract = findOverlappingContract(
@@ -183,9 +194,9 @@ function ContractForm({
     }
   }, [attachment?.temporaryUrl])
   const submit = async (value: ContractValues) => {
-    if (!allowedContractType) {
-      form.setError('employeeUid', {
-        message: 'Pilih karyawan untuk menentukan tipe kontrak yang sesuai.',
+    if (!isSelectableContractType(value.contractType)) {
+      form.setError('contractType', {
+        message: 'Pilih jenis kontrak Training, PKWT, atau PKWTT.',
       })
       return
     }
@@ -218,7 +229,7 @@ function ContractForm({
       uid: record?.uid,
       input: {
         ...value,
-        contractType: allowedContractType,
+        contractType: value.contractType,
         status: record?.status ?? 'DRAFT',
         contractNumber: record?.contractNumber ?? '',
         sequenceNumber: record?.sequenceNumber ?? 0,
@@ -266,19 +277,15 @@ function ContractForm({
         </Field>
         <Native
           label='Jenis kontrak'
-          values={(lookups.data?.contractTypes ?? []).map((item) => ({
-            value: item.code,
-            label: item.name,
-            disabled: item.code !== allowedContractType,
-          }))}
+          values={(lookups.data?.contractTypes ?? [])
+            .filter((item) => isSelectableContractType(item.code))
+            .map((item) => ({ value: item.code, label: item.name }))}
           disabled={
             lookups.isPending ||
             !lookups.data?.contractTypes.length ||
-            !allowedContractType ||
-            record?.status === 'ACTIVE'
+            Boolean(record && !['DRAFT', 'SCHEDULED'].includes(record.status))
           }
-          value={record?.contractType ?? allowedContractType ?? ''}
-          onChange={() => undefined}
+          {...form.register('contractType')}
         />
         <Field label='Urutan kontrak'>
           <Input
@@ -334,7 +341,11 @@ function ContractForm({
           }}
         />
         <DateField
-          label='Tanggal berakhir'
+          label={
+            contractTypeRequiresEndDate(selectedContractType)
+              ? 'Tanggal berakhir'
+              : 'Tanggal berakhir (opsional)'
+          }
           error={form.formState.errors.endDate?.message}
           value={endDate}
           onChange={(date) => {
