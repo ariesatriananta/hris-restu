@@ -14,8 +14,6 @@ import {
   RefreshCw,
   ChevronDown,
 } from 'lucide-react'
-import { toast } from 'sonner'
-import { useAuthStore } from '@/stores/auth-store'
 import { currentListReturnTo } from '@/lib/list-return-to'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -37,14 +35,12 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Main } from '@/components/layout/main'
 import {
   useContractConflicts,
   useContractKpiSummary,
   useContractList,
   useEmployeeLookups,
-  useManualContractsReconcile,
 } from '../data/queries'
 import type {
   EmployeeContract,
@@ -73,10 +69,8 @@ export function ContractsDocumentsPage({
     'contracts'
   )
   const [selectedContract, setSelectedContract] = useState<EmployeeContract>()
-  const [reconcileOpen, setReconcileOpen] = useState(false)
   const [conflictsOpen, setConflictsOpen] = useState(false)
   const [conflictPage, setConflictPage] = useState(1)
-  const user = useAuthStore((state) => state.session?.user)
   const contractParams = params(search, 'contract')
   const statusChangeParams = statusChangeParamsFromSearch(search)
   const contracts = useContractList(contractParams)
@@ -87,7 +81,6 @@ export function ContractsDocumentsPage({
     productionSection: contractParams.productionSection,
   })
   const conflicts = useContractConflicts({ page: conflictPage, pageSize: 50 })
-  const reconcile = useManualContractsReconcile()
   useEffect(() => {
     if (conflicts.isFetching || !conflicts.data) return
     const lastPage = Math.max(
@@ -112,11 +105,6 @@ export function ContractsDocumentsPage({
           </p>
         </div>
         <div className='flex flex-wrap gap-2'>
-          {activeTab === 'contracts' && user?.role === 'SUPER_ADMIN' && (
-            <Button variant='outline' onClick={() => setReconcileOpen(true)}>
-              <RefreshCw /> Jalankan rekonsiliasi
-            </Button>
-          )}
           {activeTab === 'contracts' && (
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
@@ -313,32 +301,6 @@ export function ContractsDocumentsPage({
             to: '/karyawan/data-karyawan/$employeeUid',
             params: { employeeUid },
             search: { returnTo },
-          })
-        }
-      />
-      <ConfirmDialog
-        open={reconcileOpen}
-        onOpenChange={(open) => {
-          if (!reconcile.isPending) setReconcileOpen(open)
-        }}
-        title='Jalankan rekonsiliasi kontrak sekarang?'
-        desc='Sistem akan menjalankan proses yang sama dengan webhook cron untuk seluruh site: aktivasi dan expiry kontrak, sinkronisasi status karyawan, mutasi terjadwal, serta status kerja terjadwal yang jatuh tempo.'
-        cancelBtnText='Batal'
-        confirmText='Jalankan sekarang'
-        isLoading={reconcile.isPending}
-        handleConfirm={() =>
-          reconcile.mutate(undefined, {
-            onSuccess: (result) => {
-              setReconcileOpen(false)
-              setConflictPage(1)
-              toast.success(
-                result.status === 'SKIPPED'
-                  ? 'Rekonsiliasi lain masih berjalan.'
-                  : `Rekonsiliasi selesai: ${result.activated ?? 0} kontrak aktif, ${result.expired ?? 0} kontrak berakhir.`
-              )
-            },
-            onError: () =>
-              toast.error('Rekonsiliasi kontrak gagal dijalankan.'),
           })
         }
       />

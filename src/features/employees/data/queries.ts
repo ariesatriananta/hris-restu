@@ -22,7 +22,6 @@ import type {
   ContractBatchItem,
   ContractKpiSummary,
   ContractConflictListParams,
-  ContractReconcileResult,
   ScheduledStatusChangeAction,
 } from '../domain'
 import {
@@ -46,7 +45,6 @@ import {
   scheduleStatusChange,
   updateScheduledStatusChange,
   cancelScheduledStatusChange,
-  reconcileContracts,
 } from './http-employee-repository'
 
 export const employeeKeys = {
@@ -379,13 +377,6 @@ export function useTransitionContract() {
       action: ContractLifecycleAction
       input: { effectiveDate?: string; reason?: string }
     }) => transitionContract(uid, action, input),
-    onSuccess: () => invalidate(queryClient),
-  })
-}
-export function useManualContractsReconcile() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (): Promise<ContractReconcileResult> => reconcileContracts(),
     onSuccess: () => invalidate(queryClient),
   })
 }

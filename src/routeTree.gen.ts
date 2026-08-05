@@ -44,6 +44,7 @@ import { Route as AuthenticatedAttendanceKoreksiRouteImport } from './routes/_au
 import { Route as AuthenticatedAdministrasiUserHakAksesRouteImport } from './routes/_authenticated/administrasi/user-hak-akses'
 import { Route as AuthenticatedAdministrasiTemplateDokumenRouteImport } from './routes/_authenticated/administrasi/template-dokumen'
 import { Route as AuthenticatedAdministrasiPengaturanRouteImport } from './routes/_authenticated/administrasi/pengaturan'
+import { Route as AuthenticatedAdministrasiMonitoringCronRouteImport } from './routes/_authenticated/administrasi/monitoring-cron'
 import { Route as AuthenticatedAdministrasiMasterDataRouteImport } from './routes/_authenticated/administrasi/master-data'
 import { Route as AuthenticatedAdministrasiAuditTrailRouteImport } from './routes/_authenticated/administrasi/audit-trail'
 import { Route as AuthenticatedKaryawanUbahKaryawanEmployeeUidRouteImport } from './routes/_authenticated/karyawan/ubah-karyawan.$employeeUid'
@@ -260,6 +261,12 @@ const AuthenticatedAdministrasiPengaturanRoute =
     path: '/administrasi/pengaturan',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAdministrasiMonitoringCronRoute =
+  AuthenticatedAdministrasiMonitoringCronRouteImport.update({
+    id: '/administrasi/monitoring-cron',
+    path: '/administrasi/monitoring-cron',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAdministrasiMasterDataRoute =
   AuthenticatedAdministrasiMasterDataRouteImport.update({
     id: '/administrasi/master-data',
@@ -362,6 +369,7 @@ export interface FileRoutesByFullPath {
   '/laporan': typeof AuthenticatedLaporanRoute
   '/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
   '/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
+  '/administrasi/monitoring-cron': typeof AuthenticatedAdministrasiMonitoringCronRoute
   '/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
   '/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
   '/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
@@ -413,6 +421,7 @@ export interface FileRoutesByTo {
   '/': typeof AuthenticatedIndexRoute
   '/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
   '/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
+  '/administrasi/monitoring-cron': typeof AuthenticatedAdministrasiMonitoringCronRoute
   '/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
   '/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
   '/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
@@ -466,6 +475,7 @@ export interface FileRoutesById {
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
   '/_authenticated/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
+  '/_authenticated/administrasi/monitoring-cron': typeof AuthenticatedAdministrasiMonitoringCronRoute
   '/_authenticated/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
   '/_authenticated/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
   '/_authenticated/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
@@ -519,6 +529,7 @@ export interface FileRouteTypes {
     | '/laporan'
     | '/administrasi/audit-trail'
     | '/administrasi/master-data'
+    | '/administrasi/monitoring-cron'
     | '/administrasi/pengaturan'
     | '/administrasi/template-dokumen'
     | '/administrasi/user-hak-akses'
@@ -570,6 +581,7 @@ export interface FileRouteTypes {
     | '/'
     | '/administrasi/audit-trail'
     | '/administrasi/master-data'
+    | '/administrasi/monitoring-cron'
     | '/administrasi/pengaturan'
     | '/administrasi/template-dokumen'
     | '/administrasi/user-hak-akses'
@@ -622,6 +634,7 @@ export interface FileRouteTypes {
     | '/_authenticated/'
     | '/_authenticated/administrasi/audit-trail'
     | '/_authenticated/administrasi/master-data'
+    | '/_authenticated/administrasi/monitoring-cron'
     | '/_authenticated/administrasi/pengaturan'
     | '/_authenticated/administrasi/template-dokumen'
     | '/_authenticated/administrasi/user-hak-akses'
@@ -920,6 +933,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdministrasiPengaturanRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/administrasi/monitoring-cron': {
+      id: '/_authenticated/administrasi/monitoring-cron'
+      path: '/administrasi/monitoring-cron'
+      fullPath: '/administrasi/monitoring-cron'
+      preLoaderRoute: typeof AuthenticatedAdministrasiMonitoringCronRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/administrasi/master-data': {
       id: '/_authenticated/administrasi/master-data'
       path: '/administrasi/master-data'
@@ -1137,6 +1157,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedAdministrasiAuditTrailRoute: typeof AuthenticatedAdministrasiAuditTrailRoute
   AuthenticatedAdministrasiMasterDataRoute: typeof AuthenticatedAdministrasiMasterDataRoute
+  AuthenticatedAdministrasiMonitoringCronRoute: typeof AuthenticatedAdministrasiMonitoringCronRoute
   AuthenticatedAdministrasiPengaturanRoute: typeof AuthenticatedAdministrasiPengaturanRoute
   AuthenticatedAdministrasiTemplateDokumenRoute: typeof AuthenticatedAdministrasiTemplateDokumenRoute
   AuthenticatedAdministrasiUserHakAksesRoute: typeof AuthenticatedAdministrasiUserHakAksesRoute
@@ -1174,6 +1195,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedAdministrasiAuditTrailRoute,
   AuthenticatedAdministrasiMasterDataRoute:
     AuthenticatedAdministrasiMasterDataRoute,
+  AuthenticatedAdministrasiMonitoringCronRoute:
+    AuthenticatedAdministrasiMonitoringCronRoute,
   AuthenticatedAdministrasiPengaturanRoute:
     AuthenticatedAdministrasiPengaturanRoute,
   AuthenticatedAdministrasiTemplateDokumenRoute:

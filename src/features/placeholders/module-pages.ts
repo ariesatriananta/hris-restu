@@ -201,6 +201,16 @@ export const modulePages = {
       'Waktu dan sumber aksi',
     ],
   },
+  '/administrasi/monitoring-cron': {
+    group: 'Administrasi Sistem',
+    title: 'Monitoring Cron',
+    description: 'Pemantauan proses otomatis dan riwayat rekonsiliasi sistem.',
+    features: [
+      'Status eksekusi terakhir',
+      'Riwayat hasil dan kegagalan',
+      'Rekonsiliasi manual terkontrol',
+    ],
+  },
   '/administrasi/master-data': {
     group: 'Administrasi Sistem',
     title: 'Master Data',

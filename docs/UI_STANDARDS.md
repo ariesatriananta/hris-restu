@@ -8,6 +8,7 @@
 - Halaman scan harus memiliki input autofocus, feedback sukses/gagal yang sangat jelas, pencegahan submit ganda, dan alur dengan klik seminimal mungkin.
 - Data table harus mendukung loading, empty state, error state, pencarian, filter, pagination, dan tampilan mobile yang masuk akal sesuai kebutuhan fitur.
 - Hindari dashboard penuh kartu dekoratif tanpa informasi yang dapat ditindaklanjuti.
+- Ringkasan KPI operasional memakai kartu compact seperti halaman Kontrak: tinggi minimum sekitar `68px`, `rounded-lg`, border, padding `px-3 py-2.5`, jarak grid `gap-2`, label kecil, nilai utama tegas, dan icon Lucide kecil. Hindari kartu KPI besar dengan ruang kosong berlebih kecuali halaman dashboard memang membutuhkan visualisasi tambahan.
 - Gunakan format lokal Indonesia untuk tanggal, waktu, angka, dan Rupiah.
 - Navigasi tab memakai primitive `Tabs` shadcn/ui dengan icon Lucide yang bermakna pada setiap tab, padding lega (`h-10`, `px-4`), jarak antar-tab, dan horizontal scroll pada layar sempit. Jangan membuat tab teks yang dempet atau menghilangkan akses keyboard bawaan primitive.
 

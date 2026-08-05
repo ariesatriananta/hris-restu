@@ -889,7 +889,44 @@ employeesRouter.get('/contracts/print-previews', requirePermission('employees.vi
   } catch (error) { next(error) }
 })
 employeesRouter.get('/contracts/:contractUid', requirePermission('employees.view'), async (req, res, next) => {
-  try { const uid = routeParam(req.params.contractUid); const [rows] = await pool.query<RowDataPacket[]>(`${contractSelect()} WHERE c.uid=?`, [uid]); if (!rows[0]) throw new ApiError(404, 'Kontrak tidak ditemukan.'); enforceSite(res.locals.auth as AuthContext, rows[0].site); res.json(mapContract(rows[0])) } catch (error) { next(error) }
+  try {
+    const uid = routeParam(req.params.contractUid)
+    const [rows] = await pool.query<RowDataPacket[]>(`${contractSelect()} WHERE c.uid=?`, [uid])
+    const row = rows[0]
+    if (!row) throw new ApiError(404, 'Kontrak tidak ditemukan.')
+    enforceSite(res.locals.auth as AuthContext, row.site)
+
+    const [lifecycleEvents] = await pool.query<RowDataPacket[]>(
+      `SELECT ev.uid,ev.from_status fromStatus,ev.to_status toStatus,
+              DATE_FORMAT(ev.effective_date,'%Y-%m-%d') effectiveDate,
+              ev.reason,ev.source,COALESCE(u.full_name,'Sistem') actorName,
+              DATE_FORMAT(ev.created_at,'%Y-%m-%dT%H:%i:%s') createdAt
+       FROM employee_contract_lifecycle_events ev
+       LEFT JOIN users u ON u.id=ev.actor_user_id
+       WHERE ev.contract_id=?
+       ORDER BY ev.effective_date,ev.id`,
+      [row.internalContractId]
+    )
+    const [correctionRows] = await pool.query<RowDataPacket[]>(
+      `SELECT al.uid,al.action,al.description,al.reason,
+              al.before_data beforeData,al.after_data afterData,
+              COALESCE(u.full_name,'Sistem') actorName,
+              DATE_FORMAT(al.occurred_at,'%Y-%m-%dT%H:%i:%s') occurredAt
+       FROM audit_logs al
+       LEFT JOIN users u ON u.id=al.user_id
+       WHERE al.table_name='employee_contracts'
+         AND al.action='UPDATE'
+         AND (al.record_id=? OR al.record_uid=?)
+       ORDER BY al.occurred_at,al.id`,
+      [row.internalContractId, uid]
+    )
+    const correctionHistory = correctionRows.map((item) => ({
+      ...item,
+      beforeData: parseAuditData(item.beforeData),
+      afterData: parseAuditData(item.afterData),
+    }))
+    res.json({ ...mapContract(row), lifecycleEvents, correctionHistory })
+  } catch (error) { next(error) }
 })
 employeesRouter.get('/documents/:documentUid', requirePermission('employees.view'), async (req, res, next) => {
   try { const uid = routeParam(req.params.documentUid); const [rows] = await pool.query<RowDataPacket[]>(`${documentSelect()} WHERE d.uid=?`, [uid]); if (!rows[0]) throw new ApiError(404, 'Dokumen tidak ditemukan.'); enforceSite(res.locals.auth as AuthContext, rows[0].site); res.json(mapDocument(rows[0])) } catch (error) { next(error) }
@@ -1555,7 +1592,7 @@ employeesRouter.patch('/contracts/:contractUid', requirePermission('employees.ma
     const conn = await pool.getConnection()
     try {
       await conn.beginTransaction()
-      const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.employee_id,c.contract_number,c.sequence_number,c.status,ct.code contractType,et.code employeeType,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,s.id siteId,s.code site FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [contractUid])
+      const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.employee_id,c.contract_number,c.sequence_number,c.status,ct.code contractType,et.code employeeType,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.notes,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,s.id siteId,s.code site FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [contractUid])
       const contract = rows[0]
       if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
       enforceSite(auth, contract.site)
@@ -1571,7 +1608,32 @@ employeesRouter.patch('/contracts/:contractUid', requirePermission('employees.ma
       const contractNumber = contract.status === 'ACTIVE' ? contract.contract_number : formatContractNumber(type.code, (await conn.query<RowDataPacket[]>('SELECT employee_number employeeNumber FROM employees WHERE id=? FOR UPDATE', [contract.employee_id]))[0][0].employeeNumber, contract.sequence_number)
       await conn.execute("UPDATE employee_contracts SET contract_number=?,contract_type_id=?,start_date=?,end_date=?,signed_date=?,issued_file_id=?,notes=?,terms_json=JSON_REMOVE(COALESCE(terms_json,JSON_OBJECT()), '$.contractPrintV1'),updated_by=? WHERE id=?", [contractNumber,type.id,input.startDate,empty(input.endDate),empty(input.signedDate),await fileId(input.issuedFileUid),empty(input.notes),auth.id,contract.id])
       await synchronizeActiveContractAfterEdit(conn,{ id: contract.id, uid: contract.uid, employeeId: contract.employee_id, siteId: contract.siteId, status: contract.status, startDate: input.startDate, endDate: input.endDate },auth)
-      await writeAudit({ auth, request:req, siteId:contract.siteId, action:'UPDATE', table:'employee_contracts', recordId:contract.id, recordUid:contractUid, description:`Memperbarui kontrak ${contractNumber}.`},conn)
+      await writeAudit({
+        auth,
+        request: req,
+        siteId: contract.siteId,
+        action: 'UPDATE',
+        table: 'employee_contracts',
+        recordId: contract.id,
+        recordUid: contractUid,
+        description: `Memperbarui kontrak ${contractNumber}.`,
+        beforeData: {
+          contractNumber: contract.contract_number,
+          contractType: contract.contractType,
+          startDate: contract.startDate,
+          endDate: contract.endDate,
+          signedDate: contract.signedDate,
+          notes: contract.notes,
+        },
+        afterData: {
+          contractNumber,
+          contractType: input.contractType,
+          startDate: input.startDate,
+          endDate: input.endDate ?? null,
+          signedDate: input.signedDate ?? null,
+          notes: input.notes ?? null,
+        },
+      }, conn)
       await conn.commit()
     } catch (error) { await conn.rollback(); throw error } finally { conn.release() }
     res.status(204).end()
@@ -1587,9 +1649,10 @@ employeesRouter.patch('/documents/:documentUid', requirePermission('documents.ma
 
 function contractFrom() { return `FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_statuses currentEs ON currentEs.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id LEFT JOIN files f ON f.id=c.issued_file_id` }
 function contractCoverageFrom() { return `FROM employees e JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id LEFT JOIN employee_contracts c ON c.employee_id=e.id AND NOT EXISTS(SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=e.id AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id))) LEFT JOIN contract_types ct ON ct.id=c.contract_type_id LEFT JOIN files f ON f.id=c.issued_file_id` }
-function contractSelect() { return `SELECT c.uid,e.uid employeeUid,e.full_name employeeName,et.code employeeType,currentEs.code employeeStatus,s.code site,pm.name productionModule,ps.name productionSection,c.contract_number contractNumber,ct.code contractType,c.sequence_number sequenceNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.status,DATE_FORMAT(c.terminated_at,'%Y-%m-%d') terminatedAt,c.termination_reason terminationReason,c.position_name_snapshot positionNameSnapshot,c.site_name_snapshot siteNameSnapshot,c.salary_or_rate_notes salaryOrRateNotes,c.notes,NOT EXISTS(SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=c.employee_id AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id))) isLatestForEmployee,(SELECT COUNT(*) FROM employee_contracts activeContract WHERE activeContract.employee_id=c.employee_id AND activeContract.status='ACTIVE' AND activeContract.start_date<=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')) AND (activeContract.end_date IS NULL OR activeContract.end_date>=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')))) activeValidContractCount,0 isMissingContract,0 isCoverageIssue,f.uid issuedFileUid,f.original_name issuedFileName,f.mime_type issuedFileMimeType,f.size_bytes issuedFileSizeBytes,f.extension issuedFileExtension,f.storage_path issuedFilePath ${contractFrom()} JOIN employee_types et ON et.id=e.employee_type_id` }
+function contractSelect() { return `SELECT c.id internalContractId,c.uid,e.uid employeeUid,e.full_name employeeName,et.code employeeType,currentEs.code employeeStatus,s.code site,pm.name productionModule,ps.name productionSection,c.contract_number contractNumber,ct.code contractType,c.sequence_number sequenceNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.status,DATE_FORMAT(c.terminated_at,'%Y-%m-%d') terminatedAt,c.termination_reason terminationReason,c.position_name_snapshot positionNameSnapshot,c.site_name_snapshot siteNameSnapshot,c.salary_or_rate_notes salaryOrRateNotes,c.notes,NOT EXISTS(SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=c.employee_id AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id))) isLatestForEmployee,(SELECT COUNT(*) FROM employee_contracts activeContract WHERE activeContract.employee_id=c.employee_id AND activeContract.status='ACTIVE' AND activeContract.start_date<=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')) AND (activeContract.end_date IS NULL OR activeContract.end_date>=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')))) activeValidContractCount,0 isMissingContract,0 isCoverageIssue,f.uid issuedFileUid,f.original_name issuedFileName,f.mime_type issuedFileMimeType,f.size_bytes issuedFileSizeBytes,f.extension issuedFileExtension,f.storage_path issuedFilePath ${contractFrom()} JOIN employee_types et ON et.id=e.employee_type_id` }
 function contractCoverageSelect() { return `SELECT COALESCE(c.uid,e.uid) uid,e.uid employeeUid,e.full_name employeeName,et.code employeeType,es.code employeeStatus,s.code site,pm.name productionModule,ps.name productionSection,COALESCE(c.contract_number,'Belum ada kontrak') contractNumber,COALESCE(ct.code,'MISSING') contractType,COALESCE(c.sequence_number,0) sequenceNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,COALESCE(c.status,'MISSING') status,DATE_FORMAT(c.terminated_at,'%Y-%m-%d') terminatedAt,c.termination_reason terminationReason,c.position_name_snapshot positionNameSnapshot,c.site_name_snapshot siteNameSnapshot,c.salary_or_rate_notes salaryOrRateNotes,c.notes,1 isLatestForEmployee,(SELECT COUNT(*) FROM employee_contracts activeContract WHERE activeContract.employee_id=e.id AND activeContract.status='ACTIVE' AND activeContract.start_date<=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')) AND (activeContract.end_date IS NULL OR activeContract.end_date>=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')))) activeValidContractCount,(c.id IS NULL) isMissingContract,1 isCoverageIssue,f.uid issuedFileUid,f.original_name issuedFileName,f.mime_type issuedFileMimeType,f.size_bytes issuedFileSizeBytes,f.extension issuedFileExtension,f.storage_path issuedFilePath ${contractCoverageFrom()}` }
-function mapContract(row: RowDataPacket) { const { issuedFileUid, issuedFileName, issuedFileMimeType, issuedFileSizeBytes, issuedFileExtension, issuedFilePath, employeeName, site, employeeType, employeeStatus, isLatestForEmployee, activeValidContractCount, isMissingContract, isCoverageIssue, ...contract } = row; const today = businessDate(); const endDate = String(contract.endDate ?? ''); const isExpiringWithin7Days = contract.status === 'ACTIVE' && endDate >= today && endDate <= addBusinessDays(today, 7); return { ...contract, employeeName, site, employeeType, employeeStatus, isLatestForEmployee: Boolean(isLatestForEmployee), activeValidContractCount: Number(activeValidContractCount ?? 0), isMissingContract: Boolean(isMissingContract), isCoverageIssue: Boolean(isCoverageIssue), isExpiringWithin7Days, issuedFile: issuedFileUid ? { uid: issuedFileUid, originalName: issuedFileName, mimeType: issuedFileMimeType, sizeBytes: Number(issuedFileSizeBytes), extension: issuedFileExtension, url: fileUrl(issuedFilePath) } : undefined } }
+function mapContract(row: RowDataPacket) { const { internalContractId: _internalContractId, issuedFileUid, issuedFileName, issuedFileMimeType, issuedFileSizeBytes, issuedFileExtension, issuedFilePath, employeeName, site, employeeType, employeeStatus, isLatestForEmployee, activeValidContractCount, isMissingContract, isCoverageIssue, ...contract } = row; const today = businessDate(); const endDate = String(contract.endDate ?? ''); const isExpiringWithin7Days = contract.status === 'ACTIVE' && endDate >= today && endDate <= addBusinessDays(today, 7); return { ...contract, employeeName, site, employeeType, employeeStatus, isLatestForEmployee: Boolean(isLatestForEmployee), activeValidContractCount: Number(activeValidContractCount ?? 0), isMissingContract: Boolean(isMissingContract), isCoverageIssue: Boolean(isCoverageIssue), isExpiringWithin7Days, issuedFile: issuedFileUid ? { uid: issuedFileUid, originalName: issuedFileName, mimeType: issuedFileMimeType, sizeBytes: Number(issuedFileSizeBytes), extension: issuedFileExtension, url: fileUrl(issuedFilePath) } : undefined } }
+function parseAuditData(value: unknown) { if (!value) return undefined; if (typeof value === 'object') return value; if (typeof value !== 'string') return undefined; try { return JSON.parse(value) } catch { return undefined } }
 function addBusinessDays(date: string, days: number) { const value = new Date(`${date}T00:00:00.000Z`); value.setUTCDate(value.getUTCDate() + days); return value.toISOString().slice(0, 10) }
 function documentFrom() { return `FROM employee_documents d JOIN employees e ON e.id=d.employee_id JOIN sites s ON s.id=e.current_site_id JOIN files f ON f.id=d.file_id` }
 function documentSelect() { return `SELECT d.uid,e.uid employeeUid,e.full_name employeeName,s.code site,d.document_type documentType,d.document_number documentNumber,d.name,DATE_FORMAT(d.issued_date,'%Y-%m-%d') issuedDate,DATE_FORMAT(d.expiry_date,'%Y-%m-%d') expiryDate,d.status,d.notes,f.uid fileUid,f.original_name originalName,f.mime_type mimeType,f.size_bytes sizeBytes,f.extension,f.storage_path filePath ${documentFrom()}` }

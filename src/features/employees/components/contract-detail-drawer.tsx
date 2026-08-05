@@ -1,18 +1,20 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import {
+  Clock3,
   Download,
   ExternalLink,
   FileText,
+  History,
   ImageIcon,
   Printer,
   ShieldAlert,
   Undo2,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useAuthStore } from '@/stores/auth-store'
 import { apiClient } from '@/lib/api-client'
 import { currentListReturnTo } from '@/lib/list-return-to'
-import { useAuthStore } from '@/stores/auth-store'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -25,9 +27,14 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DatePicker } from '@/components/date-picker'
-import { useTransitionContract } from '../data/queries'
+import { useContract, useTransitionContract } from '../data/queries'
 import type { EmployeeContract } from '../domain'
-import { formatDate, statusLabel } from '../utils'
+import {
+  contractStatusBadgeClassName,
+  contractStatusBadgeVariant,
+  formatDate,
+  statusLabel,
+} from '../utils'
 import { ContractLifecycleActionButtons } from './contract-lifecycle-action-buttons'
 
 type ContractDetailDrawerProps = {
@@ -42,13 +49,15 @@ type ContractDetailDrawerProps = {
 }
 
 export function ContractDetailDrawer({
-  contract,
+  contract: contractSummary,
   open,
   onOpenChange,
   employee,
 }: ContractDetailDrawerProps) {
   const returnTo = currentListReturnTo()
   const transition = useTransitionContract()
+  const contractDetail = useContract(contractSummary?.uid ?? '')
+  const contract = contractDetail.data ?? contractSummary
   const [action, setAction] = useState<
     | 'schedule'
     | 'activate'
@@ -117,6 +126,12 @@ export function ContractDetailDrawer({
         </SheetHeader>
         {contract && (
           <div className='min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pb-4'>
+            {contractDetail.isError && (
+              <p className='rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive'>
+                Riwayat detail belum dapat dimuat. Data utama kontrak tetap
+                ditampilkan.
+              </p>
+            )}
             {employee && (
               <section className='rounded-md border bg-muted/30 p-3'>
                 <p className='text-xs font-medium tracking-wide text-muted-foreground uppercase'>
@@ -154,7 +169,10 @@ export function ContractDetailDrawer({
                 {contract.contractType}
               </DetailRow>
               <DetailRow label='Status'>
-                <Badge variant='secondary'>
+                <Badge
+                  variant={contractStatusBadgeVariant(contract.status)}
+                  className={contractStatusBadgeClassName(contract.status)}
+                >
                   {statusLabel(contract.status)}
                 </Badge>
               </DetailRow>
@@ -308,6 +326,16 @@ export function ContractDetailDrawer({
               <DetailRow label='Tanggal ditandatangani'>
                 {formatDate(contract.signedDate)}
               </DetailRow>
+              {contract.status === 'TERMINATED' && (
+                <>
+                  <DetailRow label='Tanggal terminasi'>
+                    {formatDate(contract.terminatedAt)}
+                  </DetailRow>
+                  <DetailRow label='Alasan terminasi' multiline>
+                    {contract.terminationReason}
+                  </DetailRow>
+                </>
+              )}
             </DetailSection>
 
             <DetailSection title='Snapshot penempatan'>
@@ -321,6 +349,126 @@ export function ContractDetailDrawer({
               <DetailRow label='Catatan' multiline>
                 {contract.notes}
               </DetailRow>
+            </DetailSection>
+
+            <DetailSection title='Riwayat lifecycle'>
+              {contractDetail.isPending ? (
+                <p className='text-sm text-muted-foreground'>
+                  Memuat riwayat lifecycle...
+                </p>
+              ) : contract.lifecycleEvents?.length ? (
+                <div className='space-y-3'>
+                  {contract.lifecycleEvents.map((event) => (
+                    <div
+                      key={event.uid}
+                      className='relative border-s ps-5 last:border-transparent'
+                    >
+                      <span className='absolute -start-[5px] top-1 size-2.5 rounded-full bg-primary ring-4 ring-background' />
+                      <div className='flex flex-wrap items-center gap-2'>
+                        {event.fromStatus ? (
+                          <>
+                            <Badge variant='outline'>
+                              {statusLabel(event.fromStatus)}
+                            </Badge>
+                            <span className='text-xs text-muted-foreground'>
+                              ke
+                            </span>
+                          </>
+                        ) : null}
+                        <Badge
+                          variant={contractStatusBadgeVariant(event.toStatus)}
+                          className={contractStatusBadgeClassName(
+                            event.toStatus
+                          )}
+                        >
+                          {statusLabel(event.toStatus)}
+                        </Badge>
+                      </div>
+                      <p className='mt-1 text-sm font-medium'>
+                        Efektif {formatDate(event.effectiveDate)}
+                      </p>
+                      {event.reason && (
+                        <p className='mt-1 text-sm whitespace-pre-wrap text-muted-foreground'>
+                          {event.reason}
+                        </p>
+                      )}
+                      <p className='mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground'>
+                        <Clock3 className='size-3' />
+                        {formatDateTime(event.createdAt)} ·{' '}
+                        {event.source === 'CRON'
+                          ? 'Otomatis oleh sistem'
+                          : event.actorName}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className='text-sm text-muted-foreground'>
+                  Belum ada event lifecycle untuk kontrak ini.
+                </p>
+              )}
+            </DetailSection>
+
+            <DetailSection title='Riwayat koreksi'>
+              {contractDetail.isPending ? (
+                <p className='text-sm text-muted-foreground'>
+                  Memuat riwayat koreksi...
+                </p>
+              ) : contract.correctionHistory?.length ? (
+                <div className='space-y-3'>
+                  {contract.correctionHistory.map((correction) => {
+                    const changes = auditChanges(
+                      correction.beforeData,
+                      correction.afterData
+                    )
+                    return (
+                      <div
+                        key={correction.uid}
+                        className='rounded-md border bg-muted/20 p-3'
+                      >
+                        <div className='flex items-start gap-2'>
+                          <History className='mt-0.5 size-4 shrink-0 text-muted-foreground' />
+                          <div className='min-w-0 flex-1'>
+                            <p className='text-sm font-medium'>
+                              {correction.description}
+                            </p>
+                            <p className='mt-1 text-xs text-muted-foreground'>
+                              {formatDateTime(correction.occurredAt)} ·{' '}
+                              {correction.actorName}
+                            </p>
+                          </div>
+                        </div>
+                        {correction.reason && (
+                          <p className='mt-2 text-sm whitespace-pre-wrap text-muted-foreground'>
+                            Alasan: {correction.reason}
+                          </p>
+                        )}
+                        {changes.length > 0 && (
+                          <dl className='mt-3 space-y-2 border-t pt-3'>
+                            {changes.map((change) => (
+                              <div
+                                key={change.key}
+                                className='grid gap-1 text-xs sm:grid-cols-[120px_1fr]'
+                              >
+                                <dt className='text-muted-foreground'>
+                                  {change.label}
+                                </dt>
+                                <dd className='min-w-0 font-medium break-words'>
+                                  {change.before} → {change.after}
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <p className='text-sm text-muted-foreground'>
+                  Belum ada koreksi yang tercatat.
+                </p>
+              )}
             </DetailSection>
 
             <DetailSection title='Scan kontrak asli bertanda tangan'>
@@ -373,8 +521,8 @@ export function ContractDetailDrawer({
           action === 'resolve_active_conflict'
             ? 'Pulihkan konflik kontrak aktif'
             : isExpiredStatusClosure
-            ? 'Konfirmasi perubahan status karyawan'
-            : 'Konfirmasi lifecycle kontrak'
+              ? 'Konfirmasi perubahan status karyawan'
+              : 'Konfirmasi lifecycle kontrak'
         }
         desc={
           <p>
@@ -391,10 +539,10 @@ export function ContractDetailDrawer({
         disabled={
           requiresReason &&
           (reason.trim().length <
-              (action === 'cancel_activation' ||
-              action === 'resolve_active_conflict'
-                ? 5
-                : 1) ||
+            (action === 'cancel_activation' ||
+            action === 'resolve_active_conflict'
+              ? 5
+              : 1) ||
             effectiveDateInvalid)
         }
         isLoading={transition.isPending}
@@ -451,7 +599,7 @@ export function ContractDetailDrawer({
                 ? 'Alasan pembatalan aktivasi'
                 : action === 'resolve_active_conflict'
                   ? 'Alasan pemulihan konflik'
-                : `Alasan ${isResignAction(action) ? 'resign' : 'terminasi'}`}
+                  : `Alasan ${isResignAction(action) ? 'resign' : 'terminasi'}`}
               <Textarea
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
@@ -460,7 +608,7 @@ export function ContractDetailDrawer({
                     ? 'Jelaskan kesalahan input yang menyebabkan aktivasi harus dibatalkan'
                     : action === 'resolve_active_conflict'
                       ? 'Jelaskan mengapa kontrak ini yang harus dihentikan'
-                    : 'Wajib diisi'
+                      : 'Wajib diisi'
                 }
                 maxLength={500}
               />
@@ -631,4 +779,53 @@ function DetailRow({
       </dd>
     </div>
   )
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return '—'
+  const date = new Date(`${value}+07:00`)
+  if (Number.isNaN(date.getTime())) return '—'
+  return new Intl.DateTimeFormat('id-ID', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'Asia/Jakarta',
+  }).format(date)
+}
+
+const correctionFieldLabels: Record<string, string> = {
+  contractNumber: 'Nomor kontrak',
+  contractType: 'Jenis kontrak',
+  startDate: 'Tanggal mulai',
+  endDate: 'Tanggal berakhir',
+  signedDate: 'Tanggal ditandatangani',
+  notes: 'Catatan',
+  contractStatus: 'Status kontrak',
+  employeeStatus: 'Status karyawan',
+}
+
+function auditChanges(
+  beforeData?: Record<string, unknown>,
+  afterData?: Record<string, unknown>
+) {
+  if (!beforeData || !afterData) return []
+  return Object.keys(correctionFieldLabels)
+    .filter((key) => !Object.is(beforeData[key], afterData[key]))
+    .map((key) => ({
+      key,
+      label: correctionFieldLabels[key],
+      before: formatCorrectionValue(key, beforeData[key]),
+      after: formatCorrectionValue(key, afterData[key]),
+    }))
+}
+
+function formatCorrectionValue(key: string, value: unknown) {
+  if (value === null || value === undefined || value === '') return 'Kosong'
+  const text = String(value)
+  if (['startDate', 'endDate', 'signedDate'].includes(key)) {
+    return formatDate(text)
+  }
+  if (['contractStatus', 'employeeStatus'].includes(key)) {
+    return statusLabel(text)
+  }
+  return text
 }

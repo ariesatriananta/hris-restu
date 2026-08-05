@@ -13,7 +13,6 @@ import type {
   ContractKpiSummary,
   ContractBatchItem,
   ContractBatchResult,
-  ContractReconcileResult,
   ScheduledEmployeeMutation,
   ScheduledEmployeeStatusChange,
   ScheduledStatusChangeAction,
@@ -205,13 +204,6 @@ export const listContractConflicts = async (
     await apiClient.get<ContractConflictListResult>(
       '/employees/contracts/conflicts',
       { params: input }
-    )
-  ).data
-
-export const reconcileContracts = async () =>
-  (
-    await apiClient.post<ContractReconcileResult>(
-      '/employees/contracts/reconcile'
     )
   ).data
 

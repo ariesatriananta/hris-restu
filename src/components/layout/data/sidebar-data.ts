@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   ReceiptText,
   ScanLine,
+  ServerCog,
   Settings,
   ShieldCheck,
   UserRoundCog,
@@ -102,6 +103,11 @@ export const sidebarData: SidebarData = {
               title: 'Audit Trail',
               url: '/administrasi/audit-trail',
               icon: Fingerprint,
+            },
+            {
+              title: 'Monitoring Cron',
+              url: '/administrasi/monitoring-cron',
+              icon: ServerCog,
             },
             {
               title: 'Pengaturan',

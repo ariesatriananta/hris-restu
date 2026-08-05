@@ -183,6 +183,28 @@ export interface EmployeeContract {
   isMissingContract?: boolean
   isCoverageIssue?: boolean
   isExpiringWithin7Days?: boolean
+  lifecycleEvents?: ContractLifecycleEvent[]
+  correctionHistory?: ContractCorrectionHistory[]
+}
+export interface ContractLifecycleEvent {
+  uid: string
+  fromStatus?: ContractStatus
+  toStatus: ContractStatus
+  effectiveDate: string
+  reason?: string
+  source: 'MANUAL' | 'CRON'
+  actorName: string
+  createdAt: string
+}
+export interface ContractCorrectionHistory {
+  uid: string
+  action: string
+  description: string
+  reason?: string
+  beforeData?: Record<string, unknown>
+  afterData?: Record<string, unknown>
+  actorName: string
+  occurredAt: string
 }
 export interface ContractKpiSummary {
   activeValid: number
@@ -191,30 +213,6 @@ export interface ContractKpiSummary {
   drafts: number
   scheduled: number
   totalContracts: number
-}
-export interface ContractReconcileResult {
-  status: 'SUCCEEDED' | 'SKIPPED'
-  runUid: string
-  businessDate: string
-  activated?: number
-  expired?: number
-  activatedEmployees?: number
-  inactivatedEmployees?: number
-  legacyConflicts?: number
-  skippedConflicts?: number
-  reason?: string
-  scheduledMutations?: {
-    due: number
-    applied: number
-    failed: number
-    skipped: number
-  }
-  scheduledStatusChanges?: {
-    due: number
-    applied: number
-    failed: number
-    skipped: number
-  }
 }
 export interface EmployeeDocument {
   uid: string
