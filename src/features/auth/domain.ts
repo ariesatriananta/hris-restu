@@ -15,7 +15,7 @@ export interface AuthSession {
 }
 
 export interface SignInCredentials {
-  email: string
+  username: string
   password: string
 }
 
@@ -27,7 +27,7 @@ export interface AuthRepository {
 
 export class InvalidCredentialsError extends Error {
   constructor() {
-    super('Email atau kata sandi tidak sesuai.')
+    super('Username atau kata sandi tidak sesuai.')
     this.name = 'InvalidCredentialsError'
   }
 }

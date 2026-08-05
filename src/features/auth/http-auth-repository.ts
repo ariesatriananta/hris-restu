@@ -58,6 +58,6 @@ export const httpAuthRepository: AuthRepository = {
   },
 }
 export const apiCredentials = {
-  email: 'admin@hris-restu.test',
+  username: 'administrator.hris',
   password: 'restu123',
 }

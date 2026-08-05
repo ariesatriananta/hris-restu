@@ -21,7 +21,7 @@ import { InvalidCredentialsError } from '@/features/auth/domain'
 import { safeRedirect } from '@/features/auth/safe-redirect'
 
 const formSchema = z.object({
-  email: z.email('Masukkan alamat email yang valid.'),
+  username: z.string().trim().min(1, 'Username wajib diisi.'),
   password: z.string().min(1, 'Kata sandi wajib diisi.'),
 })
 
@@ -42,7 +42,7 @@ export function UserAuthForm({
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      email: '',
+      username: '',
       password: '',
     },
   })
@@ -70,12 +70,12 @@ export function UserAuthForm({
       >
         <FormField
           control={form.control}
-          name='email'
+          name='username'
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Email</FormLabel>
+              <FormLabel>Username</FormLabel>
               <FormControl>
-                <Input autoComplete='username' inputMode='email' {...field} />
+                <Input autoComplete='username' {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>

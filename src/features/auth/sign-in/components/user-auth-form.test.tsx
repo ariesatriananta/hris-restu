@@ -21,7 +21,7 @@ describe('UserAuthForm', () => {
   it('menampilkan field login kosong dan tombol masuk', async () => {
     const screen = await render(<UserAuthForm />)
     await expect
-      .element(screen.getByRole('textbox', { name: 'Email' }))
+      .element(screen.getByRole('textbox', { name: 'Username' }))
       .toHaveValue('')
     await expect
       .element(screen.getByLabelText('Kata sandi'))

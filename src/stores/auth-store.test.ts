@@ -26,7 +26,7 @@ describe('auth store', () => {
     get.mockResolvedValue({ data: { user } })
     await useAuthStore
       .getState()
-      .signIn({ email: user.email, password: 'restu123' })
+      .signIn({ username: 'administrator.hris', password: 'restu123' })
     expect(useAuthStore.getState().session?.user.role).toBe('SUPER_ADMIN')
     expect(window.localStorage.getItem('hris-restu.api-session')).toContain(
       'Administrator HRIS'
@@ -38,7 +38,7 @@ describe('auth store', () => {
     await expect(
       useAuthStore
         .getState()
-        .signIn({ email: 'salah@example.test', password: 'salah' })
+        .signIn({ username: 'salah', password: 'salah' })
     ).rejects.toThrow('tidak sesuai')
     expect(useAuthStore.getState().session).toBeNull()
   })
@@ -48,7 +48,7 @@ describe('auth store', () => {
     get.mockResolvedValue({ data: { user } })
     await useAuthStore
       .getState()
-      .signIn({ email: user.email, password: 'restu123' })
+      .signIn({ username: 'administrator.hris', password: 'restu123' })
     await useAuthStore.getState().signOut()
     expect(useAuthStore.getState().session).toBeNull()
     expect(window.localStorage.getItem('hris-restu.api-session')).toBeNull()

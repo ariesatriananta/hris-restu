@@ -1,5 +1,5 @@
 -- Hanya untuk local/development.
--- Kredensial: admin@hris-restu.test / restu123
+-- Kredensial: administrator.hris / restu123
 -- Ganti password sebelum digunakan di environment bersama atau production.
 
 START TRANSACTION;

@@ -6,6 +6,7 @@ import {
 } from './domain'
 
 const SESSION_KEY = 'hris-restu.mock-session'
+const DEMO_USERNAME = 'administrator.hris'
 const DEMO_EMAIL = 'admin@hris-restu.test'
 const DEMO_PASSWORD = 'restu123'
 
@@ -46,7 +47,7 @@ export const mockAuthRepository: AuthRepository = {
   async signIn(credentials: SignInCredentials) {
     await delay()
     if (
-      credentials.email.toLowerCase() !== DEMO_EMAIL ||
+      credentials.username.toLowerCase() !== DEMO_USERNAME ||
       credentials.password !== DEMO_PASSWORD
     ) {
       throw new InvalidCredentialsError()
@@ -65,6 +66,6 @@ export const mockAuthRepository: AuthRepository = {
 }
 
 export const mockCredentials = {
-  email: DEMO_EMAIL,
+  username: DEMO_USERNAME,
   password: DEMO_PASSWORD,
 }
