@@ -12,10 +12,10 @@ import { AlertTriangle, ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
 import { safeInternalReturnTo } from '@/lib/list-return-to'
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
 import { uploadEmployeeFile } from '../data/files'
@@ -63,6 +63,7 @@ const documentSchema = z.object({
 })
 type ContractValues = z.infer<typeof contractSchema>
 type DocumentValues = z.infer<typeof documentSchema>
+type ContractPeriod = '1' | '3' | '12' | 'CUSTOM'
 
 export function EmployeeRecordFormPage({
   kind,
@@ -138,6 +139,9 @@ function ContractForm({
   const [file, setFile] = useState<File>()
   const [attachment, setAttachment] = useState<MockFileAttachment | undefined>(
     record?.issuedFile
+  )
+  const [contractPeriod, setContractPeriod] = useState<ContractPeriod>(() =>
+    deriveContractPeriod(record?.startDate, record?.endDate)
   )
   const form = useForm<ContractValues>({
     resolver: zodResolver(contractSchema),
@@ -293,23 +297,53 @@ function ContractForm({
               dateToInput(date) < selectedEmployee.data.joinDate
             )
           }
-          onChange={(date) =>
-            form.setValue('startDate', dateToInput(date), {
+          onChange={(date) => {
+            const value = dateToInput(date)
+            form.setValue('startDate', value, {
               shouldDirty: true,
               shouldValidate: true,
             })
-          }
+            if (contractPeriod !== 'CUSTOM') {
+              form.setValue(
+                'endDate',
+                calculateContractEndDate(value, Number(contractPeriod)),
+                { shouldDirty: true, shouldValidate: true }
+              )
+            }
+          }}
+        />
+        <Native
+          label='Periode kontrak'
+          values={[
+            { value: '1', label: '1 bulan' },
+            { value: '3', label: '3 bulan' },
+            { value: '12', label: '12 bulan' },
+            { value: 'CUSTOM', label: 'Custom' },
+          ]}
+          value={contractPeriod}
+          onChange={(event) => {
+            const value = event.target.value as ContractPeriod
+            setContractPeriod(value)
+            if (value !== 'CUSTOM') {
+              form.setValue(
+                'endDate',
+                calculateContractEndDate(startDate, Number(value)),
+                { shouldDirty: true, shouldValidate: true }
+              )
+            }
+          }}
         />
         <DateField
           label='Tanggal berakhir'
           error={form.formState.errors.endDate?.message}
           value={endDate}
-          onChange={(date) =>
+          onChange={(date) => {
+            setContractPeriod('CUSTOM')
             form.setValue('endDate', dateToInput(date), {
               shouldDirty: true,
               shouldValidate: true,
             })
-          }
+          }}
         />
         {overlappingContract && (
           <Alert variant='destructive' className='sm:col-span-2'>
@@ -642,6 +676,37 @@ function dateToInput(value?: Date) {
   const month = String(value.getMonth() + 1).padStart(2, '0')
   const day = String(value.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function calculateContractEndDate(startDate: string, months: number) {
+  if (!startDate) return ''
+  const [year, month, day] = startDate.split('-').map(Number)
+  const targetMonthIndex = month - 1 + months
+  const targetYear = year + Math.floor(targetMonthIndex / 12)
+  const targetMonth = targetMonthIndex % 12
+  const lastDayOfTargetMonth = new Date(
+    targetYear,
+    targetMonth + 1,
+    0
+  ).getDate()
+  const endDate = new Date(
+    targetYear,
+    targetMonth,
+    Math.min(day, lastDayOfTargetMonth)
+  )
+  endDate.setDate(endDate.getDate() - 1)
+  return dateToInput(endDate)
+}
+
+function deriveContractPeriod(startDate?: string, endDate?: string) {
+  const normalizedStartDate = startDate?.slice(0, 10) ?? ''
+  const normalizedEndDate = endDate?.slice(0, 10) ?? ''
+  const months = ([1, 3, 12] as const).find(
+    (months) =>
+      calculateContractEndDate(normalizedStartDate, months) ===
+      normalizedEndDate
+  )
+  return months ? (String(months) as ContractPeriod) : 'CUSTOM'
 }
 
 function attachmentFromFile(file: File): MockFileAttachment {
