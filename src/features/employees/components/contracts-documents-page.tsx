@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
   AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
   CircleCheckBig,
   Clock3,
   CalendarClock,
@@ -17,12 +19,16 @@ import { useAuthStore } from '@/stores/auth-store'
 import { currentListReturnTo } from '@/lib/list-return-to'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,7 +48,9 @@ import {
 } from '../data/queries'
 import type {
   EmployeeContract,
+  ContractConflictListResult,
   ContractKpiSummary,
+  ContractLifecycleConflict,
   EmployeeRecordListParams,
   PaginatedResult,
   SiteCode,
@@ -67,6 +75,7 @@ export function ContractsDocumentsPage({
   const [selectedContract, setSelectedContract] = useState<EmployeeContract>()
   const [reconcileOpen, setReconcileOpen] = useState(false)
   const [conflictsOpen, setConflictsOpen] = useState(false)
+  const [conflictPage, setConflictPage] = useState(1)
   const user = useAuthStore((state) => state.session?.user)
   const contractParams = params(search, 'contract')
   const statusChangeParams = statusChangeParamsFromSearch(search)
@@ -77,8 +86,18 @@ export function ContractsDocumentsPage({
     productionModule: contractParams.productionModule,
     productionSection: contractParams.productionSection,
   })
-  const conflicts = useContractConflicts()
+  const conflicts = useContractConflicts({ page: conflictPage, pageSize: 50 })
   const reconcile = useManualContractsReconcile()
+  useEffect(() => {
+    if (conflicts.isFetching || !conflicts.data) return
+    const lastPage = Math.max(
+      1,
+      Math.ceil(conflicts.data.total / conflicts.data.pageSize)
+    )
+    if (conflictPage <= lastPage) return
+    const resetPage = window.setTimeout(() => setConflictPage(lastPage), 0)
+    return () => window.clearTimeout(resetPage)
+  }, [conflictPage, conflicts.data, conflicts.isFetching])
   const contractRows = useMemo(
     () => mapContracts(contracts.data),
     [contracts.data]
@@ -133,50 +152,53 @@ export function ContractsDocumentsPage({
           )}
         </div>
       </div>
-      {activeTab === 'contracts' && conflicts.data?.items.length ? (
+      {activeTab === 'contracts' && conflicts.isError ? (
         <Alert variant='destructive' className='mb-4'>
           <AlertTriangle />
-          <Collapsible
-            open={conflictsOpen}
-            onOpenChange={setConflictsOpen}
-            className='col-start-2 min-w-0'
-          >
-            <CollapsibleTrigger className='flex w-full items-center justify-between gap-3 text-left'>
-              <AlertTitle className='animate-pulse text-sm motion-reduce:animate-none'>
-                {conflicts.data.total} konflik lifecycle kontrak perlu ditindak
+          <div className='col-start-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+            <div className='min-w-0'>
+              <AlertTitle className='text-sm'>
+                Konflik lifecycle gagal dimuat
               </AlertTitle>
-              <ChevronDown
-                className={`size-4 shrink-0 transition-transform ${
-                  conflictsOpen ? 'rotate-180' : ''
-                }`}
-              />
-            </CollapsibleTrigger>
-            <CollapsibleContent className='CollapsibleContent'>
-              <AlertDescription>
-                <ul className='mt-2 space-y-1 text-destructive'>
-                  {conflicts.data.items.map((conflict) => (
-                    <li key={conflict.employeeUid}>
-                      <Button
-                        variant='link'
-                        className='h-auto p-0 text-destructive underline hover:text-destructive/80'
-                        onClick={() =>
-                          routerNavigate({
-                            to: '/karyawan/data-karyawan/$employeeUid',
-                            params: { employeeUid: conflict.employeeUid },
-                            search: { returnTo },
-                          })
-                        }
-                      >
-                        {conflict.employeeNumber} - {conflict.fullName}
-                      </Button>{' '}
-                      - {conflict.reason} ({conflict.contractNumbers.join(', ')}
-                      )
-                    </li>
-                  ))}
-                </ul>
+              <AlertDescription className='mt-1'>
+                Muat ulang agar kasus kontrak yang perlu ditindak tidak
+                terlewat.
               </AlertDescription>
-            </CollapsibleContent>
-          </Collapsible>
+            </div>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              className='w-fit shrink-0'
+              onClick={() => conflicts.refetch()}
+            >
+              <RefreshCw /> Muat ulang
+            </Button>
+          </div>
+        </Alert>
+      ) : activeTab === 'contracts' && (conflicts.data?.total ?? 0) > 0 ? (
+        <Alert className='mb-4 border-amber-500/40 bg-amber-500/5 text-amber-950 dark:text-amber-100'>
+          <AlertTriangle className='text-amber-600 dark:text-amber-400' />
+          <div className='col-start-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+            <div className='min-w-0'>
+              <AlertTitle className='text-sm'>
+                {conflicts.data?.total ?? 0} konflik lifecycle kontrak perlu
+                ditindak
+              </AlertTitle>
+              <AlertDescription className='mt-1 text-amber-900/80 dark:text-amber-100/75'>
+                Periksa konflik agar status kontrak dan karyawan tetap sinkron.
+              </AlertDescription>
+            </div>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              className='w-fit shrink-0 border-amber-500/40 bg-background/70 hover:bg-amber-500/10'
+              onClick={() => setConflictsOpen(true)}
+            >
+              Lihat konflik
+            </Button>
+          </div>
         </Alert>
       ) : null}
       <Tabs
@@ -211,12 +233,12 @@ export function ContractsDocumentsPage({
             search={search}
             navigate={navigate}
             prefix='contract'
-            productionModuleOptions={(lookups.data?.productionModules ?? []).map(
-              (item) => ({
-                value: item.uid,
-                label: `${statusLabel(item.siteCode)} - ${item.name}`,
-              })
-            )}
+            productionModuleOptions={(
+              lookups.data?.productionModules ?? []
+            ).map((item) => ({
+              value: item.uid,
+              label: `${statusLabel(item.siteCode)} - ${item.name}`,
+            }))}
             productionSectionOptions={uniqueOptions(
               (lookups.data?.productionModuleSections ?? []).map((item) => ({
                 value: item.sectionUid,
@@ -276,6 +298,24 @@ export function ContractsDocumentsPage({
           if (!open) setSelectedContract(undefined)
         }}
       />
+      <ContractConflictsDialog
+        open={conflictsOpen}
+        onOpenChange={setConflictsOpen}
+        data={conflicts.data}
+        isPending={conflicts.isPending}
+        isFetching={conflicts.isFetching}
+        isError={conflicts.isError}
+        page={conflictPage}
+        onPageChange={setConflictPage}
+        onRetry={() => conflicts.refetch()}
+        onOpenEmployee={(employeeUid) =>
+          routerNavigate({
+            to: '/karyawan/data-karyawan/$employeeUid',
+            params: { employeeUid },
+            search: { returnTo },
+          })
+        }
+      />
       <ConfirmDialog
         open={reconcileOpen}
         onOpenChange={(open) => {
@@ -290,6 +330,7 @@ export function ContractsDocumentsPage({
           reconcile.mutate(undefined, {
             onSuccess: (result) => {
               setReconcileOpen(false)
+              setConflictPage(1)
               toast.success(
                 result.status === 'SKIPPED'
                   ? 'Rekonsiliasi lain masih berjalan.'
@@ -302,6 +343,202 @@ export function ContractsDocumentsPage({
         }
       />
     </Main>
+  )
+}
+
+function ContractConflictsDialog({
+  open,
+  onOpenChange,
+  data,
+  isPending,
+  isFetching,
+  isError,
+  page,
+  onPageChange,
+  onRetry,
+  onOpenEmployee,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  data?: ContractConflictListResult
+  isPending: boolean
+  isFetching: boolean
+  isError: boolean
+  page: number
+  onPageChange: (page: number) => void
+  onRetry: () => void
+  onOpenEmployee: (employeeUid: string) => void
+}) {
+  const total = data?.total ?? 0
+  const shownPage = data?.page ?? page
+  const pageSize = data?.pageSize ?? 50
+  const start = total === 0 ? 0 : (shownPage - 1) * pageSize + 1
+  const end = Math.min(shownPage * pageSize, total)
+  const groups = [
+    {
+      severity: 'danger' as const,
+      label: 'Konflik kritis',
+      items: (data?.items ?? []).filter(
+        (conflict) => conflict.severity === 'danger'
+      ),
+    },
+    {
+      severity: 'warning' as const,
+      label: 'Perlu tindak lanjut',
+      items: (data?.items ?? []).filter(
+        (conflict) => conflict.severity === 'warning'
+      ),
+    },
+  ]
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className='flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-3xl'>
+        <DialogHeader className='border-b px-6 py-5 pr-12'>
+          <DialogTitle>Konflik lifecycle kontrak</DialogTitle>
+          <DialogDescription>
+            {total > 0
+              ? `${total} konflik perlu diperiksa agar status kontrak dan karyawan tetap sinkron.`
+              : 'Tidak ada konflik lifecycle kontrak yang perlu ditindak.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div
+          className='min-h-0 flex-1 overflow-y-auto px-6 py-4'
+          aria-busy={isFetching}
+        >
+          {isPending ? (
+            <div className='space-y-3' aria-label='Memuat konflik kontrak'>
+              <Skeleton className='h-24 w-full' />
+              <Skeleton className='h-24 w-full' />
+              <Skeleton className='h-24 w-full' />
+            </div>
+          ) : isError ? (
+            <div className='flex min-h-48 flex-col items-center justify-center gap-3 text-center'>
+              <AlertTriangle className='size-8 text-destructive' />
+              <div>
+                <p className='font-medium'>Daftar konflik gagal dimuat</p>
+                <p className='text-sm text-muted-foreground'>
+                  Coba muat ulang tanpa meninggalkan halaman ini.
+                </p>
+              </div>
+              <Button type='button' variant='outline' onClick={onRetry}>
+                <RefreshCw /> Muat ulang
+              </Button>
+            </div>
+          ) : total === 0 ? (
+            <div className='flex min-h-48 flex-col items-center justify-center gap-2 text-center'>
+              <CircleCheckBig className='size-9 text-emerald-600' />
+              <p className='font-medium'>Status kontrak sudah sinkron</p>
+              <p className='text-sm text-muted-foreground'>
+                Tidak ada konflik yang perlu ditindak saat ini.
+              </p>
+            </div>
+          ) : (
+            <div
+              className={`space-y-5 transition-opacity ${isFetching ? 'opacity-60' : ''}`}
+            >
+              {groups.map((group) =>
+                group.items.length ? (
+                  <section key={group.severity} aria-label={group.label}>
+                    <div className='mb-2 flex items-center gap-2'>
+                      <Badge
+                        variant={
+                          group.severity === 'danger'
+                            ? 'destructive'
+                            : 'outline'
+                        }
+                        className={
+                          group.severity === 'warning'
+                            ? 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300'
+                            : undefined
+                        }
+                      >
+                        {group.label}
+                      </Badge>
+                      <span className='text-xs text-muted-foreground'>
+                        {group.items.length} pada halaman ini
+                      </span>
+                    </div>
+                    <div className='divide-y rounded-lg border'>
+                      {group.items.map((conflict) => (
+                        <ContractConflictItem
+                          key={`${conflict.employeeUid}-${conflict.code}`}
+                          conflict={conflict}
+                          onOpenEmployee={onOpenEmployee}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ) : null
+              )}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className='items-center justify-between border-t px-6 py-4 sm:justify-between'>
+          <p className='text-sm text-muted-foreground' aria-live='polite'>
+            {total > 0
+              ? `Menampilkan ${start}-${end} dari ${total} konflik`
+              : '0 konflik'}
+          </p>
+          <div className='flex items-center gap-2'>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              disabled={page <= 1 || isFetching}
+              onClick={() => onPageChange(Math.max(1, page - 1))}
+            >
+              <ArrowLeft /> Sebelumnya
+            </Button>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              disabled={!data?.hasMore || isFetching}
+              onClick={() => onPageChange(page + 1)}
+            >
+              Berikutnya <ArrowRight />
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ContractConflictItem({
+  conflict,
+  onOpenEmployee,
+}: {
+  conflict: ContractLifecycleConflict
+  onOpenEmployee: (employeeUid: string) => void
+}) {
+  return (
+    <article className='space-y-2 px-4 py-3'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
+        <Button
+          type='button'
+          variant='link'
+          className='h-auto min-w-0 justify-start p-0 text-left font-semibold'
+          onClick={() => onOpenEmployee(conflict.employeeUid)}
+        >
+          <span className='truncate'>
+            {conflict.employeeNumber} - {conflict.fullName}
+          </span>
+        </Button>
+        <span className='text-xs text-muted-foreground'>
+          {statusLabel(conflict.site)}
+        </span>
+      </div>
+      <p className='text-sm leading-relaxed'>{conflict.reason}</p>
+      {conflict.contractNumbers.length ? (
+        <p className='text-xs text-muted-foreground'>
+          Kontrak: {conflict.contractNumbers.join(', ')}
+        </p>
+      ) : null}
+    </article>
   )
 }
 

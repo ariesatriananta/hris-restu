@@ -8,7 +8,8 @@ import type {
   EmployeeDocument,
   EmployeeRecordListParams,
   ContractLifecycleAction,
-  ContractLifecycleConflict,
+  ContractConflictListParams,
+  ContractConflictListResult,
   ContractKpiSummary,
   ContractBatchItem,
   ContractBatchResult,
@@ -197,10 +198,13 @@ export const listDocuments = async (input: EmployeeRecordListParams) =>
     )
   ).data
 
-export const listContractConflicts = async () =>
+export const listContractConflicts = async (
+  input: ContractConflictListParams
+) =>
   (
-    await apiClient.get<{ items: ContractLifecycleConflict[]; total: number }>(
-      '/employees/contracts/conflicts'
+    await apiClient.get<ContractConflictListResult>(
+      '/employees/contracts/conflicts',
+      { params: input }
     )
   ).data
 

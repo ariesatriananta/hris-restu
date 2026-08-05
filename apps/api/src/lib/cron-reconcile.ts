@@ -80,9 +80,9 @@ export async function runContractsReconcile() {
     }
 
     runUid = await createRun(connection, 'RUNNING', today)
-    const contracts = await reconcileContracts()
-    const scheduledMutations = await reconcileScheduledMutations()
     const scheduledStatusChanges = await reconcileScheduledStatusChanges()
+    const scheduledMutations = await reconcileScheduledMutations()
+    const contracts = await reconcileContracts()
     const summary = { contracts, scheduledMutations, scheduledStatusChanges }
     await finishRun(connection, runUid, 'SUCCEEDED', summary)
     return { ...contracts, scheduledMutations, scheduledStatusChanges, status: 'SUCCEEDED' as const, runUid }

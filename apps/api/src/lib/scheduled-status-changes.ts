@@ -4,6 +4,7 @@ import type { PoolConnection } from 'mysql2/promise'
 import { pool } from '../db.js'
 import { writeSystemAudit } from './audit.js'
 import { auditLifecycle, businessDate, employeeStatus } from './contract-lifecycle.js'
+import { assertScheduledStatusWithinContract } from './contract-lifecycle-policy.js'
 
 type ApplyResult =
   | { status: 'APPLIED'; uid: string }
@@ -79,6 +80,26 @@ export async function applyScheduledStatusChange(uid: string): Promise<ApplyResu
       const result = await fail(conn, schedule, 'Status karyawan sudah tidak Aktif saat jadwal diproses.')
       await conn.commit()
       return result
+    }
+    if (schedule.contract_id) {
+      const [sourceContracts] = await conn.query<RowDataPacket[]>(
+        `SELECT DATE_FORMAT(end_date,'%Y-%m-%d') endDate
+         FROM employee_contracts
+         WHERE id=? FOR UPDATE`,
+        [schedule.contract_id]
+      )
+      const sourceContract = sourceContracts[0]
+      try {
+        assertScheduledStatusWithinContract(schedule.effectiveDate, sourceContract?.endDate)
+      } catch {
+        const result = await fail(
+          conn,
+          schedule,
+          'Tanggal terminasi atau resign terjadwal melewati tanggal akhir kontrak.'
+        )
+        await conn.commit()
+        return result
+      }
     }
 
     const [contracts] = await conn.query<RowDataPacket[]>(`

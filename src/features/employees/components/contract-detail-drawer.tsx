@@ -6,11 +6,13 @@ import {
   FileText,
   ImageIcon,
   Printer,
+  ShieldAlert,
   Undo2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { apiClient } from '@/lib/api-client'
 import { currentListReturnTo } from '@/lib/list-return-to'
+import { useAuthStore } from '@/stores/auth-store'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -56,7 +58,9 @@ export function ContractDetailDrawer({
     | 'cancel_activation'
     | 'close_expired_terminate'
     | 'close_expired_resign'
+    | 'resolve_active_conflict'
   >()
+  const user = useAuthStore((state) => state.session?.user)
   const [reason, setReason] = useState('')
   const today = new Date().toISOString().slice(0, 10)
   const [effectiveDate, setEffectiveDate] = useState(today)
@@ -66,6 +70,23 @@ export function ContractDetailDrawer({
   const minimumEffectiveDate = isExpiredStatusClosure
     ? contract?.endDate
     : contract?.startDate
+  const maximumEffectiveDate = isExpiredStatusClosure
+    ? today
+    : contract?.endDate && contract.endDate < today
+      ? contract.endDate
+      : today
+  const effectiveDateInvalid = Boolean(
+    showsEffectiveDate &&
+    (effectiveDate < (minimumEffectiveDate ?? today) ||
+      effectiveDate > maximumEffectiveDate)
+  )
+  const hasActiveConflict = (contract?.activeValidContractCount ?? 0) > 1
+  const canResolveActiveConflict =
+    hasActiveConflict && user?.role === 'SUPER_ADMIN'
+  const openImmediateAction = (nextAction: 'terminate' | 'resign') => {
+    setEffectiveDate(maximumEffectiveDate)
+    setAction(nextAction)
+  }
   const printContract = async () => {
     if (!contract) return
     const popup = window.open('', '_blank')
@@ -189,17 +210,26 @@ export function ContractDetailDrawer({
             {contract.status === 'ACTIVE' && (
               <section className='space-y-2 border-t pt-4'>
                 <h3 className='text-sm font-semibold'>Aksi lifecycle</h3>
-                <p className='text-sm text-muted-foreground'>
-                  Status kerja karyawan hanya diubah melalui aksi kontrak.
-                </p>
+                {hasActiveConflict ? (
+                  <p className='rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive'>
+                    Ditemukan lebih dari satu kontrak aktif yang masih berlaku.
+                    Pilih kontrak yang salah lalu gunakan pemulihan konflik.
+                  </p>
+                ) : (
+                  <p className='text-sm text-muted-foreground'>
+                    Status kerja karyawan hanya diubah melalui aksi kontrak.
+                  </p>
+                )}
                 <div className='flex flex-wrap gap-2'>
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    onClick={() => setAction('terminate')}
-                  >
-                    Terminasi
-                  </Button>
+                  {!hasActiveConflict && (
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      onClick={() => openImmediateAction('terminate')}
+                    >
+                      Terminasi
+                    </Button>
+                  )}
                   <Button
                     size='sm'
                     variant='destructive'
@@ -207,13 +237,27 @@ export function ContractDetailDrawer({
                   >
                     <Undo2 /> Batalkan aktivasi
                   </Button>
-                  <Button
-                    size='sm'
-                    variant='destructive'
-                    onClick={() => setAction('resign')}
-                  >
-                    Catat resign
-                  </Button>
+                  {!hasActiveConflict && (
+                    <Button
+                      size='sm'
+                      variant='destructive'
+                      onClick={() => openImmediateAction('resign')}
+                    >
+                      Catat resign
+                    </Button>
+                  )}
+                  {canResolveActiveConflict && (
+                    <Button
+                      size='sm'
+                      variant='destructive'
+                      onClick={() => {
+                        setEffectiveDate(maximumEffectiveDate)
+                        setAction('resolve_active_conflict')
+                      }}
+                    >
+                      <ShieldAlert /> Selesaikan konflik aktif
+                    </Button>
+                  )}
                   <ContractLifecycleActionButtons
                     contract={contract}
                     onlyScheduled
@@ -326,7 +370,9 @@ export function ContractDetailDrawer({
           }
         }}
         title={
-          isExpiredStatusClosure
+          action === 'resolve_active_conflict'
+            ? 'Pulihkan konflik kontrak aktif'
+            : isExpiredStatusClosure
             ? 'Konfirmasi perubahan status karyawan'
             : 'Konfirmasi lifecycle kontrak'
         }
@@ -344,7 +390,12 @@ export function ContractDetailDrawer({
         }
         disabled={
           requiresReason &&
-          reason.trim().length < (action === 'cancel_activation' ? 5 : 1)
+          (reason.trim().length <
+              (action === 'cancel_activation' ||
+              action === 'resolve_active_conflict'
+                ? 5
+                : 1) ||
+            effectiveDateInvalid)
         }
         isLoading={transition.isPending}
         handleConfirm={() => {
@@ -384,11 +435,12 @@ export function ContractDetailDrawer({
                   fromYear={new Date(
                     minimumEffectiveDate ?? today
                   ).getFullYear()}
-                  toYear={new Date().getFullYear()}
+                  toYear={new Date(maximumEffectiveDate).getFullYear()}
                   disabledDates={(date) => {
                     const value = dateToInput(date)
                     return (
-                      value < (minimumEffectiveDate ?? today) || value > today
+                      value < (minimumEffectiveDate ?? today) ||
+                      value > maximumEffectiveDate
                     )
                   }}
                 />
@@ -397,6 +449,8 @@ export function ContractDetailDrawer({
             <label className='grid gap-2 text-sm font-medium'>
               {action === 'cancel_activation'
                 ? 'Alasan pembatalan aktivasi'
+                : action === 'resolve_active_conflict'
+                  ? 'Alasan pemulihan konflik'
                 : `Alasan ${isResignAction(action) ? 'resign' : 'terminasi'}`}
               <Textarea
                 value={reason}
@@ -404,14 +458,18 @@ export function ContractDetailDrawer({
                 placeholder={
                   action === 'cancel_activation'
                     ? 'Jelaskan kesalahan input yang menyebabkan aktivasi harus dibatalkan'
+                    : action === 'resolve_active_conflict'
+                      ? 'Jelaskan mengapa kontrak ini yang harus dihentikan'
                     : 'Wajib diisi'
                 }
                 maxLength={500}
               />
-              {action === 'cancel_activation' && (
+              {(action === 'cancel_activation' ||
+                action === 'resolve_active_conflict') && (
                 <span className='text-xs text-muted-foreground'>
-                  Minimal 5 karakter. Sistem akan menolak jika kontrak sudah
-                  digunakan secara operasional.
+                  Minimal 5 karakter.
+                  {action === 'cancel_activation' &&
+                    ' Sistem akan menolak jika kontrak sudah digunakan secara operasional.'}
                 </span>
               )}
             </label>
@@ -445,6 +503,7 @@ function lifecycleDescription(
     | 'cancel_activation'
     | 'close_expired_terminate'
     | 'close_expired_resign'
+    | 'resolve_active_conflict'
 ) {
   if (action === 'schedule') return 'Kontrak akan dijadwalkan.'
   if (action === 'activate')
@@ -459,6 +518,8 @@ function lifecycleDescription(
     return 'Kontrak tetap Expired. Status karyawan akan diubah menjadi Resign.'
   if (action === 'cancel_activation')
     return 'Kontrak Aktif akan menjadi Dibatalkan. Aksi hanya diproses bila belum ada data operasional sejak aktivasi.'
+  if (action === 'resolve_active_conflict')
+    return 'Kontrak yang dipilih akan menjadi Dihentikan. Status karyawan tetap Aktif karena kontrak aktif lain tetap berlaku.'
   return 'Kontrak akan dibatalkan.'
 }
 
@@ -482,6 +543,7 @@ function isReasonRequired(
     action === 'terminate' ||
     action === 'resign' ||
     action === 'cancel_activation' ||
+    action === 'resolve_active_conflict' ||
     isExpiredClosure(action)
   )
 }

@@ -21,6 +21,7 @@ import type {
   ContractLifecycleAction,
   ContractBatchItem,
   ContractKpiSummary,
+  ContractConflictListParams,
   ContractReconcileResult,
   ScheduledStatusChangeAction,
 } from '../domain'
@@ -73,7 +74,8 @@ export const employeeKeys = {
   documentList: (params: EmployeeRecordListParams) =>
     [...employeeKeys.all, 'document-list', params] as const,
   contract: (uid: string) => [...employeeKeys.all, 'contract', uid] as const,
-  contractConflicts: () => [...employeeKeys.all, 'contract-conflicts'] as const,
+  contractConflicts: (params: ContractConflictListParams) =>
+    [...employeeKeys.all, 'contract-conflicts', params] as const,
   document: (uid: string) => [...employeeKeys.all, 'document', uid] as const,
   scheduledMutationList: (params: EmployeeRecordListParams) =>
     [...employeeKeys.all, 'scheduled-mutation-list', params] as const,
@@ -174,11 +176,12 @@ export const useContractKpiSummary = (
       staleTime: 30 * 1000,
     })
   )
-export const useContractConflicts = () =>
+export const useContractConflicts = (params: ContractConflictListParams) =>
   useQuery(
     queryOptions({
-      queryKey: employeeKeys.contractConflicts(),
-      queryFn: listContractConflicts,
+      queryKey: employeeKeys.contractConflicts(params),
+      queryFn: () => listContractConflicts(params),
+      placeholderData: keepPreviousData,
       staleTime: 30 * 1000,
     })
   )

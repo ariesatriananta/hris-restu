@@ -3,10 +3,12 @@ import {
   CalendarClock,
   CircleCheck,
   CircleOff,
+  ShieldAlert,
   UserRoundX,
   XCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useAuthStore } from '@/stores/auth-store'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +38,7 @@ export function ContractLifecycleActionButtons({
   showLabels?: boolean
 }) {
   const transition = useTransitionContract()
+  const user = useAuthStore((state) => state.session?.user)
   const statusSchedule = useScheduleStatusChange()
   const [action, setAction] = useState<Action>()
   const [reason, setReason] = useState('')
@@ -51,17 +54,35 @@ export function ContractLifecycleActionButtons({
   const minimumEffectiveDate = isExpiredStatusClosure
     ? contract.endDate
     : contract.startDate
+  const maximumEffectiveDate = isExpiredStatusClosure
+    ? today
+    : contract.endDate && contract.endDate < today
+      ? contract.endDate
+      : today
+  const effectiveDateInvalid = Boolean(
+    requiresReason &&
+    (effectiveDate < (minimumEffectiveDate ?? contract.startDate) ||
+      effectiveDate > maximumEffectiveDate)
+  )
+  const openImmediateAction = (nextAction: 'terminate' | 'resign') => {
+    setEffectiveDate(maximumEffectiveDate)
+    setAction(nextAction)
+  }
   const canSchedule =
-    (contract.status === 'ACTIVE' &&
-      Boolean(contract.isLatestForEmployee) &&
-      contract.employeeStatus === 'ACTIVE') ||
-    (contract.status === 'EXPIRED' &&
-      Boolean(contract.isLatestForEmployee) &&
-      contract.employeeStatus === 'ACTIVE')
+    contract.status === 'ACTIVE' &&
+    (contract.activeValidContractCount ?? 0) <= 1 &&
+    Boolean(contract.isLatestForEmployee) &&
+    contract.employeeStatus === 'ACTIVE' &&
+    (!contract.endDate || contract.endDate > today)
   const canCloseExpired =
     contract.status === 'EXPIRED' &&
     Boolean(contract.isLatestForEmployee) &&
     contract.employeeStatus === 'ACTIVE'
+  const hasActiveConflict =
+    contract.status === 'ACTIVE' &&
+    (contract.activeValidContractCount ?? 0) > 1
+  const canResolveActiveConflict =
+    hasActiveConflict && user?.role === 'SUPER_ADMIN'
   const close = () => {
     if (!transition.isPending) {
       setAction(undefined)
@@ -71,15 +92,25 @@ export function ContractLifecycleActionButtons({
   }
   return (
     <>
-      {compact && (contract.status === 'ACTIVE' || canCloseExpired) && (
+      {compact &&
+        ((contract.status === 'ACTIVE' &&
+          (!hasActiveConflict || canResolveActiveConflict)) ||
+          canCloseExpired) && (
         <StatusActionMenu
-          canTerminateNow={!onlyScheduled && contract.status === 'ACTIVE'}
+          canTerminateNow={
+            !onlyScheduled && contract.status === 'ACTIVE' && !hasActiveConflict
+          }
+          canResolveActiveConflict={!onlyScheduled && canResolveActiveConflict}
           canCloseExpired={!onlyScheduled && canCloseExpired}
           canSchedule={canSchedule}
-          onTerminate={() => setAction('terminate')}
-          onResign={() => setAction('resign')}
+          onTerminate={() => openImmediateAction('terminate')}
+          onResign={() => openImmediateAction('resign')}
           onCloseExpiredTerminate={() => setAction('close_expired_terminate')}
           onCloseExpiredResign={() => setAction('close_expired_resign')}
+          onResolveActiveConflict={() => {
+            setEffectiveDate(maximumEffectiveDate)
+            setAction('resolve_active_conflict')
+          }}
           onScheduleTerminate={() => setScheduledAction('TERMINATE')}
           onScheduleResign={() => setScheduledAction('RESIGN')}
         />
@@ -119,21 +150,35 @@ export function ContractLifecycleActionButtons({
             onClick={() => setAction('cancel')}
           />
         )}
-      {!compact && !onlyScheduled && contract.status === 'ACTIVE' && (
+      {!compact &&
+        !onlyScheduled &&
+        contract.status === 'ACTIVE' &&
+        !hasActiveConflict && (
         <>
           <ActionButton
             label='Terminasi kontrak'
             icon={<XCircle />}
             destructive
-            onClick={() => setAction('terminate')}
+            onClick={() => openImmediateAction('terminate')}
           />
           <ActionButton
             label='Catat resign'
             icon={<UserRoundX />}
             destructive
-            onClick={() => setAction('resign')}
+            onClick={() => openImmediateAction('resign')}
           />
         </>
+      )}
+      {!compact && !onlyScheduled && canResolveActiveConflict && (
+        <ActionButton
+          label='Selesaikan konflik kontrak aktif'
+          icon={<ShieldAlert />}
+          destructive
+          onClick={() => {
+            setEffectiveDate(maximumEffectiveDate)
+            setAction('resolve_active_conflict')
+          }}
+        />
       )}
       {!compact && canSchedule && (
         <>
@@ -192,14 +237,21 @@ export function ContractLifecycleActionButtons({
         open={Boolean(action)}
         onOpenChange={(open) => !open && close()}
         title={
-          isExpiredStatusClosure
+          action === 'resolve_active_conflict'
+            ? 'Pulihkan konflik kontrak aktif'
+            : isExpiredStatusClosure
             ? 'Konfirmasi perubahan status karyawan'
             : 'Konfirmasi lifecycle kontrak'
         }
         desc={<p>{description(action)}</p>}
         confirmText='Lanjutkan'
         destructive={action === 'cancel' || requiresReason}
-        disabled={requiresReason && !reason.trim()}
+        disabled={
+          requiresReason &&
+          (reason.trim().length <
+              (action === 'resolve_active_conflict' ? 5 : 1) ||
+            effectiveDateInvalid)
+        }
         isLoading={transition.isPending}
         handleConfirm={() => {
           if (action) {
@@ -226,23 +278,36 @@ export function ContractLifecycleActionButtons({
                 fromYear={new Date(
                   minimumEffectiveDate ?? contract.startDate
                 ).getFullYear()}
-                toYear={new Date().getFullYear()}
+                toYear={new Date(maximumEffectiveDate).getFullYear()}
                 disabledDates={(date) => {
                   const value = dateToInput(date)
                   return (
                     value < (minimumEffectiveDate ?? contract.startDate) ||
-                    value > today
+                    value > maximumEffectiveDate
                   )
                 }}
               />
             </label>
             <label className='grid gap-2 text-sm font-medium'>
-              Alasan {isResignAction(action) ? 'resign' : 'terminasi'}
+              {action === 'resolve_active_conflict'
+                ? 'Alasan pemulihan konflik'
+                : `Alasan ${isResignAction(action) ? 'resign' : 'terminasi'}`}
               <Textarea
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
-                placeholder='Wajib diisi'
+                placeholder={
+                  action === 'resolve_active_conflict'
+                    ? 'Jelaskan mengapa kontrak ini yang harus dihentikan'
+                    : 'Wajib diisi'
+                }
+                maxLength={500}
               />
+              {action === 'resolve_active_conflict' && (
+                <span className='text-xs text-muted-foreground'>
+                  Minimal 5 karakter. Status karyawan tetap Aktif karena kontrak
+                  lain tetap berlaku.
+                </span>
+              )}
             </label>
           </div>
         )}
@@ -259,8 +324,8 @@ export function ContractLifecycleActionButtons({
         title='Jadwalkan perubahan status kerja'
         desc={
           <p>
-            Kontrak aktif akan dihentikan bila masih ada pada tanggal efektif.
-            Kontrak Expired tetap Expired.
+            Kontrak aktif akan dihentikan pada tanggal efektif, lalu status
+            karyawan mengikuti tindakan yang dipilih.
           </p>
         }
         confirmText='Jadwalkan'
@@ -295,8 +360,18 @@ export function ContractLifecycleActionButtons({
               selected={dateFromInput(scheduledDate)}
               onSelect={(date) => date && setScheduledDate(dateToInput(date))}
               fromYear={new Date().getFullYear()}
-              toYear={new Date().getFullYear() + 10}
-              disabledDates={(date) => dateToInput(date) <= today}
+              toYear={
+                contract.endDate
+                  ? Number(contract.endDate.slice(0, 4))
+                  : new Date().getFullYear() + 10
+              }
+              disabledDates={(date) => {
+                const value = dateToInput(date)
+                return (
+                  value <= today ||
+                  Boolean(contract.endDate && value > contract.endDate)
+                )
+              }}
             />
           </label>
           <label className='grid gap-2 text-sm font-medium'>
@@ -315,34 +390,46 @@ export function ContractLifecycleActionButtons({
 
 function StatusActionMenu({
   canTerminateNow,
+  canResolveActiveConflict,
   canCloseExpired,
   canSchedule,
   onTerminate,
   onResign,
   onCloseExpiredTerminate,
   onCloseExpiredResign,
+  onResolveActiveConflict,
   onScheduleTerminate,
   onScheduleResign,
 }: {
   canTerminateNow: boolean
+  canResolveActiveConflict: boolean
   canCloseExpired: boolean
   canSchedule: boolean
   onTerminate: () => void
   onResign: () => void
   onCloseExpiredTerminate: () => void
   onCloseExpiredResign: () => void
+  onResolveActiveConflict: () => void
   onScheduleTerminate: () => void
   onScheduleResign: () => void
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <DataTableActionButton label='Terminasi atau resign karyawan'>
-          <UserRoundX />
+        <DataTableActionButton
+          label={
+            canResolveActiveConflict
+              ? 'Selesaikan konflik kontrak aktif'
+              : 'Terminasi atau resign karyawan'
+          }
+        >
+          {canResolveActiveConflict ? <ShieldAlert /> : <UserRoundX />}
         </DataTableActionButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align='end' className='min-w-52'>
-        <DropdownMenuLabel>Terminasi / resign</DropdownMenuLabel>
+        <DropdownMenuLabel>
+          {canResolveActiveConflict ? 'Pemulihan konflik' : 'Terminasi / resign'}
+        </DropdownMenuLabel>
         {canTerminateNow && (
           <>
             <DropdownMenuItem onClick={onTerminate}>
@@ -352,6 +439,11 @@ function StatusActionMenu({
               <UserRoundX className='text-destructive' /> Catat resign sekarang
             </DropdownMenuItem>
           </>
+        )}
+        {canResolveActiveConflict && (
+          <DropdownMenuItem onClick={onResolveActiveConflict}>
+            <ShieldAlert className='text-destructive' /> Selesaikan konflik aktif
+          </DropdownMenuItem>
         )}
         {canCloseExpired && (
           <>
@@ -446,6 +538,8 @@ function description(action?: Action) {
     return 'Kontrak tetap Expired. Status karyawan akan diubah menjadi Nonaktif.'
   if (action === 'close_expired_resign')
     return 'Kontrak tetap Expired. Status karyawan akan diubah menjadi Resign.'
+  if (action === 'resolve_active_conflict')
+    return 'Kontrak yang dipilih akan menjadi Dihentikan. Status karyawan tetap Aktif karena kontrak aktif lain tetap berlaku.'
   return 'Kontrak akan dibatalkan tanpa mengubah status karyawan.'
 }
 
@@ -457,7 +551,10 @@ function isExpiredClosure(action?: Action) {
 
 function isReasonRequired(action?: Action) {
   return (
-    action === 'terminate' || action === 'resign' || isExpiredClosure(action)
+    action === 'terminate' ||
+    action === 'resign' ||
+    action === 'resolve_active_conflict' ||
+    isExpiredClosure(action)
   )
 }
 

@@ -3,7 +3,7 @@
 > Modul: Karyawan  
 > Domain: Kontrak Karyawan  
 > Audiens: HR, administrator site, Super Admin, dan tim support HRIS  
-> Terakhir diverifikasi: 5 Agustus 2026  
+> Terakhir diverifikasi: 6 Agustus 2026
 > Status: aktif, sesuai perilaku aplikasi saat dokumen ini dibuat
 
 Dokumen ini menjelaskan penggunaan dan aturan bisnis kontrak karyawan pada HRIS PT Restu Sejati Inti Abadi. Fokusnya adalah apa yang perlu dipahami pengguna: cara membuat kontrak, validasi periode, status, tindakan lifecycle, dokumen kontrak, pencetakan template, penjadwalan, rekonsiliasi, serta penanganan kasus yang sering terjadi.
@@ -68,7 +68,8 @@ Contoh:
 
 - kontrak dapat berstatus `DRAFT` ketika karyawan masih `INACTIVE`;
 - aktivasi kontrak dapat mengubah karyawan menjadi `ACTIVE`;
-- kontrak dapat menjadi `EXPIRED` sementara status karyawan masih `ACTIVE` dan perlu ditindaklanjuti HR.
+- kontrak dapat menjadi `EXPIRED` dan rekonsiliasi kemudian menonaktifkan karyawan bila tidak ada kontrak pengganti yang berlaku;
+- kontrak `EXPIRED` dengan karyawan masih `ACTIVE` merupakan kondisi sementara atau anomali yang perlu diperiksa bila tetap tersisa setelah rekonsiliasi.
 
 ### 2.4 Status kontrak
 
@@ -143,6 +144,30 @@ Satu kontrak menyimpan informasi utama berikut:
 Nomor internal database tidak dipakai sebagai identifier publik. Halaman dan komunikasi frontend menggunakan UID kontrak.
 
 Snapshot site dan jabatan pada record kontrak diambil saat kontrak dibuat untuk menjaga konteks historis. Perubahan penempatan karyawan setelahnya tidak mengubah snapshot tersebut. Khusus pencetakan template, sistem mencari histori site dan jabatan yang berlaku tepat pada tanggal mulai kontrak.
+
+### 4.1 Tabel dan relasi utama
+
+| Tabel | Peran dalam domain kontrak |
+|---|---|
+| `employee_contracts` | Record utama kontrak, periode, status, snapshot penempatan, lampiran, dan snapshot cetak. |
+| `contract_types` | Master jenis kontrak. UI saat ini hanya menerima `TRAINING`, `PKWT`, dan `PKWTT`. |
+| `employee_contract_lifecycle_events` | Histori perubahan status kontrak beserta tanggal efektif, alasan, sumber, dan pelaksana. |
+| `scheduled_employee_status_changes` | Keputusan terminasi atau resign yang baru diterapkan pada tanggal mendatang. |
+| `employee_employment_histories` | Timeline penempatan dan status kerja karyawan. Lifecycle kontrak menambah atau menyesuaikan histori `STATUS_CHANGE`. |
+| `employees` | Menyimpan status karyawan terkini serta data resign jika ada. |
+| `files` | Metadata file scan kontrak asli yang direferensikan melalui `issued_file_id`. |
+| `cron_runs` | Catatan setiap proses rekonsiliasi kontrak. |
+| `production_jobs`, `production_job_rates`, `work_units` | Sumber pekerjaan, tarif per site, dan satuan untuk snapshot cetak kontrak produksi. |
+| `audit_logs` | Jejak tindakan manual dan sistem yang penting. |
+
+Relasi penting:
+
+- satu karyawan dapat memiliki banyak kontrak;
+- satu kontrak memiliki satu jenis kontrak dan maksimal satu scan kontrak asli;
+- satu kontrak dapat memiliki banyak event lifecycle;
+- satu jadwal status kerja dapat menunjuk kontrak sumber;
+- database membatasi maksimal satu jadwal status kerja terbuka per karyawan melalui nilai generated `open_employee_id` untuk status `SCHEDULED` dan `FAILED`;
+- `MISSING` tidak termasuk constraint status `employee_contracts` karena hanya kondisi sintetis pada respons daftar.
 
 ## 5. Nomor dan urutan kontrak
 
@@ -343,7 +368,7 @@ Kontrak tidak dihapus dari UI. Pembatalan dan terminasi dipakai agar jejak histo
 | `DRAFT` | Kontrak sudah dicatat tetapi belum berlaku. | Edit, Jadwalkan/Aktifkan, Batalkan. |
 | `SCHEDULED` | Kontrak menunggu tanggal mulai. | Aktifkan saat waktunya tiba, Batalkan. |
 | `ACTIVE` | Kontrak sedang berlaku. | Terminasi, Catat resign, Jadwalkan status kerja, atau Batalkan aktivasi bila memenuhi syarat ketat. |
-| `EXPIRED` | Tanggal akhir kontrak sudah lewat. | Arsip; untuk kontrak terakhir milik karyawan Aktif tersedia penutupan status atau perpanjangan. |
+| `EXPIRED` | Tanggal akhir kontrak sudah lewat. | Arsip/perpanjangan; bila status karyawan anomali masih Aktif setelah rekonsiliasi, tersedia penutupan status manual. |
 | `TERMINATED` | Kontrak dihentikan sebelum/ketika periodenya berjalan. | Arsip final. |
 | `CANCELLED` | Kontrak dinyatakan tidak berlaku. | Arsip final dan tidak dihitung dalam overlap. |
 
@@ -360,6 +385,8 @@ ACTIVE --terminasi/resign----------------------------------> TERMINATED
 ```
 
 Tidak semua perpindahan dapat dilakukan bebas. Sistem memeriksa status awal, tanggal, konflik kontrak, status karyawan, jadwal terbuka, dan scope site.
+
+Status kontrak dan status karyawan diproses sebagai dua data berbeda tetapi diselaraskan dalam transaksi lifecycle. Contohnya, `ACTIVE -> EXPIRED` adalah perubahan kontrak, sedangkan perubahan karyawan menjadi `INACTIVE` dilakukan oleh tahap sinkronisasi rekonsiliasi setelah seluruh kontrak hari itu diproses.
 
 ## 11. Aksi lifecycle dan dampaknya
 
@@ -386,7 +413,9 @@ Syarat utama:
 
 - tanggal mulai sudah tiba atau sudah lewat;
 - tidak ada kontrak `ACTIVE` lain yang masih berlaku pada hari aktivasi;
-- karyawan bukan berstatus `RESIGNED`;
+- karyawan bukan berstatus terminal seperti `RESIGNED` atau status legacy `LEAVE`;
+- tanggal akhir kontrak belum lewat;
+- tidak ada Status Kerja Terjadwal `SCHEDULED` atau `FAILED` yang masih terbuka;
 - histori kerja dapat diselaraskan pada tanggal efektif.
 
 Dampak:
@@ -423,6 +452,7 @@ Syarat:
 - alasan wajib diisi;
 - tanggal efektif tidak boleh sebelum tanggal mulai;
 - tanggal efektif tidak boleh setelah hari ini;
+- tanggal efektif tidak boleh setelah tanggal akhir kontrak;
 - tidak ada kontrak aktif lain pada tanggal efektif;
 - tidak ada Status Kerja Terjadwal berstatus `SCHEDULED` atau `FAILED` yang masih terbuka.
 
@@ -473,17 +503,35 @@ Dampak pembatalan aktivasi yang berhasil:
 - histori status kerja dikoreksi melalui lifecycle yang tercatat;
 - alasan, kondisi sebelum/sesudah, pengguna, waktu, IP, dan user agent dicatat pada audit log.
 
-### 11.7 Kontrak berakhir otomatis
+### 11.7 Kontrak berakhir otomatis dan status karyawan
 
-Perubahan: `ACTIVE -> EXPIRED` ketika tanggal akhir sudah lewat.
+Perubahan kontrak: `ACTIVE -> EXPIRED` pada hari setelah tanggal akhir kontrak.
 
-Proses ini dijalankan oleh rekonsiliasi. Kontrak mendapat event lifecycle dan audit sistem.
+Proses ini dijalankan oleh rekonsiliasi dengan urutan aman:
 
-Perhatian: proses expiry tidak otomatis memaksa karyawan menjadi `INACTIVE`. Jika karyawan masih `ACTIVE` tetapi tidak lagi mempunyai kontrak aktif berlaku, sistem menampilkannya sebagai konflik agar HR menentukan tindak lanjut yang benar.
+1. kontrak yang sudah lewat tanggal akhirnya menjadi `EXPIRED`;
+2. kontrak pengganti `SCHEDULED` yang mulai hari itu diaktifkan bila valid;
+3. sistem menghitung ulang kontrak aktif yang benar-benar mencakup tanggal bisnis;
+4. bila tidak ada kontrak aktif pengganti dan karyawan masih `ACTIVE`, status karyawan otomatis menjadi `INACTIVE` efektif satu hari setelah batas akhir coverage terakhir;
+5. event lifecycle, histori status, dan audit sistem dicatat.
+
+Contoh:
+
+| Kondisi | Hasil rekonsiliasi |
+|---|---|
+| Kontrak berakhir 31 Agustus, tidak ada pengganti | Kontrak `EXPIRED`; karyawan `INACTIVE` efektif 1 September. |
+| Kontrak berakhir 31 Agustus, kontrak baru mulai 1 September | Kontrak lama `EXPIRED`; kontrak baru `ACTIVE`; karyawan tetap `ACTIVE`. |
+| Kontrak lama berakhir 31 Agustus, kontrak baru mulai 5 September | Sistem menutup jeda sebagai `INACTIVE` mulai 1 September, lalu mengaktifkan kembali pada 5 September. |
+| Karyawan belum pernah mempunyai kontrak | Tidak otomatis dinonaktifkan hanya karena tidak ada coverage; kasus ditampilkan sebagai alert onboarding/konflik. |
+| Ada lebih dari satu kontrak aktif atau status terminal | Tidak ditebak otomatis; kasus masuk alert konflik. |
+
+Sinkronisasi status juga mampu memperbaiki histori `ACTIVE/INACTIVE` yang lebih baru, misalnya histori mutasi setelah kontrak terakhir. Data penempatan mutasi tetap dipertahankan; yang diselaraskan hanya status kerjanya. Jika timeline mengandung status terminal atau kondisi yang tidak aman untuk diperbaiki otomatis, sistem mempertahankan histori dan memasukkan kasus ke konflik.
+
+Kontrak `SCHEDULED` yang seluruh periodenya sudah terlewat tanpa pernah aktif juga difinalkan menjadi `EXPIRED`. Kontrak seperti ini tidak diaktifkan secara retroaktif.
 
 ### 11.8 Menutup status setelah kontrak EXPIRED
 
-Untuk kontrak `EXPIRED` terakhir milik karyawan yang masih `ACTIVE`, tersedia:
+Secara normal rekonsiliasi sudah mengubah karyawan menjadi `INACTIVE`. Aksi berikut merupakan jalur manual untuk data legacy, rekonsiliasi yang sebelumnya gagal, atau anomali yang masih menyisakan kontrak `EXPIRED` terakhir dengan karyawan `ACTIVE`:
 
 - **Terminasi karyawan** -> status karyawan menjadi `INACTIVE`;
 - **Catat resign karyawan** -> status karyawan menjadi `RESIGNED`.
@@ -498,6 +546,30 @@ Syarat:
 - tanggal efektif berada antara tanggal akhir kontrak dan hari ini;
 - tidak ada kontrak aktif lain pada tanggal efektif;
 - tidak ada Status Kerja Terjadwal terbuka.
+
+### 11.9 Pemulihan lebih dari satu kontrak ACTIVE
+
+Terminasi biasa sengaja ditolak bila terdapat kontrak aktif lain pada tanggal efektif karena terminasi biasa juga akan menonaktifkan atau meresignkan karyawan. Untuk memperbaiki data legacy dengan lebih dari satu kontrak `ACTIVE`, tersedia aksi khusus **Selesaikan konflik aktif**.
+
+Syarat:
+
+- hanya Super Admin;
+- kontrak yang dipilih berstatus `ACTIVE` dan masih berlaku hari ini;
+- karyawan masih berstatus `ACTIVE`;
+- benar-benar terdapat kontrak `ACTIVE` lain yang melindungi karyawan pada tanggal efektif dan pada hari ini;
+- tanggal efektif berada dalam periode kontrak yang dipilih dan tidak melewati hari ini;
+- alasan minimal lima karakter;
+- tidak ada Status Kerja Terjadwal `SCHEDULED` atau `FAILED` yang masih terbuka.
+
+Dampak:
+
+- kontrak yang dipilih berubah `ACTIVE -> TERMINATED`;
+- `terminated_at` dan alasan diisi;
+- kontrak aktif lain tetap `ACTIVE`;
+- status karyawan tetap `ACTIVE` dan histori status karyawan tidak diturunkan;
+- event lifecycle dan audit dicatat.
+
+Pada UI, terminasi/resign normal disembunyikan ketika konflik ganda terdeteksi. Super Admin memilih kontrak yang memang salah melalui action tabel atau drawer Detail, lalu menggunakan **Selesaikan konflik aktif**. Jangan asal memilih: aksi ini menentukan kontrak mana yang dianggap salah secara historis.
 
 ## 12. Salah aktivasi atau salah periode
 
@@ -553,9 +625,10 @@ Status Kerja Terjadwal digunakan ketika terminasi atau resign baru boleh berlaku
 
 ### 14.3 Syarat membuat jadwal
 
-- dibuat dari kontrak `ACTIVE`, atau kontrak `EXPIRED` terakhir milik karyawan yang masih `ACTIVE`;
+- dibuat dari kontrak `ACTIVE` milik karyawan `ACTIVE`;
 - kontrak harus merupakan kontrak terakhir karyawan;
 - tanggal efektif harus setelah hari ini;
+- tanggal efektif tidak boleh melewati tanggal akhir kontrak sumber;
 - alasan wajib diisi;
 - satu karyawan hanya boleh mempunyai satu jadwal status terbuka (`SCHEDULED` atau `FAILED`);
 - karyawan tidak boleh mempunyai Mutasi Terjadwal yang masih terbuka.
@@ -575,11 +648,12 @@ Jadwal `APPLIED` dan `CANCELLED` tidak dapat diubah lagi.
 Pada tanggal efektif, sistem:
 
 1. memeriksa karyawan masih `ACTIVE`;
-2. menghentikan seluruh kontrak karyawan yang masih `ACTIVE`;
-3. mengisi tanggal dan alasan terminasi;
-4. mengubah status karyawan menjadi `INACTIVE` atau `RESIGNED`;
-5. mencatat lifecycle dan audit;
-6. mengubah jadwal menjadi `APPLIED`.
+2. memeriksa tanggal jadwal tidak melewati tanggal akhir kontrak sumber;
+3. menghentikan seluruh kontrak karyawan yang masih `ACTIVE`;
+4. mengisi tanggal dan alasan terminasi;
+5. mengubah status karyawan menjadi `INACTIVE` atau `RESIGNED`;
+6. mencatat lifecycle dan audit;
+7. mengubah jadwal menjadi `APPLIED`.
 
 Kontrak yang sudah `EXPIRED` tetap `EXPIRED`.
 
@@ -602,6 +676,13 @@ Tabel kontrak menampilkan informasi utama:
 - aksi sesuai kondisi row.
 
 Pencarian, filter, pagination, dan jumlah baris tersimpan pada URL sehingga konteks daftar dapat dipertahankan ketika pengguna membuka detail lalu kembali.
+
+Pencarian teks kontrak mencakup:
+
+- nama lengkap karyawan;
+- nama panggilan;
+- Employee ID/nomor karyawan;
+- nomor kontrak.
 
 Default jumlah baris adalah 50 dengan pilihan 50, 100, 200, 300, dan 500.
 
@@ -661,13 +742,25 @@ Alert konflik muncul ketika sistem menemukan kondisi berikut:
 - lebih dari satu kontrak aktif yang masih berlaku untuk satu karyawan;
 - karyawan `RESIGNED` atau status legacy `LEAVE` masih memiliki kontrak aktif;
 - karyawan `ACTIVE` tidak memiliki kontrak aktif yang berlaku;
+- karyawan `INACTIVE` masih memiliki kontrak aktif yang berlaku;
 - karyawan `INACTIVE`, belum resign, dan belum mempunyai kontrak selain kontrak `CANCELLED`.
 
 Alert menampilkan Employee ID, nama, site, alasan, nomor kontrak terkait, dan tautan ke detail karyawan.
 
-Konflik tidak diperbaiki otomatis secara spekulatif. HR perlu memeriksa dokumen dan menentukan apakah harus membuat kontrak, menutup status karyawan, membatalkan draft, atau menyelesaikan kontrak yang salah.
+Kasus yang aman dan deterministik diselaraskan oleh rekonsiliasi, misalnya karyawan `INACTIVE` dengan tepat satu kontrak aktif valid menjadi `ACTIVE`, atau karyawan `ACTIVE` tanpa kontrak pengganti setelah kontraknya berakhir menjadi `INACTIVE`. Kondisi ambigu seperti dua kontrak aktif atau status terminal dengan kontrak aktif tidak diperbaiki secara spekulatif.
 
-Jumlah detail konflik yang ditampilkan dalam satu respons dibatasi 50 item. Gunakan filter dan Detail Karyawan untuk investigasi lanjutan bila jumlah kasus lebih banyak.
+Dialog alert memakai pagination server dengan 50 item per halaman serta tombol **Sebelumnya/Berikutnya**. Total konflik tidak lagi terpotong pada 50 baris. Ringkasan hasil satu kali eksekusi rekonsiliasi tetap membatasi contoh detail konflik/kegagalan maksimal 50 agar payload cron terkendali, tetapi endpoint alert dapat menelusuri seluruh kasus per halaman.
+
+Tindakan yang disarankan per kategori:
+
+| Kategori | Tindakan |
+|---|---|
+| Lebih dari satu kontrak aktif | Super Admin menentukan kontrak yang salah lalu memakai **Selesaikan konflik aktif**. |
+| Status terminal dengan kontrak aktif | Periksa keputusan resign/leave dan histori kontrak; jangan aktifkan atau terminasi spekulatif. |
+| Aktif tanpa coverage setelah kontrak berakhir | Jalankan rekonsiliasi; jika tetap muncul, periksa histori terminal/jadwal/error audit. |
+| Aktif tanpa pernah mempunyai kontrak | Buat kontrak atau koreksi proses onboarding sesuai kondisi riil. |
+| Nonaktif dengan kontrak aktif | Jalankan rekonsiliasi; satu kontrak aktif valid akan mengaktifkan karyawan. |
+| Nonaktif belum mempunyai kontrak | Buat kontrak ketika karyawan siap diproses. |
 
 ## 17. Rekonsiliasi kontrak
 
@@ -675,13 +768,22 @@ Rekonsiliasi berjalan menggunakan tanggal bisnis `Asia/Jakarta`.
 
 ### 17.1 Tugas rekonsiliasi
 
-Urutan proses saat ini:
+Urutan proses tingkat atas saat ini:
 
-1. mengaktifkan kontrak `SCHEDULED` yang tanggal mulainya sudah tiba dan periodenya masih berlaku;
-2. mengubah kontrak `ACTIVE` yang tanggal akhirnya sudah lewat menjadi `EXPIRED`;
-3. memeriksa konsistensi kontrak aktif dan status karyawan;
-4. memproses Mutasi Terjadwal yang jatuh tempo;
-5. memproses Status Kerja Terjadwal yang jatuh tempo.
+1. memproses Status Kerja Terjadwal yang jatuh tempo;
+2. memproses Mutasi Terjadwal yang jatuh tempo;
+3. menjalankan rekonsiliasi kontrak dan status karyawan.
+
+Di dalam rekonsiliasi kontrak, urutannya:
+
+1. mengubah kontrak `ACTIVE` yang tanggal akhirnya sudah lewat menjadi `EXPIRED`;
+2. memfinalkan kontrak `SCHEDULED` yang seluruh periodenya terlewat menjadi `EXPIRED`;
+3. menutup jeda historis bila kontrak pengganti baru mulai setelah terdapat gap;
+4. mengaktifkan kontrak `SCHEDULED` yang tanggal mulainya sudah tiba dan periodenya masih berlaku;
+5. menghitung ulang coverage dan menyelaraskan status karyawan menjadi `ACTIVE` atau `INACTIVE` bila keputusannya deterministik;
+6. mencatat kasus ambigu sebagai konflik.
+
+Urutan tingkat atas memastikan keputusan terminasi/resign yang memang jatuh tempo diproses sebelum mutasi dan rekonsiliasi kontrak. Mutasi tidak membuat keputusan status kerja baru; ia membawa status dari histori sumber yang sudah berlaku.
 
 ### 17.2 Perlindungan proses
 
@@ -690,6 +792,8 @@ Urutan proses saat ini:
 - pemanggilan kedua ketika proses masih berjalan menghasilkan status `SKIPPED`;
 - setiap run dicatat sebagai `RUNNING`, `SUCCEEDED`, `FAILED`, atau `SKIPPED`;
 - proses dirancang idempoten agar pemanggilan ulang tidak menggandakan histori yang sudah benar.
+- kegagalan satu kontrak atau satu jadwal dicatat dan tidak otomatis menghentikan pemrosesan karyawan lain;
+- kontrak `SCHEDULED` yang sudah kedaluwarsa tidak diaktifkan kembali secara retroaktif.
 
 ### 17.3 Rekonsiliasi manual
 
@@ -810,6 +914,7 @@ Sistem mencatat aksi penting berikut:
 - membuat snapshot cetak;
 - menjadwalkan atau menjalankan lifecycle;
 - membatalkan aktivasi;
+- memulihkan konflik lebih dari satu kontrak aktif;
 - membuat, mengubah, menerapkan, atau membatalkan Status Kerja Terjadwal;
 - menjalankan rekonsiliasi manual maupun sistem.
 
@@ -873,6 +978,22 @@ Jika belum pernah berlaku:
 4. Pantau tab **Status Kerja Terjadwal**.
 5. Pada tanggal efektif, sistem menghentikan kontrak aktif dan mengubah status karyawan menjadi `RESIGNED`.
 
+### 21.7 Kontrak habis tanpa pengganti
+
+1. Cron mengubah kontrak menjadi `EXPIRED` pada hari setelah tanggal akhir.
+2. Karena tidak ada kontrak aktif pengganti, status karyawan menjadi `INACTIVE` efektif satu hari setelah coverage terakhir.
+3. HR membuat kontrak baru bila hubungan kerja memang dilanjutkan.
+4. Jika kontrak baru dimulai setelah terdapat jeda, histori tetap menunjukkan masa `INACTIVE` pada jeda tersebut.
+
+### 21.8 Dua kontrak ACTIVE karena data legacy
+
+1. Buka alert konflik dan masuk ke Detail Karyawan.
+2. Buka tab PKWT lalu periksa kedua nomor, periode, dokumen, dan event lifecycle.
+3. Tentukan kontrak mana yang salah.
+4. Sebagai Super Admin, buka Detail kontrak yang salah.
+5. Pilih **Selesaikan konflik aktif**, isi tanggal efektif dan alasan minimal lima karakter.
+6. Pastikan kontrak salah menjadi `TERMINATED`, kontrak yang benar tetap `ACTIVE`, dan status karyawan tetap `ACTIVE`.
+
 ## 22. Pesan penolakan yang umum
 
 | Pesan/kondisi | Arti dan tindakan |
@@ -881,9 +1002,13 @@ Jika belum pernah berlaku:
 | Tanggal berakhir wajib | Isi tanggal akhir untuk Training atau PKWT. |
 | Periode bertumpang tindih | Periksa kontrak yang disebutkan; mulai kontrak baru satu hari setelah akhir efektif kontrak lama. |
 | Ditemukan kontrak aktif lain | Selesaikan konflik kontrak aktif terlebih dahulu. |
+| Pemulihan konflik hanya untuk Super Admin | Gunakan akun Super Admin dan pastikan memang terdapat lebih dari satu kontrak aktif yang berlaku. |
+| Tidak ditemukan kontrak aktif lain yang menjaga status Aktif | Kontrak tidak aman dihentikan lewat recovery; periksa tanggal efektif dan coverage kontrak pengganti. |
 | Kontrak final tidak dapat diubah | Buat kontrak baru; jangan mengubah arsip final. |
 | Periode kontrak aktif tidak dapat diubah | Terminasi/batalkan aktivasi sesuai kondisi, lalu buat kontrak baru. |
-| Karyawan resign tidak dapat diaktifkan | Periksa status dan prosedur rehire sebelum membuat lifecycle baru. |
+| Karyawan dengan status terminal tidak dapat diaktifkan | Periksa status `RESIGNED`/legacy `LEAVE` dan prosedur rehire sebelum membuat lifecycle baru. |
+| Tanggal terminasi/resign melewati tanggal akhir kontrak | Pilih tanggal maksimal sama dengan tanggal akhir kontrak. Jika kontrak sudah lewat, jalankan rekonsiliasi dan gunakan penutupan status Expired bila memang masih diperlukan. |
+| Kontrak terjadwal sudah melewati seluruh periode | Jangan aktifkan retroaktif; kontrak akan difinalkan `EXPIRED` oleh rekonsiliasi. |
 | Status kerja terjadwal belum diselesaikan | Batalkan/perbaiki jadwal pada tab Status Kerja Terjadwal. |
 | NIK/alamat belum tersedia | Lengkapi Data Karyawan sebelum cetak. |
 | Alamat site belum tersedia | Lengkapi master site. |
@@ -902,6 +1027,8 @@ Jika belum pernah berlaku:
 - Tidak ada penghapusan kontrak dari UI.
 - `MISSING` hanya indikator tampilan, bukan status database.
 - Rekonsiliasi tidak mengambil keputusan HR secara otomatis untuk konflik data legacy.
+- Rekonsiliasi otomatis mengubah status `ACTIVE/INACTIVE` hanya ketika coverage kontrak menghasilkan keputusan yang tidak ambigu.
+- Pemulihan dua kontrak aktif hanya tersedia bagi Super Admin dan selalu mempertahankan karyawan `ACTIVE` melalui kontrak pengganti yang tervalidasi.
 
 ## 24. Checklist HR sebelum mengaktifkan kontrak
 
@@ -925,3 +1052,58 @@ Jika belum pernah berlaku:
 - [ ] Pastikan kontrak yang aktif adalah kontrak dengan periode yang benar.
 - [ ] Pastikan status karyawan sudah sesuai.
 - [ ] Pantau KPI kontrak mendekati akhir secara berkala.
+
+## 26. Referensi teknis untuk support dan developer
+
+Bagian ini membantu investigasi teknis. Pengguna HR tidak perlu memanggil endpoint secara manual.
+
+### 26.1 Endpoint utama
+
+| Method dan path | Fungsi |
+|---|---|
+| `GET /api/employees/contracts` | Daftar kontrak server-side, pencarian, filter, coverage, dan pagination. |
+| `GET /api/employees/contracts/summary` | KPI kontrak. |
+| `GET /api/employees/contracts/conflicts` | Seluruh alert lifecycle melalui pagination. |
+| `GET /api/employees/:employeeUid/contracts` | Histori kontrak satu karyawan. |
+| `POST /api/employees/:employeeUid/contracts` | Membuat Single Kontrak sebagai `DRAFT`. |
+| `POST /api/employees/contracts/batch` | Membuat maksimal 25 kontrak secara atomik. |
+| `PATCH /api/employees/contracts/:contractUid` | Mengubah kontrak yang masih diizinkan. |
+| `POST /api/employees/contracts/:contractUid/:action` | Menjalankan lifecycle: schedule, activate, terminate, resign, cancel, pembatalan aktivasi, penutupan Expired, atau pemulihan konflik aktif. |
+| `POST /api/employees/contracts/:contractUid/scheduled-status-changes` | Membuat terminasi/resign terjadwal. |
+| `PATCH /api/employees/scheduled-status-changes/:scheduledUid` | Mengubah atau menjadwalkan ulang status kerja. |
+| `POST /api/employees/scheduled-status-changes/:scheduledUid/cancel` | Membatalkan jadwal status kerja. |
+| `POST /api/employees/contracts/:contractUid/print-snapshot` | Membuat atau mengambil snapshot cetak satu kontrak. |
+| `POST /api/employees/contracts/print-snapshots` | Membuat snapshot bulk secara atomik. |
+| `POST /api/employees/contracts/reconcile` | Menjalankan rekonsiliasi manual; khusus Super Admin. |
+| `POST /api/internal/contracts/reconcile` | Endpoint cron internal dengan secret server. |
+
+Semua route publik memakai UID, bukan `id` internal. Backend tetap melakukan permission dan site-scope check meskipun frontend sudah menyembunyikan action tertentu.
+
+### 26.2 File sumber perilaku
+
+| File | Tanggung jawab |
+|---|---|
+| `apps/api/src/lib/contract-lifecycle-policy.ts` | Policy murni status, tanggal, rekonsiliasi, klasifikasi konflik, dan guard recovery. |
+| `apps/api/src/lib/contract-lifecycle.ts` | Transaksi lifecycle, pembatalan aktivasi, expiry, sinkronisasi status, recovery konflik, dan rekonsiliasi kontrak. |
+| `apps/api/src/lib/scheduled-status-changes.ts` | Penerapan terminasi/resign terjadwal. |
+| `apps/api/src/lib/scheduled-mutations.ts` | Penerapan mutasi tanpa membuat keputusan status kerja baru. |
+| `apps/api/src/lib/cron-reconcile.ts` | Lock, urutan proses tingkat atas, dan pencatatan `cron_runs`. |
+| `apps/api/src/routes/employees.ts` | API kontrak, validasi request, batch create, alert, KPI, dan snapshot cetak. |
+| `src/features/employees/components/employee-record-form-page.tsx` | Form Single Kontrak, periode bantu, serta validasi overlap frontend. |
+| `src/features/employees/components/batch-contract-form-page.tsx` | Multiple Kontrak maksimal 25 karyawan. |
+| `src/features/employees/components/records-table.tsx` | Tabel kontrak, filter, multiple selection, dokumen, dan action row. |
+| `src/features/employees/components/contract-detail-drawer.tsx` | Detail dan action lifecycle eksplisit. |
+| `db/HRIS_PT_RESTU_SCHEMA_MYSQL.sql` | Struktur dan constraint database yang menjadi sumber kebenaran schema. |
+
+### 26.3 Prinsip investigasi insiden
+
+Saat status kontrak dan karyawan terlihat tidak konsisten, periksa berurutan:
+
+1. record `employee_contracts`, termasuk status, periode, `terminated_at`, dan alasan;
+2. `employee_contract_lifecycle_events` untuk mengetahui transisi dan tanggal efektif;
+3. `scheduled_employee_status_changes` serta `scheduled_employee_mutations` yang masih `SCHEDULED`/`FAILED`;
+4. `employee_employment_histories`, khususnya histori aktif dan histori setelah tanggal akhir kontrak;
+5. `cron_runs.summary` dan `error_message`;
+6. `audit_logs` untuk tindakan manual maupun sistem.
+
+Jangan memperbaiki insiden dengan menghapus record atau mengubah status langsung lewat SQL. Gunakan lifecycle resmi bila tersedia. SQL koreksi hanya boleh dipakai sebagai tindakan terkontrol setelah backup, audit penyebab, dan persetujuan pihak yang berwenang.

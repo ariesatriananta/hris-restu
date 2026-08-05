@@ -107,7 +107,7 @@ export async function applyScheduledMutation(uid: string): Promise<ApplyResult> 
       return result
     }
 
-    const [baseRows] = await conn.query<RowDataPacket[]>(`SELECT id FROM employee_employment_histories WHERE id=? AND employee_id=? AND effective_to IS NULL FOR UPDATE`, [schedule.base_history_id, schedule.employee_id])
+    const [baseRows] = await conn.query<RowDataPacket[]>(`SELECT id,employee_status_id employeeStatusId FROM employee_employment_histories WHERE id=? AND employee_id=? AND effective_to IS NULL FOR UPDATE`, [schedule.base_history_id, schedule.employee_id])
     if (!baseRows[0]) {
       const result = await failMutation(conn, schedule, 'Histori sumber sudah berubah sejak mutasi dijadwalkan.')
       await conn.commit()
@@ -125,10 +125,9 @@ export async function applyScheduledMutation(uid: string): Promise<ApplyResult> 
       }
     }
 
-    const [employees] = await conn.query<RowDataPacket[]>(`SELECT employee_status_id FROM employees WHERE id=? FOR UPDATE`, [schedule.employee_id])
     const historyUid = randomUUID()
     await conn.execute('UPDATE employee_employment_histories SET effective_to=DATE_SUB(?, INTERVAL 1 DAY),updated_by=NULL WHERE id=?', [schedule.effectiveFrom, schedule.base_history_id])
-    await conn.execute(`INSERT INTO employee_employment_histories(uid,employee_id,site_id,department_id,position_id,work_group_id,production_module_section_id,employee_type_id,employee_status_id,effective_from,change_type,reference_number,reason,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [historyUid, schedule.employee_id, schedule.target_site_id, schedule.target_department_id, schedule.target_position_id, schedule.target_work_group_id, schedule.target_production_module_section_id, schedule.target_employee_type_id, employees[0].employee_status_id, schedule.effectiveFrom, schedule.change_type, schedule.reference_number, schedule.reason, schedule.notes, null, null])
+    await conn.execute(`INSERT INTO employee_employment_histories(uid,employee_id,site_id,department_id,position_id,work_group_id,production_module_section_id,employee_type_id,employee_status_id,effective_from,change_type,reference_number,reason,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [historyUid, schedule.employee_id, schedule.target_site_id, schedule.target_department_id, schedule.target_position_id, schedule.target_work_group_id, schedule.target_production_module_section_id, schedule.target_employee_type_id, baseRows[0].employeeStatusId, schedule.effectiveFrom, schedule.change_type, schedule.reference_number, schedule.reason, schedule.notes, null, null])
     await conn.execute('UPDATE employees SET employee_type_id=?,current_site_id=?,current_department_id=?,current_position_id=?,current_work_group_id=?,current_production_module_section_id=?,updated_by=NULL WHERE id=?', [schedule.target_employee_type_id, schedule.target_site_id, schedule.target_department_id, schedule.target_position_id, schedule.target_work_group_id, schedule.target_production_module_section_id, schedule.employee_id])
     await conn.execute("UPDATE scheduled_employee_mutations SET status='APPLIED',failure_reason=NULL,applied_at=CURRENT_TIMESTAMP(3),updated_by=NULL WHERE id=?", [schedule.id])
     await writeSystemAudit({ siteId: schedule.target_site_id, action: 'OTHER', table: 'scheduled_employee_mutations', recordId: schedule.id, recordUid: schedule.uid, description: 'Mutasi terjadwal diterapkan oleh cron.' }, conn)

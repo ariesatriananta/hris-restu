@@ -470,7 +470,11 @@ export function RecordsTable({
     <div className='space-y-4'>
       <DataTableToolbar
         table={table}
-        searchPlaceholder='Cari karyawan, nomor, atau dokumen...'
+        searchPlaceholder={
+          prefix === 'contract'
+            ? 'Cari nama karyawan, nomor karyawan, atau nomor kontrak...'
+            : 'Cari karyawan, nomor, atau dokumen...'
+        }
         searchDebounceMs={300}
         filters={[
           {

@@ -132,6 +132,7 @@ export type ContractLifecycleAction =
   | 'cancel_activation'
   | 'close_expired_terminate'
   | 'close_expired_resign'
+  | 'resolve_active_conflict'
 export interface EmploymentHistory {
   uid: string
   employeeUid: string
@@ -178,6 +179,7 @@ export interface EmployeeContract {
   employeeType?: EmployeeTypeCode
   employeeStatus?: EmployeeStatusCode
   isLatestForEmployee?: boolean
+  activeValidContractCount?: number
   isMissingContract?: boolean
   isCoverageIssue?: boolean
   isExpiringWithin7Days?: boolean
@@ -359,8 +361,22 @@ export interface ContractLifecycleConflict {
   employeeNumber: string
   fullName: string
   site: SiteCode
+  code:
+    | 'MULTIPLE_ACTIVE_CONTRACTS'
+    | 'TERMINAL_STATUS_WITH_ACTIVE_CONTRACT'
+    | 'ACTIVE_WITHOUT_CONTRACT_COVERAGE'
+    | 'ONBOARDING_WITHOUT_CONTRACT'
+    | (string & {})
+  severity: 'danger' | 'warning'
   reason: string
   contractNumbers: string[]
+}
+export interface ContractConflictListParams {
+  page: number
+  pageSize: number
+}
+export interface ContractConflictListResult extends PaginatedResult<ContractLifecycleConflict> {
+  hasMore: boolean
 }
 export interface PaginatedResult<T> {
   items: T[]
