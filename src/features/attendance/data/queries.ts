@@ -15,6 +15,8 @@ import type {
   AttendanceDeviceListParams,
   AttendanceScanInput,
   AttendanceMonitoringListParams,
+  AttendanceFinalizationListParams,
+  AttendanceFinalizationRunInput,
   AttendanceCorrectionListParams,
   AttendanceCorrectionInput,
   AttendanceCorrectionReviewInput,
@@ -38,6 +40,8 @@ export const attendanceKeys = {
     [...attendanceKeys.all, 'devices', params] as const,
   monitoring: (params?: AttendanceMonitoringListParams) =>
     [...attendanceKeys.all, 'monitoring', params] as const,
+  finalizations: (params: AttendanceFinalizationListParams) =>
+    [...attendanceKeys.all, 'finalizations', params] as const,
   corrections: (params?: AttendanceCorrectionListParams) =>
     [...attendanceKeys.all, 'corrections', params] as const,
   classificationEmployees: (
@@ -161,6 +165,19 @@ export const useAttendanceMonitoring = (
     queryFn: () => httpAttendanceRepository.listMonitoring(params),
     placeholderData: keepPreviousData,
   })
+
+export const useAttendanceFinalizations = (
+  params: AttendanceFinalizationListParams
+) =>
+  useQuery({
+    queryKey: attendanceKeys.finalizations(params),
+    queryFn: () => httpAttendanceRepository.listFinalizations(params),
+  })
+
+export const useRunAttendanceFinalization = () =>
+  useAttendanceMutation((input: AttendanceFinalizationRunInput) =>
+    httpAttendanceRepository.runFinalization(input)
+  )
 
 export const useAttendanceCorrections = (
   params: AttendanceCorrectionListParams

@@ -18,6 +18,7 @@ import { attendanceTerminalRouter } from './attendance-terminal.js'
 import { attendanceCorrectionsRouter } from './attendance-corrections.js'
 import { attendanceClassificationsRouter } from './attendance-classifications.js'
 import { attendanceCalendarRouter } from './attendance-calendar.js'
+import { attendanceFinalizationsRouter } from './attendance-finalizations.js'
 import {
   attendanceClassificationApprovalStatuses,
   attendanceClassificationTypes,
@@ -36,7 +37,7 @@ const routeParam = (value: string | string[]) =>
 
 const attendanceStatuses = [
   { value: 'PRESENT', label: 'Hadir' },
-  { value: 'ABSENT', label: 'Tidak hadir' },
+  { value: 'ABSENT', label: 'Alpha' },
   { value: 'LEAVE', label: 'Cuti' },
   { value: 'SICK', label: 'Sakit' },
   { value: 'PERMISSION', label: 'Izin' },
@@ -128,6 +129,7 @@ attendanceRouter.use(attendanceTerminalRouter)
 attendanceRouter.use(attendanceCorrectionsRouter)
 attendanceRouter.use(attendanceClassificationsRouter)
 attendanceRouter.use(attendanceCalendarRouter)
+attendanceRouter.use(attendanceFinalizationsRouter)
 
 attendanceRouter.get(
   '/foundation',

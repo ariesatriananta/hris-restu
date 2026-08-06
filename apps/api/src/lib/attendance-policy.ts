@@ -8,6 +8,7 @@ export const attendancePermissions = [
   'attendance.manage_shift',
   'attendance.manage_device',
   'attendance.manage_calendar',
+  'attendance.finalize',
   'attendance.export',
 ] as const
 
@@ -33,6 +34,7 @@ export function attendanceCapabilities(
     manageShift: hasAttendancePermission(auth, 'attendance.manage_shift'),
     manageDevice: hasAttendancePermission(auth, 'attendance.manage_device'),
     manageCalendar: hasAttendancePermission(auth, 'attendance.manage_calendar'),
+    finalize: hasAttendancePermission(auth, 'attendance.finalize'),
     export: hasAttendancePermission(auth, 'attendance.export'),
   }
 }

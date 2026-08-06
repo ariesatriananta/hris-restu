@@ -15,6 +15,8 @@ import type {
   ShiftListParams,
   AttendanceMonitoringListParams,
   AttendanceMonitoringResult,
+  AttendanceFinalization,
+  AttendanceFinalizationListParams,
   AttendanceCorrection,
   AttendanceCorrectionListParams,
   AttendanceClassification,
@@ -30,6 +32,7 @@ const listParams = (
     | ShiftAssignmentListParams
     | AttendanceDeviceListParams
     | AttendanceMonitoringListParams
+    | AttendanceFinalizationListParams
     | AttendanceCorrectionListParams
     | AttendanceClassificationEmployeeListParams
     | AttendanceClassificationListParams
@@ -139,6 +142,22 @@ export const httpAttendanceRepository: AttendanceRepository = {
         {
           params: listParams(input),
         }
+      )
+    ).data
+  },
+  async listFinalizations(input) {
+    return (
+      await apiClient.get<{ items: AttendanceFinalization[] }>(
+        '/attendance/finalizations',
+        { params: listParams(input) }
+      )
+    ).data
+  },
+  async runFinalization(input) {
+    return (
+      await apiClient.post<AttendanceFinalization>(
+        '/attendance/finalizations/run',
+        input
       )
     ).data
   },

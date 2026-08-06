@@ -16,6 +16,7 @@ export type PermissionCode =
   | 'attendance.manage_shift'
   | 'attendance.manage_device'
   | 'attendance.manage_calendar'
+  | 'attendance.finalize'
   | 'attendance.export'
   | (string & {})
 

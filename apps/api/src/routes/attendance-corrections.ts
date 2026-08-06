@@ -188,6 +188,11 @@ attendanceCorrectionsRouter.get(
       const [summaryRows] = await pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) total,
                 SUM(ar.attendance_status='PRESENT') present,
+                SUM(ar.attendance_status='ABSENT') absent,
+                SUM(ar.attendance_status='LEAVE') leaveCount,
+                SUM(ar.attendance_status='SICK') sick,
+                SUM(ar.attendance_status='PERMISSION') permission,
+                SUM(ar.attendance_status='HOLIDAY') holiday,
                 SUM(${abnormalAttendanceSql}) abnormal,
                 SUM(${missingClockInSql}) missingClockIn,
                 SUM(${missingClockOutSql}) missingClockOut
@@ -216,6 +221,11 @@ attendanceCorrectionsRouter.get(
         summary: {
           total: Number(summaryRows[0].total ?? 0),
           present: Number(summaryRows[0].present ?? 0),
+          absent: Number(summaryRows[0].absent ?? 0),
+          leave: Number(summaryRows[0].leaveCount ?? 0),
+          sick: Number(summaryRows[0].sick ?? 0),
+          permission: Number(summaryRows[0].permission ?? 0),
+          holiday: Number(summaryRows[0].holiday ?? 0),
           abnormal: Number(summaryRows[0].abnormal ?? 0),
           missingClockIn: Number(summaryRows[0].missingClockIn ?? 0),
           missingClockOut: Number(summaryRows[0].missingClockOut ?? 0),

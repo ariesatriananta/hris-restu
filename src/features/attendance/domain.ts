@@ -38,6 +38,7 @@ export interface AttendanceCapabilities {
   manageShift: boolean
   manageDevice: boolean
   manageCalendar?: boolean
+  finalize?: boolean
   export: boolean
 }
 
@@ -112,6 +113,12 @@ export interface AttendanceRepository {
   listMonitoring(
     input: AttendanceMonitoringListParams
   ): Promise<AttendanceMonitoringResult>
+  listFinalizations(
+    input: AttendanceFinalizationListParams
+  ): Promise<{ items: AttendanceFinalization[] }>
+  runFinalization(
+    input: AttendanceFinalizationRunInput
+  ): Promise<AttendanceFinalization>
   listCorrections(
     input: AttendanceCorrectionListParams
   ): Promise<PaginatedAttendanceResult<AttendanceCorrection>>
@@ -363,6 +370,11 @@ export interface AttendanceMonitoringRecord {
 export interface AttendanceMonitoringSummary {
   total: number
   present: number
+  absent: number
+  leave: number
+  sick: number
+  permission: number
+  holiday: number
   abnormal: number
   missingClockIn: number
   missingClockOut: number
@@ -381,6 +393,48 @@ export interface AttendanceMonitoringListParams {
   abnormalReason?: AttendanceAbnormalReason[]
   page: number
   pageSize: number
+}
+
+export type AttendanceFinalizationStatus =
+  | 'NOT_STARTED'
+  | 'PARTIAL'
+  | 'FINALIZED'
+  | 'FAILED'
+
+export interface AttendanceFinalizationCounts {
+  eligible: number
+  absent: number
+  holiday: number
+  preserved: number
+  weeklyOff: number
+  missingAssignment: number
+  ambiguousAssignment: number
+  ambiguousEmployment: number
+  pendingDue: number
+}
+
+export interface AttendanceFinalization {
+  uid: string | null
+  site: AttendanceSiteCode
+  businessDate: string
+  status: AttendanceFinalizationStatus
+  lastRunAt?: string | null
+  source?: 'MANUAL' | 'CRON' | null
+  counts: AttendanceFinalizationCounts
+  warnings: string[]
+  errorMessage?: string | null
+  canRun: boolean
+}
+
+export interface AttendanceFinalizationListParams {
+  businessDate: string
+  site?: AttendanceSiteCode[]
+}
+
+export interface AttendanceFinalizationRunInput {
+  siteCode: AttendanceSiteCode
+  businessDate: string
+  reason: string
 }
 
 export type AttendanceCorrectionType =

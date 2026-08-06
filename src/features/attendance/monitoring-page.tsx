@@ -55,8 +55,11 @@ import type {
   AttendanceCorrectionInput,
   AttendanceCorrectionType,
   AttendanceMonitoringRecord,
+  AttendanceMonitoringSummary,
+  AttendanceSiteCode,
   AttendanceStatus,
 } from './domain'
+import { MonitoringFinalizationPanel } from './monitoring-finalization-panel'
 
 export function AttendanceMonitoringPage({
   search,
@@ -70,6 +73,10 @@ export function AttendanceMonitoringPage({
   const canCorrect = hasPermission(session, 'attendance.correct')
   const canClassify =
     canCorrect &&
+    (session?.user.role === 'HR_OFFICER' ||
+      session?.user.role === 'SUPER_ADMIN')
+  const canFinalize =
+    hasPermission(session, 'attendance.finalize') &&
     (session?.user.role === 'HR_OFFICER' ||
       session?.user.role === 'SUPER_ADMIN')
   const foundation = useAttendanceFoundation()
@@ -125,6 +132,11 @@ export function AttendanceMonitoringPage({
         </label>
       </div>
 
+      <MonitoringFinalizationPanel
+        businessDate={businessDate}
+        sites={arrayValue<AttendanceSiteCode>(search.site)}
+        canFinalize={canFinalize}
+      />
       <Summary data={result.data?.summary} />
       <div className='mt-5'>
         <MonitoringTable
@@ -160,42 +172,34 @@ export function AttendanceMonitoringPage({
   )
 }
 
-function Summary({
-  data,
-}: {
-  data?: {
-    total: number
-    present: number
-    abnormal: number
-    missingClockIn: number
-    missingClockOut: number
-  }
-}) {
+function Summary({ data }: { data?: AttendanceMonitoringSummary }) {
   const items = [
-    ['Total', data?.total ?? 0, Users, 'text-primary'],
-    ['Hadir', data?.present ?? 0, Clock3, 'text-positive'],
-    ['Abnormal', data?.abnormal ?? 0, AlertTriangle, 'text-warning-foreground'],
+    ['Total', data?.total ?? 0, Users, 'text-primary', undefined],
+    ['Hadir', data?.present ?? 0, Clock3, 'text-positive', undefined],
+    ['Alpha', data?.absent ?? 0, AlertTriangle, 'text-destructive', undefined],
+    ['Cuti', data?.leave ?? 0, CalendarRange, 'text-primary', undefined],
+    ['Sakit', data?.sick ?? 0, Users, 'text-warning-foreground', undefined],
+    ['Izin', data?.permission ?? 0, CalendarRange, 'text-primary', undefined],
+    ['Libur', data?.holiday ?? 0, CalendarRange, 'text-positive', undefined],
     [
-      'Tanpa masuk',
-      data?.missingClockIn ?? 0,
+      'Abnormal',
+      data?.abnormal ?? 0,
       AlertTriangle,
       'text-warning-foreground',
-    ],
-    [
-      'Tanpa pulang',
-      data?.missingClockOut ?? 0,
-      AlertTriangle,
-      'text-warning-foreground',
+      `${data?.missingClockIn ?? 0} tanpa masuk · ${data?.missingClockOut ?? 0} tanpa pulang`,
     ],
   ] as const
   return (
-    <div className='grid gap-2 sm:grid-cols-2 xl:grid-cols-5'>
-      {items.map(([label, value, Icon, color]) => (
+    <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-4'>
+      {items.map(([label, value, Icon, color, hint]) => (
         <Card key={label} className='min-h-[68px] rounded-lg'>
           <CardContent className='flex items-center justify-between px-3 py-2.5'>
             <div>
               <p className='text-xs text-muted-foreground'>{label}</p>
               <p className='text-xl font-bold'>{value}</p>
+              {hint && (
+                <p className='text-[10px] text-muted-foreground'>{hint}</p>
+              )}
             </div>
             <Icon className={`size-4 ${color}`} aria-hidden='true' />
           </CardContent>
@@ -698,7 +702,7 @@ function statusLabel(value: string) {
   return (
     {
       PRESENT: 'Hadir',
-      ABSENT: 'Tidak hadir',
+      ABSENT: 'Alpha',
       LEAVE: 'Cuti',
       SICK: 'Sakit',
       PERMISSION: 'Izin',

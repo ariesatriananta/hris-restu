@@ -15,6 +15,19 @@ export async function resolveAttendanceCalendarDay(input: {
   scheduledByShift: boolean
   executor?: Executor
 }): Promise<ResolvedCalendarDay> {
+  const rules = await getAttendanceCalendarRules({
+    siteId: input.siteId,
+    businessDate: input.businessDate,
+    executor: input.executor,
+  })
+  return resolveCalendarDay({ scheduledByShift: input.scheduledByShift, rules })
+}
+
+export async function getAttendanceCalendarRules(input: {
+  siteId: number
+  businessDate: string
+  executor?: Executor
+}): Promise<CalendarRuleCandidate[]> {
   const executor = input.executor ?? pool
   const [rows] = await executor.query<RowDataPacket[]>(
     `SELECT ace.id eventId,ace.uid eventUid,NULL siteRuleId,NULL siteRuleUid,
@@ -32,9 +45,7 @@ export async function resolveAttendanceCalendarDay(input: {
         AND (ace.id IS NULL OR ace.cancelled_at IS NULL)`,
     [input.businessDate, input.siteId, input.businessDate]
   )
-  return resolveCalendarDay({
-    scheduledByShift: input.scheduledByShift,
-    rules: rows.map(
+  return rows.map(
       (row): CalendarRuleCandidate => ({
         calendarType: row.calendarType,
         name: String(row.name),
@@ -43,6 +54,5 @@ export async function resolveAttendanceCalendarDay(input: {
         siteRuleId: row.siteRuleId === null ? null : Number(row.siteRuleId),
         siteRuleUid: row.siteRuleUid ? String(row.siteRuleUid) : null,
       })
-    ),
-  })
+    )
 }
