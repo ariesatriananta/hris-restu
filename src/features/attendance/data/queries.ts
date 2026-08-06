@@ -11,6 +11,9 @@ import type {
   ShiftAssignmentListParams,
   ShiftInput,
   ShiftListParams,
+  AttendanceDeviceInput,
+  AttendanceDeviceListParams,
+  AttendanceScanInput,
 } from '../domain'
 import { httpAttendanceRepository } from './http-attendance-repository'
 
@@ -23,6 +26,8 @@ export const attendanceKeys = {
     [...attendanceKeys.all, 'shift-assignments', params] as const,
   candidates: (params?: ShiftAssignmentCandidateListParams) =>
     [...attendanceKeys.all, 'shift-assignment-candidates', params] as const,
+  devices: (params?: AttendanceDeviceListParams) =>
+    [...attendanceKeys.all, 'devices', params] as const,
 }
 
 export const attendanceFoundationOptions = () =>
@@ -62,7 +67,9 @@ export const useShiftAssignmentCandidates = (
     enabled,
   })
 
-const useAttendanceMutation = <T>(mutationFn: (input: T) => Promise<void>) => {
+const useAttendanceMutation = <TInput, TResult = void>(
+  mutationFn: (input: TInput) => Promise<TResult>
+) => {
   const client = useQueryClient()
   return useMutation({
     mutationFn,
@@ -86,3 +93,43 @@ export const useDeleteShiftAssignment = () =>
   useAttendanceMutation((uid: string) =>
     httpAttendanceRepository.deleteShiftAssignment(uid)
   )
+
+export const useAttendanceDevices = (params: AttendanceDeviceListParams) =>
+  useQuery({
+    queryKey: attendanceKeys.devices(params),
+    queryFn: () => httpAttendanceRepository.listDevices(params),
+    placeholderData: keepPreviousData,
+  })
+
+export const useSaveAttendanceDevice = () =>
+  useAttendanceMutation(
+    ({ input, uid }: { input: AttendanceDeviceInput; uid?: string }) =>
+      httpAttendanceRepository.saveDevice(input, uid)
+  )
+
+export const useDeleteAttendanceDevice = () =>
+  useAttendanceMutation((uid: string) =>
+    httpAttendanceRepository.deleteDevice(uid)
+  )
+
+export const useRegenerateDeviceActivation = () =>
+  useAttendanceMutation((uid: string) =>
+    httpAttendanceRepository.regenerateDeviceActivation(uid)
+  )
+
+export const useActivateAttendanceDevice = () =>
+  useMutation({
+    mutationFn: (activationCode: string) =>
+      httpAttendanceRepository.activateDevice(activationCode),
+  })
+
+export const useAttendanceScan = () =>
+  useMutation({
+    mutationFn: ({
+      input,
+      deviceToken,
+    }: {
+      input: AttendanceScanInput
+      deviceToken: string
+    }) => httpAttendanceRepository.scanAttendance(input, deviceToken),
+  })

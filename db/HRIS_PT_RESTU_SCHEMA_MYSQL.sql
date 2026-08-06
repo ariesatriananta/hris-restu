@@ -871,6 +871,10 @@ CREATE TABLE scan_devices (
   name VARCHAR(150) NOT NULL,
   device_type VARCHAR(30) NOT NULL,
   device_token_hash VARCHAR(255) NULL,
+  activation_code_hash VARCHAR(255) NULL,
+  activation_code_expires_at DATETIME(3) NULL,
+  activated_at DATETIME(3) NULL,
+  activated_by BIGINT UNSIGNED NULL,
   location_description VARCHAR(255) NULL,
   last_seen_at DATETIME(3) NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
@@ -881,9 +885,13 @@ CREATE TABLE scan_devices (
   PRIMARY KEY (id),
   UNIQUE KEY uq_scan_devices_uid (uid),
   UNIQUE KEY uq_scan_devices_site_code (site_id, code),
+  UNIQUE KEY uq_scan_devices_token_hash (device_token_hash),
+  UNIQUE KEY uq_scan_devices_activation_hash (activation_code_hash),
+  KEY idx_scan_devices_activated_by (activated_by),
   CONSTRAINT chk_scan_devices_type CHECK (device_type IN ('MOBILE_CAMERA', 'USB_SCANNER', 'TERMINAL', 'OTHER')),
   CONSTRAINT chk_scan_devices_active CHECK (is_active IN (0, 1)),
-  CONSTRAINT fk_scan_devices_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT
+  CONSTRAINT fk_scan_devices_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_scan_devices_activated_by FOREIGN KEY (activated_by) REFERENCES users (id) ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE attendance_records (

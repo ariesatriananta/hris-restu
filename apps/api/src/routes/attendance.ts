@@ -13,6 +13,8 @@ import {
 } from '../lib/attendance-shift-policy.js'
 import { writeAudit } from '../lib/audit.js'
 import { ApiError } from '../lib/errors.js'
+import { attendanceDevicesRouter } from './attendance-devices.js'
+import { attendanceTerminalRouter } from './attendance-terminal.js'
 import {
   authenticate,
   requirePermission,
@@ -114,6 +116,8 @@ async function getShiftForUpdate(conn: PoolConnection, uid: string) {
 
 export const attendanceRouter = Router()
 attendanceRouter.use(authenticate)
+attendanceRouter.use(attendanceDevicesRouter)
+attendanceRouter.use(attendanceTerminalRouter)
 
 attendanceRouter.get(
   '/foundation',

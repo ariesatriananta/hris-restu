@@ -67,6 +67,11 @@ export const sidebarData: SidebarData = {
               url: '/attendance/master-shift',
               anyOfPermissions: ['attendance.manage_shift'],
             },
+            {
+              title: 'Master Perangkat',
+              url: '/attendance/master-perangkat',
+              anyOfPermissions: ['attendance.manage_device'],
+            },
           ],
         },
         {

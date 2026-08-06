@@ -80,6 +80,20 @@ export interface AttendanceRepository {
   ): Promise<PaginatedAttendanceResult<ShiftAssignmentCandidate>>
   createShiftAssignments(input: ShiftAssignmentBatchInput): Promise<void>
   deleteShiftAssignment(uid: string): Promise<void>
+  listDevices(
+    input: AttendanceDeviceListParams
+  ): Promise<PaginatedAttendanceResult<AttendanceDevice>>
+  saveDevice(
+    input: AttendanceDeviceInput,
+    uid?: string
+  ): Promise<AttendanceDeviceActivation | void>
+  deleteDevice(uid: string): Promise<void>
+  regenerateDeviceActivation(uid: string): Promise<AttendanceDeviceActivation>
+  activateDevice(activationCode: string): Promise<ActivatedAttendanceDevice>
+  scanAttendance(
+    input: AttendanceScanInput,
+    deviceToken: string
+  ): Promise<AttendanceScanSuccess>
 }
 
 export type AttendanceSiteCode = 'JEPARA' | 'SEMARANG' | 'KLATEN'
@@ -190,4 +204,82 @@ export interface ShiftAssignmentBatchInput {
   effectiveFrom: string
   effectiveTo?: string
   workDays: number[]
+}
+
+export interface AttendanceDevice {
+  uid: string
+  code: string
+  name: string
+  site: AttendanceSiteCode
+  siteName: string
+  deviceType: AttendanceDeviceType
+  locationDescription?: string | null
+  lastSeenAt?: string | null
+  isActive: boolean
+  isActivated: boolean
+  activationPending: boolean
+  activationCodeExpiresAt?: string | null
+  scanCount: number
+}
+
+export interface AttendanceDeviceInput {
+  siteCode: AttendanceSiteCode
+  code: string
+  name: string
+  deviceType: AttendanceDeviceType
+  locationDescription?: string | null
+  isActive: boolean
+}
+
+export interface AttendanceDeviceListParams {
+  query?: string
+  site?: AttendanceSiteCode[]
+  deviceType?: AttendanceDeviceType[]
+  isActive?: ('true' | 'false')[]
+  page: number
+  pageSize: number
+}
+
+export interface AttendanceDeviceActivation {
+  uid?: string
+  activationCode: string
+  activationCodeExpiresAt: string
+}
+
+export interface ActivatedAttendanceDevice {
+  device: Pick<
+    AttendanceDevice,
+    'uid' | 'code' | 'name' | 'site' | 'deviceType'
+  >
+  deviceToken: string
+}
+
+export type AttendanceScanEventType = 'CLOCK_IN' | 'CLOCK_OUT'
+
+export interface AttendanceScanInput {
+  eventType: AttendanceScanEventType
+  barcode: string
+  idempotencyKey: string
+}
+
+export interface AttendanceScanSuccess {
+  result: 'SUCCESS'
+  duplicate: boolean
+  eventType: AttendanceScanEventType
+  businessDate: string
+  scannedAt: string
+  message: string
+  employee: {
+    uid: string
+    employeeNumber: string
+    fullName: string
+  }
+  attendance: {
+    uid: string
+    clockInAt?: string | null
+    clockOutAt?: string | null
+    lateMinutes: number
+    earlyLeaveMinutes: number
+    workedMinutes?: number | null
+  }
 }
