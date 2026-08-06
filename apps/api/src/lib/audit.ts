@@ -9,7 +9,14 @@ type AuditInput = {
   request?: Request
   module?: string
   siteId?: number | null
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'GENERATE' | 'OTHER'
+  action:
+    | 'CREATE'
+    | 'UPDATE'
+    | 'DELETE'
+    | 'GENERATE'
+    | 'APPROVE'
+    | 'REJECT'
+    | 'OTHER'
   table: string
   recordId?: number | null
   recordUid?: string | null

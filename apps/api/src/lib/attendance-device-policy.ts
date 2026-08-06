@@ -87,6 +87,64 @@ export function isoWeekday(date: string) {
   return weekday === 0 ? 7 : weekday
 }
 
+export function nextDate(date: string) {
+  const value = new Date(`${date}T00:00:00Z`)
+  value.setUTCDate(value.getUTCDate() + 1)
+  return value.toISOString().slice(0, 10)
+}
+
+export function selectClosestShiftEnd<T extends {
+  effectiveFrom: string
+  effectiveTo?: string | null
+  workDays: number[]
+  endTime: string
+  crossesMidnight: boolean
+}>(input: {
+  assignments: T[]
+  currentDate: string
+  previousDate: string
+  currentTime: string
+}) {
+  const scanAt = Date.parse(`${input.currentDate}T${input.currentTime}Z`)
+  const candidates = input.assignments.flatMap((assignment) =>
+    [input.previousDate, input.currentDate]
+      .filter(
+        (businessDate) =>
+          assignment.effectiveFrom <= businessDate &&
+          (!assignment.effectiveTo || assignment.effectiveTo >= businessDate) &&
+          assignment.workDays.includes(isoWeekday(businessDate))
+      )
+      .map((businessDate) => {
+        const endDate = assignment.crossesMidnight
+          ? nextDate(businessDate)
+          : businessDate
+        return {
+          assignment,
+          businessDate,
+          distanceMs: Math.abs(
+            Date.parse(`${endDate}T${assignment.endTime}Z`) - scanAt
+          ),
+        }
+      })
+  )
+  candidates.sort((left, right) => left.distanceMs - right.distanceMs)
+  const closest = candidates[0]
+  if (
+    closest &&
+    candidates.some(
+      (candidate) =>
+        candidate.distanceMs === closest.distanceMs &&
+        candidate.assignment !== closest.assignment
+    )
+  ) {
+    throw new ApiError(
+      409,
+      'Assignment Shift karyawan ambigu. Hubungi HR untuk koreksi.'
+    )
+  }
+  return closest
+}
+
 export function selectSingleOpenAttendance<T>(records: T[]) {
   if (!records.length) {
     throw new ApiError(422, 'Clock out ditolak karena clock in belum tercatat.')

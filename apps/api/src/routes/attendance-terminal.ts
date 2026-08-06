@@ -7,10 +7,12 @@ import {
   canClockInExistingAttendance,
   hashDeviceSecret,
   isoWeekday,
+  selectClosestShiftEnd,
   selectSingleOpenAttendance,
   shiftBusinessDate,
   terminalScanInput,
 } from '../lib/attendance-device-policy.js'
+import { deriveAttendanceQuality } from '../lib/attendance-correction-policy.js'
 import { ApiError } from '../lib/errors.js'
 import {
   requirePermission,
@@ -41,6 +43,13 @@ type ShiftContext = {
   crossesMidnight: number
   lateToleranceMinutes: number
   earlyLeaveToleranceMinutes: number
+}
+
+type ShiftEndCandidate = Omit<ShiftContext, 'crossesMidnight'> & {
+  effectiveFrom: string
+  effectiveTo: string | null
+  workDays: number[]
+  crossesMidnight: boolean
 }
 
 function enforceSite(auth: AuthContext, site: string) {
@@ -116,15 +125,37 @@ async function attendanceResponse(
             DATE_FORMAT(ar.clock_in_at,'%Y-%m-%dT%H:%i:%s+07:00') clockInAt,
             DATE_FORMAT(ar.clock_out_at,'%Y-%m-%dT%H:%i:%s+07:00') clockOutAt,
             ar.late_minutes lateMinutes,ar.early_leave_minutes earlyLeaveMinutes,
-            ar.worked_minutes workedMinutes,e.uid employeeUid,
+            ar.worked_minutes workedMinutes,ar.attendance_status attendanceStatus,
+            DATE_FORMAT(NOW(3),'%Y-%m-%d %H:%i:%s') asOf,
+            DATE_FORMAT(
+              CASE WHEN sh.crosses_midnight=1
+                   THEN DATE_ADD(TIMESTAMP(ar.business_date,sh.end_time),INTERVAL 1 DAY)
+                   ELSE TIMESTAMP(ar.business_date,sh.end_time) END,
+              '%Y-%m-%d %H:%i:%s') scheduledEndAt,
+            e.uid employeeUid,
             e.employee_number employeeNumber,e.full_name fullName
        FROM attendance_records ar
        JOIN employees e ON e.id=ar.employee_id
+       LEFT JOIN shifts sh ON sh.id=ar.shift_id
       WHERE ar.id=?`,
     [attendanceRecordId]
   )
   const row = rows[0]
   if (!row) throw new ApiError(500, 'Hasil Attendance tidak dapat dimuat.')
+  const quality = deriveAttendanceQuality({
+    attendanceStatus: String(row.attendanceStatus),
+    clockInAt: row.clockInAt,
+    clockOutAt: row.clockOutAt,
+    scheduledEndAt: row.scheduledEndAt,
+    asOf: row.asOf,
+  })
+  const warnings = quality.abnormalReasons.map((reason) => ({
+    code: reason,
+    message:
+      reason === 'MISSING_CLOCK_IN'
+        ? 'Clock out tersimpan, tetapi clock in belum tercatat. Ajukan koreksi ke HR.'
+        : 'Clock in tersimpan, tetapi clock out belum tercatat. Ajukan koreksi ke HR.',
+  }))
   return {
     result: 'SUCCESS' as const,
     duplicate,
@@ -132,6 +163,7 @@ async function attendanceResponse(
     businessDate: row.businessDate,
     scannedAt,
     message,
+    warnings,
     employee: {
       uid: row.employeeUid,
       employeeNumber: row.employeeNumber,
@@ -147,6 +179,7 @@ async function attendanceResponse(
         row.workedMinutes === null || row.workedMinutes === undefined
           ? null
           : Number(row.workedMinutes),
+      ...quality,
     },
   }
 }
@@ -322,31 +355,111 @@ attendanceTerminalRouter.post(
             FOR UPDATE`,
           [employee.id, device.siteId, time.currentDate, time.previousDate]
         )
-        if (!openRows.length) {
-          return await reject('Clock out ditolak karena clock in belum tercatat.')
-        }
         if (openRows.length > 1) {
           return await reject(
             'Terdapat lebih dari satu Attendance terbuka. Hubungi HR untuk koreksi.'
           )
         }
-        const open = selectSingleOpenAttendance(openRows)
-        attendance = {
-          id: Number(open.id),
-          uid: String(open.uid),
-          attendanceStatus: String(open.attendanceStatus),
-          clockInAt: open.clockInAt,
-          clockOutAt: open.clockOutAt,
+        if (openRows.length) {
+          const open = selectSingleOpenAttendance(openRows)
+          attendance = {
+            id: Number(open.id),
+            uid: String(open.uid),
+            attendanceStatus: String(open.attendanceStatus),
+            clockInAt: open.clockInAt,
+            clockOutAt: open.clockOutAt,
+          }
+          assignment = {
+            shiftId: Number(open.shiftId),
+            startTime: String(open.startTime),
+            endTime: String(open.endTime),
+            crossesMidnight: Number(open.crossesMidnight),
+            lateToleranceMinutes: Number(open.lateToleranceMinutes),
+            earlyLeaveToleranceMinutes: Number(open.earlyLeaveToleranceMinutes),
+          }
+          businessDate = String(open.businessDate)
+        } else {
+          const [assignmentRows] = await conn.query<RowDataPacket[]>(
+            `SELECT DATE_FORMAT(esa.effective_from,'%Y-%m-%d') effectiveFrom,
+                    DATE_FORMAT(esa.effective_to,'%Y-%m-%d') effectiveTo,
+                    esa.work_days_json workDays,sh.id shiftId,
+                    sh.start_time startTime,sh.end_time endTime,
+                    sh.crosses_midnight crossesMidnight,
+                    sh.late_tolerance_minutes lateToleranceMinutes,
+                    sh.early_leave_tolerance_minutes earlyLeaveToleranceMinutes
+               FROM employee_shift_assignments esa
+               JOIN shifts sh ON sh.id=esa.shift_id
+              WHERE esa.employee_id=? AND sh.site_id=? AND sh.is_active=1
+                AND esa.effective_from<=?
+                AND (esa.effective_to IS NULL OR esa.effective_to>=?)
+              ORDER BY esa.effective_from DESC,esa.id DESC
+              FOR UPDATE`,
+            [employee.id, device.siteId, time.currentDate, time.previousDate]
+          )
+          let closest:
+            | {
+                assignment: ShiftEndCandidate
+                businessDate: string
+                distanceMs: number
+              }
+            | undefined
+          try {
+            closest = selectClosestShiftEnd({
+              currentDate: String(time.currentDate),
+              previousDate: String(time.previousDate),
+              currentTime: String(time.currentTime),
+              assignments: assignmentRows.map((candidate) => ({
+                effectiveFrom: String(candidate.effectiveFrom),
+                effectiveTo: candidate.effectiveTo
+                  ? String(candidate.effectiveTo)
+                  : null,
+                workDays: parseWorkDays(candidate.workDays),
+                shiftId: Number(candidate.shiftId),
+                startTime: String(candidate.startTime),
+                endTime: String(candidate.endTime),
+                crossesMidnight: Number(candidate.crossesMidnight) === 1,
+                lateToleranceMinutes: Number(candidate.lateToleranceMinutes),
+                earlyLeaveToleranceMinutes: Number(
+                  candidate.earlyLeaveToleranceMinutes
+                ),
+              })),
+            })
+          } catch (error) {
+            if (error instanceof ApiError) return await reject(error.message)
+            throw error
+          }
+          if (!closest) {
+            return await reject('Tidak ada assignment Shift aktif pada hari kerja ini.')
+          }
+          const selected = closest.assignment
+          assignment = {
+            shiftId: Number(selected.shiftId),
+            startTime: String(selected.startTime),
+            endTime: String(selected.endTime),
+            crossesMidnight: selected.crossesMidnight ? 1 : 0,
+            lateToleranceMinutes: Number(selected.lateToleranceMinutes),
+            earlyLeaveToleranceMinutes: Number(selected.earlyLeaveToleranceMinutes),
+          }
+          businessDate = closest.businessDate
+          const [attendanceRows] = await conn.query<RowDataPacket[]>(
+            `SELECT id,uid,attendance_status attendanceStatus,
+                    clock_in_at clockInAt,clock_out_at clockOutAt
+               FROM attendance_records
+              WHERE employee_id=? AND business_date=?
+              FOR UPDATE`,
+            [employee.id, businessDate]
+          )
+          const row = attendanceRows[0]
+          attendance = row
+            ? {
+                id: Number(row.id),
+                uid: String(row.uid),
+                attendanceStatus: String(row.attendanceStatus),
+                clockInAt: row.clockInAt,
+                clockOutAt: row.clockOutAt,
+              }
+            : undefined
         }
-        assignment = {
-          shiftId: Number(open.shiftId),
-          startTime: String(open.startTime),
-          endTime: String(open.endTime),
-          crossesMidnight: Number(open.crossesMidnight),
-          lateToleranceMinutes: Number(open.lateToleranceMinutes),
-          earlyLeaveToleranceMinutes: Number(open.earlyLeaveToleranceMinutes),
-        }
-        businessDate = String(open.businessDate)
       } else {
         const [assignmentRows] = await conn.query<RowDataPacket[]>(
           `SELECT esa.id,DATE_FORMAT(esa.effective_from,'%Y-%m-%d') effectiveFrom,
@@ -493,32 +606,23 @@ attendanceTerminalRouter.post(
           }
         }
       } else {
-        if (!attendance) {
-          return await reject('Clock out ditolak karena clock in belum tercatat.')
-        }
-        if (attendance.attendanceStatus !== 'PRESENT') {
+        if (attendance && attendance.attendanceStatus !== 'PRESENT') {
           eventContext.attendanceRecordId = attendance.id
           return await reject(
             `Attendance berstatus ${attendance.attendanceStatus} dan hanya dapat diubah melalui koreksi HR.`
           )
         }
-        if (!attendance?.clockInAt) {
-          return await reject('Clock out ditolak karena clock in belum tercatat.')
-        }
-        eventContext.attendanceRecordId = attendance.id
-        if (attendance.clockOutAt) {
+        if (attendance?.clockOutAt) {
+          eventContext.attendanceRecordId = attendance.id
           return await reject('Karyawan sudah melakukan clock out untuk Shift ini.')
         }
         const [metricRows] = await conn.query<RowDataPacket[]>(
           `SELECT GREATEST(0,TIMESTAMPDIFF(MINUTE,?,
-                    ${assignment.crossesMidnight === 1 ? 'DATE_ADD(TIMESTAMP(?,?),INTERVAL 1 DAY)' : 'TIMESTAMP(?,?)'})) earlyMinutes,
-                  GREATEST(0,TIMESTAMPDIFF(MINUTE,?,?)) workedMinutes`,
+                    ${assignment.crossesMidnight === 1 ? 'DATE_ADD(TIMESTAMP(?,?),INTERVAL 1 DAY)' : 'TIMESTAMP(?,?)'})) earlyMinutes`,
           [
             scanTime,
             businessDate,
             assignment.endTime,
-            attendance.clockInAt,
-            scanTime,
           ]
         )
         const rawEarlyMinutes = Number(metricRows[0].earlyMinutes ?? 0)
@@ -526,20 +630,61 @@ attendanceTerminalRouter.post(
           rawEarlyMinutes > Number(assignment.earlyLeaveToleranceMinutes)
             ? rawEarlyMinutes
             : 0
-        await conn.execute(
-          `UPDATE attendance_records
-              SET clock_out_at=?,clock_out_device_id=?,clock_out_source='TERMINAL',
-                  early_leave_minutes=?,worked_minutes=?,updated_by=?
-            WHERE id=?`,
-          [
-            scanTime,
-            device.id,
-            earlyLeaveMinutes,
-            Number(metricRows[0].workedMinutes ?? 0),
-            auth.id,
-            attendance.id,
-          ]
-        )
+        let workedMinutes: number | null = null
+        if (attendance?.clockInAt) {
+          const [workedRows] = await conn.query<RowDataPacket[]>(
+            'SELECT GREATEST(0,TIMESTAMPDIFF(MINUTE,?,?)) workedMinutes',
+            [attendance.clockInAt, scanTime]
+          )
+          workedMinutes = Number(workedRows[0].workedMinutes ?? 0)
+        }
+        if (attendance) {
+          await conn.execute(
+            `UPDATE attendance_records
+                SET shift_id=?,attendance_status='PRESENT',clock_out_at=?,
+                    clock_out_device_id=?,clock_out_source='TERMINAL',
+                    early_leave_minutes=?,worked_minutes=?,updated_by=?
+              WHERE id=?`,
+            [
+              assignment.shiftId,
+              scanTime,
+              device.id,
+              earlyLeaveMinutes,
+              workedMinutes,
+              auth.id,
+              attendance.id,
+            ]
+          )
+        } else {
+          const attendanceUid = randomUUID()
+          const [insertResult] = await conn.execute<ResultSetHeader>(
+            `INSERT INTO attendance_records
+              (uid,employee_id,site_id,shift_id,business_date,attendance_status,
+               clock_out_at,clock_out_device_id,clock_out_source,
+               early_leave_minutes,worked_minutes,created_by,updated_by)
+             VALUES(?,?,?,?,?,'PRESENT',?,?,'TERMINAL',?,?,?,?)`,
+            [
+              attendanceUid,
+              employee.id,
+              device.siteId,
+              assignment.shiftId,
+              businessDate,
+              scanTime,
+              device.id,
+              earlyLeaveMinutes,
+              null,
+              auth.id,
+              auth.id,
+            ]
+          )
+          attendance = {
+            id: insertResult.insertId,
+            uid: attendanceUid,
+            attendanceStatus: 'PRESENT',
+            clockInAt: null,
+            clockOutAt: scanTime,
+          }
+        }
       }
 
       eventContext.attendanceRecordId = attendance.id

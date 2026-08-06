@@ -34,3 +34,14 @@ export function attendanceCapabilities(
     export: hasAttendancePermission(auth, 'attendance.export'),
   }
 }
+
+export function canUseAttendanceForProduction(input: {
+  attendanceStatus: string
+  clockInSource: unknown
+  clockOutSource: unknown
+}) {
+  return (
+    input.attendanceStatus === 'PRESENT' &&
+    (input.clockInSource === 'TERMINAL' || input.clockOutSource === 'TERMINAL')
+  )
+}

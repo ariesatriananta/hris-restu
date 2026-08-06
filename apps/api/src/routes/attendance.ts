@@ -15,6 +15,7 @@ import { writeAudit } from '../lib/audit.js'
 import { ApiError } from '../lib/errors.js'
 import { attendanceDevicesRouter } from './attendance-devices.js'
 import { attendanceTerminalRouter } from './attendance-terminal.js'
+import { attendanceCorrectionsRouter } from './attendance-corrections.js'
 import {
   authenticate,
   requirePermission,
@@ -118,6 +119,7 @@ export const attendanceRouter = Router()
 attendanceRouter.use(authenticate)
 attendanceRouter.use(attendanceDevicesRouter)
 attendanceRouter.use(attendanceTerminalRouter)
+attendanceRouter.use(attendanceCorrectionsRouter)
 
 attendanceRouter.get(
   '/foundation',

@@ -6,6 +6,7 @@ import {
   generateDeviceToken,
   hashDeviceSecret,
   isoWeekday,
+  selectClosestShiftEnd,
   selectSingleOpenAttendance,
   shiftBusinessDate,
   terminalScanInput,
@@ -63,6 +64,47 @@ describe('attendance device policy', () => {
     expect(() =>
       selectSingleOpenAttendance([{ id: 1 }, { id: 2 }])
     ).toThrow('lebih dari satu')
+  })
+
+  it('memilih business date dari jadwal pulang yang paling dekat', () => {
+    const selected = selectClosestShiftEnd({
+      currentDate: '2026-08-07',
+      previousDate: '2026-08-06',
+      currentTime: '05:45:00',
+      assignments: [
+        {
+          effectiveFrom: '2026-01-01',
+          effectiveTo: null,
+          workDays: [1, 2, 3, 4, 5, 6, 7],
+          endTime: '06:00:00',
+          crossesMidnight: true,
+          shiftId: 7,
+        },
+      ],
+    })
+    expect(selected?.businessDate).toBe('2026-08-06')
+    expect(selected?.assignment.shiftId).toBe(7)
+  })
+
+  it('menolak dua assignment berbeda dengan jadwal pulang sama dekat', () => {
+    const base = {
+      effectiveFrom: '2026-01-01',
+      effectiveTo: null,
+      workDays: [1, 2, 3, 4, 5, 6, 7],
+      endTime: '15:00:00',
+      crossesMidnight: false,
+    }
+    expect(() =>
+      selectClosestShiftEnd({
+        currentDate: '2026-08-07',
+        previousDate: '2026-08-06',
+        currentTime: '15:00:00',
+        assignments: [
+          { ...base, shiftId: 7 },
+          { ...base, shiftId: 8 },
+        ],
+      })
+    ).toThrow('ambigu')
   })
 
   it('tidak menimpa status ketidakhadiran melalui terminal scan', () => {

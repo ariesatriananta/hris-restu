@@ -14,6 +14,10 @@ import type {
   AttendanceDeviceInput,
   AttendanceDeviceListParams,
   AttendanceScanInput,
+  AttendanceMonitoringListParams,
+  AttendanceCorrectionListParams,
+  AttendanceCorrectionInput,
+  AttendanceCorrectionReviewInput,
 } from '../domain'
 import { httpAttendanceRepository } from './http-attendance-repository'
 
@@ -28,6 +32,10 @@ export const attendanceKeys = {
     [...attendanceKeys.all, 'shift-assignment-candidates', params] as const,
   devices: (params?: AttendanceDeviceListParams) =>
     [...attendanceKeys.all, 'devices', params] as const,
+  monitoring: (params?: AttendanceMonitoringListParams) =>
+    [...attendanceKeys.all, 'monitoring', params] as const,
+  corrections: (params?: AttendanceCorrectionListParams) =>
+    [...attendanceKeys.all, 'corrections', params] as const,
 }
 
 export const attendanceFoundationOptions = () =>
@@ -133,3 +141,32 @@ export const useAttendanceScan = () =>
       deviceToken: string
     }) => httpAttendanceRepository.scanAttendance(input, deviceToken),
   })
+
+export const useAttendanceMonitoring = (
+  params: AttendanceMonitoringListParams
+) =>
+  useQuery({
+    queryKey: attendanceKeys.monitoring(params),
+    queryFn: () => httpAttendanceRepository.listMonitoring(params),
+    placeholderData: keepPreviousData,
+  })
+
+export const useAttendanceCorrections = (
+  params: AttendanceCorrectionListParams
+) =>
+  useQuery({
+    queryKey: attendanceKeys.corrections(params),
+    queryFn: () => httpAttendanceRepository.listCorrections(params),
+    placeholderData: keepPreviousData,
+  })
+
+export const useCreateAttendanceCorrection = () =>
+  useAttendanceMutation((input: AttendanceCorrectionInput) =>
+    httpAttendanceRepository.createCorrection(input)
+  )
+
+export const useReviewAttendanceCorrection = () =>
+  useAttendanceMutation(
+    ({ uid, input }: { uid: string; input: AttendanceCorrectionReviewInput }) =>
+      httpAttendanceRepository.reviewCorrection(uid, input)
+  )

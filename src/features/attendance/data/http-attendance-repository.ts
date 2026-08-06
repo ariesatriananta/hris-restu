@@ -13,6 +13,10 @@ import type {
   ShiftAssignmentCandidate,
   ShiftAssignmentListParams,
   ShiftListParams,
+  AttendanceMonitoringListParams,
+  AttendanceMonitoringResult,
+  AttendanceCorrection,
+  AttendanceCorrectionListParams,
 } from '../domain'
 
 const listParams = (
@@ -20,6 +24,8 @@ const listParams = (
     | ShiftListParams
     | ShiftAssignmentListParams
     | AttendanceDeviceListParams
+    | AttendanceMonitoringListParams
+    | AttendanceCorrectionListParams
 ) =>
   Object.fromEntries(
     Object.entries(input).map(([key, value]) => [
@@ -118,5 +124,29 @@ export const httpAttendanceRepository: AttendanceRepository = {
         { headers: { 'X-Attendance-Device-Token': deviceToken } }
       )
     ).data
+  },
+  async listMonitoring(input) {
+    return (
+      await apiClient.get<AttendanceMonitoringResult>(
+        '/attendance/monitoring',
+        {
+          params: listParams(input),
+        }
+      )
+    ).data
+  },
+  async listCorrections(input) {
+    return (
+      await apiClient.get<PaginatedAttendanceResult<AttendanceCorrection>>(
+        '/attendance/corrections',
+        { params: listParams(input) }
+      )
+    ).data
+  },
+  async createCorrection(input) {
+    await apiClient.post('/attendance/corrections', input)
+  },
+  async reviewCorrection(uid, input) {
+    await apiClient.post(`/attendance/corrections/${uid}/review`, input)
   },
 }

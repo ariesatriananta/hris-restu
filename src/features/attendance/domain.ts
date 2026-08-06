@@ -94,6 +94,17 @@ export interface AttendanceRepository {
     input: AttendanceScanInput,
     deviceToken: string
   ): Promise<AttendanceScanSuccess>
+  listMonitoring(
+    input: AttendanceMonitoringListParams
+  ): Promise<AttendanceMonitoringResult>
+  listCorrections(
+    input: AttendanceCorrectionListParams
+  ): Promise<PaginatedAttendanceResult<AttendanceCorrection>>
+  createCorrection(input: AttendanceCorrectionInput): Promise<void>
+  reviewCorrection(
+    uid: string,
+    input: AttendanceCorrectionReviewInput
+  ): Promise<void>
 }
 
 export type AttendanceSiteCode = 'JEPARA' | 'SEMARANG' | 'KLATEN'
@@ -281,5 +292,115 @@ export interface AttendanceScanSuccess {
     lateMinutes: number
     earlyLeaveMinutes: number
     workedMinutes?: number | null
+    qualityStatus: AttendanceQualityStatus
+    abnormalReasons: AttendanceAbnormalReason[]
   }
+  warnings: AttendanceWarning[]
+}
+
+export type AttendanceQualityStatus = 'NORMAL' | 'ABNORMAL'
+export type AttendanceAbnormalReason = 'MISSING_CLOCK_IN' | 'MISSING_CLOCK_OUT'
+
+export interface AttendanceWarning {
+  code: AttendanceAbnormalReason | (string & {})
+  message: string
+}
+
+export interface AttendanceMonitoringRecord {
+  uid: string
+  businessDate: string
+  attendanceStatus: AttendanceStatus
+  qualityStatus: AttendanceQualityStatus
+  abnormalReasons: AttendanceAbnormalReason[]
+  clockInAt?: string | null
+  clockOutAt?: string | null
+  lateMinutes: number
+  earlyLeaveMinutes: number
+  workedMinutes?: number | null
+  notes?: string | null
+  employeeUid: string
+  employeeNumber: string
+  employeeName: string
+  employeeType: AttendanceEmployeeType
+  site: AttendanceSiteCode
+  shiftUid?: string | null
+  shiftName?: string | null
+}
+
+export interface AttendanceMonitoringSummary {
+  total: number
+  present: number
+  abnormal: number
+  missingClockIn: number
+  missingClockOut: number
+}
+
+export interface AttendanceMonitoringResult extends PaginatedAttendanceResult<AttendanceMonitoringRecord> {
+  summary: AttendanceMonitoringSummary
+}
+
+export interface AttendanceMonitoringListParams {
+  businessDate: string
+  query?: string
+  site?: AttendanceSiteCode[]
+  attendanceStatus?: AttendanceStatus[]
+  qualityStatus?: AttendanceQualityStatus[]
+  abnormalReason?: AttendanceAbnormalReason[]
+  page: number
+  pageSize: number
+}
+
+export type AttendanceCorrectionType =
+  | 'CLOCK_IN'
+  | 'CLOCK_OUT'
+  | 'BOTH'
+  | 'STATUS'
+
+export interface AttendanceCorrection {
+  uid: string
+  attendanceUid: string
+  employeeUid: string
+  employeeNumber: string
+  employeeName: string
+  employeeType: AttendanceEmployeeType
+  site: AttendanceSiteCode
+  businessDate: string
+  correctionType: AttendanceCorrectionType
+  oldClockInAt?: string | null
+  newClockInAt?: string | null
+  oldClockOutAt?: string | null
+  newClockOutAt?: string | null
+  oldStatus?: AttendanceStatus | null
+  newStatus?: AttendanceStatus | null
+  reason: string
+  approvalStatus: CorrectionApprovalStatus
+  requestedByName: string
+  requestedAt: string
+  reviewedByName?: string | null
+  reviewedAt?: string | null
+  reviewNotes?: string | null
+  appliedAt?: string | null
+}
+
+export interface AttendanceCorrectionListParams {
+  businessDate?: string
+  query?: string
+  site?: AttendanceSiteCode[]
+  approvalStatus?: CorrectionApprovalStatus[]
+  page: number
+  pageSize: number
+}
+
+export interface AttendanceCorrectionInput {
+  attendanceUid: string
+  correctionType: AttendanceCorrectionType
+  newClockInAt?: string | null
+  newClockOutAt?: string | null
+  newStatus?: AttendanceStatus | null
+  reason: string
+}
+
+export interface AttendanceCorrectionReviewInput {
+  decision: 'APPROVED' | 'REJECTED'
+  reviewNotes?: string
 }

@@ -32,7 +32,7 @@ const storageKey = 'hris-rsia-attendance-device-v1'
 type TerminalSession = ActivatedAttendanceDevice
 type RecentResult = {
   id: string
-  success: boolean
+  severity: 'success' | 'warning' | 'error'
   title: string
   message: string
   time: string
@@ -322,8 +322,10 @@ function ScanTerminal({
                 {recent.map((item) => (
                   <div key={item.id} className='py-3'>
                     <div className='flex items-start gap-2'>
-                      {item.success ? (
+                      {item.severity === 'success' ? (
                         <CheckCircle2 className='mt-0.5 size-4 shrink-0 text-positive' />
+                      ) : item.severity === 'warning' ? (
+                        <ShieldAlert className='mt-0.5 size-4 shrink-0 text-warning-foreground' />
                       ) : (
                         <XCircle className='mt-0.5 size-4 shrink-0 text-destructive' />
                       )}
@@ -360,11 +362,13 @@ function ScanTerminal({
 function FeedbackPanel({ result }: { result: RecentResult }) {
   return (
     <div
-      role={result.success ? 'status' : 'alert'}
-      className={`rounded-xl border-2 p-5 text-center ${result.success ? 'border-positive/50 bg-positive/10' : 'border-destructive/50 bg-destructive/10'}`}
+      role={result.severity === 'success' ? 'status' : 'alert'}
+      className={`rounded-xl border-2 p-5 text-center ${result.severity === 'success' ? 'border-positive/50 bg-positive/10' : result.severity === 'warning' ? 'border-warning/60 bg-warning/15' : 'border-destructive/50 bg-destructive/10'}`}
     >
-      {result.success ? (
+      {result.severity === 'success' ? (
         <CheckCircle2 className='mx-auto mb-2 size-12 text-positive' />
+      ) : result.severity === 'warning' ? (
+        <ShieldAlert className='mx-auto mb-2 size-12 text-warning-foreground' />
       ) : (
         <ShieldAlert className='mx-auto mb-2 size-12 text-destructive' />
       )}
@@ -509,11 +513,17 @@ type BarcodeDetectorConstructor = new (options?: {
 }) => BarcodeDetectorInstance
 
 function successResult(result: AttendanceScanSuccess): RecentResult {
+  const warning = result.warnings?.[0]
   return {
     id: crypto.randomUUID(),
-    success: true,
+    severity:
+      result.attendance.qualityStatus === 'ABNORMAL' || result.warnings?.length
+        ? 'warning'
+        : 'success',
     title: result.employee.fullName,
-    message: `${result.eventType === 'CLOCK_IN' ? 'Masuk' : 'Pulang'} berhasil · ${result.businessDate}${result.duplicate ? ' (hasil scan sebelumnya)' : ''}`,
+    message:
+      warning?.message ??
+      `${result.eventType === 'CLOCK_IN' ? 'Masuk' : 'Pulang'} berhasil · ${result.businessDate}${result.duplicate ? ' (hasil scan sebelumnya)' : ''}`,
     time: formatServerTime(result.scannedAt),
   }
 }
@@ -527,7 +537,7 @@ function rejectedResult(
   const data = response?.data
   return {
     id: crypto.randomUUID(),
-    success: false,
+    severity: 'error',
     title:
       response?.status === 422
         ? `${eventType === 'CLOCK_IN' ? 'Masuk' : 'Pulang'} ditolak`
