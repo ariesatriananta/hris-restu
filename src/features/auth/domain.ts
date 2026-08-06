@@ -1,16 +1,35 @@
 export type SiteAccess = 'JEPARA' | 'SEMARANG' | 'KLATEN'
 
+export type UserRole =
+  | 'SUPER_ADMIN'
+  | 'DIRECTOR'
+  | 'HR_OFFICER'
+  | 'PRODUCTION_ADMIN'
+  | 'PAYROLL_FINANCE'
+  | 'SITE_SUPERVISOR'
+
+export type PermissionCode =
+  | 'attendance.view'
+  | 'attendance.scan'
+  | 'attendance.correct'
+  | 'attendance.approve'
+  | 'attendance.manage_shift'
+  | 'attendance.manage_device'
+  | 'attendance.export'
+  | (string & {})
+
 export interface AuthUser {
   uid: string
   name: string
-  email: string
-  role: 'SUPER_ADMIN'
-  roleLabel: 'Super Admin'
+  email: string | null
+  role: UserRole
+  roleLabel: string
   siteAccess: SiteAccess[]
 }
 
 export interface AuthSession {
   user: AuthUser
+  permissions: PermissionCode[]
   expiresAt: number
 }
 

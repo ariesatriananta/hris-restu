@@ -1,6 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { ModulePlaceholder } from '@/features/placeholders/module-placeholder'
+import { AttendanceFoundationPage } from '@/features/attendance/attendance-foundation-page'
+import { requireAnyPermission } from '@/features/auth/permissions'
 
 export const Route = createFileRoute('/_authenticated/attendance/koreksi')({
-  component: () => <ModulePlaceholder path='/attendance/koreksi' />,
+  beforeLoad: () =>
+    requireAnyPermission(['attendance.correct', 'attendance.approve']),
+  component: () => <AttendanceFoundationPage kind='correction' />,
 })

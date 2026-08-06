@@ -55,6 +55,13 @@ export const mockAuthRepository: AuthRepository = {
 
     const session: AuthSession = {
       user: { ...administrator, siteAccess: [...administrator.siteAccess] },
+      permissions: [
+        'attendance.view',
+        'attendance.scan',
+        'attendance.correct',
+        'attendance.approve',
+        'attendance.manage_shift',
+      ],
       expiresAt: Date.now() + 24 * 60 * 60 * 1000,
     }
     window.localStorage.setItem(SESSION_KEY, JSON.stringify(session))

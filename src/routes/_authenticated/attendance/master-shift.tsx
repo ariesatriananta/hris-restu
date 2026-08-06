@@ -1,6 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { ModulePlaceholder } from '@/features/placeholders/module-placeholder'
+import { AttendanceFoundationPage } from '@/features/attendance/attendance-foundation-page'
+import { requirePermission } from '@/features/auth/permissions'
 
 export const Route = createFileRoute('/_authenticated/attendance/master-shift')(
-  { component: () => <ModulePlaceholder path='/attendance/master-shift' /> }
+  {
+    beforeLoad: () => requirePermission('attendance.manage_shift'),
+    component: () => <AttendanceFoundationPage kind='shift' />,
+  }
 )

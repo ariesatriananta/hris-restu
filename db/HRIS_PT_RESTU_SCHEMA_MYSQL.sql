@@ -1540,6 +1540,10 @@ VALUES
   (UUID(), 'attendance.view', 'attendance', 'Lihat Attendance'),
   (UUID(), 'attendance.scan', 'attendance', 'Scan Attendance'),
   (UUID(), 'attendance.correct', 'attendance', 'Koreksi Attendance'),
+  (UUID(), 'attendance.approve', 'attendance', 'Setujui Koreksi Attendance'),
+  (UUID(), 'attendance.manage_shift', 'attendance', 'Kelola Shift Attendance'),
+  (UUID(), 'attendance.manage_device', 'attendance', 'Kelola Perangkat Attendance'),
+  (UUID(), 'attendance.export', 'attendance', 'Ekspor Attendance'),
   (UUID(), 'production.view', 'production', 'Lihat Produksi'),
   (UUID(), 'production.scan', 'production', 'Input Setoran Produksi'),
   (UUID(), 'production.correct', 'production', 'Koreksi Setoran Produksi'),
@@ -1559,6 +1563,20 @@ SELECT UUID(), r.id, p.id
 FROM roles r
 CROSS JOIN permissions p
 WHERE r.code = 'SUPER_ADMIN';
+
+-- Matriks akses awal Attendance.
+INSERT INTO role_permissions (uid, role_id, permission_id)
+SELECT UUID(), r.id, p.id
+FROM roles r
+JOIN permissions p ON p.module = 'attendance'
+WHERE r.code = 'HR_OFFICER';
+
+INSERT INTO role_permissions (uid, role_id, permission_id)
+SELECT UUID(), r.id, p.id
+FROM roles r
+JOIN permissions p
+  ON p.code IN ('attendance.view', 'attendance.scan', 'attendance.export')
+WHERE r.code = 'SITE_SUPERVISOR';
 
 -- Pengaturan global awal.
 INSERT INTO system_settings (uid, site_id, setting_key, setting_value, description)

@@ -1,10 +1,12 @@
 import type { LinkProps } from '@tanstack/react-router'
+import type { PermissionCode } from '@/features/auth/domain'
 
 type BaseNavItem = {
   title: string
   badge?: string
   icon?: React.ElementType
   superAdminOnly?: boolean
+  anyOfPermissions?: PermissionCode[]
 }
 
 type NavLink = BaseNavItem & {

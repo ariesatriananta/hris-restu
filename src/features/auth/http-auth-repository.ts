@@ -10,7 +10,13 @@ const key = 'hris-restu.api-session'
 const read = (): AuthSession | null => {
   try {
     const raw = localStorage.getItem(key)
-    return raw ? (JSON.parse(raw) as AuthSession) : null
+    if (!raw) return null
+    const session = JSON.parse(raw) as Partial<AuthSession>
+    // Session lama belum membawa permission. Paksa refresh /auth/me agar
+    // sidebar dan route guard tidak memakai authorization context yang basi.
+    return session.user && Array.isArray(session.permissions)
+      ? (session as AuthSession)
+      : null
   } catch {
     return null
   }
@@ -20,10 +26,15 @@ const persist = (session: AuthSession | null) => {
   else localStorage.removeItem(key)
 }
 async function me(): Promise<AuthSession> {
-  const { data } = await apiClient.get<{ user: AuthSession['user'] }>(
-    '/auth/me'
-  )
-  const session = { user: data.user, expiresAt: Date.now() + 15 * 60 * 1000 }
+  const { data } = await apiClient.get<{
+    user: AuthSession['user']
+    permissions: AuthSession['permissions']
+  }>('/auth/me')
+  const session: AuthSession = {
+    user: data.user,
+    permissions: data.permissions,
+    expiresAt: Date.now() + 15 * 60 * 1000,
+  }
   persist(session)
   return session
 }

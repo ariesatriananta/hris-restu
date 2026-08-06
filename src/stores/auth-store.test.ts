@@ -23,11 +23,16 @@ describe('auth store', () => {
 
   it('membuat dan menyimpan session dari cookie API', async () => {
     post.mockResolvedValue({ status: 204 })
-    get.mockResolvedValue({ data: { user } })
+    get.mockResolvedValue({
+      data: { user, permissions: ['attendance.view'] },
+    })
     await useAuthStore
       .getState()
       .signIn({ username: 'administrator.hris', password: 'restu123' })
     expect(useAuthStore.getState().session?.user.role).toBe('SUPER_ADMIN')
+    expect(useAuthStore.getState().session?.permissions).toEqual([
+      'attendance.view',
+    ])
     expect(window.localStorage.getItem('hris-restu.api-session')).toContain(
       'Administrator HRIS'
     )
@@ -36,16 +41,14 @@ describe('auth store', () => {
   it('menolak kredensial yang salah', async () => {
     post.mockRejectedValue({ response: { status: 401 } })
     await expect(
-      useAuthStore
-        .getState()
-        .signIn({ username: 'salah', password: 'salah' })
+      useAuthStore.getState().signIn({ username: 'salah', password: 'salah' })
     ).rejects.toThrow('tidak sesuai')
     expect(useAuthStore.getState().session).toBeNull()
   })
 
   it('menghapus session saat logout', async () => {
     post.mockResolvedValue({ status: 204 })
-    get.mockResolvedValue({ data: { user } })
+    get.mockResolvedValue({ data: { user, permissions: [] } })
     await useAuthStore
       .getState()
       .signIn({ username: 'administrator.hris', password: 'restu123' })

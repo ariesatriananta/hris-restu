@@ -10,6 +10,7 @@ import { employeesRouter } from './routes/employees.js'
 import { internalRouter } from './routes/internal.js'
 import { productionStructureRouter } from './routes/production-structure.js'
 import { systemRouter } from './routes/system.js'
+import { attendanceRouter } from './routes/attendance.js'
 export const app = express()
 app.use(cors({ origin: env.FRONTEND_ORIGIN, credentials: true }))
 app.use(express.json({ limit: '1mb' }))
@@ -21,4 +22,5 @@ app.use('/api/employees', employeesRouter)
 app.use('/api/internal', internalRouter)
 app.use('/api/production-structure', productionStructureRouter)
 app.use('/api/system', systemRouter)
+app.use('/api/attendance', attendanceRouter)
 app.use(errorHandler)

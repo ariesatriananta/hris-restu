@@ -45,11 +45,28 @@ export const sidebarData: SidebarData = {
             {
               title: 'Monitoring Harian',
               url: '/attendance/monitoring-harian',
+              anyOfPermissions: ['attendance.view'],
             },
-            { title: 'Scan Attendance', url: '/attendance/scan' },
-            { title: 'Rekap Attendance', url: '/attendance/rekap' },
-            { title: 'Koreksi Attendance', url: '/attendance/koreksi' },
-            { title: 'Master Shift', url: '/attendance/master-shift' },
+            {
+              title: 'Scan Attendance',
+              url: '/attendance/scan',
+              anyOfPermissions: ['attendance.scan'],
+            },
+            {
+              title: 'Rekap Attendance',
+              url: '/attendance/rekap',
+              anyOfPermissions: ['attendance.view'],
+            },
+            {
+              title: 'Koreksi Attendance',
+              url: '/attendance/koreksi',
+              anyOfPermissions: ['attendance.correct', 'attendance.approve'],
+            },
+            {
+              title: 'Master Shift',
+              url: '/attendance/master-shift',
+              anyOfPermissions: ['attendance.manage_shift'],
+            },
           ],
         },
         {

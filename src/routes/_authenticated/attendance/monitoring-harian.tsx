@@ -1,8 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { ModulePlaceholder } from '@/features/placeholders/module-placeholder'
+import { AttendanceFoundationPage } from '@/features/attendance/attendance-foundation-page'
+import { requirePermission } from '@/features/auth/permissions'
 
 export const Route = createFileRoute(
   '/_authenticated/attendance/monitoring-harian'
 )({
-  component: () => <ModulePlaceholder path='/attendance/monitoring-harian' />,
+  beforeLoad: () => requirePermission('attendance.view'),
+  component: () => <AttendanceFoundationPage kind='monitoring' />,
 })
