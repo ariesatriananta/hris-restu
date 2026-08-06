@@ -1,9 +1,28 @@
-import { queryOptions, useQuery } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
+import type {
+  ShiftAssignmentBatchInput,
+  ShiftAssignmentCandidateListParams,
+  ShiftAssignmentListParams,
+  ShiftInput,
+  ShiftListParams,
+} from '../domain'
 import { httpAttendanceRepository } from './http-attendance-repository'
 
 export const attendanceKeys = {
   all: ['attendance'] as const,
   foundation: () => [...attendanceKeys.all, 'foundation'] as const,
+  shifts: (params?: ShiftListParams) =>
+    [...attendanceKeys.all, 'shifts', params] as const,
+  assignments: (params?: ShiftAssignmentListParams) =>
+    [...attendanceKeys.all, 'shift-assignments', params] as const,
+  candidates: (params?: ShiftAssignmentCandidateListParams) =>
+    [...attendanceKeys.all, 'shift-assignment-candidates', params] as const,
 }
 
 export const attendanceFoundationOptions = () =>
@@ -16,3 +35,54 @@ export const attendanceFoundationOptions = () =>
 export function useAttendanceFoundation(enabled = true) {
   return useQuery({ ...attendanceFoundationOptions(), enabled })
 }
+
+export const useShifts = (params: ShiftListParams) =>
+  useQuery({
+    queryKey: attendanceKeys.shifts(params),
+    queryFn: () => httpAttendanceRepository.listShifts(params),
+    placeholderData: keepPreviousData,
+  })
+
+export const useShiftAssignments = (params: ShiftAssignmentListParams) =>
+  useQuery({
+    queryKey: attendanceKeys.assignments(params),
+    queryFn: () => httpAttendanceRepository.listShiftAssignments(params),
+    placeholderData: keepPreviousData,
+  })
+
+export const useShiftAssignmentCandidates = (
+  params: ShiftAssignmentCandidateListParams,
+  enabled = true
+) =>
+  useQuery({
+    queryKey: attendanceKeys.candidates(params),
+    queryFn: () =>
+      httpAttendanceRepository.listShiftAssignmentCandidates(params),
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+
+const useAttendanceMutation = <T>(mutationFn: (input: T) => Promise<void>) => {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn,
+    onSuccess: () => client.invalidateQueries({ queryKey: attendanceKeys.all }),
+  })
+}
+
+export const useSaveShift = () =>
+  useAttendanceMutation(({ input, uid }: { input: ShiftInput; uid?: string }) =>
+    httpAttendanceRepository.saveShift(input, uid)
+  )
+export const useDeleteShift = () =>
+  useAttendanceMutation((uid: string) =>
+    httpAttendanceRepository.deleteShift(uid)
+  )
+export const useCreateShiftAssignments = () =>
+  useAttendanceMutation((input: ShiftAssignmentBatchInput) =>
+    httpAttendanceRepository.createShiftAssignments(input)
+  )
+export const useDeleteShiftAssignment = () =>
+  useAttendanceMutation((uid: string) =>
+    httpAttendanceRepository.deleteShiftAssignment(uid)
+  )

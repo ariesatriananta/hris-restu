@@ -1514,6 +1514,13 @@ VALUES
   (UUID(), 'PROJECT', 'Project', 'Kontrak kerja untuk proyek tertentu.'),
   (UUID(), 'RETAIN', 'Retain', 'Kontrak retensi atau perpanjangan masa kerja.');
 
+INSERT INTO shifts
+  (uid, site_id, code, name, start_time, end_time, crosses_midnight, late_tolerance_minutes, early_leave_tolerance_minutes, is_active)
+SELECT
+  UUID(), s.id, 'BORONGAN_DEFAULT', 'Shift Borongan', '06:00:00', '15:00:00', 0, 15, 15, 1
+FROM sites s
+WHERE s.code IN ('JEPARA', 'SEMARANG', 'KLATEN');
+
 INSERT INTO work_units (uid, code, name, decimal_precision)
 VALUES
   (UUID(), 'PCS', 'Pcs / Batang', 0),
