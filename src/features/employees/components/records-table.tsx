@@ -567,7 +567,7 @@ export function RecordsTable({
               } catch (error) {
                 popup?.close()
                 const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message
-                toast.error(message ?? 'Bulk preview PKWT gagal dibuat.')
+                toast.error(message ?? 'Bulk preview kontrak gagal dibuat.')
               } finally {
                 setBulkPrintPending(false)
               }

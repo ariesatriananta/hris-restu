@@ -227,7 +227,7 @@ export function MutationPage({
     <Main>
       <div className='mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end'>
         <div>
-          <h1 className='text-2xl font-bold'>Riwayat Mutasi</h1>
+          <h1 className='text-2xl font-bold'>Mutasi Karyawan</h1>
           <p className='text-muted-foreground'>
             Jejak penempatan dan perubahan status yang bersifat append-only.
           </p>

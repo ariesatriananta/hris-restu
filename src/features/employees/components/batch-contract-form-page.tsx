@@ -203,7 +203,7 @@ export function BatchContractFormPage({
   return (
     <Main className='max-w-none'>
       <Button variant='ghost' className='mb-3 -ml-3' onClick={() => goBack()}>
-        <ArrowLeft /> PKWT & Dokumen
+        <ArrowLeft /> Kontrak Karyawan
       </Button>
       <div className='mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end'>
         <div>

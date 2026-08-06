@@ -99,7 +99,7 @@ export function ContractsDocumentsPage({
     <Main>
       <div className='mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end'>
         <div>
-          <h1 className='text-2xl font-bold'>PKWT & Dokumen</h1>
+          <h1 className='text-2xl font-bold'>Kontrak Karyawan</h1>
           <p className='text-muted-foreground'>
             Kontrak, masa berlaku, dan metadata lampiran karyawan.
           </p>
@@ -200,7 +200,7 @@ export function ContractsDocumentsPage({
         <TabsList className='h-auto w-full justify-start gap-1 overflow-x-auto rounded-xl p-1 sm:w-fit'>
           <TabsTrigger value='contracts' className='h-10 flex-none gap-2 px-4'>
             <ScrollText className='size-4' />
-            PKWT & Kontrak
+            Daftar Kontrak
           </TabsTrigger>
           <TabsTrigger
             value='status-changes'

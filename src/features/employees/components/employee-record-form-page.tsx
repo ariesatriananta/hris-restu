@@ -619,7 +619,7 @@ function RecordLayout({
   return (
     <Main className='max-w-4xl'>
       <Button variant='ghost' className='mb-3 -ml-3' onClick={onCancel}>
-        <ArrowLeft /> PKWT & Dokumen
+        <ArrowLeft /> Kontrak Karyawan
       </Button>
       <div className='mb-6'>
         <h1 className='text-2xl font-bold'>{title}</h1>

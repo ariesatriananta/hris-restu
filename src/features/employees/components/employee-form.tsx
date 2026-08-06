@@ -602,7 +602,7 @@ export function EmployeeForm({
           {employee && (
             <p className='rounded-md bg-muted p-3 text-xs text-muted-foreground'>
               Penempatan dan jenis karyawan dikelola melalui Catat Mutasi.
-              Status kerja serta data resign dikelola melalui lifecycle PKWT.
+              Status kerja serta data resign dikelola melalui lifecycle kontrak.
               Tanggal bergabung dapat dikoreksi tanpa mengubah Employee ID.
             </p>
           )}

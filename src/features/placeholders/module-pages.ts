@@ -11,7 +11,7 @@ export const modulePages = {
   },
   '/karyawan/riwayat-mutasi': {
     group: 'Karyawan',
-    title: 'Riwayat Mutasi',
+    title: 'Mutasi Karyawan',
     description:
       'Pelacakan perpindahan site, unit, jabatan, dan kelompok kerja.',
     features: [
@@ -22,10 +22,10 @@ export const modulePages = {
   },
   '/karyawan/pkwt-dokumen': {
     group: 'Karyawan',
-    title: 'PKWT & Dokumen',
+    title: 'Kontrak Karyawan',
     description: 'Pengelolaan kontrak dan dokumen internal karyawan.',
     features: [
-      'Status dan masa berlaku PKWT',
+      'Status dan masa berlaku kontrak',
       'Dokumen karyawan',
       'Peringatan kontrak berakhir',
     ],

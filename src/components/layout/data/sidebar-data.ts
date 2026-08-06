@@ -33,8 +33,8 @@ export const sidebarData: SidebarData = {
           icon: Users,
           items: [
             { title: 'Data Karyawan', url: '/karyawan/data-karyawan' },
-            { title: 'Riwayat Mutasi', url: '/karyawan/riwayat-mutasi' },
-            { title: 'PKWT & Dokumen', url: '/karyawan/pkwt-dokumen' },
+            { title: 'Mutasi Karyawan', url: '/karyawan/riwayat-mutasi' },
+            { title: 'Kontrak Karyawan', url: '/karyawan/pkwt-dokumen' },
             { title: 'Cetak ID Card', url: '/karyawan/cetak-id-card' },
           ],
         },
@@ -113,6 +113,7 @@ export const sidebarData: SidebarData = {
               title: 'Pengaturan',
               url: '/administrasi/pengaturan',
               icon: Building2,
+              superAdminOnly: true,
             },
           ],
         },

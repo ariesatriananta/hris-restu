@@ -9,6 +9,7 @@ import {
   ImageIcon,
   Printer,
   ShieldAlert,
+  TriangleAlert,
   Undo2,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -525,10 +526,22 @@ export function ContractDetailDrawer({
               : 'Konfirmasi lifecycle kontrak'
         }
         desc={
-          <p>
-            {!contract?.issuedFile && 'Lampiran belum tersedia. '}
-            {lifecycleDescription(action)}
-          </p>
+          <div className='space-y-2'>
+            {!contract?.issuedFile &&
+              (action === 'activate' || action === 'schedule') && (
+                <p className='flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-800 dark:text-amber-300'>
+                  <TriangleAlert className='mt-0.5 size-4 shrink-0' />
+                  <span>
+                    Scan kontrak asli bertanda tangan belum diunggah. Aksi tetap
+                    dapat dilanjutkan
+                    {action === 'schedule'
+                      ? ' dan kontrak dapat aktif otomatis pada tanggal mulai.'
+                      : ', lalu unggah scan setelah kontrak ditandatangani.'}
+                  </span>
+                </p>
+              )}
+            <p>{lifecycleDescription(action)}</p>
+          </div>
         }
         confirmText='Lanjutkan'
         destructive={

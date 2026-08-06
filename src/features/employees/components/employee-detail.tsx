@@ -173,7 +173,7 @@ export function EmployeeDetail({
           </TabsTrigger>
           <TabsTrigger value='kontrak' className='h-10 flex-none gap-2 px-4'>
             <FileSignature className='size-4' />
-            PKWT
+            Kontrak
           </TabsTrigger>
           <TabsTrigger value='dokumen' className='h-10 flex-none gap-2 px-4'>
             <FileText className='size-4' />
@@ -393,7 +393,7 @@ export function EmployeeDetail({
         </TabsContent>
         <TabsContent value='kontrak'>
           <Records
-            title='PKWT & kontrak'
+            title='Kontrak Karyawan'
             empty='Belum ada kontrak.'
             pending={contracts.isPending}
             error={contracts.isError}
@@ -402,7 +402,7 @@ export function EmployeeDetail({
             add={{
               to: '/karyawan/pkwt/tambah',
               employeeUid: data.uid,
-              label: 'Tambah PKWT',
+              label: 'Tambah Kontrak',
             }}
             items={contracts.data
               ?.slice()
