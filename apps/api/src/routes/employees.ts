@@ -463,25 +463,73 @@ function assertContractPrintEligible(employeeType: string, contractType: string)
   }
 }
 
+function settingObject(value: unknown, label: string) {
+  let parsed = value
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed) } catch { throw new ApiError(422, `${label} pada Pengaturan Sistem tidak valid.`) }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new ApiError(422, `${label} pada Pengaturan Sistem tidak valid.`)
+  }
+  return parsed as Record<string, unknown>
+}
+
+function requiredSettingText(setting: Record<string, unknown>, field: string, label: string) {
+  const value = String(setting[field] ?? '').trim()
+  if (!value) throw new ApiError(422, `${label} pada Pengaturan Sistem belum diisi.`)
+  return value
+}
+
 async function ensureContractPrintSnapshot(conn: PoolConnection, auth: AuthContext, request: Request, uid: string) {
-  const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.contract_number contractNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.terms_json termsJson,ct.code contractType,et.code employeeType,e.id employeeId,e.full_name fullName,e.employee_number employeeNumber,e.national_id_number nationalIdNumber,e.address,e.rtrw,e.kelurahan,e.kecamatan,e.city,e.province,s.code currentSite FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [uid])
+  const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.contract_number contractNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.terms_json termsJson,ct.code contractType,et.code employeeType,e.id employeeId,e.full_name fullName,e.employee_number employeeNumber,e.national_id_number nationalIdNumber,e.birth_place birthPlace,DATE_FORMAT(e.birth_date,'%Y-%m-%d') birthDate,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,e.address,e.rtrw,e.kelurahan,e.kecamatan,e.city,e.province,s.code currentSite FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [uid])
   const c = rows[0]
   if (!c) throw new ApiError(404, 'Kontrak tidak ditemukan.')
   enforceSite(auth, c.currentSite)
   assertContractPrintEligible(c.employeeType, c.contractType)
   const terms = typeof c.termsJson === 'string' ? JSON.parse(c.termsJson || '{}') : c.termsJson ?? {}
-  if (terms.contractPrintV1?.version === 'PKWT_PRODUCTION_POSITION_V1') return terms.contractPrintV1
+  if (terms.contractPrintV2?.version === 'PKWT_PRODUCTION_SECTION_V2') return terms.contractPrintV2
   if (!c.nationalIdNumber || !c.address) throw new ApiError(422, `NIK dan alamat karyawan wajib tersedia sebelum kontrak ${c.contractNumber} dicetak.`)
-  const [history] = await conn.query<RowDataPacket[]>(`SELECT s.id siteId,s.name siteName,s.address siteAddress,p.id positionId,p.name positionName FROM employee_employment_histories h JOIN sites s ON s.id=h.site_id LEFT JOIN positions p ON p.id=h.position_id WHERE h.employee_id=? AND h.effective_from<=? AND (h.effective_to IS NULL OR h.effective_to>=?) ORDER BY h.effective_from DESC,h.id DESC LIMIT 1`, [c.employeeId, c.startDate, c.startDate])
-  const site = history[0]
-  if (!site?.siteAddress) throw new ApiError(422, `Alamat site wajib tersedia sebelum kontrak ${c.contractNumber} dicetak.`)
-  if (!site.positionId) throw new ApiError(422, `Posisi karyawan pada tanggal mulai kontrak ${c.contractNumber} wajib tersedia sebelum kontrak dicetak.`)
-  const [jobs] = await conn.query<RowDataPacket[]>(`SELECT j.uid jobUid,j.code jobCode,j.name jobName,u.name unitName,r.uid rateUid,r.rate_amount rateAmount,r.currency,DATE_FORMAT(r.effective_from,'%Y-%m-%d') effectiveFrom FROM production_jobs j JOIN production_job_rates r ON r.production_job_id=j.id AND r.site_id=? AND r.status='ACTIVE' AND r.effective_from<=? AND (r.effective_to IS NULL OR r.effective_to>=?) JOIN work_units u ON u.id=r.unit_id WHERE j.position_id=? AND j.is_active=1 ORDER BY j.name`, [site.siteId, c.startDate, c.startDate, site.positionId])
-  if (!jobs.length) throw new ApiError(422, `Belum ada pekerjaan dan tarif aktif untuk posisi karyawan pada tanggal mulai kontrak ${c.contractNumber}.`)
+  const [history] = await conn.query<RowDataPacket[]>(`SELECT s.id siteId,s.name siteName,p.name positionName,pm.name productionModuleName,ps.code productionSectionCode,ps.name productionSectionName FROM employee_employment_histories h JOIN sites s ON s.id=h.site_id LEFT JOIN positions p ON p.id=h.position_id LEFT JOIN production_module_sections pms ON pms.id=h.production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id WHERE h.employee_id=? AND h.effective_from<=? AND (h.effective_to IS NULL OR h.effective_to>=?) ORDER BY h.effective_from DESC,h.id DESC LIMIT 1`, [c.employeeId, c.startDate, c.startDate])
+  const employment = history[0]
+  if (!employment?.positionName) throw new ApiError(422, `Jabatan karyawan pada tanggal mulai kontrak ${c.contractNumber} wajib tersedia sebelum kontrak dicetak.`)
+  if (!employment.productionSectionCode || !employment.productionSectionName) throw new ApiError(422, `Bagian produksi karyawan pada tanggal mulai kontrak ${c.contractNumber} wajib tersedia sebelum kontrak dicetak.`)
+
+  const targetSettingKey = `contract.pkwt.target.${employment.productionSectionCode}`
+  const [settingRows] = await conn.query<RowDataPacket[]>(
+    `SELECT site_id siteId,setting_key settingKey,setting_value settingValue
+     FROM system_settings
+     WHERE (site_id IS NULL AND setting_key='contract.pkwt.first_party')
+        OR (site_id=? AND setting_key=?)`,
+    [employment.siteId, targetSettingKey]
+  )
+  const firstPartyRow = settingRows.find((row) => row.settingKey === 'contract.pkwt.first_party' && row.siteId === null)
+  const targetRow = settingRows.find((row) => row.settingKey === targetSettingKey && Number(row.siteId) === Number(employment.siteId))
+  if (!firstPartyRow) throw new ApiError(422, 'Pengaturan pihak pertama kontrak PKWT belum tersedia. Jalankan migration pengaturan template PKWT.')
+  if (!targetRow) throw new ApiError(422, `Target kerja untuk bagian ${employment.productionSectionName} di site ${employment.siteName} belum tersedia pada Pengaturan Sistem.`)
+
+  const firstParty = settingObject(firstPartyRow.settingValue, 'Identitas pihak pertama')
+  const target = settingObject(targetRow.settingValue, `Target kerja ${employment.productionSectionName}`)
+  const targetValue = Number(target.value)
+  if (!Number.isFinite(targetValue) || targetValue <= 0) throw new ApiError(422, `Angka target kerja ${employment.productionSectionName} pada Pengaturan Sistem harus lebih dari 0.`)
   const address = [c.address, c.rtrw && `RT/RW ${c.rtrw}`, c.kelurahan, c.kecamatan, c.city, c.province].filter(Boolean).join(', ')
-  const snapshot = { version: 'PKWT_PRODUCTION_POSITION_V1', generatedAt: new Date().toISOString(), contract: { uid: c.uid, number: c.contractNumber, type: c.contractType, startDate: c.startDate, endDate: c.endDate, signedDate: c.signedDate }, company: { name: 'PT Restu Sejati Inti Abadi', site: site.siteName, address: site.siteAddress, signerTitle: 'Kepala Produksi Site' }, employee: { name: c.fullName, employeeNumber: c.employeeNumber, nationalIdNumber: c.nationalIdNumber, address, position: site.positionName ?? 'Pekerja Produksi' }, payment: { schedule: 'Setiap dua minggu' }, jobs: jobs.map(j => ({ uid: j.jobUid, code: j.jobCode, name: j.jobName, unit: j.unitName, rateAmount: Number(j.rateAmount), currency: j.currency, rateUid: j.rateUid, effectiveFrom: j.effectiveFrom })) }
-  await conn.execute('UPDATE employee_contracts SET terms_json=?,updated_by=? WHERE id=?', [JSON.stringify({ ...terms, contractPrintV1: snapshot }), auth.id, c.id])
-  await writeAudit({ auth, request, siteId: site.siteId, action: 'GENERATE', table: 'employee_contracts', recordId: c.id, recordUid: uid, description: `Membuat snapshot cetak kontrak ${c.contractNumber}.` }, conn)
+  const snapshot = {
+    version: 'PKWT_PRODUCTION_SECTION_V2',
+    generatedAt: new Date().toISOString(),
+    contract: { uid: c.uid, number: c.contractNumber, type: c.contractType, startDate: c.startDate, endDate: c.endDate, signedDate: c.signedDate },
+    company: {
+      name: requiredSettingText(firstParty, 'companyName', 'Nama perusahaan'),
+      headOfficeAddress: requiredSettingText(firstParty, 'headOfficeAddress', 'Alamat kantor pusat'),
+      director: {
+        name: requiredSettingText(firstParty, 'directorName', 'Nama direktur'),
+        title: requiredSettingText(firstParty, 'directorTitle', 'Jabatan direktur'),
+      },
+    },
+    employee: { name: c.fullName, employeeNumber: c.employeeNumber, nationalIdNumber: c.nationalIdNumber, birthPlace: c.birthPlace, birthDate: c.birthDate, address, joinDate: c.joinDate, position: employment.positionName },
+    employment: { site: employment.siteName, productionModule: employment.productionModuleName, productionSection: { code: employment.productionSectionCode, name: employment.productionSectionName } },
+    target: { value: targetValue, unit: requiredSettingText(target, 'unit', `Satuan target kerja ${employment.productionSectionName}`) },
+  }
+  await conn.execute('UPDATE employee_contracts SET terms_json=?,updated_by=? WHERE id=?', [JSON.stringify({ ...terms, contractPrintV2: snapshot }), auth.id, c.id])
+  await writeAudit({ auth, request, siteId: employment.siteId, action: 'GENERATE', table: 'employee_contracts', recordId: c.id, recordUid: uid, description: `Membuat snapshot cetak kontrak PKWT versi 2 ${c.contractNumber}.` }, conn)
   return snapshot
 }
 
@@ -882,8 +930,8 @@ employeesRouter.get('/contracts/print-previews', requirePermission('employees.vi
       enforceSite(res.locals.auth as AuthContext, row.site)
       assertContractPrintEligible(row.employeeType, row.contractType)
       const terms = typeof row.termsJson === 'string' ? JSON.parse(row.termsJson || '{}') : row.termsJson ?? {}
-      if (!terms.contractPrintV1) throw new ApiError(409, 'Preview belum dibuat. Buat snapshot kontrak terlebih dahulu.')
-      return terms.contractPrintV1
+      if (!terms.contractPrintV2) throw new ApiError(409, 'Preview format PKWT terbaru belum dibuat. Buat snapshot kontrak terlebih dahulu.')
+      return terms.contractPrintV2
     })
     res.json({ items })
   } catch (error) { next(error) }
@@ -950,8 +998,8 @@ employeesRouter.get('/contracts/:contractUid/print-preview', requirePermission('
     enforceSite(res.locals.auth as AuthContext, row.site)
     assertContractPrintEligible(row.employeeType, row.contractType)
     const terms = typeof row.termsJson === 'string' ? JSON.parse(row.termsJson || '{}') : row.termsJson ?? {}
-    if (!terms.contractPrintV1) throw new ApiError(409, 'Preview belum dibuat. Buat snapshot kontrak terlebih dahulu.')
-    res.json(terms.contractPrintV1)
+    if (!terms.contractPrintV2) throw new ApiError(409, 'Preview format PKWT terbaru belum dibuat. Buat snapshot kontrak terlebih dahulu.')
+    res.json(terms.contractPrintV2)
   } catch (error) { next(error) }
 })
 employeesRouter.post('/contracts/:contractUid/normalize-print-snapshot', requirePermission('employees.manage'), async (req, res, next) => {
@@ -976,8 +1024,9 @@ employeesRouter.post('/contracts/:contractUid/normalize-print-snapshot', require
     enforceSite(auth, row.site)
     assertContractPrintEligible(row.employeeType, row.contractType)
     const terms = typeof row.termsJson === 'string' ? JSON.parse(row.termsJson || '{}') : row.termsJson ?? {}
-    if (!terms.contractPrintV1) throw new ApiError(409, 'Snapshot kontrak belum tersedia.')
-    terms.contractPrintV1.contract = { ...terms.contractPrintV1.contract, startDate: row.startDate, endDate: row.endDate, signedDate: row.signedDate }
+    if (!terms.contractPrintV1 && !terms.contractPrintV2) throw new ApiError(409, 'Snapshot kontrak belum tersedia.')
+    if (terms.contractPrintV1) terms.contractPrintV1.contract = { ...terms.contractPrintV1.contract, startDate: row.startDate, endDate: row.endDate, signedDate: row.signedDate }
+    if (terms.contractPrintV2) terms.contractPrintV2.contract = { ...terms.contractPrintV2.contract, startDate: row.startDate, endDate: row.endDate, signedDate: row.signedDate }
     await pool.execute('UPDATE employee_contracts SET terms_json=?,updated_by=? WHERE id=?', [JSON.stringify(terms), auth.id, row.id])
     res.status(204).end()
   } catch (error) { next(error) }
@@ -1606,7 +1655,7 @@ employeesRouter.patch('/contracts/:contractUid', requirePermission('employees.ma
       await assertNoOpenScheduledStatusChange(conn, contract.employee_id, contract.id)
       await assertContractRules(conn, contract.employee_id, type.code, input.startDate, input.endDate, contract.id, contract.joinDate)
       const contractNumber = contract.status === 'ACTIVE' ? contract.contract_number : formatContractNumber(type.code, (await conn.query<RowDataPacket[]>('SELECT employee_number employeeNumber FROM employees WHERE id=? FOR UPDATE', [contract.employee_id]))[0][0].employeeNumber, contract.sequence_number)
-      await conn.execute("UPDATE employee_contracts SET contract_number=?,contract_type_id=?,start_date=?,end_date=?,signed_date=?,issued_file_id=?,notes=?,terms_json=JSON_REMOVE(COALESCE(terms_json,JSON_OBJECT()), '$.contractPrintV1'),updated_by=? WHERE id=?", [contractNumber,type.id,input.startDate,empty(input.endDate),empty(input.signedDate),await fileId(input.issuedFileUid),empty(input.notes),auth.id,contract.id])
+      await conn.execute("UPDATE employee_contracts SET contract_number=?,contract_type_id=?,start_date=?,end_date=?,signed_date=?,issued_file_id=?,notes=?,terms_json=JSON_REMOVE(COALESCE(terms_json,JSON_OBJECT()), '$.contractPrintV1', '$.contractPrintV2'),updated_by=? WHERE id=?", [contractNumber,type.id,input.startDate,empty(input.endDate),empty(input.signedDate),await fileId(input.issuedFileUid),empty(input.notes),auth.id,contract.id])
       await synchronizeActiveContractAfterEdit(conn,{ id: contract.id, uid: contract.uid, employeeId: contract.employee_id, siteId: contract.siteId, status: contract.status, startDate: input.startDate, endDate: input.endDate },auth)
       await writeAudit({
         auth,

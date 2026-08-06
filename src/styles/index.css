@@ -131,10 +131,19 @@
     max-width: none !important;
     min-height: 297mm !important;
     margin: 0 !important;
-    padding: 14mm 16mm !important;
+    padding: 0 !important;
     box-shadow: none !important;
     break-inside: auto;
     page-break-inside: auto;
+  }
+
+  .contract-print-root .contract-print-page {
+    box-sizing: border-box !important;
+    width: 210mm !important;
+    height: 297mm !important;
+    margin: 0 !important;
+    padding: 16mm 17mm !important;
+    overflow: hidden !important;
   }
 
   .contract-print-document:not(:last-child) {

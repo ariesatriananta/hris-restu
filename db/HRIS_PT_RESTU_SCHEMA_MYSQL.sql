@@ -1566,7 +1566,19 @@ VALUES
   (UUID(), NULL, 'business.timezone', JSON_OBJECT('value', 'Asia/Jakarta'), 'Timezone bisnis utama.'),
   (UUID(), NULL, 'attendance.production_requires_presence', JSON_OBJECT('value', TRUE), 'Setoran produksi mensyaratkan attendance pada tanggal yang sama.'),
   (UUID(), NULL, 'payroll.allow_post_close_correction', JSON_OBJECT('value', FALSE), 'Koreksi setelah payroll closing dinonaktifkan pada scope awal.'),
-  (UUID(), NULL, 'file.max_upload_mb', JSON_OBJECT('value', 10), 'Batas ukuran upload file awal dalam MB.');
+  (UUID(), NULL, 'file.max_upload_mb', JSON_OBJECT('value', 10), 'Batas ukuran upload file awal dalam MB.'),
+  (
+    UUID(),
+    NULL,
+    'contract.pkwt.first_party',
+    JSON_OBJECT(
+      'companyName', 'PT Restu Sejati Inti Abadi',
+      'directorName', 'Budi Wicaksono Yuwono',
+      'directorTitle', 'Direktur',
+      'headOfficeAddress', 'Jl. Industri Terboyo Blok F, Desa/Kelurahan Trimulyo, Kec. Genuk, Kota Semarang, Jawa Tengah'
+    ),
+    'Identitas pihak pertama pada template cetak PKWT.'
+  );
 
 SET FOREIGN_KEY_CHECKS = 1;
 
