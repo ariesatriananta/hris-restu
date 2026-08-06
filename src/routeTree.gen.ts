@@ -42,6 +42,7 @@ import { Route as AuthenticatedAttendanceMonitoringHarianRouteImport } from './r
 import { Route as AuthenticatedAttendanceMasterShiftRouteImport } from './routes/_authenticated/attendance/master-shift'
 import { Route as AuthenticatedAttendanceMasterPerangkatRouteImport } from './routes/_authenticated/attendance/master-perangkat'
 import { Route as AuthenticatedAttendanceKoreksiRouteImport } from './routes/_authenticated/attendance/koreksi'
+import { Route as AuthenticatedAttendanceKlasifikasiRouteImport } from './routes/_authenticated/attendance/klasifikasi'
 import { Route as AuthenticatedAdministrasiUserHakAksesRouteImport } from './routes/_authenticated/administrasi/user-hak-akses'
 import { Route as AuthenticatedAdministrasiTemplateDokumenRouteImport } from './routes/_authenticated/administrasi/template-dokumen'
 import { Route as AuthenticatedAdministrasiPengaturanRouteImport } from './routes/_authenticated/administrasi/pengaturan'
@@ -250,6 +251,12 @@ const AuthenticatedAttendanceKoreksiRoute =
     path: '/attendance/koreksi',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAttendanceKlasifikasiRoute =
+  AuthenticatedAttendanceKlasifikasiRouteImport.update({
+    id: '/attendance/klasifikasi',
+    path: '/attendance/klasifikasi',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAdministrasiUserHakAksesRoute =
   AuthenticatedAdministrasiUserHakAksesRouteImport.update({
     id: '/administrasi/user-hak-akses',
@@ -380,6 +387,7 @@ export interface FileRoutesByFullPath {
   '/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
   '/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
   '/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
+  '/attendance/klasifikasi': typeof AuthenticatedAttendanceKlasifikasiRoute
   '/attendance/koreksi': typeof AuthenticatedAttendanceKoreksiRoute
   '/attendance/master-perangkat': typeof AuthenticatedAttendanceMasterPerangkatRoute
   '/attendance/master-shift': typeof AuthenticatedAttendanceMasterShiftRoute
@@ -433,6 +441,7 @@ export interface FileRoutesByTo {
   '/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
   '/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
   '/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
+  '/attendance/klasifikasi': typeof AuthenticatedAttendanceKlasifikasiRoute
   '/attendance/koreksi': typeof AuthenticatedAttendanceKoreksiRoute
   '/attendance/master-perangkat': typeof AuthenticatedAttendanceMasterPerangkatRoute
   '/attendance/master-shift': typeof AuthenticatedAttendanceMasterShiftRoute
@@ -488,6 +497,7 @@ export interface FileRoutesById {
   '/_authenticated/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
   '/_authenticated/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
   '/_authenticated/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
+  '/_authenticated/attendance/klasifikasi': typeof AuthenticatedAttendanceKlasifikasiRoute
   '/_authenticated/attendance/koreksi': typeof AuthenticatedAttendanceKoreksiRoute
   '/_authenticated/attendance/master-perangkat': typeof AuthenticatedAttendanceMasterPerangkatRoute
   '/_authenticated/attendance/master-shift': typeof AuthenticatedAttendanceMasterShiftRoute
@@ -543,6 +553,7 @@ export interface FileRouteTypes {
     | '/administrasi/pengaturan'
     | '/administrasi/template-dokumen'
     | '/administrasi/user-hak-akses'
+    | '/attendance/klasifikasi'
     | '/attendance/koreksi'
     | '/attendance/master-perangkat'
     | '/attendance/master-shift'
@@ -596,6 +607,7 @@ export interface FileRouteTypes {
     | '/administrasi/pengaturan'
     | '/administrasi/template-dokumen'
     | '/administrasi/user-hak-akses'
+    | '/attendance/klasifikasi'
     | '/attendance/koreksi'
     | '/attendance/master-perangkat'
     | '/attendance/master-shift'
@@ -650,6 +662,7 @@ export interface FileRouteTypes {
     | '/_authenticated/administrasi/pengaturan'
     | '/_authenticated/administrasi/template-dokumen'
     | '/_authenticated/administrasi/user-hak-akses'
+    | '/_authenticated/attendance/klasifikasi'
     | '/_authenticated/attendance/koreksi'
     | '/_authenticated/attendance/master-perangkat'
     | '/_authenticated/attendance/master-shift'
@@ -932,6 +945,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAttendanceKoreksiRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/attendance/klasifikasi': {
+      id: '/_authenticated/attendance/klasifikasi'
+      path: '/attendance/klasifikasi'
+      fullPath: '/attendance/klasifikasi'
+      preLoaderRoute: typeof AuthenticatedAttendanceKlasifikasiRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/administrasi/user-hak-akses': {
       id: '/_authenticated/administrasi/user-hak-akses'
       path: '/administrasi/user-hak-akses'
@@ -1181,6 +1201,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdministrasiPengaturanRoute: typeof AuthenticatedAdministrasiPengaturanRoute
   AuthenticatedAdministrasiTemplateDokumenRoute: typeof AuthenticatedAdministrasiTemplateDokumenRoute
   AuthenticatedAdministrasiUserHakAksesRoute: typeof AuthenticatedAdministrasiUserHakAksesRoute
+  AuthenticatedAttendanceKlasifikasiRoute: typeof AuthenticatedAttendanceKlasifikasiRoute
   AuthenticatedAttendanceKoreksiRoute: typeof AuthenticatedAttendanceKoreksiRoute
   AuthenticatedAttendanceMasterPerangkatRoute: typeof AuthenticatedAttendanceMasterPerangkatRoute
   AuthenticatedAttendanceMasterShiftRoute: typeof AuthenticatedAttendanceMasterShiftRoute
@@ -1224,6 +1245,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedAdministrasiTemplateDokumenRoute,
   AuthenticatedAdministrasiUserHakAksesRoute:
     AuthenticatedAdministrasiUserHakAksesRoute,
+  AuthenticatedAttendanceKlasifikasiRoute:
+    AuthenticatedAttendanceKlasifikasiRoute,
   AuthenticatedAttendanceKoreksiRoute: AuthenticatedAttendanceKoreksiRoute,
   AuthenticatedAttendanceMasterPerangkatRoute:
     AuthenticatedAttendanceMasterPerangkatRoute,

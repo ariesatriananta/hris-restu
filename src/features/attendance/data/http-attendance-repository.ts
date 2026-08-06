@@ -17,6 +17,11 @@ import type {
   AttendanceMonitoringResult,
   AttendanceCorrection,
   AttendanceCorrectionListParams,
+  AttendanceClassification,
+  AttendanceClassificationDetail,
+  AttendanceClassificationEmployee,
+  AttendanceClassificationEmployeeListParams,
+  AttendanceClassificationListParams,
 } from '../domain'
 
 const listParams = (
@@ -26,6 +31,8 @@ const listParams = (
     | AttendanceDeviceListParams
     | AttendanceMonitoringListParams
     | AttendanceCorrectionListParams
+    | AttendanceClassificationEmployeeListParams
+    | AttendanceClassificationListParams
 ) =>
   Object.fromEntries(
     Object.entries(input).map(([key, value]) => [
@@ -148,5 +155,49 @@ export const httpAttendanceRepository: AttendanceRepository = {
   },
   async reviewCorrection(uid, input) {
     await apiClient.post(`/attendance/corrections/${uid}/review`, input)
+  },
+  async listClassificationEmployees(input) {
+    return (
+      await apiClient.get<
+        PaginatedAttendanceResult<AttendanceClassificationEmployee>
+      >('/attendance/classification-employees', { params: listParams(input) })
+    ).data
+  },
+  async listClassifications(input) {
+    return (
+      await apiClient.get<PaginatedAttendanceResult<AttendanceClassification>>(
+        '/attendance/classifications',
+        { params: listParams(input) }
+      )
+    ).data
+  },
+  async getClassification(uid) {
+    return (
+      await apiClient.get<AttendanceClassificationDetail>(
+        `/attendance/classifications/${uid}`
+      )
+    ).data
+  },
+  async createClassification(input) {
+    return (
+      await apiClient.post<{ uid: string; approvalStatus: 'PENDING' }>(
+        '/attendance/classifications',
+        input
+      )
+    ).data
+  },
+  async reviewClassification(uid, input) {
+    return (
+      await apiClient.post(`/attendance/classifications/${uid}/review`, input)
+    ).data
+  },
+  async cancelClassification(uid) {
+    await apiClient.post(`/attendance/classifications/${uid}/cancel`)
+  },
+  async uploadClassificationAttachment(file) {
+    const body = new FormData()
+    body.append('file', file)
+    body.append('purpose', 'ATTENDANCE_CLASSIFICATION')
+    return (await apiClient.post('/files', body)).data
   },
 }

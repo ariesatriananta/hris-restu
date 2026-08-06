@@ -1,12 +1,19 @@
 import { useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
+import { useNavigate } from '@tanstack/react-router'
 import {
   flexRender,
   getCoreRowModel,
   useReactTable,
   type ColumnDef,
 } from '@tanstack/react-table'
-import { AlertTriangle, Clock3, RefreshCcw, Users } from 'lucide-react'
+import {
+  AlertTriangle,
+  CalendarRange,
+  Clock3,
+  RefreshCcw,
+  Users,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
@@ -59,7 +66,12 @@ export function AttendanceMonitoringPage({
   navigate: NavigateFn
 }) {
   const session = useAuthStore((state) => state.session)
+  const routerNavigate = useNavigate()
   const canCorrect = hasPermission(session, 'attendance.correct')
+  const canClassify =
+    canCorrect &&
+    (session?.user.role === 'HR_OFFICER' ||
+      session?.user.role === 'SUPER_ADMIN')
   const foundation = useAttendanceFoundation()
   const businessDate =
     typeof search.businessDate === 'string' ? search.businessDate : today()
@@ -121,7 +133,21 @@ export function AttendanceMonitoringPage({
           navigate={navigate}
           siteOptions={siteOptions}
           canCorrect={canCorrect}
+          canClassify={canClassify}
           onCorrect={setSelected}
+          onClassify={(record) =>
+            void routerNavigate({
+              to: '/attendance/klasifikasi',
+              search: {
+                employeeUid: record.employeeUid,
+                employeeName: record.employeeName,
+                employeeNumber: record.employeeNumber,
+                employeeSite: record.site,
+                employeeType: record.employeeType,
+                businessDate: record.businessDate,
+              },
+            })
+          }
         />
       </div>
       <CorrectionRequestDialog
@@ -185,14 +211,18 @@ function MonitoringTable({
   navigate,
   siteOptions,
   canCorrect,
+  canClassify,
   onCorrect,
+  onClassify,
 }: {
   result: ReturnType<typeof useAttendanceMonitoring>
   search: Record<string, unknown>
   navigate: NavigateFn
   siteOptions: { value: string; label: string }[]
   canCorrect: boolean
+  canClassify: boolean
   onCorrect: (record: AttendanceMonitoringRecord) => void
+  onClassify: (record: AttendanceMonitoringRecord) => void
 }) {
   const columns = useMemo<ColumnDef<AttendanceMonitoringRecord>[]>(
     () => [
@@ -250,18 +280,29 @@ function MonitoringTable({
       {
         id: 'actions',
         header: () => <span className='sr-only'>Aksi</span>,
-        cell: ({ row }) =>
-          canCorrect ? (
-            <DataTableActionButton
-              label='Ajukan koreksi'
-              onClick={() => onCorrect(row.original)}
-            >
-              <Clock3 />
-            </DataTableActionButton>
-          ) : null,
+        cell: ({ row }) => (
+          <div className='flex items-center justify-end gap-1'>
+            {canCorrect && (
+              <DataTableActionButton
+                label='Ajukan koreksi'
+                onClick={() => onCorrect(row.original)}
+              >
+                <Clock3 />
+              </DataTableActionButton>
+            )}
+            {canClassify && row.original.attendanceStatus === 'ABSENT' && (
+              <DataTableActionButton
+                label='Ajukan klasifikasi'
+                onClick={() => onClassify(row.original)}
+              >
+                <CalendarRange />
+              </DataTableActionButton>
+            )}
+          </div>
+        ),
       },
     ],
-    [canCorrect, onCorrect]
+    [canClassify, canCorrect, onClassify, onCorrect]
   )
   const url = useTableUrlState({
     search,
@@ -395,7 +436,9 @@ function MonitoringTable({
                 key={item.uid}
                 item={item}
                 canCorrect={canCorrect}
+                canClassify={canClassify}
                 onCorrect={onCorrect}
+                onClassify={onClassify}
               />
             ))}
           </div>
@@ -412,11 +455,15 @@ function MonitoringTable({
 function MobileRecord({
   item,
   canCorrect,
+  canClassify,
   onCorrect,
+  onClassify,
 }: {
   item: AttendanceMonitoringRecord
   canCorrect: boolean
+  canClassify: boolean
   onCorrect: (item: AttendanceMonitoringRecord) => void
+  onClassify: (item: AttendanceMonitoringRecord) => void
 }) {
   return (
     <div className='space-y-3 rounded-lg border p-3'>
@@ -446,6 +493,15 @@ function MobileRecord({
           onClick={() => onCorrect(item)}
         >
           <Clock3 /> Ajukan koreksi
+        </Button>
+      )}
+      {canClassify && item.attendanceStatus === 'ABSENT' && (
+        <Button
+          variant='outline'
+          className='w-full'
+          onClick={() => onClassify(item)}
+        >
+          <CalendarRange /> Ajukan klasifikasi
         </Button>
       )}
     </div>

@@ -12,6 +12,17 @@ export type CorrectionApprovalStatus =
   | 'REJECTED'
   | 'CANCELLED'
 
+export type AttendanceClassificationType = 'LEAVE' | 'SICK' | 'PERMISSION'
+export type AttendanceClassificationApprovalStatus =
+  | 'PENDING'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'CANCELLED'
+export type AttendanceClassificationDetailOutcome =
+  | 'PENDING'
+  | 'APPLIED'
+  | 'SKIPPED_NON_WORKDAY'
+
 export type AttendanceDeviceType =
   | 'MOBILE_CAMERA'
   | 'USB_SCANNER'
@@ -46,6 +57,8 @@ export interface AttendanceFoundation {
   lookups: {
     attendanceStatuses: LookupOption<AttendanceStatus>[]
     correctionApprovalStatuses: LookupOption<CorrectionApprovalStatus>[]
+    classificationTypes: LookupOption<AttendanceClassificationType>[]
+    classificationApprovalStatuses: LookupOption<AttendanceClassificationApprovalStatus>[]
     deviceTypes: LookupOption<AttendanceDeviceType>[]
     productionModules: AttendanceProductionModuleLookup[]
     productionSections: AttendanceProductionSectionLookup[]
@@ -105,6 +118,24 @@ export interface AttendanceRepository {
     uid: string,
     input: AttendanceCorrectionReviewInput
   ): Promise<void>
+  listClassificationEmployees(
+    input: AttendanceClassificationEmployeeListParams
+  ): Promise<PaginatedAttendanceResult<AttendanceClassificationEmployee>>
+  listClassifications(
+    input: AttendanceClassificationListParams
+  ): Promise<PaginatedAttendanceResult<AttendanceClassification>>
+  getClassification(uid: string): Promise<AttendanceClassificationDetail>
+  createClassification(
+    input: AttendanceClassificationInput
+  ): Promise<{ uid: string; approvalStatus: 'PENDING' }>
+  reviewClassification(
+    uid: string,
+    input: AttendanceClassificationReviewInput
+  ): Promise<AttendanceClassificationReviewResult>
+  cancelClassification(uid: string): Promise<void>
+  uploadClassificationAttachment(
+    file: File
+  ): Promise<AttendanceClassificationAttachment>
 }
 
 export type AttendanceSiteCode = 'JEPARA' | 'SEMARANG' | 'KLATEN'
@@ -403,4 +434,99 @@ export interface AttendanceCorrectionInput {
 export interface AttendanceCorrectionReviewInput {
   decision: 'APPROVED' | 'REJECTED'
   reviewNotes?: string
+}
+
+export interface AttendanceClassificationEmployee {
+  uid: string
+  employeeNumber: string
+  fullName: string
+  employeeType: AttendanceEmployeeType
+  site: AttendanceSiteCode
+  shiftName?: string | null
+}
+
+export interface AttendanceClassificationEmployeeListParams {
+  query?: string
+  site?: AttendanceSiteCode
+  page: number
+  pageSize: number
+}
+
+export interface AttendanceClassificationAttachment {
+  uid: string
+  originalName: string
+  mimeType: string
+  sizeBytes: number
+  extension?: string
+  url?: string
+}
+
+export interface AttendanceClassification {
+  uid: string
+  employee: {
+    uid: string
+    employeeNumber: string
+    fullName: string
+    employeeType: AttendanceEmployeeType
+  }
+  site: AttendanceSiteCode
+  classificationType: AttendanceClassificationType
+  startDate: string
+  endDate: string
+  reason: string
+  approvalStatus: AttendanceClassificationApprovalStatus
+  requestedAt: string
+  requestedByName: string
+  reviewedAt?: string | null
+  reviewedByName?: string | null
+  reviewNotes?: string | null
+  detailCount: number
+  appliedCount: number
+  skippedCount: number
+  attachment?: AttendanceClassificationAttachment | null
+}
+
+export interface AttendanceClassificationDetailItem {
+  uid: string
+  businessDate: string
+  outcome: AttendanceClassificationDetailOutcome
+  attendanceUid?: string | null
+  shiftName?: string | null
+  notes?: string | null
+}
+
+export interface AttendanceClassificationDetail extends AttendanceClassification {
+  details: AttendanceClassificationDetailItem[]
+}
+
+export interface AttendanceClassificationListParams {
+  query?: string
+  site?: AttendanceSiteCode[]
+  classificationType?: AttendanceClassificationType[]
+  approvalStatus?: AttendanceClassificationApprovalStatus[]
+  dateFrom?: string
+  dateTo?: string
+  page: number
+  pageSize: number
+}
+
+export interface AttendanceClassificationInput {
+  employeeUid: string
+  startDate: string
+  endDate: string
+  classificationType: AttendanceClassificationType
+  reason: string
+  fileUid?: string | null
+}
+
+export interface AttendanceClassificationReviewInput {
+  decision: 'APPROVED' | 'REJECTED'
+  reviewNotes?: string | null
+}
+
+export interface AttendanceClassificationReviewResult {
+  uid: string
+  approvalStatus: 'APPROVED' | 'REJECTED'
+  appliedCount: number
+  skippedCount: number
 }

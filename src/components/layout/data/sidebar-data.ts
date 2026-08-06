@@ -63,6 +63,11 @@ export const sidebarData: SidebarData = {
               anyOfPermissions: ['attendance.correct', 'attendance.approve'],
             },
             {
+              title: 'Klasifikasi Attendance',
+              url: '/attendance/klasifikasi',
+              anyOfPermissions: ['attendance.correct', 'attendance.approve'],
+            },
+            {
               title: 'Master Shift',
               url: '/attendance/master-shift',
               anyOfPermissions: ['attendance.manage_shift'],

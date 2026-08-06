@@ -16,6 +16,11 @@ import { ApiError } from '../lib/errors.js'
 import { attendanceDevicesRouter } from './attendance-devices.js'
 import { attendanceTerminalRouter } from './attendance-terminal.js'
 import { attendanceCorrectionsRouter } from './attendance-corrections.js'
+import { attendanceClassificationsRouter } from './attendance-classifications.js'
+import {
+  attendanceClassificationApprovalStatuses,
+  attendanceClassificationTypes,
+} from '../lib/attendance-classification-policy.js'
 import {
   authenticate,
   requirePermission,
@@ -120,6 +125,7 @@ attendanceRouter.use(authenticate)
 attendanceRouter.use(attendanceDevicesRouter)
 attendanceRouter.use(attendanceTerminalRouter)
 attendanceRouter.use(attendanceCorrectionsRouter)
+attendanceRouter.use(attendanceClassificationsRouter)
 
 attendanceRouter.get(
   '/foundation',
@@ -160,6 +166,17 @@ attendanceRouter.get(
         lookups: {
           attendanceStatuses,
           correctionApprovalStatuses,
+          classificationTypes: [
+            { value: attendanceClassificationTypes[0], label: 'Cuti' },
+            { value: attendanceClassificationTypes[1], label: 'Sakit' },
+            { value: attendanceClassificationTypes[2], label: 'Izin' },
+          ],
+          classificationApprovalStatuses: [
+            { value: attendanceClassificationApprovalStatuses[0], label: 'Menunggu persetujuan' },
+            { value: attendanceClassificationApprovalStatuses[1], label: 'Disetujui' },
+            { value: attendanceClassificationApprovalStatuses[2], label: 'Ditolak' },
+            { value: attendanceClassificationApprovalStatuses[3], label: 'Dibatalkan' },
+          ],
           deviceTypes,
           productionModules,
           productionSections,

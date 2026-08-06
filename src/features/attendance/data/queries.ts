@@ -18,6 +18,10 @@ import type {
   AttendanceCorrectionListParams,
   AttendanceCorrectionInput,
   AttendanceCorrectionReviewInput,
+  AttendanceClassificationEmployeeListParams,
+  AttendanceClassificationListParams,
+  AttendanceClassificationInput,
+  AttendanceClassificationReviewInput,
 } from '../domain'
 import { httpAttendanceRepository } from './http-attendance-repository'
 
@@ -36,6 +40,13 @@ export const attendanceKeys = {
     [...attendanceKeys.all, 'monitoring', params] as const,
   corrections: (params?: AttendanceCorrectionListParams) =>
     [...attendanceKeys.all, 'corrections', params] as const,
+  classificationEmployees: (
+    params: AttendanceClassificationEmployeeListParams
+  ) => [...attendanceKeys.all, 'classification-employees', params] as const,
+  classifications: (params?: AttendanceClassificationListParams) =>
+    [...attendanceKeys.all, 'classifications', params] as const,
+  classification: (uid: string) =>
+    [...attendanceKeys.all, 'classifications', uid] as const,
 }
 
 export const attendanceFoundationOptions = () =>
@@ -170,3 +181,54 @@ export const useReviewAttendanceCorrection = () =>
     ({ uid, input }: { uid: string; input: AttendanceCorrectionReviewInput }) =>
       httpAttendanceRepository.reviewCorrection(uid, input)
   )
+
+export const useAttendanceClassificationEmployees = (
+  params: AttendanceClassificationEmployeeListParams,
+  enabled = true
+) =>
+  useQuery({
+    queryKey: attendanceKeys.classificationEmployees(params),
+    queryFn: () => httpAttendanceRepository.listClassificationEmployees(params),
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+
+export const useAttendanceClassifications = (
+  params: AttendanceClassificationListParams
+) =>
+  useQuery({
+    queryKey: attendanceKeys.classifications(params),
+    queryFn: () => httpAttendanceRepository.listClassifications(params),
+    placeholderData: keepPreviousData,
+  })
+
+export const useAttendanceClassification = (uid?: string) =>
+  useQuery({
+    queryKey: attendanceKeys.classification(uid ?? ''),
+    queryFn: () => httpAttendanceRepository.getClassification(uid!),
+    enabled: Boolean(uid),
+  })
+
+export const useCreateAttendanceClassification = () =>
+  useAttendanceMutation((input: AttendanceClassificationInput) =>
+    httpAttendanceRepository.createClassification(input)
+  )
+
+export const useReviewAttendanceClassification = () =>
+  useAttendanceMutation(
+    ({
+      uid,
+      input,
+    }: {
+      uid: string
+      input: AttendanceClassificationReviewInput
+    }) => httpAttendanceRepository.reviewClassification(uid, input)
+  )
+
+export const useCancelAttendanceClassification = () =>
+  useAttendanceMutation((uid: string) =>
+    httpAttendanceRepository.cancelClassification(uid)
+  )
+
+export const uploadAttendanceClassificationAttachment = (file: File) =>
+  httpAttendanceRepository.uploadClassificationAttachment(file)
