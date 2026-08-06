@@ -17,6 +17,7 @@ import {
 import { jakartaBusinessDate } from '../lib/attendance-shift-policy.js'
 import { writeAudit } from '../lib/audit.js'
 import { ApiError } from '../lib/errors.js'
+import { resolveAttendanceCalendarDay } from '../lib/attendance-calendar.js'
 import {
   requirePermission,
   type AuthContext,
@@ -149,7 +150,7 @@ const classificationSelect = `SELECT acr.uid,e.uid employeeUid,
   (SELECT COUNT(*) FROM attendance_classification_details detail
     WHERE detail.request_id=acr.id AND detail.outcome='APPLIED') appliedCount,
   (SELECT COUNT(*) FROM attendance_classification_details detail
-    WHERE detail.request_id=acr.id AND detail.outcome='SKIPPED_NON_WORKDAY') skippedCount,
+    WHERE detail.request_id=acr.id AND detail.outcome IN ('SKIPPED_NON_WORKDAY','SKIPPED_HOLIDAY')) skippedCount,
   f.uid attachmentUid,f.original_name attachmentName,
   f.mime_type attachmentMimeType,f.size_bytes attachmentSizeBytes,
   f.extension attachmentExtension,f.storage_path attachmentPath`
@@ -583,7 +584,8 @@ attendanceClassificationsRouter.post(
           ORDER BY esa.effective_from DESC,esa.id DESC FOR UPDATE`,
         [classification.employee_id, classification.end_date, classification.start_date]
       )
-      const resolved = dates.map((date) => {
+      const resolved = []
+      for (const date of dates) {
         const matches = assignments.filter(
           (assignment) =>
             assignment.effectiveFrom <= date &&
@@ -604,12 +606,19 @@ attendanceClassificationsRouter.post(
         if (parseWorkDays(matches[0].workDays).length === 0) {
           throw new ApiError(409, `Hari kerja Shift tanggal ${date} belum diatur.`)
         }
-        return {
+        const calendar = await resolveAttendanceCalendarDay({
+          siteId: Number(classification.site_id),
+          businessDate: date,
+          scheduledByShift: isScheduledWorkday(date, matches[0].workDays),
+          executor: conn,
+        })
+        resolved.push({
           date,
           assignment: matches[0],
-          isWorkday: isScheduledWorkday(date, matches[0].workDays),
-        }
-      })
+          calendar,
+          isWorkday: calendar.dayType === 'WORKDAY',
+        })
+      }
       const workdays = resolved.filter((item) => item.isWorkday)
       if (workdays.length) {
         const placeholders = workdays.map(() => '?').join(',')
@@ -701,12 +710,18 @@ attendanceClassificationsRouter.post(
             attendanceId = Number(attendance.id)
             await conn.execute(
               `UPDATE attendance_records
-                  SET site_id=?,shift_id=?,attendance_status=?,notes=?,updated_by=?
+                  SET site_id=?,shift_id=?,attendance_status=?,calendar_day_type=?,
+                      calendar_reason_type=?,calendar_event_id=?,calendar_site_rule_id=?,
+                      notes=?,updated_by=?
                 WHERE id=?`,
               [
                 classification.site_id,
                 item.assignment.shiftId,
                 classification.classification_type,
+                item.calendar.dayType,
+                item.calendar.reasonType,
+                item.calendar.eventId,
+                item.calendar.siteRuleId,
                 classification.reason,
                 auth.id,
                 attendanceId,
@@ -717,8 +732,9 @@ attendanceClassificationsRouter.post(
             const [inserted] = await conn.execute<ResultSetHeader>(
               `INSERT INTO attendance_records
                 (uid,employee_id,site_id,shift_id,business_date,attendance_status,
-                 notes,created_by,updated_by)
-               VALUES(?,?,?,?,?,?,?,?,?)`,
+                 calendar_day_type,calendar_reason_type,calendar_event_id,
+                 calendar_site_rule_id,notes,created_by,updated_by)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
               [
                 attendanceUid,
                 classification.employee_id,
@@ -726,6 +742,10 @@ attendanceClassificationsRouter.post(
                 item.assignment.shiftId,
                 item.date,
                 classification.classification_type,
+                item.calendar.dayType,
+                item.calendar.reasonType,
+                item.calendar.eventId,
+                item.calendar.siteRuleId,
                 classification.reason,
                 auth.id,
                 auth.id,
@@ -749,12 +769,22 @@ attendanceClassificationsRouter.post(
         }
       }
       for (const item of resolved.filter((entry) => !entry.isWorkday)) {
+        const holiday = item.calendar.dayType === 'HOLIDAY'
         await conn.execute(
           `UPDATE attendance_classification_details
               SET shift_assignment_id=?,attendance_record_id=NULL,
-                  outcome='SKIPPED_NON_WORKDAY',notes='Hari nonkerja dilewati otomatis.',
+                  outcome=?,notes=?,
                   updated_by=? WHERE request_id=? AND business_date=?`,
-          [item.assignment.id, auth.id, classification.id, item.date]
+          [
+            item.assignment.id,
+            holiday ? 'SKIPPED_HOLIDAY' : 'SKIPPED_NON_WORKDAY',
+            holiday
+              ? `${item.calendar.name ?? 'Hari libur'} dilewati otomatis.`
+              : 'Hari nonkerja dilewati otomatis.',
+            auth.id,
+            classification.id,
+            item.date,
+          ]
         )
       }
       await conn.execute(

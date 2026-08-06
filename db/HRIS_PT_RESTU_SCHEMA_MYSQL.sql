@@ -817,6 +817,58 @@ CREATE TABLE generated_documents (
 -- D. SHIFT DAN ATTENDANCE
 -- ============================================================================
 
+CREATE TABLE attendance_calendar_events (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  event_date DATE NOT NULL,
+  event_type VARCHAR(30) NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  source_document VARCHAR(255) NULL,
+  source_url VARCHAR(500) NULL,
+  cancelled_at DATETIME(3) NULL,
+  cancelled_by BIGINT UNSIGNED NULL,
+  cancellation_reason VARCHAR(500) NULL,
+  active_key TINYINT GENERATED ALWAYS AS (IF(cancelled_at IS NULL,1,NULL)) STORED,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_attendance_calendar_events_uid (uid),
+  UNIQUE KEY uq_attendance_calendar_event_active (event_date,event_type,active_key),
+  KEY idx_attendance_calendar_event_date (event_date,event_type,cancelled_at),
+  CONSTRAINT chk_attendance_calendar_event_type CHECK (event_type IN ('NATIONAL_HOLIDAY','COLLECTIVE_LEAVE')),
+  CONSTRAINT fk_attendance_calendar_event_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE attendance_calendar_site_rules (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  site_id BIGINT UNSIGNED NOT NULL,
+  business_date DATE NOT NULL,
+  rule_type VARCHAR(30) NOT NULL,
+  calendar_event_id BIGINT UNSIGNED NULL,
+  name VARCHAR(150) NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  cancelled_at DATETIME(3) NULL,
+  cancelled_by BIGINT UNSIGNED NULL,
+  cancellation_reason VARCHAR(500) NULL,
+  active_key TINYINT GENERATED ALWAYS AS (IF(cancelled_at IS NULL,1,NULL)) STORED,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_attendance_calendar_site_rules_uid (uid),
+  UNIQUE KEY uq_attendance_calendar_site_rule_active (site_id,business_date,rule_type,active_key),
+  KEY idx_attendance_calendar_site_date (site_id,business_date,cancelled_at),
+  KEY idx_attendance_calendar_site_event (calendar_event_id),
+  CONSTRAINT chk_attendance_calendar_site_rule_type CHECK (rule_type IN ('COLLECTIVE_LEAVE','SITE_HOLIDAY','WORKDAY_OVERRIDE')),
+  CONSTRAINT fk_attendance_calendar_site_rule_site FOREIGN KEY (site_id) REFERENCES sites(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_attendance_calendar_site_rule_event FOREIGN KEY (calendar_event_id) REFERENCES attendance_calendar_events(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_attendance_calendar_site_rule_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE shifts (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   uid CHAR(36) NOT NULL,
@@ -902,6 +954,10 @@ CREATE TABLE attendance_records (
   shift_id BIGINT UNSIGNED NULL,
   business_date DATE NOT NULL,
   attendance_status VARCHAR(20) NOT NULL DEFAULT 'PRESENT',
+  calendar_day_type VARCHAR(20) NULL,
+  calendar_reason_type VARCHAR(30) NULL,
+  calendar_event_id BIGINT UNSIGNED NULL,
+  calendar_site_rule_id BIGINT UNSIGNED NULL,
   clock_in_at DATETIME(3) NULL,
   clock_out_at DATETIME(3) NULL,
   clock_in_device_id BIGINT UNSIGNED NULL,
@@ -927,10 +983,14 @@ CREATE TABLE attendance_records (
   KEY idx_attendance_clock_in_device (clock_in_device_id),
   KEY idx_attendance_clock_out_device (clock_out_device_id),
   CONSTRAINT chk_attendance_status CHECK (attendance_status IN ('PRESENT', 'ABSENT', 'LEAVE', 'SICK', 'PERMISSION', 'HOLIDAY')),
+  CONSTRAINT chk_attendance_calendar_day_type CHECK (calendar_day_type IN ('WORKDAY','HOLIDAY','NON_WORKDAY')),
+  CONSTRAINT chk_attendance_calendar_reason_type CHECK (calendar_reason_type IN ('SHIFT_WEEKDAY','WEEKLY_OFF','NATIONAL_HOLIDAY','COLLECTIVE_LEAVE','SITE_HOLIDAY','WORKDAY_OVERRIDE')),
   CONSTRAINT chk_attendance_clock_order CHECK (clock_out_at IS NULL OR clock_in_at IS NULL OR clock_out_at >= clock_in_at),
   CONSTRAINT chk_attendance_corrected CHECK (is_corrected IN (0, 1)),
   CONSTRAINT fk_attendance_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_attendance_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_attendance_calendar_event FOREIGN KEY (calendar_event_id) REFERENCES attendance_calendar_events(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_attendance_calendar_site_rule FOREIGN KEY (calendar_site_rule_id) REFERENCES attendance_calendar_site_rules(id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_attendance_shift FOREIGN KEY (shift_id) REFERENCES shifts (id) ON UPDATE CASCADE ON DELETE SET NULL,
   CONSTRAINT fk_attendance_clock_in_device FOREIGN KEY (clock_in_device_id) REFERENCES scan_devices (id) ON UPDATE CASCADE ON DELETE SET NULL,
   CONSTRAINT fk_attendance_clock_out_device FOREIGN KEY (clock_out_device_id) REFERENCES scan_devices (id) ON UPDATE CASCADE ON DELETE SET NULL,
@@ -1060,7 +1120,7 @@ CREATE TABLE attendance_classification_details (
   UNIQUE KEY uq_attendance_classification_request_date (request_id, business_date),
   KEY idx_attendance_classification_detail_employee_date (employee_id, business_date, outcome),
   KEY idx_attendance_classification_detail_attendance (attendance_record_id),
-  CONSTRAINT chk_attendance_classification_outcome CHECK (outcome IN ('PENDING', 'APPLIED', 'SKIPPED_NON_WORKDAY')),
+  CONSTRAINT chk_attendance_classification_outcome CHECK (outcome IN ('PENDING', 'APPLIED', 'SKIPPED_NON_WORKDAY', 'SKIPPED_HOLIDAY')),
   CONSTRAINT fk_attendance_classification_detail_request FOREIGN KEY (request_id) REFERENCES attendance_classification_requests(id) ON UPDATE CASCADE ON DELETE CASCADE,
   CONSTRAINT fk_attendance_classification_detail_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_attendance_classification_detail_shift_assignment FOREIGN KEY (shift_assignment_id) REFERENCES employee_shift_assignments(id) ON UPDATE CASCADE ON DELETE SET NULL,
@@ -1593,6 +1653,38 @@ SELECT
 FROM sites s
 WHERE s.code IN ('JEPARA', 'SEMARANG', 'KLATEN');
 
+-- Kalender resmi 2026 berdasarkan SKB Menteri Agama No. 1497/2025,
+-- Menteri Ketenagakerjaan No. 2/2025, dan Menteri PANRB No. 5/2025.
+-- COLLECTIVE_LEAVE hanya katalog; site wajib memilihnya secara eksplisit.
+INSERT INTO attendance_calendar_events
+  (uid,event_date,event_type,name,source_document,source_url)
+VALUES
+  (UUID(),'2026-01-01','NATIONAL_HOLIDAY','Tahun Baru 2026 Masehi','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-01-16','NATIONAL_HOLIDAY','Isra Mikraj Nabi Muhammad SAW','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-02-17','NATIONAL_HOLIDAY','Tahun Baru Imlek 2577 Kongzili','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-03-19','NATIONAL_HOLIDAY','Hari Suci Nyepi Tahun Baru Saka 1948','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-03-21','NATIONAL_HOLIDAY','Hari Raya Idul Fitri 1447 H','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-03-22','NATIONAL_HOLIDAY','Hari Raya Idul Fitri 1447 H','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-04-03','NATIONAL_HOLIDAY','Wafat Yesus Kristus','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-04-05','NATIONAL_HOLIDAY','Kebangkitan Yesus Kristus (Paskah)','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-05-01','NATIONAL_HOLIDAY','Hari Buruh Internasional','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-05-14','NATIONAL_HOLIDAY','Kenaikan Yesus Kristus','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-05-27','NATIONAL_HOLIDAY','Hari Raya Idul Adha 1447 H','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-05-31','NATIONAL_HOLIDAY','Hari Raya Waisak 2570 BE','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-06-01','NATIONAL_HOLIDAY','Hari Lahir Pancasila','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-06-16','NATIONAL_HOLIDAY','1 Muharam 1448 H Tahun Baru Islam','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-08-17','NATIONAL_HOLIDAY','Hari Proklamasi Kemerdekaan RI','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-08-25','NATIONAL_HOLIDAY','Maulid Nabi Muhammad SAW','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-12-25','NATIONAL_HOLIDAY','Kelahiran Yesus Kristus','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-02-16','COLLECTIVE_LEAVE','Cuti Bersama Tahun Baru Imlek 2577 Kongzili','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-03-18','COLLECTIVE_LEAVE','Cuti Bersama Hari Suci Nyepi','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-03-20','COLLECTIVE_LEAVE','Cuti Bersama Hari Raya Idul Fitri 1447 H','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-03-23','COLLECTIVE_LEAVE','Cuti Bersama Hari Raya Idul Fitri 1447 H','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-03-24','COLLECTIVE_LEAVE','Cuti Bersama Hari Raya Idul Fitri 1447 H','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-05-15','COLLECTIVE_LEAVE','Cuti Bersama Kenaikan Yesus Kristus','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-05-28','COLLECTIVE_LEAVE','Cuti Bersama Hari Raya Idul Adha 1447 H','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045'),
+  (UUID(),'2026-12-24','COLLECTIVE_LEAVE','Cuti Bersama Kelahiran Yesus Kristus','SKB 3 Menteri No. 1497/2025, 2/2025, dan 5/2025','https://jdih.menpan.go.id/dokumen-hukum/keputusan-bersama-menteri-agama-menteri-ketenagakerjaan-dan-menteri-pendayagunaan-aparatur-negara-2045');
+
 INSERT INTO work_units (uid, code, name, decimal_precision)
 VALUES
   (UUID(), 'PCS', 'Pcs / Batang', 0),
@@ -1622,6 +1714,7 @@ VALUES
   (UUID(), 'attendance.approve', 'attendance', 'Setujui Koreksi Attendance'),
   (UUID(), 'attendance.manage_shift', 'attendance', 'Kelola Shift Attendance'),
   (UUID(), 'attendance.manage_device', 'attendance', 'Kelola Perangkat Attendance'),
+  (UUID(), 'attendance.manage_calendar', 'attendance', 'Kelola Kalender Attendance'),
   (UUID(), 'attendance.export', 'attendance', 'Ekspor Attendance'),
   (UUID(), 'production.view', 'production', 'Lihat Produksi'),
   (UUID(), 'production.scan', 'production', 'Input Setoran Produksi'),

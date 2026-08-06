@@ -2,6 +2,7 @@ import {
   BadgeDollarSign,
   Building2,
   CalendarClock,
+  CalendarDays,
   ClipboardCheck,
   Database,
   FileBarChart,
@@ -71,6 +72,12 @@ export const sidebarData: SidebarData = {
               title: 'Master Shift',
               url: '/attendance/master-shift',
               anyOfPermissions: ['attendance.manage_shift'],
+            },
+            {
+              title: 'Kalender Kerja & Libur',
+              url: '/attendance/kalender-kerja',
+              icon: CalendarDays,
+              anyOfPermissions: ['attendance.view'],
             },
             {
               title: 'Master Perangkat',

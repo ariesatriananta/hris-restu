@@ -543,7 +543,8 @@ function CreateClassificationDialog({
         <DialogHeader>
           <DialogTitle>Ajukan Klasifikasi Attendance</DialogTitle>
           <DialogDescription>
-            Hari nonkerja dalam rentang akan dilewati otomatis saat disetujui.
+            Hari libur kalender dalam rentang akan dilewati otomatis saat
+            disetujui.
           </DialogDescription>
         </DialogHeader>
         <form id='classification-form' className='grid gap-4' onSubmit={submit}>
@@ -922,8 +923,8 @@ function ClassificationDetailDialog({
                     onChange={(event) => setNotes(event.target.value)}
                   />
                   <p className='text-xs text-muted-foreground'>
-                    HR dapat menyetujui pengajuan sendiri. Hari nonkerja tidak
-                    dibuat sebagai attendance.
+                    HR dapat menyetujui pengajuan sendiri. Hari libur kalender
+                    tidak dibuat sebagai attendance.
                   </p>
                   <div className='flex flex-col-reverse gap-2 sm:flex-row sm:justify-end'>
                     <Button
@@ -1013,7 +1014,7 @@ function ApprovalBadge({
 function OutcomeBadge({
   value,
 }: {
-  value: 'PENDING' | 'APPLIED' | 'SKIPPED_NON_WORKDAY'
+  value: 'PENDING' | 'APPLIED' | 'SKIPPED_NON_WORKDAY' | 'SKIPPED_HOLIDAY'
 }) {
   return (
     <Badge
@@ -1029,7 +1030,9 @@ function OutcomeBadge({
         ? 'Diterapkan'
         : value === 'PENDING'
           ? 'Menunggu'
-          : 'Hari nonkerja'}
+          : value === 'SKIPPED_HOLIDAY'
+            ? 'Dilewati · hari libur'
+            : 'Dilewati · tidak ada jadwal'}
     </Badge>
   )
 }

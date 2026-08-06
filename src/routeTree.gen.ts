@@ -43,6 +43,7 @@ import { Route as AuthenticatedAttendanceMasterShiftRouteImport } from './routes
 import { Route as AuthenticatedAttendanceMasterPerangkatRouteImport } from './routes/_authenticated/attendance/master-perangkat'
 import { Route as AuthenticatedAttendanceKoreksiRouteImport } from './routes/_authenticated/attendance/koreksi'
 import { Route as AuthenticatedAttendanceKlasifikasiRouteImport } from './routes/_authenticated/attendance/klasifikasi'
+import { Route as AuthenticatedAttendanceKalenderKerjaRouteImport } from './routes/_authenticated/attendance/kalender-kerja'
 import { Route as AuthenticatedAdministrasiUserHakAksesRouteImport } from './routes/_authenticated/administrasi/user-hak-akses'
 import { Route as AuthenticatedAdministrasiTemplateDokumenRouteImport } from './routes/_authenticated/administrasi/template-dokumen'
 import { Route as AuthenticatedAdministrasiPengaturanRouteImport } from './routes/_authenticated/administrasi/pengaturan'
@@ -257,6 +258,12 @@ const AuthenticatedAttendanceKlasifikasiRoute =
     path: '/attendance/klasifikasi',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAttendanceKalenderKerjaRoute =
+  AuthenticatedAttendanceKalenderKerjaRouteImport.update({
+    id: '/attendance/kalender-kerja',
+    path: '/attendance/kalender-kerja',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAdministrasiUserHakAksesRoute =
   AuthenticatedAdministrasiUserHakAksesRouteImport.update({
     id: '/administrasi/user-hak-akses',
@@ -387,6 +394,7 @@ export interface FileRoutesByFullPath {
   '/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
   '/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
   '/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
+  '/attendance/kalender-kerja': typeof AuthenticatedAttendanceKalenderKerjaRoute
   '/attendance/klasifikasi': typeof AuthenticatedAttendanceKlasifikasiRoute
   '/attendance/koreksi': typeof AuthenticatedAttendanceKoreksiRoute
   '/attendance/master-perangkat': typeof AuthenticatedAttendanceMasterPerangkatRoute
@@ -441,6 +449,7 @@ export interface FileRoutesByTo {
   '/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
   '/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
   '/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
+  '/attendance/kalender-kerja': typeof AuthenticatedAttendanceKalenderKerjaRoute
   '/attendance/klasifikasi': typeof AuthenticatedAttendanceKlasifikasiRoute
   '/attendance/koreksi': typeof AuthenticatedAttendanceKoreksiRoute
   '/attendance/master-perangkat': typeof AuthenticatedAttendanceMasterPerangkatRoute
@@ -497,6 +506,7 @@ export interface FileRoutesById {
   '/_authenticated/administrasi/pengaturan': typeof AuthenticatedAdministrasiPengaturanRoute
   '/_authenticated/administrasi/template-dokumen': typeof AuthenticatedAdministrasiTemplateDokumenRoute
   '/_authenticated/administrasi/user-hak-akses': typeof AuthenticatedAdministrasiUserHakAksesRoute
+  '/_authenticated/attendance/kalender-kerja': typeof AuthenticatedAttendanceKalenderKerjaRoute
   '/_authenticated/attendance/klasifikasi': typeof AuthenticatedAttendanceKlasifikasiRoute
   '/_authenticated/attendance/koreksi': typeof AuthenticatedAttendanceKoreksiRoute
   '/_authenticated/attendance/master-perangkat': typeof AuthenticatedAttendanceMasterPerangkatRoute
@@ -553,6 +563,7 @@ export interface FileRouteTypes {
     | '/administrasi/pengaturan'
     | '/administrasi/template-dokumen'
     | '/administrasi/user-hak-akses'
+    | '/attendance/kalender-kerja'
     | '/attendance/klasifikasi'
     | '/attendance/koreksi'
     | '/attendance/master-perangkat'
@@ -607,6 +618,7 @@ export interface FileRouteTypes {
     | '/administrasi/pengaturan'
     | '/administrasi/template-dokumen'
     | '/administrasi/user-hak-akses'
+    | '/attendance/kalender-kerja'
     | '/attendance/klasifikasi'
     | '/attendance/koreksi'
     | '/attendance/master-perangkat'
@@ -662,6 +674,7 @@ export interface FileRouteTypes {
     | '/_authenticated/administrasi/pengaturan'
     | '/_authenticated/administrasi/template-dokumen'
     | '/_authenticated/administrasi/user-hak-akses'
+    | '/_authenticated/attendance/kalender-kerja'
     | '/_authenticated/attendance/klasifikasi'
     | '/_authenticated/attendance/koreksi'
     | '/_authenticated/attendance/master-perangkat'
@@ -952,6 +965,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAttendanceKlasifikasiRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/attendance/kalender-kerja': {
+      id: '/_authenticated/attendance/kalender-kerja'
+      path: '/attendance/kalender-kerja'
+      fullPath: '/attendance/kalender-kerja'
+      preLoaderRoute: typeof AuthenticatedAttendanceKalenderKerjaRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/administrasi/user-hak-akses': {
       id: '/_authenticated/administrasi/user-hak-akses'
       path: '/administrasi/user-hak-akses'
@@ -1201,6 +1221,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdministrasiPengaturanRoute: typeof AuthenticatedAdministrasiPengaturanRoute
   AuthenticatedAdministrasiTemplateDokumenRoute: typeof AuthenticatedAdministrasiTemplateDokumenRoute
   AuthenticatedAdministrasiUserHakAksesRoute: typeof AuthenticatedAdministrasiUserHakAksesRoute
+  AuthenticatedAttendanceKalenderKerjaRoute: typeof AuthenticatedAttendanceKalenderKerjaRoute
   AuthenticatedAttendanceKlasifikasiRoute: typeof AuthenticatedAttendanceKlasifikasiRoute
   AuthenticatedAttendanceKoreksiRoute: typeof AuthenticatedAttendanceKoreksiRoute
   AuthenticatedAttendanceMasterPerangkatRoute: typeof AuthenticatedAttendanceMasterPerangkatRoute
@@ -1245,6 +1266,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedAdministrasiTemplateDokumenRoute,
   AuthenticatedAdministrasiUserHakAksesRoute:
     AuthenticatedAdministrasiUserHakAksesRoute,
+  AuthenticatedAttendanceKalenderKerjaRoute:
+    AuthenticatedAttendanceKalenderKerjaRoute,
   AuthenticatedAttendanceKlasifikasiRoute:
     AuthenticatedAttendanceKlasifikasiRoute,
   AuthenticatedAttendanceKoreksiRoute: AuthenticatedAttendanceKoreksiRoute,

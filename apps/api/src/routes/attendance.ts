@@ -17,6 +17,7 @@ import { attendanceDevicesRouter } from './attendance-devices.js'
 import { attendanceTerminalRouter } from './attendance-terminal.js'
 import { attendanceCorrectionsRouter } from './attendance-corrections.js'
 import { attendanceClassificationsRouter } from './attendance-classifications.js'
+import { attendanceCalendarRouter } from './attendance-calendar.js'
 import {
   attendanceClassificationApprovalStatuses,
   attendanceClassificationTypes,
@@ -126,6 +127,7 @@ attendanceRouter.use(attendanceDevicesRouter)
 attendanceRouter.use(attendanceTerminalRouter)
 attendanceRouter.use(attendanceCorrectionsRouter)
 attendanceRouter.use(attendanceClassificationsRouter)
+attendanceRouter.use(attendanceCalendarRouter)
 
 attendanceRouter.get(
   '/foundation',

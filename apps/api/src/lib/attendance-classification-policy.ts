@@ -17,6 +17,7 @@ export const attendanceClassificationOutcomes = [
   'PENDING',
   'APPLIED',
   'SKIPPED_NON_WORKDAY',
+  'SKIPPED_HOLIDAY',
 ] as const
 
 export const attendanceClassificationRequestInput = z

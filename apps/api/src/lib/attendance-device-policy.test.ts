@@ -107,15 +107,33 @@ describe('attendance device policy', () => {
     ).toThrow('ambigu')
   })
 
-  it('tidak menimpa status ketidakhadiran melalui terminal scan', () => {
+  it('tetap memilih assignment aktif saat scan jatuh pada hari nonkerja', () => {
+    const input = {
+      currentDate: '2026-08-09',
+      previousDate: '2026-08-08',
+      currentTime: '15:00:00',
+      assignments: [
+        {
+          effectiveFrom: '2026-01-01',
+          effectiveTo: null,
+          workDays: [1, 2, 3, 4, 5],
+          endTime: '15:00:00',
+          crossesMidnight: false,
+          shiftId: 7,
+        },
+      ],
+    }
+    expect(selectClosestShiftEnd(input)).toBeUndefined()
+    expect(
+      selectClosestShiftEnd({ ...input, includeNonWorkdays: true })?.businessDate
+    ).toBe('2026-08-09')
+  })
+
+  it('menerima fakta scan di record absent/libur tanpa menimpa klasifikasi', () => {
     expect(canClockInExistingAttendance('PRESENT')).toBe(true)
-    for (const status of [
-      'ABSENT',
-      'LEAVE',
-      'SICK',
-      'PERMISSION',
-      'HOLIDAY',
-    ]) {
+    expect(canClockInExistingAttendance('ABSENT')).toBe(true)
+    expect(canClockInExistingAttendance('HOLIDAY')).toBe(true)
+    for (const status of ['LEAVE', 'SICK', 'PERMISSION']) {
       expect(canClockInExistingAttendance(status)).toBe(false)
     }
   })

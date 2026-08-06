@@ -22,6 +22,7 @@ export type AttendanceClassificationDetailOutcome =
   | 'PENDING'
   | 'APPLIED'
   | 'SKIPPED_NON_WORKDAY'
+  | 'SKIPPED_HOLIDAY'
 
 export type AttendanceDeviceType =
   | 'MOBILE_CAMERA'
@@ -36,6 +37,7 @@ export interface AttendanceCapabilities {
   approve: boolean
   manageShift: boolean
   manageDevice: boolean
+  manageCalendar?: boolean
   export: boolean
 }
 

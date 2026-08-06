@@ -13,6 +13,7 @@ import {
   terminalScanInput,
 } from '../lib/attendance-device-policy.js'
 import { deriveAttendanceQuality } from '../lib/attendance-correction-policy.js'
+import { resolveAttendanceCalendarDay } from '../lib/attendance-calendar.js'
 import { ApiError } from '../lib/errors.js'
 import {
   requirePermission,
@@ -43,6 +44,7 @@ type ShiftContext = {
   crossesMidnight: number
   lateToleranceMinutes: number
   earlyLeaveToleranceMinutes: number
+  workDays: number[]
 }
 
 type ShiftEndCandidate = Omit<ShiftContext, 'crossesMidnight'> & {
@@ -345,7 +347,12 @@ attendanceTerminalRouter.post(
                   sh.id shiftId,sh.start_time startTime,sh.end_time endTime,
                   sh.crosses_midnight crossesMidnight,
                   sh.late_tolerance_minutes lateToleranceMinutes,
-                  sh.early_leave_tolerance_minutes earlyLeaveToleranceMinutes
+                  sh.early_leave_tolerance_minutes earlyLeaveToleranceMinutes,
+                  (SELECT esa.work_days_json FROM employee_shift_assignments esa
+                    WHERE esa.employee_id=ar.employee_id AND esa.shift_id=ar.shift_id
+                      AND esa.effective_from<=ar.business_date
+                      AND (esa.effective_to IS NULL OR esa.effective_to>=ar.business_date)
+                    ORDER BY esa.effective_from DESC,esa.id DESC LIMIT 1) workDays
              FROM attendance_records ar
              JOIN shifts sh ON sh.id=ar.shift_id
             WHERE ar.employee_id=? AND ar.site_id=?
@@ -376,6 +383,7 @@ attendanceTerminalRouter.post(
             crossesMidnight: Number(open.crossesMidnight),
             lateToleranceMinutes: Number(open.lateToleranceMinutes),
             earlyLeaveToleranceMinutes: Number(open.earlyLeaveToleranceMinutes),
+            workDays: parseWorkDays(open.workDays),
           }
           businessDate = String(open.businessDate)
         } else {
@@ -423,6 +431,7 @@ attendanceTerminalRouter.post(
                   candidate.earlyLeaveToleranceMinutes
                 ),
               })),
+              includeNonWorkdays: true,
             })
           } catch (error) {
             if (error instanceof ApiError) return await reject(error.message)
@@ -439,6 +448,7 @@ attendanceTerminalRouter.post(
             crossesMidnight: selected.crossesMidnight ? 1 : 0,
             lateToleranceMinutes: Number(selected.lateToleranceMinutes),
             earlyLeaveToleranceMinutes: Number(selected.earlyLeaveToleranceMinutes),
+            workDays: selected.workDays,
           }
           businessDate = closest.businessDate
           const [attendanceRows] = await conn.query<RowDataPacket[]>(
@@ -487,8 +497,7 @@ attendanceTerminalRouter.post(
           })
           return (
             candidate.effectiveFrom <= candidateDate &&
-            (!candidate.effectiveTo || candidate.effectiveTo >= candidateDate) &&
-            parseWorkDays(candidate.workDays).includes(isoWeekday(candidateDate))
+            (!candidate.effectiveTo || candidate.effectiveTo >= candidateDate)
           )
         })
         if (!assignments.length) {
@@ -505,6 +514,7 @@ attendanceTerminalRouter.post(
           crossesMidnight: Number(selected.crossesMidnight),
           lateToleranceMinutes: Number(selected.lateToleranceMinutes),
           earlyLeaveToleranceMinutes: Number(selected.earlyLeaveToleranceMinutes),
+          workDays: parseWorkDays(selected.workDays),
         }
         businessDate = shiftBusinessDate({
           currentDate: time.currentDate,
@@ -533,6 +543,14 @@ attendanceTerminalRouter.post(
           : undefined
       }
 
+      const calendar = await resolveAttendanceCalendarDay({
+        siteId: Number(device.siteId),
+        businessDate,
+        scheduledByShift: assignment.workDays.includes(isoWeekday(businessDate)),
+        executor: conn,
+      })
+      const offDay = calendar.dayType !== 'WORKDAY'
+
       if (input.eventType === 'CLOCK_IN') {
         if (
           attendance &&
@@ -556,19 +574,26 @@ attendanceTerminalRouter.post(
           [businessDate, assignment.startTime, scanTime]
         )
         const delayMinutes = Number(metricRows[0].delayMinutes ?? 0)
-        const lateMinutes =
+        const lateMinutes = offDay
+          ? 0
+          :
           delayMinutes > Number(assignment.lateToleranceMinutes)
             ? delayMinutes
             : 0
         if (attendance) {
           await conn.execute(
             `UPDATE attendance_records
-                SET shift_id=?,attendance_status='PRESENT',clock_in_at=?,
+                SET shift_id=?,attendance_status='PRESENT',calendar_day_type=?,
+                    calendar_reason_type=?,calendar_event_id=?,calendar_site_rule_id=?,clock_in_at=?,
                     clock_in_device_id=?,clock_in_source='TERMINAL',late_minutes=?,
                     updated_by=?
               WHERE id=?`,
             [
               assignment.shiftId,
+              calendar.dayType,
+              calendar.reasonType,
+              calendar.eventId,
+              calendar.siteRuleId,
               scanTime,
               device.id,
               lateMinutes,
@@ -581,15 +606,20 @@ attendanceTerminalRouter.post(
           const [insertResult] = await conn.execute<ResultSetHeader>(
             `INSERT INTO attendance_records
               (uid,employee_id,site_id,shift_id,business_date,attendance_status,
+               calendar_day_type,calendar_reason_type,calendar_event_id,calendar_site_rule_id,
                clock_in_at,clock_in_device_id,clock_in_source,late_minutes,
                created_by,updated_by)
-             VALUES(?,?,?,?,?,'PRESENT',?,?,'TERMINAL',?,?,?)`,
+             VALUES(?,?,?,?,?,'PRESENT',?,?,?,?,?,?,'TERMINAL',?,?,?)`,
             [
               attendanceUid,
               employee.id,
               device.siteId,
               assignment.shiftId,
               businessDate,
+              calendar.dayType,
+              calendar.reasonType,
+              calendar.eventId,
+              calendar.siteRuleId,
               scanTime,
               device.id,
               lateMinutes,
@@ -606,7 +636,10 @@ attendanceTerminalRouter.post(
           }
         }
       } else {
-        if (attendance && attendance.attendanceStatus !== 'PRESENT') {
+        if (
+          attendance &&
+          !canClockInExistingAttendance(attendance.attendanceStatus)
+        ) {
           eventContext.attendanceRecordId = attendance.id
           return await reject(
             `Attendance berstatus ${attendance.attendanceStatus} dan hanya dapat diubah melalui koreksi HR.`
@@ -626,7 +659,9 @@ attendanceTerminalRouter.post(
           ]
         )
         const rawEarlyMinutes = Number(metricRows[0].earlyMinutes ?? 0)
-        const earlyLeaveMinutes =
+        const earlyLeaveMinutes = offDay
+          ? 0
+          :
           rawEarlyMinutes > Number(assignment.earlyLeaveToleranceMinutes)
             ? rawEarlyMinutes
             : 0
@@ -641,12 +676,17 @@ attendanceTerminalRouter.post(
         if (attendance) {
           await conn.execute(
             `UPDATE attendance_records
-                SET shift_id=?,attendance_status='PRESENT',clock_out_at=?,
+                SET shift_id=?,attendance_status='PRESENT',calendar_day_type=?,
+                    calendar_reason_type=?,calendar_event_id=?,calendar_site_rule_id=?,clock_out_at=?,
                     clock_out_device_id=?,clock_out_source='TERMINAL',
                     early_leave_minutes=?,worked_minutes=?,updated_by=?
               WHERE id=?`,
             [
               assignment.shiftId,
+              calendar.dayType,
+              calendar.reasonType,
+              calendar.eventId,
+              calendar.siteRuleId,
               scanTime,
               device.id,
               earlyLeaveMinutes,
@@ -660,15 +700,20 @@ attendanceTerminalRouter.post(
           const [insertResult] = await conn.execute<ResultSetHeader>(
             `INSERT INTO attendance_records
               (uid,employee_id,site_id,shift_id,business_date,attendance_status,
+               calendar_day_type,calendar_reason_type,calendar_event_id,calendar_site_rule_id,
                clock_out_at,clock_out_device_id,clock_out_source,
                early_leave_minutes,worked_minutes,created_by,updated_by)
-             VALUES(?,?,?,?,?,'PRESENT',?,?,'TERMINAL',?,?,?,?)`,
+             VALUES(?,?,?,?,?,'PRESENT',?,?,?,?,?,?,'TERMINAL',?,?,?,?)`,
             [
               attendanceUid,
               employee.id,
               device.siteId,
               assignment.shiftId,
               businessDate,
+              calendar.dayType,
+              calendar.reasonType,
+              calendar.eventId,
+              calendar.siteRuleId,
               scanTime,
               device.id,
               earlyLeaveMinutes,

@@ -22,6 +22,7 @@ describe('attendance policy', () => {
       approve: false,
       manageShift: false,
       manageDevice: false,
+      manageCalendar: false,
       export: true,
     })
   })

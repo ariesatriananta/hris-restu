@@ -104,6 +104,7 @@ export function selectClosestShiftEnd<T extends {
   currentDate: string
   previousDate: string
   currentTime: string
+  includeNonWorkdays?: boolean
 }) {
   const scanAt = Date.parse(`${input.currentDate}T${input.currentTime}Z`)
   const candidates = input.assignments.flatMap((assignment) =>
@@ -112,7 +113,8 @@ export function selectClosestShiftEnd<T extends {
         (businessDate) =>
           assignment.effectiveFrom <= businessDate &&
           (!assignment.effectiveTo || assignment.effectiveTo >= businessDate) &&
-          assignment.workDays.includes(isoWeekday(businessDate))
+          (input.includeNonWorkdays ||
+            assignment.workDays.includes(isoWeekday(businessDate)))
       )
       .map((businessDate) => {
         const endDate = assignment.crossesMidnight
@@ -159,5 +161,5 @@ export function selectSingleOpenAttendance<T>(records: T[]) {
 }
 
 export function canClockInExistingAttendance(status: string) {
-  return status === 'PRESENT'
+  return ['PRESENT', 'ABSENT', 'HOLIDAY'].includes(status)
 }
