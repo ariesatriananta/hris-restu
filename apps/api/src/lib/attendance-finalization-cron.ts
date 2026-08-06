@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { RowDataPacket } from 'mysql2'
 import { pool } from '../db.js'
-import { finalizeAttendanceDay, hasDueAttendanceShift } from './attendance-finalization.js'
+import {
+  finalizeAttendanceDay,
+  getAttendanceFinalizationRequirement,
+  hasDueAttendanceShift,
+} from './attendance-finalization.js'
 import {
   attendanceFinalizationGoLiveDate,
   jakartaDateTime,
@@ -41,6 +45,20 @@ export async function runAttendanceDailyFinalization(now = new Date()) {
     for (const date of dates) {
       for (const site of sites) {
         try {
+          const requirement = await getAttendanceFinalizationRequirement({
+            siteId: Number(site.id),
+            businessDate: date,
+            executor: conn,
+          })
+          if (!requirement.required) {
+            results.push({
+              site: String(site.code),
+              businessDate: date,
+              status: 'SKIPPED',
+              reason: 'Tanggal tidak memerlukan finalisasi.',
+            })
+            continue
+          }
           const hasDue = await hasDueAttendanceShift({ siteId: Number(site.id), businessDate: date, now })
           if (!hasDue) {
             results.push({ site: String(site.code), businessDate: date, status: 'SKIPPED', reason: 'Belum melewati grace Shift.' })

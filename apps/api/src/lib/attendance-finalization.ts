@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Request } from 'express'
 import type { QueryError, ResultSetHeader, RowDataPacket } from 'mysql2'
+import type { Pool, PoolConnection } from 'mysql2/promise'
 import { pool } from '../db.js'
 import { getAttendanceCalendarRules } from './attendance-calendar.js'
 import { resolveCalendarDay } from './attendance-calendar-policy.js'
@@ -8,6 +9,7 @@ import {
   attendanceFinalizationGoLiveDate,
   attendanceFinalizationGraceMinutes,
   isShiftFinalizationDue,
+  isAttendanceFinalizationRequired,
   jakartaDateTime,
   finalizationRecordDecision,
 } from './attendance-finalization-policy.js'
@@ -38,6 +40,104 @@ export type AttendanceFinalizationResult = {
   warnings: string[]
   startedAt: string
   finishedAt: string
+}
+
+export type AttendanceFinalizationRequirement = {
+  required: boolean
+  effectiveTargets: number
+  resolvedNonWorkdayTargets: number
+  unresolvedTargets: number
+}
+
+export async function getAttendanceFinalizationRequirement(input: {
+  siteId: number
+  businessDate: string
+  executor?: Pool | PoolConnection
+}): Promise<AttendanceFinalizationRequirement> {
+  const executor = input.executor ?? pool
+  const [rows] = await executor.query<RowDataPacket[]>(
+    `SELECT e.id employeeId,es.allows_attendance allowsAttendance,
+            esa.id assignmentId,esa.work_days_json workDays,
+            sh.site_id shiftSiteId,
+            (SELECT COUNT(*) FROM employee_employment_histories allh
+              WHERE allh.employee_id=e.id AND allh.effective_from<=?
+                AND (allh.effective_to IS NULL OR allh.effective_to>=?)) employmentCount,
+            (SELECT COUNT(*) FROM employee_shift_assignments alla
+              WHERE alla.employee_id=e.id AND alla.effective_from<=?
+                AND (alla.effective_to IS NULL OR alla.effective_to>=?)) assignmentCount
+       FROM employee_employment_histories h
+       JOIN employees e ON e.id=h.employee_id
+       JOIN employee_statuses es ON es.id=h.employee_status_id
+       LEFT JOIN employee_shift_assignments esa ON esa.employee_id=e.id
+        AND esa.effective_from<=? AND (esa.effective_to IS NULL OR esa.effective_to>=?)
+       LEFT JOIN shifts sh ON sh.id=esa.shift_id
+      WHERE h.site_id=? AND h.effective_from<=?
+        AND (h.effective_to IS NULL OR h.effective_to>=?)
+      ORDER BY e.id,h.id,esa.id`,
+    [
+      input.businessDate,
+      input.businessDate,
+      input.businessDate,
+      input.businessDate,
+      input.businessDate,
+      input.businessDate,
+      input.siteId,
+      input.businessDate,
+      input.businessDate,
+    ]
+  )
+  const employeeRows = new Map<number, RowDataPacket>()
+  for (const row of rows) {
+    if (!employeeRows.has(Number(row.employeeId))) {
+      employeeRows.set(Number(row.employeeId), row)
+    }
+  }
+  const calendarRules = await getAttendanceCalendarRules({
+    siteId: input.siteId,
+    businessDate: input.businessDate,
+    executor,
+  })
+  let effectiveTargets = 0
+  let resolvedNonWorkdayTargets = 0
+  let unresolvedTargets = 0
+  for (const row of employeeRows.values()) {
+    if (Number(row.employmentCount) !== 1) {
+      unresolvedTargets += 1
+      continue
+    }
+    if (Number(row.allowsAttendance) !== 1) continue
+    effectiveTargets += 1
+    const workDays = parseWorkDays(row.workDays)
+    if (
+      Number(row.assignmentCount) !== 1 ||
+      !row.assignmentId ||
+      Number(row.shiftSiteId) !== input.siteId ||
+      workDays.length === 0
+    ) {
+      unresolvedTargets += 1
+      continue
+    }
+    const calendar = resolveCalendarDay({
+      scheduledByShift: workDays.includes(isoWeekday(input.businessDate)),
+      rules: calendarRules,
+    })
+    if (
+      calendar.dayType === 'NON_WORKDAY' &&
+      calendar.reasonType === 'WEEKLY_OFF'
+    ) {
+      resolvedNonWorkdayTargets += 1
+    }
+  }
+  return {
+    required: isAttendanceFinalizationRequired({
+      effectiveTargets,
+      resolvedNonWorkdayTargets,
+      unresolvedTargets,
+    }),
+    effectiveTargets,
+    resolvedNonWorkdayTargets,
+    unresolvedTargets,
+  }
 }
 
 export async function hasDueAttendanceShift(input: {
@@ -112,6 +212,17 @@ export async function finalizeAttendanceDay(input: {
     )
     const site = sites[0]
     if (!site) throw new ApiError(404, 'Site tidak ditemukan atau tidak aktif.')
+    const requirement = await getAttendanceFinalizationRequirement({
+      siteId: Number(site.id),
+      businessDate: input.businessDate,
+      executor: conn,
+    })
+    if (!requirement.required) {
+      throw new ApiError(
+        422,
+        'Tanggal ini tidak memerlukan finalisasi Attendance.'
+      )
+    }
     lockName = `hris:attendance:finalize:${site.id}:${input.businessDate}`
     const [locks] = await conn.query<RowDataPacket[]>('SELECT GET_LOCK(?,0) acquired', [lockName])
     lockHeld = Number(locks[0]?.acquired) === 1

@@ -397,6 +397,7 @@ export interface AttendanceMonitoringListParams {
 
 export type AttendanceFinalizationStatus =
   | 'NOT_STARTED'
+  | 'NOT_REQUIRED'
   | 'PARTIAL'
   | 'FINALIZED'
   | 'FAILED'

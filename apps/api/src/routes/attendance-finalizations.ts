@@ -4,11 +4,13 @@ import { z } from 'zod'
 import { pool } from '../db.js'
 import {
   finalizeAttendanceDay,
+  getAttendanceFinalizationRequirement,
   hasDueAttendanceShift,
   type AttendanceFinalizationCounts,
 } from '../lib/attendance-finalization.js'
 import {
   attendanceFinalizationInput,
+  attendanceFinalizationGoLiveDate,
   canRunFinalization,
   finalizationStatus,
   jakartaDateTime,
@@ -97,19 +99,22 @@ attendanceFinalizationsRouter.get(
           ...parseObject<Partial<AttendanceFinalizationCounts>>(row.summary, {}),
         }
         const warnings = parseObject<string[]>(row.warnings, [])
-        const hasDueShift = await hasDueAttendanceShift({ siteId: Number(row.siteId), businessDate })
+        const [hasDueShift, requirement] = await Promise.all([
+          hasDueAttendanceShift({ siteId: Number(row.siteId), businessDate }),
+          getAttendanceFinalizationRequirement({ siteId: Number(row.siteId), businessDate }),
+        ])
         const running = row.rawStatus === 'RUNNING'
         return {
           uid: row.uid ?? null,
           site: row.site,
           businessDate,
-          status: finalizationStatus({ rawStatus: row.rawStatus, pendingDue: counts.pendingDue, blockingIssues: counts.missingAssignment + counts.ambiguousAssignment + counts.ambiguousEmployment }),
+          status: finalizationStatus({ rawStatus: row.rawStatus, pendingDue: counts.pendingDue, blockingIssues: counts.missingAssignment + counts.ambiguousAssignment + counts.ambiguousEmployment, finalizationRequired: requirement.required }),
           lastRunAt: row.lastRunAt ?? null,
           source: row.source ?? null,
           counts,
           warnings,
           errorMessage: row.errorMessage ?? null,
-          canRun: canRunFinalization({ businessDate, today, hasDueShift, running }),
+          canRun: canRunFinalization({ businessDate, today, hasDueShift, running, finalizationRequired: requirement.required }),
         }
       }))
       res.json({ items })
@@ -134,8 +139,21 @@ attendanceFinalizationsRouter.post(
       if (!sites[0]) throw new ApiError(404, 'Site tidak ditemukan atau tidak aktif.')
       const now = new Date()
       const today = jakartaDateTime(now).slice(0, 10)
+      if (
+        input.businessDate < attendanceFinalizationGoLiveDate ||
+        input.businessDate > today
+      ) {
+        throw new ApiError(422, 'Tanggal belum dapat difinalisasi atau belum melewati grace Shift.')
+      }
+      const requirement = await getAttendanceFinalizationRequirement({
+        siteId: Number(sites[0].id),
+        businessDate: input.businessDate,
+      })
+      if (!requirement.required) {
+        throw new ApiError(422, 'Tanggal ini tidak memerlukan finalisasi Attendance.')
+      }
       const hasDueShift = await hasDueAttendanceShift({ siteId: Number(sites[0].id), businessDate: input.businessDate, now })
-      if (!canRunFinalization({ businessDate: input.businessDate, today, hasDueShift })) {
+      if (!canRunFinalization({ businessDate: input.businessDate, today, hasDueShift, finalizationRequired: requirement.required })) {
         throw new ApiError(422, 'Tanggal belum dapat difinalisasi atau belum melewati grace Shift.')
       }
       const result = await finalizeAttendanceDay({ ...input, source: 'MANUAL', actor: auth, request: req, now })

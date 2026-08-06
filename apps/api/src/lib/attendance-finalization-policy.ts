@@ -60,7 +60,9 @@ export function finalizationStatus(input: {
   rawStatus?: string | null
   pendingDue?: number
   blockingIssues?: number
+  finalizationRequired?: boolean
 }) {
+  if (input.finalizationRequired === false) return 'NOT_REQUIRED' as const
   if (!input.rawStatus) return 'NOT_STARTED' as const
   if (input.rawStatus === 'FAILED') return 'FAILED' as const
   if (
@@ -79,12 +81,25 @@ export function canRunFinalization(input: {
   today: string
   hasDueShift: boolean
   running?: boolean
+  finalizationRequired?: boolean
 }) {
   return (
     input.businessDate >= attendanceFinalizationGoLiveDate &&
     input.businessDate <= input.today &&
+    input.finalizationRequired !== false &&
     input.hasDueShift &&
     !input.running
+  )
+}
+
+export function isAttendanceFinalizationRequired(input: {
+  effectiveTargets: number
+  resolvedNonWorkdayTargets: number
+  unresolvedTargets: number
+}) {
+  return !(
+    input.unresolvedTargets === 0 &&
+    input.resolvedNonWorkdayTargets === input.effectiveTargets
   )
 }
 

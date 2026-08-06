@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { isAxiosError } from 'axios'
 import {
   AlertTriangle,
+  Ban,
   CheckCircle2,
   CircleDashed,
   Clock3,
@@ -125,6 +126,7 @@ function FinalizationCard({
   onRun: (item: AttendanceFinalization) => void
 }) {
   const warnings = warningMessages(item)
+  const isNotRequired = item.status === 'NOT_REQUIRED'
   return (
     <Card className='rounded-lg'>
       <CardContent className='space-y-3 p-3'>
@@ -164,13 +166,26 @@ function FinalizationCard({
             {item.errorMessage}
           </p>
         )}
+        {isNotRequired && (
+          <div className='rounded-md border border-border bg-muted/40 p-2.5 text-xs'>
+            <p className='font-medium'>Tidak perlu finalisasi</p>
+            <p className='mt-1 text-muted-foreground'>
+              Hari libur mingguan tidak membentuk attendance Alpha atau Libur.
+              Scan aktual tetap tercatat sebagai fakta kehadiran.
+            </p>
+          </div>
+        )}
         <div className='flex items-center justify-between gap-2 border-t pt-2'>
-          {!item.canRun && (
+          {isNotRequired ? (
+            <span className='text-xs text-muted-foreground'>
+              Finalisasi tidak tersedia untuk hari ini.
+            </span>
+          ) : !item.canRun ? (
             <span className='text-xs text-muted-foreground'>
               Belum dapat dijalankan untuk tanggal ini.
             </span>
-          )}
-          {canFinalize && item.canRun && (
+          ) : null}
+          {canFinalize && item.canRun && !isNotRequired && (
             <Button
               size='sm'
               variant='outline'
@@ -269,6 +284,7 @@ function RunFinalizationDialog({
 function FinalizationBadge({ value }: { value: AttendanceFinalizationStatus }) {
   const config = {
     NOT_STARTED: ['Belum dimulai', CircleDashed, 'outline'],
+    NOT_REQUIRED: ['Tidak perlu finalisasi', Ban, 'secondary'],
     PARTIAL: ['Sebagian', Clock3, 'secondary'],
     FINALIZED: ['Selesai', CheckCircle2, 'default'],
     FAILED: ['Gagal', XCircle, 'destructive'],
