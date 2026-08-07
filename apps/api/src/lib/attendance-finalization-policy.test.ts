@@ -12,6 +12,8 @@ import {
 } from './attendance-finalization-policy.js'
 
 describe('attendance finalization policy', () => {
+  const goLiveDate = '2026-08-06'
+
   it('menambahkan grace 60 menit setelah shift normal', () => {
     expect(
       shiftFinalizationDueAt({
@@ -41,10 +43,10 @@ describe('attendance finalization policy', () => {
   })
 
   it('melarang pre-go-live, masa depan, belum due, dan proses paralel', () => {
-    expect(canRunFinalization({ businessDate: '2026-08-05', today: '2026-08-06', hasDueShift: true })).toBe(false)
-    expect(canRunFinalization({ businessDate: '2026-08-07', today: '2026-08-06', hasDueShift: true })).toBe(false)
-    expect(canRunFinalization({ businessDate: '2026-08-06', today: '2026-08-06', hasDueShift: false })).toBe(false)
-    expect(canRunFinalization({ businessDate: '2026-08-06', today: '2026-08-06', hasDueShift: true, running: true })).toBe(false)
+    expect(canRunFinalization({ businessDate: '2026-08-05', today: '2026-08-06', goLiveDate, hasDueShift: true })).toBe(false)
+    expect(canRunFinalization({ businessDate: '2026-08-07', today: '2026-08-06', goLiveDate, hasDueShift: true })).toBe(false)
+    expect(canRunFinalization({ businessDate: '2026-08-06', today: '2026-08-06', goLiveDate, hasDueShift: false })).toBe(false)
+    expect(canRunFinalization({ businessDate: '2026-08-06', today: '2026-08-06', goLiveDate, hasDueShift: true, running: true })).toBe(false)
   })
 
   it('memetakan status penyimpanan ke status monitoring', () => {
@@ -63,7 +65,7 @@ describe('attendance finalization policy', () => {
     expect(isAttendanceFinalizationRequired({ effectiveTargets: 2, resolvedNonWorkdayTargets: 1, unresolvedTargets: 0 })).toBe(true)
     expect(isAttendanceFinalizationRequired({ effectiveTargets: 2, resolvedNonWorkdayTargets: 2, unresolvedTargets: 1 })).toBe(true)
     expect(isAttendanceFinalizationRequired({ effectiveTargets: 0, resolvedNonWorkdayTargets: 0, unresolvedTargets: 0 })).toBe(false)
-    expect(canRunFinalization({ businessDate: '2026-08-06', today: '2026-08-06', hasDueShift: true, finalizationRequired: false })).toBe(false)
+    expect(canRunFinalization({ businessDate: '2026-08-06', today: '2026-08-06', goLiveDate, hasDueShift: true, finalizationRequired: false })).toBe(false)
   })
 
   it.each([

@@ -24,6 +24,10 @@ import type {
   AttendanceClassificationEmployee,
   AttendanceClassificationEmployeeListParams,
   AttendanceClassificationListParams,
+  AttendanceRecapDayListParams,
+  AttendanceRecapDayResult,
+  AttendanceRecapListParams,
+  AttendanceRecapResult,
 } from '../domain'
 
 const listParams = (
@@ -36,6 +40,8 @@ const listParams = (
     | AttendanceCorrectionListParams
     | AttendanceClassificationEmployeeListParams
     | AttendanceClassificationListParams
+    | AttendanceRecapListParams
+    | AttendanceRecapDayListParams
 ) =>
   Object.fromEntries(
     Object.entries(input).map(([key, value]) => [
@@ -160,6 +166,38 @@ export const httpAttendanceRepository: AttendanceRepository = {
         input
       )
     ).data
+  },
+  async listRecaps(input) {
+    return (
+      await apiClient.get<AttendanceRecapResult>('/attendance/recaps', {
+        params: listParams(input),
+      })
+    ).data
+  },
+  async listRecapDays(employeeUid, input) {
+    return (
+      await apiClient.get<AttendanceRecapDayResult>(
+        `/attendance/recaps/${employeeUid}/days`,
+        { params: listParams(input) }
+      )
+    ).data
+  },
+  async exportRecaps(input) {
+    const response = await apiClient.post<Blob>(
+      '/attendance/recaps/export',
+      input,
+      { responseType: 'blob' }
+    )
+    const disposition = String(response.headers['content-disposition'] ?? '')
+    const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+    const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+    return {
+      blob: response.data,
+      fileName:
+        (encoded && decodeURIComponent(encoded)) ||
+        plain ||
+        `rekap-attendance-${input.dateFrom}-${input.dateTo}.xlsx`,
+    }
   },
   async listCorrections(input) {
     return (

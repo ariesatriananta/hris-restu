@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { RowDataPacket } from 'mysql2'
+import { env } from '../config.js'
 import { pool } from '../db.js'
 import {
   finalizeAttendanceDay,
@@ -7,7 +8,6 @@ import {
   hasDueAttendanceShift,
 } from './attendance-finalization.js'
 import {
-  attendanceFinalizationGoLiveDate,
   jakartaDateTime,
   previousBusinessDate,
   hasFinalizationBlockingIssues,
@@ -39,7 +39,9 @@ export async function runAttendanceDailyFinalization(now = new Date()) {
       [runUid, today]
     )
     const [sites] = await conn.query<RowDataPacket[]>('SELECT id,code FROM sites WHERE is_active=1 ORDER BY code')
-    const dates = [previousBusinessDate(today), today].filter((date) => date >= attendanceFinalizationGoLiveDate)
+    const dates = [previousBusinessDate(today), today].filter(
+      (date) => date >= env.ATTENDANCE_GO_LIVE_DATE
+    )
     const results: Array<Record<string, unknown>> = []
     let failed = 0
     for (const date of dates) {
@@ -80,7 +82,14 @@ export async function runAttendanceDailyFinalization(now = new Date()) {
             results.push({ site: String(site.code), businessDate: date, status: 'SKIPPED', reason: 'Sudah final.' })
             continue
           }
-          const result = await finalizeAttendanceDay({ siteCode: String(site.code), businessDate: date, source: 'CRON', reason: 'Finalisasi harian otomatis.', now })
+          const result = await finalizeAttendanceDay({
+            siteCode: String(site.code),
+            businessDate: date,
+            goLiveDate: env.ATTENDANCE_GO_LIVE_DATE,
+            source: 'CRON',
+            reason: 'Finalisasi harian otomatis.',
+            now,
+          })
           results.push({ site: result.site, businessDate: date, status: 'SUCCEEDED', counts: result.counts })
         } catch {
           failed += 1

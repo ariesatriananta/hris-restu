@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Router } from 'express'
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { PoolConnection } from 'mysql2/promise'
+import { env } from '../config.js'
 import { pool } from '../db.js'
 import { attendanceCapabilities } from '../lib/attendance-policy.js'
 import {
@@ -19,6 +20,7 @@ import { attendanceCorrectionsRouter } from './attendance-corrections.js'
 import { attendanceClassificationsRouter } from './attendance-classifications.js'
 import { attendanceCalendarRouter } from './attendance-calendar.js'
 import { attendanceFinalizationsRouter } from './attendance-finalizations.js'
+import { attendanceRecapsRouter } from './attendance-recaps.js'
 import {
   attendanceClassificationApprovalStatuses,
   attendanceClassificationTypes,
@@ -130,6 +132,7 @@ attendanceRouter.use(attendanceCorrectionsRouter)
 attendanceRouter.use(attendanceClassificationsRouter)
 attendanceRouter.use(attendanceCalendarRouter)
 attendanceRouter.use(attendanceFinalizationsRouter)
+attendanceRouter.use(attendanceRecapsRouter)
 
 attendanceRouter.get(
   '/foundation',
@@ -165,6 +168,9 @@ attendanceRouter.get(
         scope.params
       )
       res.json({
+        configuration: {
+          goLiveDate: env.ATTENDANCE_GO_LIVE_DATE,
+        },
         capabilities: attendanceCapabilities(auth),
         sites,
         lookups: {

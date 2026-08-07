@@ -6,7 +6,6 @@ import { pool } from '../db.js'
 import { getAttendanceCalendarRules } from './attendance-calendar.js'
 import { resolveCalendarDay } from './attendance-calendar-policy.js'
 import {
-  attendanceFinalizationGoLiveDate,
   attendanceFinalizationGraceMinutes,
   isShiftFinalizationDue,
   isAttendanceFinalizationRequired,
@@ -186,6 +185,7 @@ function safeFailureMessage() {
 export async function finalizeAttendanceDay(input: {
   siteCode: string
   businessDate: string
+  goLiveDate: string
   source: 'MANUAL' | 'CRON'
   reason: string
   actor?: AuthContext
@@ -200,8 +200,11 @@ export async function finalizeAttendanceDay(input: {
   let runUid: string | undefined
   let lockName: string | undefined
   try {
-    if (input.businessDate < attendanceFinalizationGoLiveDate) {
-      throw new ApiError(422, `Finalisasi hanya berlaku mulai ${attendanceFinalizationGoLiveDate}.`)
+    if (input.businessDate < input.goLiveDate) {
+      throw new ApiError(
+        422,
+        `Finalisasi hanya berlaku mulai ${input.goLiveDate}.`
+      )
     }
     if (input.businessDate > today) {
       throw new ApiError(422, 'Tanggal masa depan belum dapat difinalisasi.')

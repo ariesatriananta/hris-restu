@@ -24,6 +24,9 @@ import type {
   AttendanceClassificationListParams,
   AttendanceClassificationInput,
   AttendanceClassificationReviewInput,
+  AttendanceRecapDayListParams,
+  AttendanceRecapExportInput,
+  AttendanceRecapListParams,
 } from '../domain'
 import { httpAttendanceRepository } from './http-attendance-repository'
 
@@ -51,6 +54,10 @@ export const attendanceKeys = {
     [...attendanceKeys.all, 'classifications', params] as const,
   classification: (uid: string) =>
     [...attendanceKeys.all, 'classifications', uid] as const,
+  recaps: (params: AttendanceRecapListParams) =>
+    [...attendanceKeys.all, 'recaps', params] as const,
+  recapDays: (employeeUid: string, params: AttendanceRecapDayListParams) =>
+    [...attendanceKeys.all, 'recaps', employeeUid, 'days', params] as const,
 }
 
 export const attendanceFoundationOptions = () =>
@@ -178,6 +185,33 @@ export const useRunAttendanceFinalization = () =>
   useAttendanceMutation((input: AttendanceFinalizationRunInput) =>
     httpAttendanceRepository.runFinalization(input)
   )
+
+export const useAttendanceRecaps = (
+  params: AttendanceRecapListParams,
+  enabled = true
+) =>
+  useQuery({
+    queryKey: attendanceKeys.recaps(params),
+    queryFn: () => httpAttendanceRepository.listRecaps(params),
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+
+export const useAttendanceRecapDays = (
+  employeeUid: string | undefined,
+  params: AttendanceRecapDayListParams
+) =>
+  useQuery({
+    queryKey: attendanceKeys.recapDays(employeeUid ?? '', params),
+    queryFn: () => httpAttendanceRepository.listRecapDays(employeeUid!, params),
+    enabled: Boolean(employeeUid),
+  })
+
+export const useExportAttendanceRecaps = () =>
+  useMutation({
+    mutationFn: (input: AttendanceRecapExportInput) =>
+      httpAttendanceRepository.exportRecaps(input),
+  })
 
 export const useAttendanceCorrections = (
   params: AttendanceCorrectionListParams

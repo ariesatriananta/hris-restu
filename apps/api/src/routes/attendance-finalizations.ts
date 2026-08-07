@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import type { RowDataPacket } from 'mysql2'
 import { z } from 'zod'
+import { env } from '../config.js'
 import { pool } from '../db.js'
 import {
   finalizeAttendanceDay,
@@ -10,7 +11,6 @@ import {
 } from '../lib/attendance-finalization.js'
 import {
   attendanceFinalizationInput,
-  attendanceFinalizationGoLiveDate,
   canRunFinalization,
   finalizationStatus,
   jakartaDateTime,
@@ -114,7 +114,7 @@ attendanceFinalizationsRouter.get(
           counts,
           warnings,
           errorMessage: row.errorMessage ?? null,
-          canRun: canRunFinalization({ businessDate, today, hasDueShift, running, finalizationRequired: requirement.required }),
+          canRun: canRunFinalization({ businessDate, today, goLiveDate: env.ATTENDANCE_GO_LIVE_DATE, hasDueShift, running, finalizationRequired: requirement.required }),
         }
       }))
       res.json({ items })
@@ -140,7 +140,7 @@ attendanceFinalizationsRouter.post(
       const now = new Date()
       const today = jakartaDateTime(now).slice(0, 10)
       if (
-        input.businessDate < attendanceFinalizationGoLiveDate ||
+        input.businessDate < env.ATTENDANCE_GO_LIVE_DATE ||
         input.businessDate > today
       ) {
         throw new ApiError(422, 'Tanggal belum dapat difinalisasi atau belum melewati grace Shift.')
@@ -153,10 +153,17 @@ attendanceFinalizationsRouter.post(
         throw new ApiError(422, 'Tanggal ini tidak memerlukan finalisasi Attendance.')
       }
       const hasDueShift = await hasDueAttendanceShift({ siteId: Number(sites[0].id), businessDate: input.businessDate, now })
-      if (!canRunFinalization({ businessDate: input.businessDate, today, hasDueShift, finalizationRequired: requirement.required })) {
+      if (!canRunFinalization({ businessDate: input.businessDate, today, goLiveDate: env.ATTENDANCE_GO_LIVE_DATE, hasDueShift, finalizationRequired: requirement.required })) {
         throw new ApiError(422, 'Tanggal belum dapat difinalisasi atau belum melewati grace Shift.')
       }
-      const result = await finalizeAttendanceDay({ ...input, source: 'MANUAL', actor: auth, request: req, now })
+      const result = await finalizeAttendanceDay({
+        ...input,
+        goLiveDate: env.ATTENDANCE_GO_LIVE_DATE,
+        source: 'MANUAL',
+        actor: auth,
+        request: req,
+        now,
+      })
       res.json({
         uid: result.uid,
         site: result.site,

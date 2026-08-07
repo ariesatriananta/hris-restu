@@ -55,6 +55,9 @@ interface LookupOption<T extends string> {
 }
 
 export interface AttendanceFoundation {
+  configuration: {
+    goLiveDate: string
+  }
   capabilities: AttendanceCapabilities
   sites: AttendanceSite[]
   lookups: {
@@ -119,6 +122,14 @@ export interface AttendanceRepository {
   runFinalization(
     input: AttendanceFinalizationRunInput
   ): Promise<AttendanceFinalization>
+  listRecaps(input: AttendanceRecapListParams): Promise<AttendanceRecapResult>
+  listRecapDays(
+    employeeUid: string,
+    input: AttendanceRecapDayListParams
+  ): Promise<AttendanceRecapDayResult>
+  exportRecaps(
+    input: AttendanceRecapExportInput
+  ): Promise<AttendanceRecapExport>
   listCorrections(
     input: AttendanceCorrectionListParams
   ): Promise<PaginatedAttendanceResult<AttendanceCorrection>>
@@ -393,6 +404,148 @@ export interface AttendanceMonitoringListParams {
   abnormalReason?: AttendanceAbnormalReason[]
   page: number
   pageSize: number
+}
+
+export type AttendanceRecapStatus = AttendanceStatus | 'WEEKLY_OFF'
+
+export interface AttendanceRecapGroup {
+  employeeUid: string
+  employeeNumber: string
+  employeeName: string
+  site: AttendanceSiteCode
+  siteName: string
+  employeeType: AttendanceEmployeeType
+  shiftNames: string[]
+  scheduledDays: number
+  present: number
+  presentWorkday: number
+  presentHoliday: number
+  absent: number
+  leave: number
+  sick: number
+  permission: number
+  holiday: number
+  weeklyOff: number
+  lateDays: number
+  lateMinutes: number
+  earlyLeaveDays: number
+  earlyLeaveMinutes: number
+  workedMinutes: number
+  abnormal: number
+}
+
+export interface AttendanceRecapSummary {
+  groups: number
+  scheduledDays: number
+  present: number
+  presentWorkday: number
+  presentHoliday: number
+  absent: number
+  leave: number
+  sick: number
+  permission: number
+  holiday: number
+  weeklyOff: number
+  lateDays: number
+  lateMinutes: number
+  earlyLeaveDays: number
+  earlyLeaveMinutes: number
+  workedMinutes: number
+  abnormal: number
+}
+
+export type AttendanceRecapCompletenessStatus =
+  | AttendanceFinalizationStatus
+  | 'PRE_GO_LIVE'
+
+export interface AttendanceRecapCompletenessSite {
+  site: AttendanceSiteCode
+  date: string
+  status: AttendanceRecapCompletenessStatus
+  reasons: string[]
+}
+
+export interface AttendanceRecapCompleteness {
+  exportAllowed: boolean
+  official: boolean
+  blockedReasons: string[]
+  sites: AttendanceRecapCompletenessSite[]
+}
+
+export interface AttendanceRecapResult extends PaginatedAttendanceResult<AttendanceRecapGroup> {
+  summary: AttendanceRecapSummary
+  completeness: AttendanceRecapCompleteness
+}
+
+export interface AttendanceRecapListParams {
+  dateFrom: string
+  dateTo: string
+  query?: string
+  site?: AttendanceSiteCode[]
+  employeeType?: AttendanceEmployeeType[]
+  attendanceStatus?: AttendanceRecapStatus[]
+  page: number
+  pageSize: number
+}
+
+export interface AttendanceRecapDay {
+  employeeUid: string
+  employeeNumber: string
+  employeeName: string
+  businessDate: string
+  dayName: string
+  site: AttendanceSiteCode
+  siteName: string
+  employeeType: AttendanceEmployeeType
+  department?: string | null
+  productionModule?: string | null
+  productionSection?: string | null
+  workGroup?: string | null
+  shiftUid?: string | null
+  shiftCode?: string | null
+  shiftName?: string | null
+  shiftStartTime?: string | null
+  shiftEndTime?: string | null
+  status: AttendanceRecapStatus
+  virtual: boolean
+  calendarDayType: 'WORKDAY' | 'HOLIDAY' | 'NON_WORKDAY'
+  calendarReasonType: string
+  calendarName?: string | null
+  clockInAt?: string | null
+  clockOutAt?: string | null
+  lateMinutes: number
+  earlyLeaveMinutes: number
+  workedMinutes?: number | null
+  clockInSource?: string | null
+  clockOutSource?: string | null
+  isCorrected: boolean
+  notes?: string | null
+  qualityStatus: AttendanceQualityStatus
+  abnormalReasons: AttendanceAbnormalReason[]
+}
+
+export interface AttendanceRecapDayListParams {
+  dateFrom: string
+  dateTo: string
+  site?: AttendanceSiteCode
+  employeeType?: AttendanceEmployeeType
+  attendanceStatus?: AttendanceRecapStatus[]
+  page: number
+  pageSize: number
+}
+
+export interface AttendanceRecapDayResult extends PaginatedAttendanceResult<AttendanceRecapDay> {
+  completeness: AttendanceRecapCompleteness
+}
+
+export type AttendanceRecapExportInput = Omit<
+  AttendanceRecapListParams,
+  'page' | 'pageSize'
+>
+
+export interface AttendanceRecapExport {
+  blob: Blob
+  fileName: string
 }
 
 export type AttendanceFinalizationStatus =

@@ -523,6 +523,7 @@ CREATE TABLE employee_employment_histories (
   UNIQUE KEY uq_employee_employment_histories_uid (uid),
   KEY idx_employment_history_employee_date (employee_id, effective_from, effective_to),
   KEY idx_employment_history_site (site_id),
+  KEY idx_employment_history_site_dates_employee (site_id, effective_from, effective_to, employee_id),
   CONSTRAINT chk_employment_history_dates CHECK (effective_to IS NULL OR effective_to >= effective_from),
   CONSTRAINT chk_employment_history_change CHECK (change_type IN ('INITIAL', 'TRANSFER', 'PROMOTION', 'DEMOTION', 'STATUS_CHANGE', 'TYPE_CHANGE', 'DEPARTMENT_CHANGE', 'GROUP_CHANGE', 'PRODUCTION_ASSIGNMENT_CHANGE', 'OTHER')),
   CONSTRAINT fk_employment_history_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON UPDATE CASCADE ON DELETE RESTRICT,

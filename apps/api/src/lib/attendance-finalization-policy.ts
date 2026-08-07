@@ -1,6 +1,5 @@
 import { z } from 'zod'
 
-export const attendanceFinalizationGoLiveDate = '2026-08-06'
 export const attendanceFinalizationGraceMinutes = 60
 
 export const attendanceFinalizationInput = z
@@ -79,12 +78,13 @@ export function finalizationStatus(input: {
 export function canRunFinalization(input: {
   businessDate: string
   today: string
+  goLiveDate: string
   hasDueShift: boolean
   running?: boolean
   finalizationRequired?: boolean
 }) {
   return (
-    input.businessDate >= attendanceFinalizationGoLiveDate &&
+    input.businessDate >= input.goLiveDate &&
     input.businessDate <= input.today &&
     input.finalizationRequired !== false &&
     input.hasDueShift &&
