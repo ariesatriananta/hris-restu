@@ -6,17 +6,23 @@ const executablePath =
   process.platform === 'win32'
     ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
     : undefined
-const routes = [
-  '/attendance/monitoring-harian',
-  '/attendance/scan',
-  '/attendance/rekap',
-  '/attendance/koreksi',
-  '/attendance/master-shift',
+const implementedRoutes = [
+  ['/attendance/monitoring-harian', 'Monitoring Harian'],
+  ['/attendance/rekap', 'Rekap Attendance'],
+  ['/attendance/koreksi', 'Koreksi Attendance'],
+  ['/attendance/klasifikasi', 'Klasifikasi Attendance'],
+  ['/attendance/master-shift', 'Master Shift'],
+  ['/attendance/kalender-kerja', 'Kalender Kerja & Libur'],
+  ['/attendance/master-perangkat', 'Master Perangkat'],
+  ['/produksi/master-pekerjaan', 'Master Pekerjaan'],
+  ['/produksi/tarif-site', 'Tarif per Site'],
+  ['/administrasi/pengaturan', 'Pengaturan Sistem'],
+]
+
+const placeholderRoutes = [
   '/produksi/terminal-setoran',
   '/produksi/transaksi',
   '/produksi/rekap',
-  '/produksi/master-pekerjaan',
-  '/produksi/tarif-site',
   '/payroll/periode',
   '/payroll/simulasi',
   '/payroll/approval-closing',
@@ -26,7 +32,6 @@ const routes = [
   '/administrasi/user-hak-akses',
   '/administrasi/template-dokumen',
   '/administrasi/audit-trail',
-  '/administrasi/pengaturan',
 ]
 
 function assert(condition, message) {
@@ -58,7 +63,26 @@ try {
   await page.getByRole('heading', { name: 'Cetak ID Card' }).waitFor()
   await page.getByLabel('Barcode RSTJPR001').waitFor()
 
-  for (const route of routes) {
+  for (const [route, heading] of implementedRoutes) {
+    await page.goto(`${baseUrl}${route}`, { waitUntil: 'networkidle' })
+    await page.getByRole('heading', { name: heading }).waitFor()
+    assert(
+      !(await page.getByText('Halaman tidak ditemukan').isVisible()),
+      `Route gagal: ${route}`
+    )
+  }
+
+  await page.goto(`${baseUrl}/attendance/scan`, { waitUntil: 'networkidle' })
+  await page
+    .getByRole('heading', { name: 'Aktivasi Terminal' })
+    .or(page.getByText('Terminal Attendance', { exact: true }))
+    .waitFor()
+  assert(
+    !(await page.getByText('Halaman tidak ditemukan').isVisible()),
+    'Route gagal: /attendance/scan'
+  )
+
+  for (const route of placeholderRoutes) {
     await page.goto(`${baseUrl}${route}`, { waitUntil: 'networkidle' })
     await page.getByText('Akan dikembangkan pada tahap berikutnya').waitFor()
     assert(
