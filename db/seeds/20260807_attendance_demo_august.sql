@@ -6,12 +6,12 @@
 --   2. Jalankan hanya pada environment development/uji.
 --   3. Script berhenti sebelum menghapus data jika Attendance sudah dipakai
 --      produksi, payroll 1-6 Agustus sudah CLOSED, master shift/HR tidak siap,
---      atau histori employment karyawan aktif tidak tunggal dan konsisten.
+--      atau histori employment eligible tidak tunggal dan konsisten.
 --   4. Pola data memakai CRC32, sehingga skenario karyawan-tanggal stabil
 --      setiap kali script diulang. UID boleh berubah karena data lama dihapus.
---   5. Assignment dibuat untuk seluruh karyawan ACTIVE saat eksekusi. Record dan
---      scan per tanggal tetap mengikuti employee_employment_histories yang
---      allows_attendance=1, sama seperti engine Monitoring/Rekap.
+--   5. Assignment, record, dan scan hanya dibuat untuk karyawan yang eligible
+--      berdasarkan employee_employment_histories dengan allows_attendance=1
+--      pada minimal satu tanggal seed, sama seperti engine Monitoring/Rekap.
 
 -- Table yang akan dihapus :
 -- attendance_classification_details
@@ -80,24 +80,33 @@ SELECT
   e.uid employee_uid,
   e.employee_number,
   e.full_name employee_name,
-  e.current_site_id site_id,
-  e.employee_type_id,
-  tss.shift_id,
-  tss.hr_user_id
+  MIN(eh.site_id) site_id,
+  MIN(tss.shift_id) shift_id,
+  MIN(tss.hr_user_id) hr_user_id,
+  GREATEST(@seed_from,MIN(eh.effective_from)) assignment_effective_from,
+  CASE
+    WHEN SUM(eh.effective_to IS NULL)>0 THEN NULL
+    ELSE MAX(eh.effective_to)
+  END assignment_effective_to
 FROM employees e
-JOIN employee_statuses current_status
-  ON current_status.id=e.employee_status_id
- AND current_status.code='ACTIVE'
- AND current_status.allows_attendance=1
-JOIN tmp_attendance_seed_sites tss ON tss.site_id=e.current_site_id;
+JOIN employee_employment_histories eh
+  ON eh.employee_id=e.id
+ AND eh.effective_from<=@seed_to
+ AND (eh.effective_to IS NULL OR eh.effective_to>=@seed_from)
+JOIN employee_statuses history_status
+  ON history_status.id=eh.employee_status_id
+ AND history_status.allows_attendance=1
+JOIN tmp_attendance_seed_sites tss ON tss.site_id=eh.site_id
+GROUP BY e.id,e.uid,e.employee_number,e.full_name
+HAVING COUNT(DISTINCT eh.site_id)=1;
 
 ALTER TABLE tmp_attendance_seed_employees
   ADD PRIMARY KEY (employee_id),
   ADD KEY idx_tmp_attendance_seed_employee_site (site_id);
 
--- Eligibility harian tetap mengikuti histori employment, bukan status current
--- semata. Karyawan yang baru aktif di tengah periode hanya mendapat record
--- sejak tanggal efektifnya; histori INACTIVE tidak dipalsukan oleh seed.
+-- Eligibility harian sepenuhnya mengikuti histori employment. Karyawan yang
+-- baru aktif atau menjadi inactive di tengah periode hanya mendapat record
+-- pada tanggal yang benar-benar eligible.
 DROP TEMPORARY TABLE IF EXISTS tmp_attendance_seed_eligible_dates;
 CREATE TEMPORARY TABLE tmp_attendance_seed_eligible_dates AS
 SELECT
@@ -125,8 +134,8 @@ DROP PROCEDURE IF EXISTS assert_attendance_demo_seed_ready;
 DELIMITER $$
 CREATE PROCEDURE assert_attendance_demo_seed_ready()
 BEGIN
-  DECLARE active_total BIGINT DEFAULT 0;
-  DECLARE eligible_total BIGINT DEFAULT 0;
+  DECLARE history_eligible_total BIGINT DEFAULT 0;
+  DECLARE seed_employee_total BIGINT DEFAULT 0;
 
   IF EXISTS (
     SELECT 1
@@ -210,6 +219,22 @@ BEGIN
 
   IF EXISTS (
     SELECT 1
+    FROM employee_employment_histories eh
+    JOIN employee_statuses history_status
+      ON history_status.id=eh.employee_status_id
+     AND history_status.allows_attendance=1
+    JOIN tmp_attendance_seed_sites tss ON tss.site_id=eh.site_id
+    WHERE eh.effective_from<=@seed_to
+      AND (eh.effective_to IS NULL OR eh.effective_to>=@seed_from)
+    GROUP BY eh.employee_id
+    HAVING COUNT(DISTINCT eh.site_id)>1
+  ) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT='Seed dibatalkan: ada karyawan eligible pada lebih dari satu site selama periode seed.';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
     FROM tmp_attendance_seed_employees tse
     CROSS JOIN tmp_attendance_seed_dates d
     JOIN employee_employment_histories eh
@@ -236,22 +261,37 @@ BEGIN
     WHERE eh.site_id<>tse.site_id
   ) THEN
     SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT='Seed dibatalkan: histori site yang mengizinkan Attendance berbeda dari current site.';
+      SET MESSAGE_TEXT='Seed dibatalkan: histori site eligible tidak konsisten selama periode seed.';
   END IF;
 
-  SELECT COUNT(*) INTO active_total
-  FROM employees e
-  JOIN employee_statuses es
-    ON es.id=e.employee_status_id
-   AND es.code='ACTIVE'
-   AND es.allows_attendance=1;
+  IF EXISTS (
+    SELECT 1
+    FROM tmp_attendance_seed_employees tse
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM tmp_attendance_seed_eligible_dates eligible
+      WHERE eligible.employee_id=tse.employee_id
+    )
+  ) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT='Seed dibatalkan: ada kandidat tanpa tanggal Attendance yang benar-benar eligible.';
+  END IF;
 
-  SELECT COUNT(*) INTO eligible_total
+  SELECT COUNT(DISTINCT eh.employee_id) INTO history_eligible_total
+  FROM employee_employment_histories eh
+  JOIN employee_statuses history_status
+    ON history_status.id=eh.employee_status_id
+   AND history_status.allows_attendance=1
+  JOIN tmp_attendance_seed_sites tss ON tss.site_id=eh.site_id
+  WHERE eh.effective_from<=@seed_to
+    AND (eh.effective_to IS NULL OR eh.effective_to>=@seed_from);
+
+  SELECT COUNT(*) INTO seed_employee_total
   FROM tmp_attendance_seed_employees;
 
-  IF active_total<>eligible_total THEN
+  IF history_eligible_total<>seed_employee_total THEN
     SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT='Seed dibatalkan: tidak semua karyawan aktif berada pada tiga site target.';
+      SET MESSAGE_TEXT='Seed dibatalkan: kandidat seed tidak sama dengan karyawan eligible berdasarkan histori.';
   END IF;
 END$$
 DELIMITER ;
@@ -302,7 +342,8 @@ SET scenario=CASE
   ELSE 'ALPHA'
 END;
 
--- Pastikan setiap karyawan memiliki minimal satu scan sukses pada periode.
+-- Pastikan setiap karyawan eligible memiliki minimal satu scan sukses pada
+-- periode. Jika hanya eligible pada weekend, gunakan kehadiran hari nonkerja.
 DROP TEMPORARY TABLE IF EXISTS tmp_attendance_seed_without_scan;
 CREATE TEMPORARY TABLE tmp_attendance_seed_without_scan AS
 SELECT employee_id
@@ -320,8 +361,22 @@ ALTER TABLE tmp_attendance_seed_without_scan
 UPDATE tmp_attendance_seed_scenarios target
 JOIN tmp_attendance_seed_without_scan missing
   ON missing.employee_id=target.employee_id
-SET target.scenario='NORMAL'
-WHERE target.business_date='2026-08-03';
+JOIN (
+  SELECT
+    employee_id,
+    COALESCE(
+      MIN(CASE WHEN is_workday=1 THEN business_date END),
+      MIN(business_date)
+    ) selected_date
+  FROM tmp_attendance_seed_scenarios
+  GROUP BY employee_id
+) selected
+  ON selected.employee_id=target.employee_id
+ AND selected.selected_date=target.business_date
+SET target.scenario=CASE
+  WHEN target.is_workday=1 THEN 'NORMAL'
+  ELSE 'OFFDAY_PRESENT'
+END;
 
 DROP TEMPORARY TABLE tmp_attendance_seed_without_scan;
 
@@ -398,13 +453,17 @@ DELETE FROM attendance_records;
 DELETE FROM attendance_daily_finalization_runs;
 DELETE FROM employee_shift_assignments;
 
--- Tepat satu assignment per karyawan, efektif 1 Agustus dan Senin-Jumat.
+-- Tepat satu assignment per karyawan eligible. Awal/akhir assignment mengikuti
+-- rentang histori eligible agar karyawan yang kini inactive tetap benar secara
+-- historis tanpa memperoleh assignment terbuka yang menyesatkan.
 INSERT INTO employee_shift_assignments (
   uid,employee_id,shift_id,effective_from,effective_to,work_days_json,
   created_by,updated_by
 )
 SELECT
-  UUID(),tse.employee_id,tse.shift_id,@seed_from,NULL,JSON_ARRAY(1,2,3,4,5),
+  UUID(),tse.employee_id,tse.shift_id,
+  tse.assignment_effective_from,tse.assignment_effective_to,
+  JSON_ARRAY(1,2,3,4,5),
   tse.hr_user_id,tse.hr_user_id
 FROM tmp_attendance_seed_employees tse;
 
@@ -812,9 +871,9 @@ CALL seed_attendance_demo_august();
 DROP PROCEDURE seed_attendance_demo_august;
 DROP PROCEDURE assert_attendance_demo_seed_ready;
 
--- Ringkasan verifikasi. Hasil yang diharapkan mengikuti jumlah karyawan aktif
--- saat script dijalankan; tidak ada angka headcount yang di-hard-code.
-SELECT 'active_seed_employees' metric,COUNT(*) total
+-- Ringkasan verifikasi. Hasil mengikuti jumlah karyawan yang eligible pada
+-- periode seed; tidak ada angka headcount yang di-hard-code.
+SELECT 'eligible_seed_employees' metric,COUNT(*) total
 FROM tmp_attendance_seed_employees
 UNION ALL
 SELECT 'eligible_employee_dates',COUNT(*) FROM tmp_attendance_seed_eligible_dates
@@ -863,7 +922,7 @@ GROUP BY s.code,acr.classification_type,acr.approval_status
 ORDER BY s.code,acr.classification_type,acr.approval_status;
 
 SELECT
-  COUNT(*) active_employees_without_successful_scan
+  COUNT(*) eligible_employees_without_successful_scan
 FROM tmp_attendance_seed_employees tse
 WHERE NOT EXISTS (
   SELECT 1
@@ -875,7 +934,7 @@ WHERE NOT EXISTS (
 );
 
 SELECT
-  COUNT(*) active_employees_without_eligible_attendance_date
+  COUNT(*) seed_employees_without_eligible_attendance_date
 FROM tmp_attendance_seed_employees tse
 WHERE NOT EXISTS (
   SELECT 1

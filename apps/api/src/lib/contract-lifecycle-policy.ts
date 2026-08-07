@@ -13,6 +13,17 @@ export type ContractTransitionAction =
   | 'resign'
   | 'cancel'
 
+export function contractTransitionEffectiveDate(input: {
+  action: ContractTransitionAction
+  contractStartDate: string
+  today: string
+  requestedEffectiveDate?: string
+}) {
+  return input.action === 'activate'
+    ? input.contractStartDate
+    : input.requestedEffectiveDate ?? input.today
+}
+
 export function assertContractStartDate(startDate: string, joinDate?: string) {
   if (joinDate && startDate < joinDate)
     throw new ApiError(

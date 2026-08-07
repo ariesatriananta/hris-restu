@@ -3,6 +3,7 @@ import {
   attendanceCorrectionRequestInput,
   attendanceCorrectionReviewInput,
   deriveAttendanceQuality,
+  resolveCorrectionAttendanceStatus,
   validateClockOrder,
 } from './attendance-correction-policy.js'
 
@@ -78,5 +79,50 @@ describe('attendance correction policy', () => {
     expect(
       validateClockOrder('2026-08-06 15:00:00', '2026-08-06 06:00:00')
     ).toBe(false)
+  })
+
+  it('mengubah Alpha menjadi Hadir saat koreksi menghasilkan minimal satu jam aktual', () => {
+    expect(
+      resolveCorrectionAttendanceStatus({
+        correctionType: 'CLOCK_IN',
+        currentStatus: 'ABSENT',
+        clockInAt: '2026-08-07 07:00:00',
+        clockOutAt: null,
+      })
+    ).toBe('PRESENT')
+    expect(
+      deriveAttendanceQuality({
+        attendanceStatus: 'PRESENT',
+        clockInAt: '2026-08-07 07:00:00',
+        clockOutAt: null,
+        scheduledEndAt: '2026-08-07 15:00:00',
+        asOf: '2026-08-07 17:00:00',
+      })
+    ).toEqual({
+      qualityStatus: 'ABNORMAL',
+      abnormalReasons: ['MISSING_CLOCK_OUT'],
+    })
+    expect(
+      deriveAttendanceQuality({
+        attendanceStatus: 'PRESENT',
+        clockInAt: null,
+        clockOutAt: '2026-08-07 17:00:00',
+      })
+    ).toEqual({
+      qualityStatus: 'ABNORMAL',
+      abnormalReasons: ['MISSING_CLOCK_IN'],
+    })
+  })
+
+  it('mempertahankan pilihan HR untuk koreksi status', () => {
+    expect(
+      resolveCorrectionAttendanceStatus({
+        correctionType: 'STATUS',
+        currentStatus: 'ABSENT',
+        newStatus: 'SICK',
+        clockInAt: '2026-08-07 07:00:00',
+        clockOutAt: null,
+      })
+    ).toBe('SICK')
   })
 })

@@ -421,9 +421,11 @@ Syarat utama:
 Dampak:
 
 - kontrak menjadi `ACTIVE`;
-- karyawan menjadi `ACTIVE`;
+- karyawan menjadi `ACTIVE` efektif sejak tanggal mulai kontrak, bukan tanggal tombol aktivasi ditekan;
 - histori status kerja dan lifecycle kontrak dicatat;
 - audit trail dibuat.
+
+Jika HR baru mengaktifkan kontrak setelah tanggal mulai, sistem tetap menggunakan tanggal mulai kontrak sebagai tanggal efektif. Penyelarasan mundur ditolak apabila terdapat histori employment yang lebih baru agar histori mutasi atau status kerja tidak tertimpa. Untuk periode Attendance yang sudah lewat, periksa kembali kelengkapan rekap dan jalankan ulang finalisasi pada tanggal yang ditandai belum lengkap.
 
 Jika periode kontrak sudah lewat seluruhnya, jangan aktifkan kontrak tersebut. Perbaiki kontrak ketika masih `DRAFT`, atau batalkan dan buat kontrak yang benar.
 

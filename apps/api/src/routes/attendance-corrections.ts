@@ -10,6 +10,7 @@ import {
   attendanceCorrectionTypes,
   attendanceStatusValues,
   deriveAttendanceQuality,
+  resolveCorrectionAttendanceStatus,
   validateClockOrder,
 } from '../lib/attendance-correction-policy.js'
 import { nextDate } from '../lib/attendance-device-policy.js'
@@ -358,10 +359,13 @@ attendanceCorrectionsRouter.post(
         input.correctionType === 'CLOCK_OUT' || input.correctionType === 'BOTH'
           ? input.newClockOutAt ?? null
           : attendance.clockOutAt
-      const proposedStatus =
-        input.correctionType === 'STATUS'
-          ? input.newStatus
-          : attendance.attendanceStatus
+      const proposedStatus = resolveCorrectionAttendanceStatus({
+        correctionType: input.correctionType,
+        currentStatus: attendance.attendanceStatus,
+        newStatus: input.newStatus,
+        clockInAt: proposedClockIn,
+        clockOutAt: proposedClockOut,
+      })
       if (!validateClockOrder(proposedClockIn, proposedClockOut)) {
         throw new ApiError(422, 'Jam pulang tidak boleh sebelum jam masuk.')
       }
@@ -404,8 +408,12 @@ attendanceCorrectionsRouter.post(
           input.correctionType === 'CLOCK_OUT' || input.correctionType === 'BOTH'
             ? input.newClockOutAt ?? null
             : null,
-          input.correctionType === 'STATUS' ? attendance.attendanceStatus : null,
-          input.correctionType === 'STATUS' ? input.newStatus : null,
+          proposedStatus !== attendance.attendanceStatus
+            ? attendance.attendanceStatus
+            : null,
+          proposedStatus !== attendance.attendanceStatus
+            ? proposedStatus
+            : null,
           input.reason,
           auth.id,
           auth.id,
@@ -528,10 +536,13 @@ attendanceCorrectionsRouter.post(
         correction.correctionType === 'BOTH'
           ? correction.newClockOutAt
           : correction.clockOutAt
-      const proposedStatus =
-        correction.correctionType === 'STATUS'
-          ? correction.newStatus
-          : correction.attendanceStatus
+      const proposedStatus = resolveCorrectionAttendanceStatus({
+        correctionType: correction.correctionType,
+        currentStatus: correction.attendanceStatus,
+        newStatus: correction.newStatus,
+        clockInAt: proposedClockIn,
+        clockOutAt: proposedClockOut,
+      })
       if (!validateClockOrder(proposedClockIn, proposedClockOut)) {
         throw new ApiError(422, 'Jam pulang tidak boleh sebelum jam masuk.')
       }

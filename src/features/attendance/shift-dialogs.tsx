@@ -551,7 +551,7 @@ export function ShiftAssignmentDialog({
                 items.map((employee) => (
                   <label
                     key={employee.uid}
-                    className='flex cursor-pointer items-start gap-3 p-3 hover:bg-muted/40'
+                    className='flex cursor-pointer items-center gap-2.5 px-3 py-2 hover:bg-muted/40'
                   >
                     <Checkbox
                       checked={selected.has(employee.uid)}
@@ -561,8 +561,13 @@ export function ShiftAssignmentDialog({
                       aria-label={`Pilih ${employee.fullName}`}
                     />
                     <span className='min-w-0 flex-1'>
-                      <span className='block font-medium'>
-                        {employee.fullName}
+                      <span className='flex min-w-0 flex-wrap items-baseline gap-x-2 leading-5'>
+                        <span className='font-medium'>{employee.fullName}</span>
+                        <span className='text-xs text-muted-foreground'>
+                          {employee.currentShiftName
+                            ? `Shift saat ini: ${employee.currentShiftName}${employee.currentShiftEffectiveFrom ? ` sejak ${employee.currentShiftEffectiveFrom}` : ''}`
+                            : 'Belum memiliki shift aktif'}
+                        </span>
                       </span>
                       <span className='block text-xs text-muted-foreground'>
                         {employee.employeeNumber} · {employee.site} ·{' '}
@@ -573,11 +578,6 @@ export function ShiftAssignmentDialog({
                         {employee.productionSection
                           ? ` · ${employee.productionSection}`
                           : ''}
-                      </span>
-                      <span className='block text-xs text-muted-foreground'>
-                        {employee.currentShiftName
-                          ? `Shift saat ini: ${employee.currentShiftName}${employee.currentShiftEffectiveFrom ? ` sejak ${employee.currentShiftEffectiveFrom}` : ''}`
-                          : 'Belum memiliki shift aktif'}
                       </span>
                     </span>
                   </label>

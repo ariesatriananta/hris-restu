@@ -16,6 +16,7 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Jenis kontrak `TRAINING`, `PKWT`, dan `PKWTT` dipilih sesuai kebijakan HR dan tidak ditentukan otomatis dari jenis karyawan.
 - Cetak template kontrak produksi tahap pertama hanya untuk kombinasi karyawan `BORONGAN` dengan kontrak `PKWT`.
 - Kontrak `ACTIVE` tidak dapat dikoreksi periodenya. Salah aktivasi hanya dapat dibatalkan menjadi `CANCELLED` bila belum memiliki tanda tangan/lampiran dan belum digunakan oleh attendance, produksi, payroll, histori lanjutan, atau status kerja terjadwal; selain itu gunakan Terminasi lalu buat kontrak baru.
+- Aktivasi kontrak membuat status karyawan `ACTIVE` efektif sejak tanggal mulai kontrak, termasuk ketika HR terlambat menjalankan aktivasi. Aktivasi ditolak bila penyelarasan mundur akan melewati histori employment yang lebih baru.
 - Attendance merupakan syarat setoran produksi pada business date yang sama.
 - Pekerja borongan dibayar berdasarkan hasil produksi, bukan durasi kerja.
 - Satu karyawan dapat melakukan setoran produksi lebih dari satu kali dalam sehari.

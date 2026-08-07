@@ -236,37 +236,37 @@ function FinalizationCard({
           label='Eligible'
           value={item.counts.eligible ?? 0}
           description='Karyawan yang memenuhi syarat attendance pada site dan tanggal kerja ini.'
-          tone='border-primary/20 bg-gradient-to-br from-primary/10 via-background to-background text-foreground'
+          tone='border-blue-500/20 bg-gradient-to-br from-blue-500/[0.09] via-background to-blue-500/[0.025] text-foreground'
         />
         <Count
           label='Alpha'
           value={item.counts.absent ?? 0}
           description='Record Alpha yang dibentuk karena tidak ada scan maupun klasifikasi terapproval.'
-          tone='border-rose-500/20 bg-gradient-to-br from-rose-500/10 via-background to-background text-foreground'
+          tone='border-rose-500/20 bg-gradient-to-br from-rose-500/[0.09] via-background to-rose-500/[0.025] text-foreground'
         />
         <Count
           label='Libur'
           value={item.counts.holiday ?? 0}
           description='Record Libur yang mengikuti kalender kerja efektif pada tanggal ini.'
-          tone='border-slate-300/50 bg-gradient-to-br from-slate-500/10 via-background to-background text-foreground dark:border-slate-700'
+          tone='border-indigo-500/20 bg-gradient-to-br from-indigo-500/[0.09] via-background to-indigo-500/[0.025] text-foreground'
         />
         <Count
           label='Fakta lama'
           value={item.counts.preserved ?? 0}
           description='Record yang sudah ada dari scan, klasifikasi, atau koreksi dan tetap dipertahankan.'
-          tone='border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 via-background to-background text-foreground'
+          tone='border-emerald-500/20 bg-gradient-to-br from-emerald-500/[0.09] via-background to-emerald-500/[0.025] text-foreground'
         />
         <Count
           label='Libur pekan'
           value={item.counts.weeklyOff ?? 0}
           description='Karyawan yang tidak dijadwalkan bekerja berdasarkan kombinasi hari penugasan shift.'
-          tone='border-slate-300/50 bg-gradient-to-br from-slate-500/10 via-background to-background text-foreground dark:border-slate-700'
+          tone='border-teal-500/20 bg-gradient-to-br from-teal-500/[0.09] via-background to-teal-500/[0.025] text-foreground'
         />
         <Count
           label='Tertunda'
           value={item.counts.pendingDue ?? 0}
           description='Belum diproses karena batas akhir shift ditambah 60 menit belum terlewati.'
-          tone='border-amber-500/20 bg-gradient-to-br from-amber-500/10 via-background to-background text-foreground'
+          tone='border-amber-500/20 bg-gradient-to-br from-amber-500/[0.09] via-background to-amber-500/[0.025] text-foreground'
         />
       </div>
       {warnings.length > 0 && (
@@ -477,11 +477,15 @@ function sourceLabel(source?: AttendanceFinalization['source']) {
 }
 
 function warningMessages(item: AttendanceFinalization) {
-  if (item.warnings.length) return [...new Set(item.warnings)]
+  // NOT_REQUIRED adalah hasil perhitungan kondisi terkini. Warning dari run
+  // lama (misalnya marker invalidasi reset development) tidak actionable
+  // karena endpoint memang tidak mengizinkan finalisasi pada tanggal ini.
+  if (item.status === 'NOT_REQUIRED') return []
+
   const messages: string[] = []
   if ((item.counts.missingAssignment ?? 0) > 0) {
     messages.push(
-      `${item.counts.missingAssignment ?? 0} tanpa penugasan shift.`
+      `${item.counts.missingAssignment ?? 0} karyawan eligible belum dapat diproses karena penugasan shift tidak tersedia atau tidak valid untuk site dan tanggal ini.`
     )
   }
   if ((item.counts.ambiguousAssignment ?? 0) > 0) {
@@ -494,7 +498,16 @@ function warningMessages(item: AttendanceFinalization) {
       `${item.counts.ambiguousEmployment ?? 0} memiliki histori kerja ambigu.`
     )
   }
-  return messages
+  const knownAssignmentWarnings = [
+    'Ada karyawan eligible tanpa assignment Shift efektif.',
+    'Ada karyawan yang eligible berdasarkan histori kerja, tetapi belum memiliki penugasan shift efektif pada tanggal ini.',
+    'Ada assignment Shift yang tumpang tindih.',
+    'Ada penugasan shift efektif yang tumpang tindih pada tanggal ini.',
+  ]
+  for (const warning of item.warnings) {
+    if (!knownAssignmentWarnings.includes(warning)) messages.push(warning)
+  }
+  return [...new Set(messages)]
 }
 
 function dateLabel(value: string) {

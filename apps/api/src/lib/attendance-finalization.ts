@@ -299,22 +299,24 @@ export async function finalizeAttendanceDay(input: {
       counts.eligible += 1
       if (Number(row.assignmentCount) === 0 || !row.assignmentId) {
         counts.missingAssignment += 1
-        warnings.add('Ada karyawan eligible tanpa assignment Shift efektif.')
+        warnings.add(
+          'Ada karyawan yang eligible berdasarkan histori kerja, tetapi belum memiliki penugasan shift efektif pada tanggal ini.'
+        )
         continue
       }
       if (Number(row.assignmentCount) !== 1) {
         counts.ambiguousAssignment += 1
-        warnings.add('Ada assignment Shift yang tumpang tindih.')
+        warnings.add('Ada penugasan shift efektif yang tumpang tindih pada tanggal ini.')
         continue
       }
       if (Number(row.shiftSiteId) !== Number(site.id)) {
         counts.missingAssignment += 1
-        warnings.add('Ada assignment Shift yang tidak sesuai site histori.')
+        warnings.add('Ada penugasan shift yang tidak sesuai dengan site pada histori kerja.')
         continue
       }
       if (!parseWorkDays(row.workDays).length) {
         counts.missingAssignment += 1
-        warnings.add('Ada assignment Shift tanpa konfigurasi hari kerja.')
+        warnings.add('Ada penugasan shift tanpa konfigurasi hari kerja.')
         continue
       }
       if (!isShiftFinalizationDue({

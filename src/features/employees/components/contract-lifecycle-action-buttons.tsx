@@ -24,6 +24,7 @@ import { DataTableActionButton } from '@/components/data-table'
 import { DatePicker } from '@/components/date-picker'
 import { useScheduleStatusChange, useTransitionContract } from '../data/queries'
 import type { ContractLifecycleAction, EmployeeContract } from '../domain'
+import { formatDate } from '../utils'
 
 type Action = Exclude<ContractLifecycleAction, 'schedule'> | 'schedule'
 
@@ -262,7 +263,7 @@ export function ContractLifecycleActionButtons({
                   </span>
                 </p>
               )}
-            <p>{description(action)}</p>
+            <p>{description(action, contract.startDate)}</p>
           </div>
         }
         confirmText='Lanjutkan'
@@ -549,11 +550,11 @@ function ActionButton({
   )
 }
 
-function description(action?: Action) {
+function description(action?: Action, contractStartDate?: string) {
   if (action === 'schedule')
     return 'Kontrak akan dijadwalkan sesuai tanggal mulai.'
   if (action === 'activate')
-    return 'Kontrak akan diaktifkan dan status karyawan menjadi Aktif.'
+    return `Kontrak akan diaktifkan dan status karyawan menjadi Aktif efektif sejak tanggal mulai kontrak${contractStartDate ? `, ${formatDate(contractStartDate)}` : ''}. Jika tanggal tersebut sudah lewat, kelengkapan Attendance periode terkait perlu diperiksa kembali.`
   if (action === 'terminate')
     return 'Kontrak akan diterminasi dan status karyawan menjadi Nonaktif.'
   if (action === 'resign')

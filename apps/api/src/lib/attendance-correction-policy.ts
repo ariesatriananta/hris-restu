@@ -98,6 +98,25 @@ export const attendanceCorrectionReviewInput = z
 export type AttendanceAbnormalReason =
   (typeof attendanceAbnormalReasons)[number]
 
+export function resolveCorrectionAttendanceStatus(input: {
+  correctionType: (typeof attendanceCorrectionTypes)[number]
+  currentStatus: (typeof attendanceStatusValues)[number]
+  newStatus?: (typeof attendanceStatusValues)[number] | null
+  clockInAt: unknown
+  clockOutAt: unknown
+}) {
+  if (input.correctionType === 'STATUS') {
+    return input.newStatus ?? input.currentStatus
+  }
+  if (
+    input.currentStatus === 'ABSENT' &&
+    (input.clockInAt || input.clockOutAt)
+  ) {
+    return 'PRESENT' as const
+  }
+  return input.currentStatus
+}
+
 export function deriveAttendanceQuality(input: {
   attendanceStatus: string
   clockInAt: unknown

@@ -219,7 +219,7 @@ function Summary({
       value: data?.total ?? 0,
       icon: Users,
       filter: 'ALL',
-      tone: 'border-slate-300/50 bg-gradient-to-br from-slate-500/10 via-background to-background text-foreground dark:border-slate-700',
+      tone: 'border-slate-400/25 bg-gradient-to-br from-slate-500/[0.08] via-background to-slate-500/[0.02] text-foreground',
       iconTone: 'text-slate-600 dark:text-slate-300',
     },
     {
@@ -227,7 +227,7 @@ function Summary({
       value: data?.present ?? 0,
       icon: Clock3,
       filter: 'PRESENT',
-      tone: 'border-emerald-500/25 bg-gradient-to-br from-emerald-500/10 via-background to-background text-foreground',
+      tone: 'border-emerald-500/20 bg-gradient-to-br from-emerald-500/[0.09] via-background to-emerald-500/[0.025] text-foreground',
       iconTone: 'text-emerald-600 dark:text-emerald-400',
     },
     {
@@ -235,7 +235,7 @@ function Summary({
       value: data?.absent ?? 0,
       icon: AlertTriangle,
       filter: 'ABSENT',
-      tone: 'border-rose-500/25 bg-gradient-to-br from-rose-500/10 via-background to-background text-foreground',
+      tone: 'border-rose-500/20 bg-gradient-to-br from-rose-500/[0.09] via-background to-rose-500/[0.025] text-foreground',
       iconTone: 'text-rose-600 dark:text-rose-400',
     },
     {
@@ -243,15 +243,15 @@ function Summary({
       value: data?.leave ?? 0,
       icon: CalendarRange,
       filter: 'LEAVE',
-      tone: 'border-primary/20 bg-gradient-to-br from-primary/10 via-background to-background text-foreground',
-      iconTone: 'text-primary',
+      tone: 'border-violet-500/20 bg-gradient-to-br from-violet-500/[0.09] via-background to-violet-500/[0.025] text-foreground',
+      iconTone: 'text-violet-600 dark:text-violet-400',
     },
     {
       label: 'Sakit',
       value: data?.sick ?? 0,
       icon: Users,
       filter: 'SICK',
-      tone: 'border-amber-500/25 bg-gradient-to-br from-amber-500/10 via-background to-background text-foreground',
+      tone: 'border-amber-500/20 bg-gradient-to-br from-amber-500/[0.09] via-background to-amber-500/[0.025] text-foreground',
       iconTone: 'text-amber-600 dark:text-amber-400',
     },
     {
@@ -259,16 +259,16 @@ function Summary({
       value: data?.permission ?? 0,
       icon: CalendarRange,
       filter: 'PERMISSION',
-      tone: 'border-primary/20 bg-gradient-to-br from-primary/10 via-background to-background text-foreground',
-      iconTone: 'text-primary',
+      tone: 'border-sky-500/20 bg-gradient-to-br from-sky-500/[0.09] via-background to-sky-500/[0.025] text-foreground',
+      iconTone: 'text-sky-600 dark:text-sky-400',
     },
     {
       label: 'Libur',
       value: data?.holiday ?? 0,
       icon: CalendarRange,
       filter: 'HOLIDAY',
-      tone: 'border-slate-300/50 bg-gradient-to-br from-slate-500/10 via-background to-background text-foreground dark:border-slate-700',
-      iconTone: 'text-slate-600 dark:text-slate-300',
+      tone: 'border-indigo-500/20 bg-gradient-to-br from-indigo-500/[0.09] via-background to-indigo-500/[0.025] text-foreground',
+      iconTone: 'text-indigo-600 dark:text-indigo-400',
     },
     {
       label: 'Abnormal',
@@ -276,8 +276,8 @@ function Summary({
       icon: AlertTriangle,
       hint: `${data?.missingClockIn ?? 0} tanpa masuk · ${data?.missingClockOut ?? 0} tanpa pulang`,
       filter: 'ABNORMAL',
-      tone: 'border-amber-500/25 bg-gradient-to-br from-amber-500/10 via-background to-background text-foreground',
-      iconTone: 'text-amber-600 dark:text-amber-400',
+      tone: 'border-orange-500/20 bg-gradient-to-br from-orange-500/[0.09] via-background to-orange-500/[0.025] text-foreground',
+      iconTone: 'text-orange-600 dark:text-orange-400',
     },
   ] satisfies Array<{
     label: string

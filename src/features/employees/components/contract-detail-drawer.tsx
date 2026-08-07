@@ -540,7 +540,7 @@ export function ContractDetailDrawer({
                   </span>
                 </p>
               )}
-            <p>{lifecycleDescription(action)}</p>
+            <p>{lifecycleDescription(action, contract?.startDate)}</p>
           </div>
         }
         confirmText='Lanjutkan'
@@ -664,11 +664,12 @@ function lifecycleDescription(
     | 'cancel_activation'
     | 'close_expired_terminate'
     | 'close_expired_resign'
-    | 'resolve_active_conflict'
+    | 'resolve_active_conflict',
+  contractStartDate?: string
 ) {
   if (action === 'schedule') return 'Kontrak akan dijadwalkan.'
   if (action === 'activate')
-    return 'Kontrak akan diaktifkan dan status karyawan menjadi Aktif.'
+    return `Kontrak akan diaktifkan dan status karyawan menjadi Aktif efektif sejak tanggal mulai kontrak${contractStartDate ? `, ${formatDate(contractStartDate)}` : ''}. Jika tanggal tersebut sudah lewat, kelengkapan Attendance periode terkait perlu diperiksa kembali.`
   if (action === 'terminate')
     return 'Kontrak akan diterminasi dan status karyawan menjadi Nonaktif.'
   if (action === 'resign')

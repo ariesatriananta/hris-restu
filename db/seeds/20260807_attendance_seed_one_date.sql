@@ -2,6 +2,8 @@
 -- Jalankan hanya pada environment development/uji, setelah script reset.
 -- Ubah dua variabel ini sebelum eksekusi. Seed stabil untuk kombinasi
 -- employee UID + tanggal + seed version yang sama.
+-- Kandidat sepenuhnya mengikuti histori employment yang efektif dan
+-- allows_attendance=1 pada @target_date, bukan status/site current karyawan.
 
 -- Table yang akan di insert :
 -- attendance_classification_details
@@ -21,6 +23,8 @@ BEGIN
   DECLARE seeded_scan_events BIGINT DEFAULT 0;
   DECLARE seeded_classifications BIGINT DEFAULT 0;
   DECLARE seeded_corrections BIGINT DEFAULT 0;
+  DECLARE history_eligible_total BIGINT DEFAULT 0;
+  DECLARE seed_employee_total BIGINT DEFAULT 0;
 
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
@@ -78,89 +82,58 @@ BEGIN
       SET MESSAGE_TEXT='Seed dibatalkan: tanggal target sudah masuk perhitungan/snapshot payroll.';
   END IF;
 
-  -- Kandidat mengikuti status aktif saat ini, lalu divalidasi lagi terhadap
-  -- histori employment yang efektif pada tanggal target.
+  -- Histori efektif adalah sumber eligibility. Status/site current sengaja
+  -- tidak dipakai agar seed tanggal historis tetap konsisten dengan finalisasi.
   IF EXISTS (
     SELECT 1
-    FROM employees e
-    JOIN employee_statuses current_status
-      ON current_status.id=e.employee_status_id
-     AND current_status.code='ACTIVE'
-     AND current_status.allows_attendance=1
-    LEFT JOIN sites s ON s.id=e.current_site_id AND s.is_active=1
-    WHERE e.join_date<=@target_date AND s.id IS NULL
-  ) THEN
-    SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT='Seed dibatalkan: ada karyawan aktif pada site yang tidak aktif/tidak ditemukan.';
-  END IF;
-
-  IF EXISTS (
-    SELECT 1
-    FROM employees e
-    JOIN employee_statuses current_status
-      ON current_status.id=e.employee_status_id
-     AND current_status.code='ACTIVE'
-     AND current_status.allows_attendance=1
-    JOIN sites current_site ON current_site.id=e.current_site_id AND current_site.is_active=1
-    WHERE e.join_date<=@target_date
-      AND (
-        (
-          SELECT COUNT(*)
-          FROM employee_employment_histories eh
-          WHERE eh.employee_id=e.id
-            AND eh.effective_from<=@target_date
-            AND (eh.effective_to IS NULL OR eh.effective_to>=@target_date)
-        )<>1
-        OR
-        (
-          SELECT COUNT(*)
-          FROM employee_employment_histories eh
-          JOIN employee_statuses history_status ON history_status.id=eh.employee_status_id
-          WHERE eh.employee_id=e.id
-            AND eh.effective_from<=@target_date
-            AND (eh.effective_to IS NULL OR eh.effective_to>=@target_date)
-            AND history_status.allows_attendance=1
-        )<>1
-      )
-  ) THEN
-    SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT='Seed dibatalkan: histori employment karyawan aktif tidak tunggal/eligible pada tanggal target.';
-  END IF;
-
-  IF EXISTS (
-    SELECT 1
-    FROM employees e
-    JOIN employee_statuses current_status
-      ON current_status.id=e.employee_status_id
-     AND current_status.code='ACTIVE'
-     AND current_status.allows_attendance=1
-    JOIN employee_employment_histories eh
-      ON eh.employee_id=e.id
-     AND eh.effective_from<=@target_date
-     AND (eh.effective_to IS NULL OR eh.effective_to>=@target_date)
+    FROM employee_employment_histories eh
     JOIN employee_statuses history_status
       ON history_status.id=eh.employee_status_id
      AND history_status.allows_attendance=1
-    WHERE e.join_date<=@target_date
-      AND eh.site_id<>e.current_site_id
+    LEFT JOIN sites s ON s.id=eh.site_id AND s.is_active=1
+    WHERE eh.effective_from<=@target_date
+      AND (eh.effective_to IS NULL OR eh.effective_to>=@target_date)
+      AND s.id IS NULL
   ) THEN
     SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT='Seed dibatalkan: site histori efektif berbeda dari current site karyawan.';
+      SET MESSAGE_TEXT='Seed dibatalkan: ada histori eligible pada site yang tidak aktif/tidak ditemukan.';
   END IF;
 
   IF EXISTS (
     SELECT 1
     FROM employees e
-    JOIN employee_statuses current_status
-      ON current_status.id=e.employee_status_id
-     AND current_status.code='ACTIVE'
-     AND current_status.allows_attendance=1
-    WHERE e.join_date<=@target_date
+    JOIN employee_employment_histories eligible_history
+      ON eligible_history.employee_id=e.id
+     AND eligible_history.effective_from<=@target_date
+     AND (eligible_history.effective_to IS NULL OR eligible_history.effective_to>=@target_date)
+    JOIN employee_statuses eligible_status
+      ON eligible_status.id=eligible_history.employee_status_id
+     AND eligible_status.allows_attendance=1
+    WHERE (
+      SELECT COUNT(*)
+      FROM employee_employment_histories effective_history
+      WHERE effective_history.employee_id=e.id
+        AND effective_history.effective_from<=@target_date
+        AND (effective_history.effective_to IS NULL OR effective_history.effective_to>=@target_date)
+    )<>1
+  ) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT='Seed dibatalkan: ada histori employment efektif yang tumpang tindih pada tanggal target.';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM employee_employment_histories eh
+    JOIN employee_statuses history_status
+      ON history_status.id=eh.employee_status_id
+     AND history_status.allows_attendance=1
+    WHERE eh.effective_from<=@target_date
+      AND (eh.effective_to IS NULL OR eh.effective_to>=@target_date)
       AND (
         (
           SELECT COUNT(*)
           FROM employee_shift_assignments esa
-          WHERE esa.employee_id=e.id
+          WHERE esa.employee_id=eh.employee_id
             AND esa.effective_from<=@target_date
             AND (esa.effective_to IS NULL OR esa.effective_to>=@target_date)
         )<>1
@@ -169,16 +142,17 @@ BEGIN
           SELECT COUNT(*)
           FROM employee_shift_assignments esa
           JOIN shifts sh ON sh.id=esa.shift_id
-          WHERE esa.employee_id=e.id
+          WHERE esa.employee_id=eh.employee_id
             AND esa.effective_from<=@target_date
             AND (esa.effective_to IS NULL OR esa.effective_to>=@target_date)
             AND sh.is_active=1
-            AND sh.site_id=e.current_site_id
+            AND sh.site_id=eh.site_id
+            AND JSON_LENGTH(COALESCE(esa.work_days_json,JSON_ARRAY()))>0
         )<>1
       )
   ) THEN
     SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT='Seed dibatalkan: assignment shift efektif hilang, ambigu, nonaktif, atau berbeda site.';
+      SET MESSAGE_TEXT='Seed dibatalkan: penugasan shift efektif hilang, ambigu, nonaktif, berbeda site, atau tanpa hari kerja.';
   END IF;
 
   DROP TEMPORARY TABLE IF EXISTS tmp_attendance_one_day_employees;
@@ -187,7 +161,7 @@ BEGIN
     e.id employee_id,
     e.uid employee_uid,
     e.employee_number,
-    e.current_site_id site_id,
+    eh.site_id,
     esa.id shift_assignment_id,
     esa.work_days_json,
     sh.id shift_id,
@@ -197,13 +171,8 @@ BEGIN
     sh.late_tolerance_minutes,
     sh.early_leave_tolerance_minutes
   FROM employees e
-  JOIN employee_statuses current_status
-    ON current_status.id=e.employee_status_id
-   AND current_status.code='ACTIVE'
-   AND current_status.allows_attendance=1
   JOIN employee_employment_histories eh
     ON eh.employee_id=e.id
-   AND eh.site_id=e.current_site_id
    AND eh.effective_from<=@target_date
    AND (eh.effective_to IS NULL OR eh.effective_to>=@target_date)
   JOIN employee_statuses history_status
@@ -215,9 +184,9 @@ BEGIN
    AND (esa.effective_to IS NULL OR esa.effective_to>=@target_date)
   JOIN shifts sh
     ON sh.id=esa.shift_id
-   AND sh.site_id=e.current_site_id
+   AND sh.site_id=eh.site_id
    AND sh.is_active=1
-  WHERE e.join_date<=@target_date;
+  WHERE JSON_LENGTH(COALESCE(esa.work_days_json,JSON_ARRAY()))>0;
 
   ALTER TABLE tmp_attendance_one_day_employees
     ADD PRIMARY KEY (employee_id),
@@ -225,7 +194,24 @@ BEGIN
 
   IF NOT EXISTS (SELECT 1 FROM tmp_attendance_one_day_employees) THEN
     SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT='Seed dibatalkan: tidak ada karyawan aktif yang eligible pada tanggal target.';
+      SET MESSAGE_TEXT='Seed dibatalkan: tidak ada karyawan yang eligible pada tanggal target.';
+  END IF;
+
+  SELECT COUNT(DISTINCT eh.employee_id) INTO history_eligible_total
+  FROM employee_employment_histories eh
+  JOIN employee_statuses history_status
+    ON history_status.id=eh.employee_status_id
+   AND history_status.allows_attendance=1
+  JOIN sites s ON s.id=eh.site_id AND s.is_active=1
+  WHERE eh.effective_from<=@target_date
+    AND (eh.effective_to IS NULL OR eh.effective_to>=@target_date);
+
+  SELECT COUNT(*) INTO seed_employee_total
+  FROM tmp_attendance_one_day_employees;
+
+  IF history_eligible_total<>seed_employee_total THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT='Seed dibatalkan: kandidat seed tidak sama dengan karyawan eligible berdasarkan histori.';
   END IF;
 
   DROP TEMPORARY TABLE IF EXISTS tmp_attendance_one_day_sites;

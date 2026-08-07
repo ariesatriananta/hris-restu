@@ -10,12 +10,32 @@ import {
   canRepairContractControlledStatus,
   classifyContractConflict,
   contractReconciliationDecision,
+  contractTransitionEffectiveDate,
   cronConflict,
   lifecycleNextStatus,
   paginationMeta,
 } from './contract-lifecycle-policy.js'
 
 const today = '2026-07-15'
+
+describe('contractTransitionEffectiveDate', () => {
+  it('memakai tanggal mulai kontrak untuk aktivasi manual yang terlambat', () => {
+    expect(contractTransitionEffectiveDate({
+      action: 'activate',
+      contractStartDate: '2026-07-01',
+      today,
+    })).toBe('2026-07-01')
+  })
+
+  it('tetap memakai tanggal pilihan untuk terminasi dan resign', () => {
+    expect(contractTransitionEffectiveDate({
+      action: 'terminate',
+      contractStartDate: '2026-07-01',
+      today,
+      requestedEffectiveDate: '2026-07-10',
+    })).toBe('2026-07-10')
+  })
+})
 
 describe('lifecycleNextStatus', () => {
   it('menerapkan transisi lifecycle legal', () => {
