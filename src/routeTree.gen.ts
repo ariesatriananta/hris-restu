@@ -38,6 +38,7 @@ import { Route as AuthenticatedKaryawanDokumenRouteImport } from './routes/_auth
 import { Route as AuthenticatedKaryawanDataKaryawanRouteImport } from './routes/_authenticated/karyawan/data-karyawan'
 import { Route as AuthenticatedKaryawanCetakIdCardRouteImport } from './routes/_authenticated/karyawan/cetak-id-card'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
+import { Route as AuthenticatedAttendanceTindakLanjutRouteImport } from './routes/_authenticated/attendance/tindak-lanjut'
 import { Route as AuthenticatedAttendanceScanRouteImport } from './routes/_authenticated/attendance/scan'
 import { Route as AuthenticatedAttendanceRekapRouteImport } from './routes/_authenticated/attendance/rekap'
 import { Route as AuthenticatedAttendanceMonitoringHarianRouteImport } from './routes/_authenticated/attendance/monitoring-harian'
@@ -229,6 +230,12 @@ const AuthenticatedErrorsErrorRoute =
     path: '/errors/$error',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAttendanceTindakLanjutRoute =
+  AuthenticatedAttendanceTindakLanjutRouteImport.update({
+    id: '/attendance/tindak-lanjut',
+    path: '/attendance/tindak-lanjut',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAttendanceScanRoute =
   AuthenticatedAttendanceScanRouteImport.update({
     id: '/attendance/scan',
@@ -416,6 +423,7 @@ export interface FileRoutesByFullPath {
   '/attendance/monitoring-harian': typeof AuthenticatedAttendanceMonitoringHarianRoute
   '/attendance/rekap': typeof AuthenticatedAttendanceRekapRoute
   '/attendance/scan': typeof AuthenticatedAttendanceScanRoute
+  '/attendance/tindak-lanjut': typeof AuthenticatedAttendanceTindakLanjutRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/karyawan/cetak-id-card': typeof AuthenticatedKaryawanCetakIdCardRoute
   '/karyawan/data-karyawan': typeof AuthenticatedKaryawanDataKaryawanRouteWithChildren
@@ -473,6 +481,7 @@ export interface FileRoutesByTo {
   '/attendance/monitoring-harian': typeof AuthenticatedAttendanceMonitoringHarianRoute
   '/attendance/rekap': typeof AuthenticatedAttendanceRekapRoute
   '/attendance/scan': typeof AuthenticatedAttendanceScanRoute
+  '/attendance/tindak-lanjut': typeof AuthenticatedAttendanceTindakLanjutRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/karyawan/cetak-id-card': typeof AuthenticatedKaryawanCetakIdCardRoute
   '/karyawan/data-karyawan': typeof AuthenticatedKaryawanDataKaryawanRouteWithChildren
@@ -532,6 +541,7 @@ export interface FileRoutesById {
   '/_authenticated/attendance/monitoring-harian': typeof AuthenticatedAttendanceMonitoringHarianRoute
   '/_authenticated/attendance/rekap': typeof AuthenticatedAttendanceRekapRoute
   '/_authenticated/attendance/scan': typeof AuthenticatedAttendanceScanRoute
+  '/_authenticated/attendance/tindak-lanjut': typeof AuthenticatedAttendanceTindakLanjutRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/karyawan/cetak-id-card': typeof AuthenticatedKaryawanCetakIdCardRoute
   '/_authenticated/karyawan/data-karyawan': typeof AuthenticatedKaryawanDataKaryawanRouteWithChildren
@@ -591,6 +601,7 @@ export interface FileRouteTypes {
     | '/attendance/monitoring-harian'
     | '/attendance/rekap'
     | '/attendance/scan'
+    | '/attendance/tindak-lanjut'
     | '/errors/$error'
     | '/karyawan/cetak-id-card'
     | '/karyawan/data-karyawan'
@@ -648,6 +659,7 @@ export interface FileRouteTypes {
     | '/attendance/monitoring-harian'
     | '/attendance/rekap'
     | '/attendance/scan'
+    | '/attendance/tindak-lanjut'
     | '/errors/$error'
     | '/karyawan/cetak-id-card'
     | '/karyawan/data-karyawan'
@@ -706,6 +718,7 @@ export interface FileRouteTypes {
     | '/_authenticated/attendance/monitoring-harian'
     | '/_authenticated/attendance/rekap'
     | '/_authenticated/attendance/scan'
+    | '/_authenticated/attendance/tindak-lanjut'
     | '/_authenticated/errors/$error'
     | '/_authenticated/karyawan/cetak-id-card'
     | '/_authenticated/karyawan/data-karyawan'
@@ -953,6 +966,13 @@ declare module '@tanstack/react-router' {
       path: '/errors/$error'
       fullPath: '/errors/$error'
       preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/attendance/tindak-lanjut': {
+      id: '/_authenticated/attendance/tindak-lanjut'
+      path: '/attendance/tindak-lanjut'
+      fullPath: '/attendance/tindak-lanjut'
+      preLoaderRoute: typeof AuthenticatedAttendanceTindakLanjutRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/attendance/scan': {
@@ -1280,6 +1300,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAttendanceMonitoringHarianRoute: typeof AuthenticatedAttendanceMonitoringHarianRoute
   AuthenticatedAttendanceRekapRoute: typeof AuthenticatedAttendanceRekapRoute
   AuthenticatedAttendanceScanRoute: typeof AuthenticatedAttendanceScanRoute
+  AuthenticatedAttendanceTindakLanjutRoute: typeof AuthenticatedAttendanceTindakLanjutRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedKaryawanCetakIdCardRoute: typeof AuthenticatedKaryawanCetakIdCardRoute
   AuthenticatedKaryawanDataKaryawanRoute: typeof AuthenticatedKaryawanDataKaryawanRouteWithChildren
@@ -1331,6 +1352,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedAttendanceMonitoringHarianRoute,
   AuthenticatedAttendanceRekapRoute: AuthenticatedAttendanceRekapRoute,
   AuthenticatedAttendanceScanRoute: AuthenticatedAttendanceScanRoute,
+  AuthenticatedAttendanceTindakLanjutRoute:
+    AuthenticatedAttendanceTindakLanjutRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedKaryawanCetakIdCardRoute: AuthenticatedKaryawanCetakIdCardRoute,
   AuthenticatedKaryawanDataKaryawanRoute:

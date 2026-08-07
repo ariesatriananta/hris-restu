@@ -1,11 +1,16 @@
 import { z } from 'zod'
-import { createFileRoute } from '@tanstack/react-router'
-import { AttendanceCorrectionPage } from '@/features/attendance/correction-page'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { requireAnyPermission } from '@/features/auth/permissions'
 
 export const Route = createFileRoute('/_authenticated/attendance/koreksi')({
-  beforeLoad: () =>
-    requireAnyPermission(['attendance.correct', 'attendance.approve']),
+  beforeLoad: ({ search }) => {
+    requireAnyPermission(['attendance.correct', 'attendance.approve'])
+    throw redirect({
+      to: '/attendance/tindak-lanjut',
+      search: { ...search, tab: 'correction' },
+      replace: true,
+    })
+  },
   validateSearch: z.object({
     businessDate: z.string().date().optional(),
     page: z.number().int().positive().optional(),
@@ -16,15 +21,4 @@ export const Route = createFileRoute('/_authenticated/attendance/koreksi')({
       .array(z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED']))
       .optional(),
   }),
-  component: RouteComponent,
 })
-
-// eslint-disable-next-line react-refresh/only-export-components
-function RouteComponent() {
-  return (
-    <AttendanceCorrectionPage
-      search={Route.useSearch()}
-      navigate={Route.useNavigate()}
-    />
-  )
-}

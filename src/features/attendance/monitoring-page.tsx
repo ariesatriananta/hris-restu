@@ -19,7 +19,6 @@ import { useAuthStore } from '@/stores/auth-store'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -27,7 +26,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Table,
@@ -44,13 +42,16 @@ import {
   DataTablePagination,
   DataTableToolbar,
 } from '@/components/data-table'
+import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
+import { AttendanceDateTimePicker } from './attendance-date-time-picker'
 import {
   useAttendanceFoundation,
   useAttendanceMonitoring,
   useCreateAttendanceCorrection,
 } from './data/queries'
+import { dateOnlyFromInput, dateOnlyToInput } from './date-only'
 import type {
   AttendanceCorrectionInput,
   AttendanceCorrectionType,
@@ -71,10 +72,10 @@ export function AttendanceMonitoringPage({
   const session = useAuthStore((state) => state.session)
   const routerNavigate = useNavigate()
   const canCorrect = hasPermission(session, 'attendance.correct')
-  const canClassify =
-    canCorrect &&
-    (session?.user.role === 'HR_OFFICER' ||
-      session?.user.role === 'SUPER_ADMIN')
+  const canApprove = hasPermission(session, 'attendance.approve')
+  const isAttendanceHr =
+    session?.user.role === 'HR_OFFICER' || session?.user.role === 'SUPER_ADMIN'
+  const canClassify = canCorrect && isAttendanceHr
   const canFinalize =
     hasPermission(session, 'attendance.finalize') &&
     (session?.user.role === 'HR_OFFICER' ||
@@ -110,24 +111,21 @@ export function AttendanceMonitoringPage({
             Pantau kehadiran dan rekaman jam yang perlu ditindaklanjuti HR.
           </p>
         </div>
-        <label className='grid gap-1 text-sm'>
+        <label className='grid gap-1 text-sm sm:w-48'>
           <span className='font-medium'>Tanggal kerja</span>
-          <Input
-            type='date'
-            className='w-full sm:w-44'
-            value={businessDate}
-            onChange={(event) =>
+          <DatePicker
+            selected={dateOnlyFromInput(businessDate)}
+            onSelect={(date) => {
+              const value = dateOnlyToInput(date)
+              if (!value) return
               navigate({
                 search: (previous) => ({
                   ...previous,
-                  businessDate:
-                    event.target.value === today()
-                      ? undefined
-                      : event.target.value,
+                  businessDate: value === today() ? undefined : value,
                   page: undefined,
                 }),
               })
-            }
+            }}
           />
         </label>
       </div>
@@ -137,7 +135,40 @@ export function AttendanceMonitoringPage({
         sites={arrayValue<AttendanceSiteCode>(search.site)}
         canFinalize={canFinalize}
       />
-      <Summary data={result.data?.summary} />
+      <AttentionShortcuts
+        summary={result.data?.summary}
+        businessDate={businessDate}
+        search={search}
+        navigate={navigate}
+        onOpenCorrections={() =>
+          void routerNavigate({
+            to: '/attendance/tindak-lanjut',
+            search: {
+              tab: 'correction',
+              businessDate,
+              approvalStatus: ['PENDING'],
+            },
+          })
+        }
+        onOpenClassifications={() =>
+          void routerNavigate({
+            to: '/attendance/tindak-lanjut',
+            search: {
+              tab: 'classification',
+              dateFrom: businessDate,
+              dateTo: businessDate,
+              approvalStatus: ['PENDING'],
+            },
+          })
+        }
+        canOpenCorrections={canCorrect || canApprove}
+        canOpenClassifications={(canCorrect || canApprove) && isAttendanceHr}
+      />
+      <Summary
+        data={result.data?.summary}
+        search={search}
+        navigate={navigate}
+      />
       <div className='mt-5'>
         <MonitoringTable
           result={result}
@@ -149,8 +180,9 @@ export function AttendanceMonitoringPage({
           onCorrect={setSelected}
           onClassify={(record) =>
             void routerNavigate({
-              to: '/attendance/klasifikasi',
+              to: '/attendance/tindak-lanjut',
               search: {
+                tab: 'classification',
                 employeeUid: record.employeeUid,
                 employeeName: record.employeeName,
                 employeeNumber: record.employeeNumber,
@@ -172,41 +204,221 @@ export function AttendanceMonitoringPage({
   )
 }
 
-function Summary({ data }: { data?: AttendanceMonitoringSummary }) {
+function Summary({
+  data,
+  search,
+  navigate,
+}: {
+  data?: AttendanceMonitoringSummary
+  search: Record<string, unknown>
+  navigate: NavigateFn
+}) {
   const items = [
-    ['Total', data?.total ?? 0, Users, 'text-primary', undefined],
-    ['Hadir', data?.present ?? 0, Clock3, 'text-positive', undefined],
-    ['Alpha', data?.absent ?? 0, AlertTriangle, 'text-destructive', undefined],
-    ['Cuti', data?.leave ?? 0, CalendarRange, 'text-primary', undefined],
-    ['Sakit', data?.sick ?? 0, Users, 'text-warning-foreground', undefined],
-    ['Izin', data?.permission ?? 0, CalendarRange, 'text-primary', undefined],
-    ['Libur', data?.holiday ?? 0, CalendarRange, 'text-positive', undefined],
-    [
-      'Abnormal',
-      data?.abnormal ?? 0,
-      AlertTriangle,
-      'text-warning-foreground',
-      `${data?.missingClockIn ?? 0} tanpa masuk · ${data?.missingClockOut ?? 0} tanpa pulang`,
-    ],
-  ] as const
+    {
+      label: 'Total',
+      value: data?.total ?? 0,
+      icon: Users,
+      filter: 'ALL',
+      tone: 'border-slate-300/50 bg-gradient-to-br from-slate-500/10 via-background to-background text-foreground dark:border-slate-700',
+      iconTone: 'text-slate-600 dark:text-slate-300',
+    },
+    {
+      label: 'Hadir',
+      value: data?.present ?? 0,
+      icon: Clock3,
+      filter: 'PRESENT',
+      tone: 'border-emerald-500/25 bg-gradient-to-br from-emerald-500/10 via-background to-background text-foreground',
+      iconTone: 'text-emerald-600 dark:text-emerald-400',
+    },
+    {
+      label: 'Alpha',
+      value: data?.absent ?? 0,
+      icon: AlertTriangle,
+      filter: 'ABSENT',
+      tone: 'border-rose-500/25 bg-gradient-to-br from-rose-500/10 via-background to-background text-foreground',
+      iconTone: 'text-rose-600 dark:text-rose-400',
+    },
+    {
+      label: 'Cuti',
+      value: data?.leave ?? 0,
+      icon: CalendarRange,
+      filter: 'LEAVE',
+      tone: 'border-primary/20 bg-gradient-to-br from-primary/10 via-background to-background text-foreground',
+      iconTone: 'text-primary',
+    },
+    {
+      label: 'Sakit',
+      value: data?.sick ?? 0,
+      icon: Users,
+      filter: 'SICK',
+      tone: 'border-amber-500/25 bg-gradient-to-br from-amber-500/10 via-background to-background text-foreground',
+      iconTone: 'text-amber-600 dark:text-amber-400',
+    },
+    {
+      label: 'Izin',
+      value: data?.permission ?? 0,
+      icon: CalendarRange,
+      filter: 'PERMISSION',
+      tone: 'border-primary/20 bg-gradient-to-br from-primary/10 via-background to-background text-foreground',
+      iconTone: 'text-primary',
+    },
+    {
+      label: 'Libur',
+      value: data?.holiday ?? 0,
+      icon: CalendarRange,
+      filter: 'HOLIDAY',
+      tone: 'border-slate-300/50 bg-gradient-to-br from-slate-500/10 via-background to-background text-foreground dark:border-slate-700',
+      iconTone: 'text-slate-600 dark:text-slate-300',
+    },
+    {
+      label: 'Abnormal',
+      value: data?.abnormal ?? 0,
+      icon: AlertTriangle,
+      hint: `${data?.missingClockIn ?? 0} tanpa masuk · ${data?.missingClockOut ?? 0} tanpa pulang`,
+      filter: 'ABNORMAL',
+      tone: 'border-amber-500/25 bg-gradient-to-br from-amber-500/10 via-background to-background text-foreground',
+      iconTone: 'text-amber-600 dark:text-amber-400',
+    },
+  ] satisfies Array<{
+    label: string
+    value: number
+    icon: typeof Users
+    filter: MonitoringView
+    tone: string
+    iconTone: string
+    hint?: string
+  }>
   return (
-    <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-4'>
-      {items.map(([label, value, Icon, color, hint]) => (
-        <Card key={label} className='min-h-[68px] rounded-lg'>
-          <CardContent className='flex items-center justify-between px-3 py-2.5'>
-            <div>
-              <p className='text-xs text-muted-foreground'>{label}</p>
-              <p className='text-xl font-bold'>{value}</p>
-              {hint && (
-                <p className='text-[10px] text-muted-foreground'>{hint}</p>
-              )}
-            </div>
-            <Icon className={`size-4 ${color}`} aria-hidden='true' />
-          </CardContent>
-        </Card>
-      ))}
+    <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8'>
+      {items.map(
+        ({ label, value, icon: Icon, hint, filter, tone, iconTone }) => (
+          <section
+            key={label}
+            className={`min-h-[68px] rounded-lg border transition-colors ${tone} ${monitoringViewIsActive(search, filter) ? 'border-primary ring-1 ring-primary/30' : ''}`}
+          >
+            <button
+              type='button'
+              className='h-full w-full rounded-lg px-3 py-2.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none'
+              aria-pressed={monitoringViewIsActive(search, filter)}
+              aria-label={`Filter ${label}: ${value} data`}
+              onClick={() => applyMonitoringView(navigate, filter)}
+            >
+              <span className='flex items-start justify-between gap-3'>
+                <div>
+                  <p className='text-[11px] leading-3 font-medium opacity-80'>
+                    {label}
+                  </p>
+                  <p className='mt-1 text-xl leading-none font-semibold tabular-nums'>
+                    {value}
+                  </p>
+                  {hint && (
+                    <p className='mt-1 text-[10px] leading-3 opacity-75'>
+                      {hint}
+                    </p>
+                  )}
+                </div>
+                <Icon
+                  className={`size-3.5 shrink-0 ${iconTone}`}
+                  aria-hidden='true'
+                />
+              </span>
+            </button>
+          </section>
+        )
+      )}
     </div>
   )
+}
+
+function AttentionShortcuts({
+  summary,
+  businessDate,
+  search,
+  navigate,
+  onOpenCorrections,
+  onOpenClassifications,
+  canOpenCorrections,
+  canOpenClassifications,
+}: {
+  summary?: AttendanceMonitoringSummary
+  businessDate: string
+  search: Record<string, unknown>
+  navigate: NavigateFn
+  onOpenCorrections: () => void
+  onOpenClassifications: () => void
+  canOpenCorrections: boolean
+  canOpenClassifications: boolean
+}) {
+  const attentionCount = (summary?.absent ?? 0) + (summary?.abnormal ?? 0)
+  return (
+    <div className='mb-4 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 px-3 py-2'>
+      <div className='mr-auto min-w-44'>
+        <p className='text-sm font-semibold'>Perlu tindakan</p>
+        <p className='text-xs text-muted-foreground'>
+          {attentionCount} temuan pada {dateLabel(businessDate)}
+        </p>
+      </div>
+      <Button
+        size='sm'
+        variant={
+          monitoringViewIsActive(search, 'ABSENT') ? 'default' : 'outline'
+        }
+        onClick={() => applyMonitoringView(navigate, 'ABSENT')}
+      >
+        Alpha ({summary?.absent ?? 0})
+      </Button>
+      <Button
+        size='sm'
+        variant={
+          monitoringViewIsActive(search, 'ABNORMAL') ? 'default' : 'outline'
+        }
+        onClick={() => applyMonitoringView(navigate, 'ABNORMAL')}
+      >
+        Abnormal ({summary?.abnormal ?? 0})
+      </Button>
+      {canOpenCorrections && (
+        <Button size='sm' variant='outline' onClick={onOpenCorrections}>
+          Koreksi pending
+        </Button>
+      )}
+      {canOpenClassifications && (
+        <Button size='sm' variant='outline' onClick={onOpenClassifications}>
+          Klasifikasi pending
+        </Button>
+      )}
+    </div>
+  )
+}
+
+type MonitoringView = AttendanceStatus | 'ABNORMAL' | 'ALL'
+
+function applyMonitoringView(navigate: NavigateFn, view: MonitoringView) {
+  navigate({
+    search: (previous) => ({
+      ...previous,
+      attendanceStatus:
+        view !== 'ALL' && view !== 'ABNORMAL' ? [view] : undefined,
+      qualityStatus: view === 'ABNORMAL' ? ['ABNORMAL'] : undefined,
+      abnormalReason: undefined,
+      page: undefined,
+    }),
+  })
+}
+
+function monitoringViewIsActive(
+  search: Record<string, unknown>,
+  view: MonitoringView
+) {
+  const attendance = arrayValue<string>(search.attendanceStatus) ?? []
+  const quality = arrayValue<string>(search.qualityStatus) ?? []
+  const reason = arrayValue<string>(search.abnormalReason) ?? []
+  if (view === 'ALL') {
+    return !attendance.length && !quality.length && !reason.length
+  }
+  if (view === 'ABNORMAL') {
+    return !attendance.length && quality.length === 1 && quality[0] === view
+  }
+  return attendance.length === 1 && attendance[0] === view && !quality.length
 }
 
 function MonitoringTable({
@@ -254,9 +466,7 @@ function MonitoringTable({
         accessorKey: 'attendanceStatus',
         header: 'Status',
         cell: ({ row }) => (
-          <Badge variant='outline'>
-            {statusLabel(row.original.attendanceStatus)}
-          </Badge>
+          <AttendanceStatusBadge value={row.original.attendanceStatus} />
         ),
       },
       {
@@ -478,7 +688,10 @@ function MobileRecord({
             {item.employeeNumber} · {item.site}
           </p>
         </div>
-        <QualityBadge record={item} />
+        <div className='flex flex-wrap justify-end gap-1.5'>
+          <AttendanceStatusBadge value={item.attendanceStatus} />
+          <QualityBadge record={item} />
+        </div>
       </div>
       <div className='grid grid-cols-2 gap-2 text-sm'>
         <div>
@@ -521,6 +734,24 @@ function QualityBadge({ record }: { record: AttendanceMonitoringRecord }) {
       className='border-warning/60 bg-warning/15 text-warning-foreground'
     >
       {record.abnormalReasons.map(abnormalLabel).join(', ') || 'Abnormal'}
+    </Badge>
+  )
+}
+
+function AttendanceStatusBadge({ value }: { value: AttendanceStatus }) {
+  const tone: Record<AttendanceStatus, string> = {
+    PRESENT:
+      'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+    ABSENT: 'border-destructive/30 bg-destructive/10 text-destructive',
+    LEAVE: 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-400',
+    SICK: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400',
+    PERMISSION:
+      'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400',
+    HOLIDAY: 'border-muted-foreground/25 bg-muted text-muted-foreground',
+  }
+  return (
+    <Badge variant='outline' className={tone[value]}>
+      {statusLabel(value)}
     </Badge>
   )
 }
@@ -601,22 +832,22 @@ function CorrectionRequestDialog({
           {(type === 'CLOCK_IN' || type === 'BOTH') && (
             <label className='grid gap-1 text-sm'>
               <span>Jam masuk baru</span>
-              <Input
-                type='datetime-local'
+              <AttendanceDateTimePicker
+                key={`${record.uid}-clock-in`}
                 value={clockIn}
-                onChange={(event) => setClockIn(event.target.value)}
-                required
+                defaultDate={record.businessDate}
+                onChange={setClockIn}
               />
             </label>
           )}
           {(type === 'CLOCK_OUT' || type === 'BOTH') && (
             <label className='grid gap-1 text-sm'>
               <span>Jam pulang baru</span>
-              <Input
-                type='datetime-local'
+              <AttendanceDateTimePicker
+                key={`${record.uid}-clock-out`}
                 value={clockOut}
-                onChange={(event) => setClockOut(event.target.value)}
-                required
+                defaultDate={record.businessDate}
+                onChange={setClockOut}
               />
             </label>
           )}

@@ -68,6 +68,7 @@ import {
   DataTablePagination,
   DataTableToolbar,
 } from '@/components/data-table'
+import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
 import {
@@ -80,6 +81,7 @@ import {
   useCreateAttendanceClassification,
   useReviewAttendanceClassification,
 } from './data/queries'
+import { dateOnlyFromInput, dateOnlyToInput } from './date-only'
 import type {
   AttendanceClassification,
   AttendanceClassificationApprovalStatus,
@@ -91,9 +93,11 @@ import type {
 export function AttendanceClassificationPage({
   search,
   navigate,
+  embedded = false,
 }: {
   search: Record<string, unknown>
   navigate: NavigateFn
+  embedded?: boolean
 }) {
   const session = useAuthStore((state) => state.session)
   const canCreate = hasPermission(session, 'attendance.correct')
@@ -138,53 +142,63 @@ export function AttendanceClassificationPage({
     }
   }
 
+  const PageContainer = embedded ? 'div' : Main
   return (
-    <Main>
-      <div className='mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
-        <div>
-          <p className='text-sm font-medium text-primary'>Attendance</p>
-          <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
-            Klasifikasi Attendance
-          </h1>
-          <p className='text-sm text-muted-foreground'>
-            Ajukan dan setujui cuti, sakit, atau izin untuk satu tanggal maupun
-            rentang tanggal.
-          </p>
+    <PageContainer>
+      {!embedded && (
+        <div className='mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
+          <div>
+            <p className='text-sm font-medium text-primary'>Attendance</p>
+            <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
+              Klasifikasi Attendance
+            </h1>
+            <p className='text-sm text-muted-foreground'>
+              Ajukan dan setujui cuti, sakit, atau izin untuk satu tanggal
+              maupun rentang tanggal.
+            </p>
+          </div>
+          {canCreate && (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus /> Ajukan klasifikasi
+            </Button>
+          )}
         </div>
-        {canCreate && (
+      )}
+
+      <div className='mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-end'>
+        <div className='grid gap-3 sm:grid-cols-2 lg:w-md'>
+          <DateFilter
+            label='Dari tanggal'
+            value={stringValue(search.dateFrom) ?? ''}
+            onChange={(dateFrom) =>
+              navigate({
+                search: (previous) => ({
+                  ...previous,
+                  dateFrom: dateFrom || undefined,
+                  page: undefined,
+                }),
+              })
+            }
+          />
+          <DateFilter
+            label='Sampai tanggal'
+            value={stringValue(search.dateTo) ?? ''}
+            onChange={(dateTo) =>
+              navigate({
+                search: (previous) => ({
+                  ...previous,
+                  dateTo: dateTo || undefined,
+                  page: undefined,
+                }),
+              })
+            }
+          />
+        </div>
+        {embedded && canCreate && (
           <Button onClick={() => setCreateOpen(true)}>
             <Plus /> Ajukan klasifikasi
           </Button>
         )}
-      </div>
-
-      <div className='mb-4 grid gap-3 sm:grid-cols-2 sm:justify-end lg:ml-auto lg:max-w-md'>
-        <DateFilter
-          label='Dari tanggal'
-          value={stringValue(search.dateFrom) ?? ''}
-          onChange={(dateFrom) =>
-            navigate({
-              search: (previous) => ({
-                ...previous,
-                dateFrom: dateFrom || undefined,
-                page: undefined,
-              }),
-            })
-          }
-        />
-        <DateFilter
-          label='Sampai tanggal'
-          value={stringValue(search.dateTo) ?? ''}
-          onChange={(dateTo) =>
-            navigate({
-              search: (previous) => ({
-                ...previous,
-                dateTo: dateTo || undefined,
-                page: undefined,
-              }),
-            })
-          }
-        />
       </div>
 
       <ClassificationTable
@@ -222,7 +236,7 @@ export function AttendanceClassificationPage({
         canCorrect={canCreate}
         onOpenChange={(open) => !open && setSelectedUid(undefined)}
       />
-    </Main>
+    </PageContainer>
   )
 }
 
@@ -559,24 +573,27 @@ function CreateClassificationDialog({
           />
           <div className='grid gap-4 sm:grid-cols-2'>
             <Field label='Tanggal mulai'>
-              <Input
-                type='date'
-                value={startDate}
-                onChange={(event) => {
-                  const next = event.target.value
+              <DatePicker
+                selected={dateOnlyFromInput(startDate)}
+                onSelect={(date) => {
+                  const next = dateOnlyToInput(date)
+                  if (!next) return
                   setStartDate(next)
                   if (endDate < next) setEndDate(next)
                 }}
-                required
               />
             </Field>
             <Field label='Tanggal selesai'>
-              <Input
-                type='date'
-                value={endDate}
-                min={startDate}
-                onChange={(event) => setEndDate(event.target.value)}
-                required
+              <DatePicker
+                selected={dateOnlyFromInput(endDate)}
+                onSelect={(date) => {
+                  const next = dateOnlyToInput(date)
+                  if (next) setEndDate(next)
+                }}
+                disabledDates={(date) => {
+                  const minimum = dateOnlyFromInput(startDate)
+                  return Boolean(minimum && date < minimum)
+                }}
               />
             </Field>
           </div>
@@ -1049,10 +1066,10 @@ function DateFilter({
   return (
     <label className='grid gap-1 text-sm'>
       <span className='font-medium'>{label}</span>
-      <Input
-        type='date'
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
+      <DatePicker
+        selected={dateOnlyFromInput(value)}
+        placeholder='Semua tanggal'
+        onSelect={(date) => onChange(dateOnlyToInput(date))}
       />
     </label>
   )

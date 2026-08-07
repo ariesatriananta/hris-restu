@@ -11,6 +11,8 @@ import {
   LogOut,
   ScanBarcode,
   ShieldAlert,
+  Wifi,
+  WifiOff,
   XCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -147,6 +149,7 @@ function ScanTerminal({
   const [recent, setRecent] = useState<RecentResult[]>([])
   const [cameraOpen, setCameraOpen] = useState(false)
   const [confirmDeactivate, setConfirmDeactivate] = useState(false)
+  const browserOnline = useBrowserOnline()
   const submitting = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const scan = useAttendanceScan()
@@ -154,11 +157,19 @@ function ScanTerminal({
     window.setTimeout(() => inputRef.current?.focus(), 50)
   }, [])
   useEffect(focusInput, [focusInput, eventType])
+  useEffect(() => {
+    if (browserOnline) focusInput()
+  }, [browserOnline, focusInput])
 
   const submitBarcode = useCallback(
     async (rawBarcode: string) => {
       const value = rawBarcode.trim()
       if (!value || submitting.current) return
+      if (!browserOnline) {
+        setCameraOpen(false)
+        focusInput()
+        return
+      }
       submitting.current = true
       setCameraOpen(false)
       try {
@@ -171,6 +182,7 @@ function ScanTerminal({
           },
         })
         const item = successResult(result)
+        vibrateForResult(item.severity)
         setFeedback(item)
         setRecent((current) => [item, ...current].slice(0, 5))
         setBarcode('')
@@ -182,6 +194,7 @@ function ScanTerminal({
           return
         }
         const item = rejectedResult(error, eventType)
+        vibrateForResult(item.severity)
         setFeedback(item)
         setRecent((current) => [item, ...current].slice(0, 5))
         setBarcode('')
@@ -190,7 +203,14 @@ function ScanTerminal({
         focusInput()
       }
     },
-    [eventType, focusInput, onDeactivate, scan, session.deviceToken]
+    [
+      browserOnline,
+      eventType,
+      focusInput,
+      onDeactivate,
+      scan,
+      session.deviceToken,
+    ]
   )
 
   return (
@@ -204,17 +224,50 @@ function ScanTerminal({
             {session.device.name}
           </h1>
           <p className='text-xs text-muted-foreground'>
-            {session.device.code} · {session.device.site} · Online
+            {session.device.code} · {session.device.site}
           </p>
         </div>
-        <Button
-          variant='outline'
-          size='sm'
-          onClick={() => setConfirmDeactivate(true)}
-        >
-          <LogOut /> <span className='hidden sm:inline'>Putuskan</span>
-        </Button>
+        <div className='flex shrink-0 flex-col items-end gap-2'>
+          <div
+            role='status'
+            title='Status jaringan browser. Koneksi server tetap diverifikasi saat scan.'
+            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${browserOnline ? 'border-positive/40 bg-positive/10 text-positive' : 'border-destructive/40 bg-destructive/10 text-destructive'}`}
+          >
+            {browserOnline ? (
+              <Wifi className='size-3.5' />
+            ) : (
+              <WifiOff className='size-3.5' />
+            )}
+            {browserOnline ? 'Browser online' : 'Browser offline'}
+          </div>
+          <span className='text-[10px] text-muted-foreground'>
+            Server diverifikasi saat scan
+          </span>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => setConfirmDeactivate(true)}
+          >
+            <LogOut /> <span className='hidden sm:inline'>Putuskan</span>
+          </Button>
+        </div>
       </div>
+
+      {!browserOnline && (
+        <div
+          role='alert'
+          className='mb-4 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive'
+        >
+          <WifiOff className='mt-0.5 size-4 shrink-0' />
+          <div>
+            <p className='font-medium'>Scan sementara dinonaktifkan</p>
+            <p className='text-xs'>
+              Browser mendeteksi perangkat sedang offline. Sambungkan jaringan;
+              input barcode akan fokus kembali otomatis.
+            </p>
+          </div>
+        </div>
+      )}
 
       <Tabs
         value={eventType}
@@ -226,7 +279,7 @@ function ScanTerminal({
         <TabsList className='grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0'>
           <TabsTrigger
             value='CLOCK_IN'
-            className='h-14 gap-2 border bg-card text-base data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'
+            className='h-14 gap-2 border bg-card text-base text-positive data-[state=active]:border-positive data-[state=active]:bg-positive data-[state=active]:text-positive-foreground'
           >
             <ClockArrowDown className='size-5' /> Masuk
           </TabsTrigger>
@@ -238,6 +291,18 @@ function ScanTerminal({
           </TabsTrigger>
         </TabsList>
       </Tabs>
+
+      <div
+        role='status'
+        className={`mt-2 flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${eventType === 'CLOCK_IN' ? 'border-positive/40 bg-positive/10 text-positive' : 'border-primary/40 bg-primary/10 text-primary'}`}
+      >
+        {eventType === 'CLOCK_IN' ? (
+          <ClockArrowDown className='size-4' />
+        ) : (
+          <ClockArrowUp className='size-4' />
+        )}
+        Mode aktif: {eventType === 'CLOCK_IN' ? 'Masuk' : 'Pulang'}
+      </div>
 
       <div className='mt-4 grid gap-4 lg:grid-cols-[1fr_20rem]'>
         <div className='space-y-4'>
@@ -269,12 +334,12 @@ function ScanTerminal({
                   autoComplete='off'
                   autoCapitalize='off'
                   spellCheck={false}
-                  disabled={scan.isPending}
+                  disabled={scan.isPending || !browserOnline}
                   autoFocus
                 />
                 <Button
                   className='mt-3 h-12 w-full text-base'
-                  disabled={scan.isPending || !barcode.trim()}
+                  disabled={scan.isPending || !browserOnline || !barcode.trim()}
                 >
                   {scan.isPending ? (
                     <LoaderCircle className='animate-spin' />
@@ -289,7 +354,7 @@ function ScanTerminal({
                 variant='outline'
                 className='h-11 w-full'
                 onClick={() => setCameraOpen((open) => !open)}
-                disabled={scan.isPending}
+                disabled={scan.isPending || !browserOnline}
               >
                 {cameraOpen ? <CameraOff /> : <Camera />}{' '}
                 {cameraOpen ? 'Tutup Kamera' : 'Scan dengan Kamera'}
@@ -309,7 +374,14 @@ function ScanTerminal({
         </div>
         <Card className='h-fit'>
           <CardContent className='p-4'>
-            <h2 className='font-semibold'>Hasil terbaru</h2>
+            <div className='flex items-center justify-between gap-2'>
+              <h2 className='font-semibold'>Aktivitas terbaru</h2>
+              {recent.length > 0 && (
+                <span className='text-xs text-muted-foreground'>
+                  {recent.length} hasil
+                </span>
+              )}
+            </div>
             <p className='mb-3 text-xs text-muted-foreground'>
               Hanya tersimpan selama halaman ini terbuka.
             </p>
@@ -320,7 +392,10 @@ function ScanTerminal({
             ) : (
               <div className='divide-y'>
                 {recent.map((item) => (
-                  <div key={item.id} className='py-3'>
+                  <div
+                    key={item.id}
+                    className={`border-l-2 py-2.5 pl-2 ${item.severity === 'success' ? 'border-l-positive' : item.severity === 'warning' ? 'border-l-warning' : 'border-l-destructive'}`}
+                  >
                     <div className='flex items-start gap-2'>
                       {item.severity === 'success' ? (
                         <CheckCircle2 className='mt-0.5 size-4 shrink-0 text-positive' />
@@ -329,9 +404,11 @@ function ScanTerminal({
                       ) : (
                         <XCircle className='mt-0.5 size-4 shrink-0 text-destructive' />
                       )}
-                      <div>
-                        <p className='text-sm font-medium'>{item.title}</p>
-                        <p className='text-xs text-muted-foreground'>
+                      <div className='min-w-0'>
+                        <p className='truncate text-sm font-medium'>
+                          {item.title}
+                        </p>
+                        <p className='text-xs break-words text-muted-foreground'>
                           {item.message}
                         </p>
                         <p className='mt-1 text-[11px] text-muted-foreground'>
@@ -363,6 +440,7 @@ function FeedbackPanel({ result }: { result: RecentResult }) {
   return (
     <div
       role={result.severity === 'success' ? 'status' : 'alert'}
+      aria-live={result.severity === 'error' ? 'assertive' : 'polite'}
       className={`rounded-xl border-2 p-5 text-center ${result.severity === 'success' ? 'border-positive/50 bg-positive/10' : result.severity === 'warning' ? 'border-warning/60 bg-warning/15' : 'border-destructive/50 bg-destructive/10'}`}
     >
       {result.severity === 'success' ? (
@@ -370,8 +448,17 @@ function FeedbackPanel({ result }: { result: RecentResult }) {
       ) : result.severity === 'warning' ? (
         <ShieldAlert className='mx-auto mb-2 size-12 text-warning-foreground' />
       ) : (
-        <ShieldAlert className='mx-auto mb-2 size-12 text-destructive' />
+        <XCircle className='mx-auto mb-2 size-12 text-destructive' />
       )}
+      <p
+        className={`text-xs font-semibold tracking-wide uppercase ${result.severity === 'success' ? 'text-positive' : result.severity === 'warning' ? 'text-warning-foreground' : 'text-destructive'}`}
+      >
+        {result.severity === 'success'
+          ? 'Berhasil'
+          : result.severity === 'warning'
+            ? 'Berhasil dengan catatan'
+            : 'Gagal'}
+      </p>
       <p className='text-xl font-bold'>{result.title}</p>
       <p className='mt-1 text-sm'>{result.message}</p>
       <p className='mt-2 text-xs text-muted-foreground'>{result.time}</p>
@@ -391,27 +478,28 @@ function NativeBarcodeCamera({
   const frameRef = useRef<number | undefined>(undefined)
   const detecting = useRef(false)
   const [error, setError] = useState<string>()
-  const supported = Boolean(
-    typeof window !== 'undefined' &&
-    (
-      window as unknown as {
-        BarcodeDetector?: BarcodeDetectorConstructor
-      }
-    ).BarcodeDetector &&
-    navigator.mediaDevices?.getUserMedia
+  const secureContext =
+    typeof window !== 'undefined' && window.isSecureContext === true
+  const cameraSupported = Boolean(
+    secureContext && navigator.mediaDevices?.getUserMedia
   )
   useEffect(() => {
     let disposed = false
+    let fallbackControls: { stop: () => void } | undefined
     const Detector = (
       window as unknown as { BarcodeDetector?: BarcodeDetectorConstructor }
     ).BarcodeDetector
-    if (!Detector || !navigator.mediaDevices?.getUserMedia) return
-    const detector = new Detector({
-      formats: ['code_128', 'code_39', 'ean_13', 'qr_code'],
-    })
+    if (!cameraSupported || !navigator.mediaDevices?.getUserMedia) return
     const stop = () => {
       if (frameRef.current) cancelAnimationFrame(frameRef.current)
+      fallbackControls?.stop()
       streamRef.current?.getTracks().forEach((track) => track.stop())
+    }
+    const detected = async (value: string) => {
+      if (disposed) return
+      disposed = true
+      stop()
+      await onDetected(value)
     }
     const start = async () => {
       try {
@@ -424,35 +512,62 @@ function NativeBarcodeCamera({
           return
         }
         streamRef.current = stream
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          await videoRef.current.play()
+        const video = videoRef.current
+        if (!video) {
+          stop()
+          return
         }
-        const detect = async () => {
-          if (disposed || !videoRef.current) return
-          if (!detecting.current && videoRef.current.readyState >= 2) {
-            detecting.current = true
-            try {
-              const codes = await detector.detect(videoRef.current)
-              const value = codes[0]?.rawValue?.trim()
-              if (value) {
-                stop()
-                await onDetected(value)
-                return
+        if (Detector) {
+          const detector = new Detector({
+            formats: ['code_128', 'code_39', 'ean_13', 'qr_code'],
+          })
+          video.srcObject = stream
+          await video.play()
+          const detect = async () => {
+            if (disposed || !videoRef.current) return
+            if (!detecting.current && videoRef.current.readyState >= 2) {
+              detecting.current = true
+              try {
+                const codes = await detector.detect(videoRef.current)
+                const value = codes[0]?.rawValue?.trim()
+                if (value) {
+                  await detected(value)
+                  return
+                }
+              } catch {
+                /* frame berikutnya */
+              } finally {
+                detecting.current = false
               }
-            } catch {
-              /* frame berikutnya */
-            } finally {
-              detecting.current = false
             }
+            frameRef.current = requestAnimationFrame(() => void detect())
           }
-          frameRef.current = requestAnimationFrame(() => void detect())
+          void detect()
+          return
         }
-        void detect()
-      } catch {
-        setError(
-          'Kamera tidak dapat dibuka. Periksa izin browser atau gunakan scanner USB.'
+
+        const { BarcodeFormat, BrowserMultiFormatReader } = await import(
+          '@zxing/browser'
         )
+        if (disposed) return stop()
+        const reader = new BrowserMultiFormatReader()
+        reader.possibleFormats = [
+          BarcodeFormat.CODE_128,
+          BarcodeFormat.CODE_39,
+          BarcodeFormat.EAN_13,
+          BarcodeFormat.QR_CODE,
+        ]
+        fallbackControls = await reader.decodeFromStream(
+          stream,
+          video,
+          (result) => {
+            const value = result?.getText().trim()
+            if (value) void detected(value)
+          }
+        )
+      } catch (cause) {
+        stop()
+        if (!disposed) setError(cameraErrorMessage(cause))
       }
     }
     void start()
@@ -460,16 +575,18 @@ function NativeBarcodeCamera({
       disposed = true
       stop()
     }
-  }, [onDetected, supported])
-  if (!supported)
+  }, [cameraSupported, onDetected])
+  if (!cameraSupported)
     return (
       <div
         role='alert'
         className='rounded-lg bg-muted p-4 text-center text-sm text-muted-foreground'
       >
         <CameraOff className='mx-auto mb-2' />
-        Kamera barcode native tidak didukung browser ini. Gunakan scanner USB
-        atau input manual.
+        {secureContext
+          ? 'Browser atau perangkat ini tidak menyediakan akses kamera.'
+          : 'Kamera hanya dapat digunakan melalui HTTPS atau localhost.'}{' '}
+        Gunakan scanner USB atau input manual bila kamera tidak tersedia.
         <Button variant='link' className='mt-2 block w-full' onClick={onClose}>
           Kembali ke input barcode
         </Button>
@@ -511,6 +628,48 @@ type BarcodeDetectorInstance = {
 type BarcodeDetectorConstructor = new (options?: {
   formats?: string[]
 }) => BarcodeDetectorInstance
+
+function cameraErrorMessage(cause: unknown) {
+  const name = cause instanceof DOMException ? cause.name : ''
+  if (name === 'NotAllowedError' || name === 'SecurityError')
+    return 'Izin kamera ditolak. Izinkan akses kamera dari pengaturan situs browser, lalu coba lagi.'
+  if (name === 'NotFoundError' || name === 'OverconstrainedError')
+    return 'Kamera tidak ditemukan pada perangkat ini.'
+  if (name === 'NotReadableError' || name === 'AbortError')
+    return 'Kamera sedang dipakai aplikasi lain atau tidak dapat dibaca. Tutup aplikasi kamera lain lalu coba lagi.'
+  return 'Kamera tidak dapat dibuka. Muat ulang halaman atau gunakan scanner USB.'
+}
+
+function useBrowserOnline() {
+  const [online, setOnline] = useState(
+    () => typeof navigator === 'undefined' || navigator.onLine
+  )
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine)
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    return () => {
+      window.removeEventListener('online', update)
+      window.removeEventListener('offline', update)
+    }
+  }, [])
+  return online
+}
+
+function vibrateForResult(severity: RecentResult['severity']) {
+  if (typeof navigator === 'undefined' || !navigator.vibrate) return
+  try {
+    navigator.vibrate(
+      severity === 'success'
+        ? 60
+        : severity === 'warning'
+          ? [70, 50, 70]
+          : [160, 70, 160]
+    )
+  } catch {
+    // Getaran hanya enhancement; kegagalan perangkat tidak memengaruhi scan.
+  }
+}
 
 function successResult(result: AttendanceScanSuccess): RecentResult {
   const warning = result.warnings?.[0]

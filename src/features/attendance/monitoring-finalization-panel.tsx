@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Ban,
   CheckCircle2,
+  ChevronDown,
   CircleDashed,
   Clock3,
   LoaderCircle,
@@ -15,7 +16,11 @@ import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import {
   Dialog,
   DialogContent,
@@ -25,6 +30,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import {
   useAttendanceFinalizations,
   useRunAttendanceFinalization,
@@ -46,6 +56,7 @@ export function MonitoringFinalizationPanel({
 }) {
   const result = useAttendanceFinalizations({ businessDate, site: sites })
   const [selected, setSelected] = useState<AttendanceFinalization>()
+  const [detailsOpen, setDetailsOpen] = useState(false)
 
   if (result.isPending) {
     return (
@@ -76,34 +87,114 @@ export function MonitoringFinalizationPanel({
   }
 
   const items = result.data?.items ?? []
+  const completed = items.filter((item) =>
+    ['FINALIZED', 'NOT_REQUIRED'].includes(item.status)
+  ).length
+  const needsAttention = items.filter(
+    (item) =>
+      !['FINALIZED', 'NOT_REQUIRED'].includes(item.status) ||
+      warningMessages(item).length > 0
+  ).length
+  const firstRunnable = items.find(
+    (item) =>
+      item.canRun &&
+      item.status !== 'NOT_REQUIRED' &&
+      (!['FINALIZED', 'NOT_REQUIRED'].includes(item.status) ||
+        warningMessages(item).length > 0)
+  )
   return (
-    <section className='mb-5 space-y-3' aria-labelledby='finalization-title'>
-      <div className='flex flex-wrap items-end justify-between gap-2'>
-        <div>
-          <h2 id='finalization-title' className='font-semibold'>
-            Status finalisasi harian
-          </h2>
-          <p className='text-xs text-muted-foreground'>
-            Pembuatan attendance Alpha/Libur per site setelah batas akhir shift.
-          </p>
-        </div>
-        {!canFinalize && <Badge variant='outline'>Mode lihat saja</Badge>}
-      </div>
+    <section className='mb-4' aria-labelledby='finalization-title'>
       {!items.length ? (
         <p className='rounded-md border border-dashed p-4 text-sm text-muted-foreground'>
           Tidak ada site dalam cakupan akun ini.
         </p>
       ) : (
-        <div className='grid gap-3 lg:grid-cols-2 xl:grid-cols-3'>
-          {items.map((item) => (
-            <FinalizationCard
-              key={item.site}
-              item={item}
-              canFinalize={canFinalize}
-              onRun={setSelected}
-            />
-          ))}
-        </div>
+        <Collapsible
+          open={detailsOpen}
+          onOpenChange={setDetailsOpen}
+          className='rounded-lg border bg-card'
+        >
+          <div className='flex flex-wrap items-center gap-3 p-3'>
+            <div className='mr-auto min-w-48'>
+              <div className='flex flex-wrap items-center gap-2'>
+                <h2 id='finalization-title' className='text-sm font-semibold'>
+                  Finalisasi harian
+                </h2>
+                <Badge
+                  variant={needsAttention > 0 ? 'outline' : 'default'}
+                  className='gap-1'
+                >
+                  {needsAttention > 0 ? (
+                    <AlertTriangle className='size-3' />
+                  ) : (
+                    <CheckCircle2 className='size-3' />
+                  )}
+                  {completed}/{items.length} selesai
+                </Badge>
+                {!canFinalize && <Badge variant='outline'>Lihat saja</Badge>}
+              </div>
+              <p className='mt-1 text-xs text-muted-foreground'>
+                {needsAttention > 0
+                  ? `${needsAttention} site perlu diperiksa sebelum rekap dianggap lengkap.`
+                  : 'Semua site sudah selesai atau tidak memerlukan finalisasi.'}
+              </p>
+            </div>
+            <div className='flex flex-wrap items-center gap-1.5'>
+              {items.map((item) => (
+                <div
+                  key={item.site}
+                  className='flex items-center gap-1.5 rounded-md bg-muted/60 px-2 py-1'
+                >
+                  <span className='text-xs font-medium'>
+                    {siteLabel(item.site).replace('Site ', '')}
+                  </span>
+                  <FinalizationBadge value={item.status} compact />
+                </div>
+              ))}
+            </div>
+            {canFinalize && firstRunnable && (
+              <Button
+                size='sm'
+                variant={
+                  firstRunnable.status === 'NOT_STARTED' ? 'default' : 'outline'
+                }
+                className={
+                  firstRunnable.status === 'NOT_STARTED'
+                    ? undefined
+                    : 'border-amber-500/50 bg-amber-500/5 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-400'
+                }
+                onClick={() => setSelected(firstRunnable)}
+              >
+                <Play />
+                {firstRunnable.status === 'NOT_STARTED'
+                  ? `Jalankan ${siteLabel(firstRunnable.site).replace('Site ', '')}`
+                  : `Ulangi ${siteLabel(firstRunnable.site).replace('Site ', '')}`}
+              </Button>
+            )}
+            <CollapsibleTrigger asChild>
+              <Button size='sm' variant='ghost' className='group'>
+                Rincian
+                <ChevronDown className='transition-transform group-data-[state=open]:rotate-180' />
+              </Button>
+            </CollapsibleTrigger>
+          </div>
+          <CollapsibleContent className='border-t p-3'>
+            <p className='mb-3 text-xs text-muted-foreground'>
+              Pembuatan attendance Alpha/Libur per site setelah batas akhir
+              shift.
+            </p>
+            <div className='grid gap-2 lg:grid-cols-2 xl:grid-cols-3'>
+              {items.map((item) => (
+                <FinalizationCard
+                  key={item.site}
+                  item={item}
+                  canFinalize={canFinalize}
+                  onRun={setSelected}
+                />
+              ))}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       )}
       {selected && (
         <RunFinalizationDialog
@@ -128,79 +219,111 @@ function FinalizationCard({
   const warnings = warningMessages(item)
   const isNotRequired = item.status === 'NOT_REQUIRED'
   return (
-    <Card className='rounded-lg'>
-      <CardContent className='space-y-3 p-3'>
-        <div className='flex items-start justify-between gap-3'>
-          <div>
-            <p className='font-semibold'>{siteLabel(item.site)}</p>
-            <p className='text-xs text-muted-foreground'>
-              {item.lastRunAt
-                ? `${sourceLabel(item.source)} · ${dateTimeLabel(item.lastRunAt)}`
-                : 'Belum pernah dijalankan'}
-            </p>
-          </div>
-          <FinalizationBadge value={item.status} />
-        </div>
-        <div className='grid grid-cols-3 gap-2 text-center text-xs sm:grid-cols-6'>
-          <Count label='Eligible' value={item.counts.eligible ?? 0} />
-          <Count label='Alpha' value={item.counts.absent ?? 0} />
-          <Count label='Libur' value={item.counts.holiday ?? 0} />
-          <Count label='Fakta lama' value={item.counts.preserved ?? 0} />
-          <Count label='Libur pekan' value={item.counts.weeklyOff ?? 0} />
-          <Count label='Tertunda' value={item.counts.pendingDue ?? 0} />
-        </div>
-        {warnings.length > 0 && (
-          <div className='rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5 text-xs'>
-            <p className='flex items-center gap-1.5 font-medium'>
-              <AlertTriangle className='size-3.5' /> Perlu tindak lanjut
-            </p>
-            <ul className='mt-1 space-y-0.5 text-muted-foreground'>
-              {warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {item.status === 'FAILED' && item.errorMessage && (
-          <p role='alert' className='text-xs text-destructive'>
-            {item.errorMessage}
+    <section className='space-y-2.5 rounded-lg border bg-card p-3'>
+      <div className='flex items-start justify-between gap-3'>
+        <div>
+          <p className='font-semibold'>{siteLabel(item.site)}</p>
+          <p className='text-xs text-muted-foreground'>
+            {item.lastRunAt
+              ? `${sourceLabel(item.source)} · ${dateTimeLabel(item.lastRunAt)}`
+              : 'Belum pernah dijalankan'}
           </p>
-        )}
-        {isNotRequired && (
-          <div className='rounded-md border border-border bg-muted/40 p-2.5 text-xs'>
-            <p className='font-medium'>Tidak perlu finalisasi</p>
-            <p className='mt-1 text-muted-foreground'>
-              Hari libur mingguan tidak membentuk attendance Alpha atau Libur.
-              Scan aktual tetap tercatat sebagai fakta kehadiran.
-            </p>
-          </div>
-        )}
-        <div className='flex items-center justify-between gap-2 border-t pt-2'>
-          {isNotRequired ? (
-            <span className='text-xs text-muted-foreground'>
-              Finalisasi tidak tersedia untuk hari ini.
-            </span>
-          ) : !item.canRun ? (
-            <span className='text-xs text-muted-foreground'>
-              Belum dapat dijalankan untuk tanggal ini.
-            </span>
-          ) : null}
-          {canFinalize && item.canRun && !isNotRequired && (
-            <Button
-              size='sm'
-              variant='outline'
-              className='ml-auto'
-              onClick={() => onRun(item)}
-            >
-              <Play />
-              {item.status === 'NOT_STARTED'
-                ? 'Jalankan finalisasi'
-                : 'Finalisasi ulang'}
-            </Button>
-          )}
         </div>
-      </CardContent>
-    </Card>
+        <FinalizationBadge value={item.status} />
+      </div>
+      <div className='grid grid-cols-3 gap-1.5 text-center text-xs sm:grid-cols-6'>
+        <Count
+          label='Eligible'
+          value={item.counts.eligible ?? 0}
+          description='Karyawan yang memenuhi syarat attendance pada site dan tanggal kerja ini.'
+          tone='border-primary/20 bg-gradient-to-br from-primary/10 via-background to-background text-foreground'
+        />
+        <Count
+          label='Alpha'
+          value={item.counts.absent ?? 0}
+          description='Record Alpha yang dibentuk karena tidak ada scan maupun klasifikasi terapproval.'
+          tone='border-rose-500/20 bg-gradient-to-br from-rose-500/10 via-background to-background text-foreground'
+        />
+        <Count
+          label='Libur'
+          value={item.counts.holiday ?? 0}
+          description='Record Libur yang mengikuti kalender kerja efektif pada tanggal ini.'
+          tone='border-slate-300/50 bg-gradient-to-br from-slate-500/10 via-background to-background text-foreground dark:border-slate-700'
+        />
+        <Count
+          label='Fakta lama'
+          value={item.counts.preserved ?? 0}
+          description='Record yang sudah ada dari scan, klasifikasi, atau koreksi dan tetap dipertahankan.'
+          tone='border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 via-background to-background text-foreground'
+        />
+        <Count
+          label='Libur pekan'
+          value={item.counts.weeklyOff ?? 0}
+          description='Karyawan yang tidak dijadwalkan bekerja berdasarkan kombinasi hari penugasan shift.'
+          tone='border-slate-300/50 bg-gradient-to-br from-slate-500/10 via-background to-background text-foreground dark:border-slate-700'
+        />
+        <Count
+          label='Tertunda'
+          value={item.counts.pendingDue ?? 0}
+          description='Belum diproses karena batas akhir shift ditambah 60 menit belum terlewati.'
+          tone='border-amber-500/20 bg-gradient-to-br from-amber-500/10 via-background to-background text-foreground'
+        />
+      </div>
+      {warnings.length > 0 && (
+        <div className='rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5 text-xs'>
+          <p className='flex items-center gap-1.5 font-medium'>
+            <AlertTriangle className='size-3.5' /> Perlu tindak lanjut
+          </p>
+          <ul className='mt-1 space-y-0.5 text-muted-foreground'>
+            {warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {item.status === 'FAILED' && item.errorMessage && (
+        <p role='alert' className='text-xs text-destructive'>
+          {item.errorMessage}
+        </p>
+      )}
+      {isNotRequired && (
+        <div className='rounded-md border border-border bg-muted/40 p-2.5 text-xs'>
+          <p className='font-medium'>Tidak perlu finalisasi</p>
+          <p className='mt-1 text-muted-foreground'>
+            Hari libur mingguan tidak membentuk attendance Alpha atau Libur.
+            Scan aktual tetap tercatat sebagai fakta kehadiran.
+          </p>
+        </div>
+      )}
+      <div className='flex items-center justify-between gap-2 border-t pt-2'>
+        {isNotRequired ? (
+          <span className='text-xs text-muted-foreground'>
+            Finalisasi tidak tersedia untuk hari ini.
+          </span>
+        ) : !item.canRun ? (
+          <span className='text-xs text-muted-foreground'>
+            Belum dapat dijalankan untuk tanggal ini.
+          </span>
+        ) : null}
+        {canFinalize && item.canRun && !isNotRequired && (
+          <Button
+            size='sm'
+            variant={item.status === 'NOT_STARTED' ? 'default' : 'outline'}
+            className={
+              item.status === 'NOT_STARTED'
+                ? 'ml-auto'
+                : 'ml-auto border-amber-500/50 bg-amber-500/5 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-400'
+            }
+            onClick={() => onRun(item)}
+          >
+            <Play />
+            {item.status === 'NOT_STARTED'
+              ? 'Jalankan finalisasi'
+              : 'Ulangi finalisasi'}
+          </Button>
+        )}
+      </div>
+    </section>
   )
 }
 
@@ -281,7 +404,13 @@ function RunFinalizationDialog({
   )
 }
 
-function FinalizationBadge({ value }: { value: AttendanceFinalizationStatus }) {
+function FinalizationBadge({
+  value,
+  compact = false,
+}: {
+  value: AttendanceFinalizationStatus
+  compact?: boolean
+}) {
   const config = {
     NOT_STARTED: ['Belum dimulai', CircleDashed, 'outline'],
     NOT_REQUIRED: ['Tidak perlu finalisasi', Ban, 'secondary'],
@@ -292,17 +421,50 @@ function FinalizationBadge({ value }: { value: AttendanceFinalizationStatus }) {
   const [label, Icon, variant] = config[value]
   return (
     <Badge variant={variant} className='gap-1'>
-      <Icon className='size-3' /> {label}
+      <Icon className='size-3' /> {compact ? compactStatusLabel(value) : label}
     </Badge>
   )
 }
 
-function Count({ label, value }: { label: string; value: number }) {
+function compactStatusLabel(value: AttendanceFinalizationStatus) {
   return (
-    <div className='rounded-md bg-muted/60 px-1.5 py-2'>
-      <p className='font-semibold tabular-nums'>{value}</p>
-      <p className='text-[10px] text-muted-foreground'>{label}</p>
-    </div>
+    {
+      NOT_STARTED: 'Belum',
+      NOT_REQUIRED: 'Tidak perlu',
+      PARTIAL: 'Sebagian',
+      FINALIZED: 'Final',
+      FAILED: 'Gagal',
+    } as const
+  )[value]
+}
+
+function Count({
+  label,
+  value,
+  description,
+  tone,
+}: {
+  label: string
+  value: number
+  description: string
+  tone: string
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type='button'
+          className={`min-h-12 rounded-md border px-1.5 py-1.5 text-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${tone}`}
+          aria-label={`${label}: ${value}. ${description}`}
+        >
+          <span className='block font-semibold tabular-nums'>{value}</span>
+          <span className='block text-[10px] leading-3 opacity-80'>
+            {label}
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className='max-w-64'>{description}</TooltipContent>
+    </Tooltip>
   )
 }
 

@@ -1,16 +1,20 @@
 import { z } from 'zod'
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { useAuthStore } from '@/stores/auth-store'
-import { AttendanceClassificationPage } from '@/features/attendance/classification-page'
 import { requireAnyPermission } from '@/features/auth/permissions'
 
 export const Route = createFileRoute('/_authenticated/attendance/klasifikasi')({
-  beforeLoad: () => {
+  beforeLoad: ({ search }) => {
     requireAnyPermission(['attendance.correct', 'attendance.approve'])
     const role = useAuthStore.getState().session?.user.role
     if (role !== 'HR_OFFICER' && role !== 'SUPER_ADMIN') {
       throw redirect({ to: '/errors/$error', params: { error: 'forbidden' } })
     }
+    throw redirect({
+      to: '/attendance/tindak-lanjut',
+      search: { ...search, tab: 'classification' },
+      replace: true,
+    })
   },
   validateSearch: z.object({
     page: z.number().int().positive().optional(),
@@ -34,15 +38,4 @@ export const Route = createFileRoute('/_authenticated/attendance/klasifikasi')({
       .optional(),
     businessDate: z.string().date().optional(),
   }),
-  component: RouteComponent,
 })
-
-// eslint-disable-next-line react-refresh/only-export-components
-function RouteComponent() {
-  return (
-    <AttendanceClassificationPage
-      search={Route.useSearch()}
-      navigate={Route.useNavigate()}
-    />
-  )
-}

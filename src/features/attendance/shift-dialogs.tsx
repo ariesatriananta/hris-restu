@@ -5,6 +5,7 @@ import {
   ChevronRight,
   LoaderCircle,
   Search,
+  ShieldCheck,
   Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -29,11 +30,13 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { DatePicker } from '@/components/date-picker'
 import {
   useCreateShiftAssignments,
   useSaveShift,
   useShiftAssignmentCandidates,
 } from './data/queries'
+import { dateOnlyFromInput, dateOnlyToInput } from './date-only'
 import type {
   AttendanceEmployeeType,
   AttendanceProductionModuleLookup,
@@ -389,7 +392,7 @@ export function ShiftAssignmentDialog({
       {
         onSuccess: () => {
           toast.success(
-            `Shift berhasil diatur untuk ${selected.size} karyawan.`
+            `Shift berhasil diatur atau diganti untuk ${selected.size} karyawan.`
           )
           setConfirm(false)
           onOpenChange(false)
@@ -411,10 +414,10 @@ export function ShiftAssignmentDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className='max-h-[92vh] overflow-y-auto sm:max-w-4xl'>
           <DialogHeader>
-            <DialogTitle>Atur Shift Karyawan</DialogTitle>
+            <DialogTitle>Atur / Ganti Shift Karyawan</DialogTitle>
             <DialogDescription>
-              Pilih maksimal 500 karyawan. Seluruh penugasan disimpan sekaligus;
-              jika satu gagal, semuanya dibatalkan.
+              Pilih maksimal 500 karyawan. Karyawan yang sudah memiliki shift
+              akan diganti mulai tanggal efektif tanpa menghapus histori lama.
             </DialogDescription>
           </DialogHeader>
           <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-5'>
@@ -629,19 +632,29 @@ export function ShiftAssignmentDialog({
               normalizeNone
             />
             <Field label='Berlaku mulai'>
-              <Input
-                type='date'
-                min={todayJakarta()}
-                value={effectiveFrom}
-                onChange={(event) => setEffectiveFrom(event.target.value)}
+              <DatePicker
+                selected={dateOnlyFromInput(effectiveFrom)}
+                onSelect={(date) => {
+                  const next = dateOnlyToInput(date)
+                  if (!next) return
+                  setEffectiveFrom(next)
+                  if (effectiveTo && effectiveTo < next) setEffectiveTo(next)
+                }}
+                disabledDates={(date) => {
+                  const minimum = dateOnlyFromInput(todayJakarta())
+                  return Boolean(minimum && date < minimum)
+                }}
               />
             </Field>
             <Field label='Berlaku sampai (opsional)'>
-              <Input
-                type='date'
-                min={effectiveFrom}
-                value={effectiveTo}
-                onChange={(event) => setEffectiveTo(event.target.value)}
+              <DatePicker
+                selected={dateOnlyFromInput(effectiveTo)}
+                placeholder='Tanpa tanggal akhir'
+                onSelect={(date) => setEffectiveTo(dateOnlyToInput(date))}
+                disabledDates={(date) => {
+                  const minimum = dateOnlyFromInput(effectiveFrom)
+                  return Boolean(minimum && date < minimum)
+                }}
               />
             </Field>
           </div>
@@ -667,18 +680,23 @@ export function ShiftAssignmentDialog({
               ))}
             </div>
           </Field>
-          <div className='rounded-lg bg-muted p-3 text-sm text-muted-foreground'>
-            Jika karyawan memiliki penugasan berjalan, server akan menutup
-            penugasan lama pada sehari sebelum tanggal mulai baru. Penugasan
-            mendatang yang bentrok akan ditolak agar jadwal tidak tumpang
-            tindih.
+          <div className='flex items-start gap-2 rounded-lg border border-positive/30 bg-positive/5 p-3 text-sm'>
+            <ShieldCheck className='mt-0.5 size-4 shrink-0 text-positive' />
+            <div>
+              <p className='font-medium'>Histori penugasan tetap aman</p>
+              <p className='text-muted-foreground'>
+                Penugasan berjalan ditutup otomatis pada sehari sebelum tanggal
+                mulai baru. Penugasan mendatang yang bentrok akan ditolak agar
+                jadwal tidak tumpang tindih.
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant='outline' onClick={() => onOpenChange(false)}>
               Batal
             </Button>
             <Button disabled={!valid} onClick={() => setConfirm(true)}>
-              Tinjau {selected.size} penugasan
+              Tinjau {selected.size} perubahan
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -686,9 +704,9 @@ export function ShiftAssignmentDialog({
       <ConfirmDialog
         open={confirm}
         onOpenChange={setConfirm}
-        title='Konfirmasi penugasan shift'
-        desc={`Terapkan shift kepada ${selected.size} karyawan mulai ${effectiveFrom}${effectiveTo ? ` sampai ${effectiveTo}` : ''}? Perubahan berjalan akan ditutup otomatis oleh server.`}
-        confirmText='Ya, terapkan'
+        title='Konfirmasi atur / ganti shift'
+        desc={`Terapkan shift kepada ${selected.size} karyawan mulai ${effectiveFrom}${effectiveTo ? ` sampai ${effectiveTo}` : ''}? Penugasan lama tetap tersimpan sebagai histori dan ditutup otomatis H-1.`}
+        confirmText='Ya, simpan perubahan'
         isLoading={create.isPending}
         handleConfirm={submit}
       />

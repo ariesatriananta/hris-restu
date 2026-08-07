@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { DatePicker } from '@/components/date-picker'
 import {
   useAssignCollectiveLeaveSites,
   useCancelWorkCalendar,
@@ -28,6 +29,7 @@ import {
   useWorkCalendarResolution,
   useUpdateWorkCalendarRule,
 } from './data/work-calendar-queries'
+import { dateOnlyFromInput, dateOnlyToInput } from './date-only'
 import type { AttendanceSite, AttendanceSiteCode } from './domain'
 import type {
   WorkCalendarEntry,
@@ -170,11 +172,12 @@ export function WorkCalendarRuleDialog({
                 </Select>
               </Field>
               <Field label='Tanggal' className='sm:col-span-2'>
-                <Input
-                  type='date'
-                  value={businessDate}
-                  onChange={(event) => setBusinessDate(event.target.value)}
-                  required
+                <DatePicker
+                  selected={dateOnlyFromInput(businessDate)}
+                  onSelect={(date) => {
+                    const next = dateOnlyToInput(date)
+                    if (next) setBusinessDate(next)
+                  }}
                 />
               </Field>
             </div>

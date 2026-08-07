@@ -118,7 +118,7 @@ export function MasterShiftPage({
             Master Shift
           </h1>
           <p className='text-muted-foreground'>
-            Kelola jadwal kerja dan periode penugasan shift karyawan per site.
+            Atur atau ganti shift tanpa menghapus histori penugasan sebelumnya.
           </p>
         </div>
         {tab === 'shift' ? (
@@ -132,7 +132,7 @@ export function MasterShiftPage({
           </Button>
         ) : (
           <Button onClick={() => setAssignmentDialogOpen(true)}>
-            <UserRoundCog /> Atur Shift Karyawan
+            <UserRoundCog /> Atur / Ganti Shift
           </Button>
         )}
       </div>
@@ -161,7 +161,7 @@ export function MasterShiftPage({
             <CalendarClock /> Master Shift
           </TabsTrigger>
           <TabsTrigger value='assignment' className='h-10 flex-none gap-2 px-4'>
-            <UserRoundCog /> Penugasan Shift
+            <UserRoundCog /> Penugasan & Histori
           </TabsTrigger>
         </TabsList>
         <TabsContent value='shift'>

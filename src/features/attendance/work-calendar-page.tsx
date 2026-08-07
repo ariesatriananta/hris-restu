@@ -323,10 +323,10 @@ function CalendarView({
 
   return (
     <>
-      <div className='hidden overflow-hidden rounded-md border md:block'>
+      <div className='mx-auto hidden w-full max-w-6xl overflow-hidden rounded-md border md:block'>
         <div className='grid grid-cols-7 border-b bg-muted/40 text-center text-xs font-medium text-muted-foreground'>
           {['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((day) => (
-            <div key={day} className='px-2 py-2'>
+            <div key={day} className='px-2 py-1.5'>
               {day}
             </div>
           ))}
@@ -340,20 +340,20 @@ function CalendarView({
             return (
               <div
                 key={`${index}-${day ?? 'empty'}`}
-                className='min-h-32 border-r border-b p-2 last:border-r-0'
+                className='min-h-20 border-r border-b p-1.5 last:border-r-0'
               >
                 {day && (
                   <>
-                    <p className='mb-2 text-xs font-medium tabular-nums'>
+                    <p className='mb-1 text-[11px] leading-none font-semibold tabular-nums'>
                       {day}
                     </p>
                     <div className='space-y-1'>
-                      {events.slice(0, 3).map((item) => (
+                      {events.slice(0, 2).map((item) => (
                         <CalendarEvent key={item.uid} item={item} />
                       ))}
-                      {events.length > 3 && (
-                        <p className='text-[11px] text-muted-foreground'>
-                          +{events.length - 3} lainnya
+                      {events.length > 2 && (
+                        <p className='text-[10px] leading-none text-muted-foreground'>
+                          +{events.length - 2} lainnya
                         </p>
                       )}
                     </div>
@@ -395,7 +395,7 @@ function CalendarEvent({
 }) {
   return (
     <div
-      className={`rounded-md border px-2 py-1.5 ${eventTone(item.calendarType)}`}
+      className={`rounded border px-1.5 py-1 ${eventTone(item.calendarType)}`}
       title={`${item.name} · ${effectiveStatusLabel(item.effectiveStatus)}`}
     >
       <p

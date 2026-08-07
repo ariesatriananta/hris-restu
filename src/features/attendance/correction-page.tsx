@@ -19,7 +19,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import {
   Table,
   TableBody,
@@ -35,6 +34,7 @@ import {
   DataTablePagination,
   DataTableToolbar,
 } from '@/components/data-table'
+import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
 import {
@@ -42,14 +42,17 @@ import {
   useAttendanceFoundation,
   useReviewAttendanceCorrection,
 } from './data/queries'
+import { dateOnlyFromInput, dateOnlyToInput } from './date-only'
 import type { AttendanceCorrection } from './domain'
 
 export function AttendanceCorrectionPage({
   search,
   navigate,
+  embedded = false,
 }: {
   search: Record<string, unknown>
   navigate: NavigateFn
+  embedded?: boolean
 }) {
   const session = useAuthStore((state) => state.session)
   const canApprove = hasPermission(session, 'attendance.approve')
@@ -78,30 +81,38 @@ export function AttendanceCorrectionPage({
         label: site[0] + site.slice(1).toLowerCase(),
       }))
 
+  const PageContainer = embedded ? 'div' : Main
   return (
-    <Main>
-      <div className='mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
-        <div>
-          <p className='text-sm font-medium text-primary'>Attendance</p>
-          <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
-            Koreksi Attendance
-          </h1>
-          <p className='text-sm text-muted-foreground'>
-            Tinjau pengajuan, approval, dan penerapan koreksi dalam satu
-            histori.
-          </p>
-        </div>
-        <label className='grid gap-1 text-sm'>
+    <PageContainer>
+      <div
+        className={
+          embedded
+            ? 'mb-4 flex justify-end'
+            : 'mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'
+        }
+      >
+        {!embedded && (
+          <div>
+            <p className='text-sm font-medium text-primary'>Attendance</p>
+            <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
+              Koreksi Attendance
+            </h1>
+            <p className='text-sm text-muted-foreground'>
+              Tinjau pengajuan, approval, dan penerapan koreksi dalam satu
+              histori.
+            </p>
+          </div>
+        )}
+        <label className='grid gap-1 text-sm sm:w-48'>
           <span className='font-medium'>Tanggal kerja</span>
-          <Input
-            type='date'
-            className='w-full sm:w-44'
-            value={businessDate ?? ''}
-            onChange={(event) =>
+          <DatePicker
+            selected={dateOnlyFromInput(businessDate)}
+            placeholder='Semua tanggal'
+            onSelect={(date) =>
               navigate({
                 search: (previous) => ({
                   ...previous,
-                  businessDate: event.target.value || undefined,
+                  businessDate: dateOnlyToInput(date) || undefined,
                   page: undefined,
                 }),
               })
@@ -124,7 +135,7 @@ export function AttendanceCorrectionPage({
         open={Boolean(selected)}
         onOpenChange={(open) => !open && setSelected(undefined)}
       />
-    </Main>
+    </PageContainer>
   )
 }
 

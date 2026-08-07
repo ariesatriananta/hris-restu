@@ -242,4 +242,5 @@ export const routeLabels: Record<string, string> = {
   ),
   '/panduan': 'Knowledge Base',
   '/panduan/attendance': 'Knowledge Base',
+  '/attendance/tindak-lanjut': 'Tindak Lanjut Attendance',
 }

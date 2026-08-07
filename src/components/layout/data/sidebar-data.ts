@@ -44,14 +44,19 @@ export const sidebarData: SidebarData = {
           icon: CalendarClock,
           items: [
             {
+              title: 'Scan Attendance',
+              url: '/attendance/scan',
+              anyOfPermissions: ['attendance.scan'],
+            },
+            {
               title: 'Monitoring Harian',
               url: '/attendance/monitoring-harian',
               anyOfPermissions: ['attendance.view'],
             },
             {
-              title: 'Scan Attendance',
-              url: '/attendance/scan',
-              anyOfPermissions: ['attendance.scan'],
+              title: 'Tindak Lanjut Attendance',
+              url: '/attendance/tindak-lanjut',
+              anyOfPermissions: ['attendance.correct', 'attendance.approve'],
             },
             {
               title: 'Rekap Attendance',
@@ -59,30 +64,20 @@ export const sidebarData: SidebarData = {
               anyOfPermissions: ['attendance.view'],
             },
             {
-              title: 'Koreksi Attendance',
-              url: '/attendance/koreksi',
-              anyOfPermissions: ['attendance.correct', 'attendance.approve'],
-            },
-            {
-              title: 'Klasifikasi Attendance',
-              url: '/attendance/klasifikasi',
-              anyOfPermissions: ['attendance.correct', 'attendance.approve'],
-            },
-            {
               title: 'Master Shift',
               url: '/attendance/master-shift',
               anyOfPermissions: ['attendance.manage_shift'],
             },
             {
-              title: 'Kalender Kerja & Libur',
-              url: '/attendance/kalender-kerja',
-              icon: CalendarDays,
-              anyOfPermissions: ['attendance.view'],
-            },
-            {
               title: 'Master Perangkat',
               url: '/attendance/master-perangkat',
               anyOfPermissions: ['attendance.manage_device'],
+            },
+            {
+              title: 'Kalender Kerja',
+              url: '/attendance/kalender-kerja',
+              icon: CalendarDays,
+              anyOfPermissions: ['attendance.view'],
             },
           ],
         },
