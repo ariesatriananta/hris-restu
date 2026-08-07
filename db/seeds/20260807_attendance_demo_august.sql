@@ -13,6 +13,15 @@
 --      scan per tanggal tetap mengikuti employee_employment_histories yang
 --      allows_attendance=1, sama seperti engine Monitoring/Rekap.
 
+-- Table yang akan dihapus :
+-- attendance_classification_details
+-- attendance_classification_requests
+-- attendance_corrections
+-- attendance_scan_events
+-- attendance_records
+-- attendance_daily_finalization_runs
+-- employee_shift_assignments
+
 SET @seed_from = '2026-08-01';
 SET @seed_to = '2026-08-06';
 SET @seed_version = 'attendance-demo-202608-v1';
