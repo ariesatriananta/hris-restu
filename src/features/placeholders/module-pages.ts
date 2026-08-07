@@ -240,4 +240,6 @@ export const routeLabels: Record<string, string> = {
   ...Object.fromEntries(
     Object.entries(modulePages).map(([path, page]) => [path, page.title])
   ),
+  '/panduan': 'Knowledge Base',
+  '/panduan/attendance': 'Knowledge Base',
 }

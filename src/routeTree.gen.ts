@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as AuthenticatedPanduanRouteImport } from './routes/_authenticated/panduan'
 import { Route as AuthenticatedLaporanRouteImport } from './routes/_authenticated/laporan'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as errors500RouteImport } from './routes/(errors)/500'
@@ -28,6 +29,7 @@ import { Route as AuthenticatedPayrollSimulasiRouteImport } from './routes/_auth
 import { Route as AuthenticatedPayrollRiwayatRouteImport } from './routes/_authenticated/payroll/riwayat'
 import { Route as AuthenticatedPayrollPeriodeRouteImport } from './routes/_authenticated/payroll/periode'
 import { Route as AuthenticatedPayrollApprovalClosingRouteImport } from './routes/_authenticated/payroll/approval-closing'
+import { Route as AuthenticatedPanduanAttendanceRouteImport } from './routes/_authenticated/panduan/attendance'
 import { Route as AuthenticatedKaryawanTambahKaryawanRouteImport } from './routes/_authenticated/karyawan/tambah-karyawan'
 import { Route as AuthenticatedKaryawanRiwayatMutasiRouteImport } from './routes/_authenticated/karyawan/riwayat-mutasi'
 import { Route as AuthenticatedKaryawanPkwtDokumenRouteImport } from './routes/_authenticated/karyawan/pkwt-dokumen'
@@ -71,6 +73,11 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedPanduanRoute = AuthenticatedPanduanRouteImport.update({
+  id: '/panduan',
+  path: '/panduan',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedLaporanRoute = AuthenticatedLaporanRouteImport.update({
@@ -167,6 +174,12 @@ const AuthenticatedPayrollApprovalClosingRoute =
     id: '/payroll/approval-closing',
     path: '/payroll/approval-closing',
     getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedPanduanAttendanceRoute =
+  AuthenticatedPanduanAttendanceRouteImport.update({
+    id: '/attendance',
+    path: '/attendance',
+    getParentRoute: () => AuthenticatedPanduanRoute,
   } as any)
 const AuthenticatedKaryawanTambahKaryawanRoute =
   AuthenticatedKaryawanTambahKaryawanRouteImport.update({
@@ -388,6 +401,7 @@ export interface FileRoutesByFullPath {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/laporan': typeof AuthenticatedLaporanRoute
+  '/panduan': typeof AuthenticatedPanduanRouteWithChildren
   '/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
   '/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
   '/administrasi/monitoring-cron': typeof AuthenticatedAdministrasiMonitoringCronRoute
@@ -410,6 +424,7 @@ export interface FileRoutesByFullPath {
   '/karyawan/pkwt-dokumen': typeof AuthenticatedKaryawanPkwtDokumenRoute
   '/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
   '/karyawan/tambah-karyawan': typeof AuthenticatedKaryawanTambahKaryawanRoute
+  '/panduan/attendance': typeof AuthenticatedPanduanAttendanceRoute
   '/payroll/approval-closing': typeof AuthenticatedPayrollApprovalClosingRoute
   '/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
   '/payroll/riwayat': typeof AuthenticatedPayrollRiwayatRoute
@@ -442,6 +457,7 @@ export interface FileRoutesByTo {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/laporan': typeof AuthenticatedLaporanRoute
+  '/panduan': typeof AuthenticatedPanduanRouteWithChildren
   '/': typeof AuthenticatedIndexRoute
   '/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
   '/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
@@ -465,6 +481,7 @@ export interface FileRoutesByTo {
   '/karyawan/pkwt-dokumen': typeof AuthenticatedKaryawanPkwtDokumenRoute
   '/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
   '/karyawan/tambah-karyawan': typeof AuthenticatedKaryawanTambahKaryawanRoute
+  '/panduan/attendance': typeof AuthenticatedPanduanAttendanceRoute
   '/payroll/approval-closing': typeof AuthenticatedPayrollApprovalClosingRoute
   '/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
   '/payroll/riwayat': typeof AuthenticatedPayrollRiwayatRoute
@@ -499,6 +516,7 @@ export interface FileRoutesById {
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
   '/_authenticated/laporan': typeof AuthenticatedLaporanRoute
+  '/_authenticated/panduan': typeof AuthenticatedPanduanRouteWithChildren
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
   '/_authenticated/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
@@ -522,6 +540,7 @@ export interface FileRoutesById {
   '/_authenticated/karyawan/pkwt-dokumen': typeof AuthenticatedKaryawanPkwtDokumenRoute
   '/_authenticated/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
   '/_authenticated/karyawan/tambah-karyawan': typeof AuthenticatedKaryawanTambahKaryawanRoute
+  '/_authenticated/panduan/attendance': typeof AuthenticatedPanduanAttendanceRoute
   '/_authenticated/payroll/approval-closing': typeof AuthenticatedPayrollApprovalClosingRoute
   '/_authenticated/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
   '/_authenticated/payroll/riwayat': typeof AuthenticatedPayrollRiwayatRoute
@@ -557,6 +576,7 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/laporan'
+    | '/panduan'
     | '/administrasi/audit-trail'
     | '/administrasi/master-data'
     | '/administrasi/monitoring-cron'
@@ -579,6 +599,7 @@ export interface FileRouteTypes {
     | '/karyawan/pkwt-dokumen'
     | '/karyawan/riwayat-mutasi'
     | '/karyawan/tambah-karyawan'
+    | '/panduan/attendance'
     | '/payroll/approval-closing'
     | '/payroll/periode'
     | '/payroll/riwayat'
@@ -611,6 +632,7 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/laporan'
+    | '/panduan'
     | '/'
     | '/administrasi/audit-trail'
     | '/administrasi/master-data'
@@ -634,6 +656,7 @@ export interface FileRouteTypes {
     | '/karyawan/pkwt-dokumen'
     | '/karyawan/riwayat-mutasi'
     | '/karyawan/tambah-karyawan'
+    | '/panduan/attendance'
     | '/payroll/approval-closing'
     | '/payroll/periode'
     | '/payroll/riwayat'
@@ -667,6 +690,7 @@ export interface FileRouteTypes {
     | '/(errors)/500'
     | '/(errors)/503'
     | '/_authenticated/laporan'
+    | '/_authenticated/panduan'
     | '/_authenticated/'
     | '/_authenticated/administrasi/audit-trail'
     | '/_authenticated/administrasi/master-data'
@@ -690,6 +714,7 @@ export interface FileRouteTypes {
     | '/_authenticated/karyawan/pkwt-dokumen'
     | '/_authenticated/karyawan/riwayat-mutasi'
     | '/_authenticated/karyawan/tambah-karyawan'
+    | '/_authenticated/panduan/attendance'
     | '/_authenticated/payroll/approval-closing'
     | '/_authenticated/payroll/periode'
     | '/_authenticated/payroll/riwayat'
@@ -739,6 +764,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/panduan': {
+      id: '/_authenticated/panduan'
+      path: '/panduan'
+      fullPath: '/panduan'
+      preLoaderRoute: typeof AuthenticatedPanduanRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/laporan': {
@@ -859,6 +891,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/payroll/approval-closing'
       preLoaderRoute: typeof AuthenticatedPayrollApprovalClosingRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/panduan/attendance': {
+      id: '/_authenticated/panduan/attendance'
+      path: '/attendance'
+      fullPath: '/panduan/attendance'
+      preLoaderRoute: typeof AuthenticatedPanduanAttendanceRouteImport
+      parentRoute: typeof AuthenticatedPanduanRoute
     }
     '/_authenticated/karyawan/tambah-karyawan': {
       id: '/_authenticated/karyawan/tambah-karyawan'
@@ -1108,6 +1147,17 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthenticatedPanduanRouteChildren {
+  AuthenticatedPanduanAttendanceRoute: typeof AuthenticatedPanduanAttendanceRoute
+}
+
+const AuthenticatedPanduanRouteChildren: AuthenticatedPanduanRouteChildren = {
+  AuthenticatedPanduanAttendanceRoute: AuthenticatedPanduanAttendanceRoute,
+}
+
+const AuthenticatedPanduanRouteWithChildren =
+  AuthenticatedPanduanRoute._addFileChildren(AuthenticatedPanduanRouteChildren)
+
 interface AuthenticatedKaryawanDataKaryawanRouteChildren {
   AuthenticatedKaryawanDataKaryawanTambahRoute: typeof AuthenticatedKaryawanDataKaryawanTambahRoute
 }
@@ -1214,6 +1264,7 @@ const AuthenticatedKaryawanDataKaryawanEmployeeUidRouteWithChildren =
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedLaporanRoute: typeof AuthenticatedLaporanRoute
+  AuthenticatedPanduanRoute: typeof AuthenticatedPanduanRouteWithChildren
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedAdministrasiAuditTrailRoute: typeof AuthenticatedAdministrasiAuditTrailRoute
   AuthenticatedAdministrasiMasterDataRoute: typeof AuthenticatedAdministrasiMasterDataRoute
@@ -1253,6 +1304,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedLaporanRoute: AuthenticatedLaporanRoute,
+  AuthenticatedPanduanRoute: AuthenticatedPanduanRouteWithChildren,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedAdministrasiAuditTrailRoute:
     AuthenticatedAdministrasiAuditTrailRoute,

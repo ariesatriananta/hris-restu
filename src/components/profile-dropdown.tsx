@@ -1,4 +1,5 @@
-import { LogOut, MapPin, ShieldCheck } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { BookOpenText, LogOut, MapPin, ShieldCheck } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
 import useDialogState from '@/hooks/use-dialog-state'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -45,6 +46,12 @@ export function ProfileDropdown() {
           </DropdownMenuItem>
           <DropdownMenuItem disabled>
             <MapPin /> Jepara, Semarang, Klaten
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <Link to='/panduan'>
+              <BookOpenText /> Knowledge Base
+            </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant='destructive' onClick={() => setOpen(true)}>
