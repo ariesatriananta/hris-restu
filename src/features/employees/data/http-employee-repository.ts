@@ -2,6 +2,9 @@ import { apiClient } from '@/lib/api-client'
 import type {
   EmployeeRepository,
   EmployeeListParams,
+  EmployeeIdCardListParams,
+  EmployeeIdCardItem,
+  EmployeeIdCardPrintData,
   Employee,
   EmploymentHistory,
   EmployeeContract,
@@ -42,12 +45,34 @@ const params = (input: EmployeeListParams) => ({
       : input.employeeStatus,
   query: input.query,
 })
+const idCardParams = (input: EmployeeIdCardListParams) => ({
+  ...input,
+  site: input.site?.join(','),
+  employeeType: input.employeeType?.join(','),
+  employeeStatus: input.employeeStatus?.join(','),
+})
 export const httpEmployeeRepository: EmployeeRepository = {
   async list(input) {
     return (
       await apiClient.get<PaginatedResult<Employee>>('/employees', {
         params: params(input),
       })
+    ).data
+  },
+  async listIdCards(input) {
+    return (
+      await apiClient.get<PaginatedResult<EmployeeIdCardItem>>(
+        '/employees/id-cards',
+        { params: idCardParams(input) }
+      )
+    ).data
+  },
+  async getIdCardPrintData(employeeUids) {
+    return (
+      await apiClient.post<EmployeeIdCardPrintData>(
+        '/employees/id-cards/print-data',
+        { employeeUids }
+      )
     ).data
   },
   async getByUid(uid) {

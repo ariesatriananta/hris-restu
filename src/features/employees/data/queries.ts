@@ -11,6 +11,7 @@ import type {
   EmployeeDocument,
   EmployeeInput,
   EmployeeListParams,
+  EmployeeIdCardListParams,
   EmployeeRecordListParams,
   LookupOption,
   ProductionModuleLookup,
@@ -52,6 +53,8 @@ export const employeeKeys = {
   list: (params: EmployeeListParams) =>
     [...employeeKeys.all, 'list', params] as const,
   detail: (uid: string) => [...employeeKeys.all, 'detail', uid] as const,
+  idCards: (params: EmployeeIdCardListParams) =>
+    [...employeeKeys.all, 'id-cards', params] as const,
   histories: (uid?: string) =>
     [...employeeKeys.all, 'histories', uid ?? 'all'] as const,
   historyList: (params: EmployeeRecordListParams) =>
@@ -120,6 +123,19 @@ export const useEmployee = (uid: string) =>
       enabled: Boolean(uid),
     })
   )
+export const useEmployeeIdCards = (params: EmployeeIdCardListParams) =>
+  useQuery(
+    queryOptions({
+      queryKey: employeeKeys.idCards(params),
+      queryFn: () => httpEmployeeRepository.listIdCards(params),
+      placeholderData: keepPreviousData,
+    })
+  )
+export const useEmployeeIdCardPrintData = () =>
+  useMutation({
+    mutationFn: (employeeUids: string[]) =>
+      httpEmployeeRepository.getIdCardPrintData(employeeUids),
+  })
 export const useHistories = (uid?: string) =>
   useQuery(
     queryOptions({

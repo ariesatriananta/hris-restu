@@ -1,59 +1,237 @@
-import { useEffect, useRef } from 'react'
-import JsBarcode from 'jsbarcode'
+import { useRef } from 'react'
 import { Download, Printer } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 import { toast } from 'sonner'
 import { APP_LOGO_SRC, APP_NAME } from '@/lib/app-branding'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import type { Employee } from '../domain'
+import type { Employee, EmployeeIdCardItem } from '../domain'
 
-const NAVY = '#0E2459'
-const GREEN = '#2B902E'
+type IdCardEmployee = Employee | EmployeeIdCardItem
 
-export function EmployeeIdCard({ employee }: { employee: Employee }) {
-  const barcodeRef = useRef<SVGSVGElement>(null)
-  useEffect(() => {
-    if (barcodeRef.current) renderBarcode(barcodeRef.current, employee.barcode)
-  }, [employee.barcode])
+export function EmployeeIdCard({ employee }: { employee: IdCardEmployee }) {
+  return (
+    <div className='id-card-print-root space-y-4'>
+      <EmployeeIdCardFace employee={employee} />
+      <IdCardActions employee={employee} />
+    </div>
+  )
+}
+
+export function EmployeeIdCardFace({
+  employee,
+  className,
+}: {
+  employee: IdCardEmployee
+  className?: string
+}) {
+  const training = employee.employeeType === 'TRAINING'
+  const photoUrl = employeePhotoUrl(employee)
+  const qrPayload = machineReadablePayload(employee)
+  const role = employee.productionSection || employee.position || 'Karyawan'
+  const secondaryRole = employee.productionSection
+    ? employee.productionModule
+    : undefined
+
+  return (
+    <article
+      id={`id-card-${employee.uid}`}
+      aria-label={`ID Card ${employee.fullName}`}
+      className={cn(
+        'employee-id-card relative h-[85.6mm] w-[54mm] shrink-0 overflow-hidden rounded-[3.2mm] border bg-white text-slate-900 shadow-md',
+        training ? 'border-slate-300' : 'border-primary/30',
+        className
+      )}
+    >
+      {training ? <TrainingDecoration /> : <EmployeeDecoration />}
+      <div className='relative z-10 flex h-full flex-col items-center px-3 pt-3 pb-2 text-center'>
+        <div className='flex w-full items-start justify-between gap-2'>
+          <div className='flex size-9 items-center justify-center rounded-full border border-white/70 bg-white p-1 shadow-sm'>
+            <img
+              src={APP_LOGO_SRC}
+              alt={`Logo ${APP_NAME}`}
+              className='size-full object-contain'
+            />
+          </div>
+          <div
+            className={cn(
+              'rounded-full border px-2 py-0.5 text-[8px] font-bold tracking-[0.12em] uppercase',
+              training
+                ? 'border-primary/20 bg-primary/5 text-primary'
+                : 'border-white/40 bg-white/15 text-white'
+            )}
+          >
+            {training ? 'Training' : 'Karyawan'}
+          </div>
+        </div>
+
+        {training ? (
+          <div className='mt-4'>
+            <p className='text-[24px] leading-none font-black tracking-[0.16em] text-primary uppercase'>
+              Training
+            </p>
+            <p className='mt-1 text-[7px] font-semibold tracking-[0.22em] text-positive uppercase'>
+              Kartu Identitas
+            </p>
+          </div>
+        ) : (
+          <div className='mt-2 flex size-[76px] items-center justify-center overflow-hidden rounded-full border-[3px] border-white bg-primary text-white shadow-sm'>
+            {photoUrl ? (
+              <img
+                src={photoUrl}
+                alt={`Foto ${employee.fullName}`}
+                className='size-full object-cover'
+              />
+            ) : (
+              <span className='text-2xl font-bold'>
+                {getInitials(employee.fullName)}
+              </span>
+            )}
+          </div>
+        )}
+
+        <div className={cn('w-full min-w-0', training ? 'mt-5' : 'mt-2')}>
+          <h2
+            className='line-clamp-2 text-[14px] leading-[1.05] font-bold text-primary uppercase'
+            title={employee.fullName}
+          >
+            {employee.fullName}
+          </h2>
+          <p className='mt-1 line-clamp-2 text-[9px] leading-tight font-medium text-slate-600'>
+            {role}
+          </p>
+          {secondaryRole && (
+            <p className='truncate text-[8px] text-slate-500'>
+              {secondaryRole}
+            </p>
+          )}
+        </div>
+
+        <div className='mt-2 w-full'>
+          <p className='text-[11px] leading-none font-bold tracking-wide text-primary'>
+            {employee.employeeNumber}
+          </p>
+          <p className='mt-1 text-[8px] font-medium text-slate-500'>
+            Site {employee.site} · {APP_NAME}
+          </p>
+        </div>
+
+        <div className='mt-auto rounded-md border border-slate-200 bg-white p-1'>
+          <QRCodeSVG
+            value={qrPayload}
+            size={62}
+            level='M'
+            marginSize={0}
+            bgColor='#ffffff'
+            fgColor='#0E2459'
+            aria-label={`QR ${employee.employeeNumber}`}
+          />
+        </div>
+        <p className='mt-0.5 max-w-full truncate font-mono text-[7px] tracking-wide text-slate-500'>
+          {qrPayload}
+        </p>
+      </div>
+    </article>
+  )
+}
+
+function EmployeeDecoration() {
+  return (
+    <svg
+      aria-hidden='true'
+      viewBox='0 0 204 324'
+      preserveAspectRatio='none'
+      className='absolute inset-0 size-full'
+    >
+      <rect width='204' height='324' fill='#f8fafc' />
+      <path
+        d='M0 0h204v78c-38 18-70 19-102 4C69 66 38 67 0 91Z'
+        fill='#0E2459'
+      />
+      <path
+        d='M0 63c38-22 72-19 104-3 31 16 63 16 100-5v17c-39 21-73 22-105 6C68 62 36 61 0 82Z'
+        fill='#2B902E'
+        opacity='.95'
+      />
+      <path
+        d='M0 276c45-17 82-12 112 4 29 16 58 18 92 4v40H0Z'
+        fill='#0E2459'
+        opacity='.07'
+      />
+      <path d='M70 324c44-30 89-33 134-14v14Z' fill='#2B902E' />
+    </svg>
+  )
+}
+
+function TrainingDecoration() {
+  return (
+    <svg
+      aria-hidden='true'
+      viewBox='0 0 204 324'
+      preserveAspectRatio='none'
+      className='absolute inset-0 size-full'
+    >
+      <rect width='204' height='324' fill='#ffffff' />
+      <rect width='204' height='6' fill='#2B902E' />
+      <path
+        d='M204 0v75c-27 8-51 5-72-9-19-13-39-16-61-10 34-37 78-56 133-56Z'
+        fill='#0E2459'
+        opacity='.055'
+      />
+      <path d='M20 310h164' stroke='#0E2459' strokeOpacity='.18' />
+    </svg>
+  )
+}
+
+function IdCardActions({ employee }: { employee: IdCardEmployee }) {
+  const qrContainerRef = useRef<HTMLDivElement>(null)
+  const qrPayload = machineReadablePayload(employee)
 
   async function download() {
     try {
+      const qrSource = qrContainerRef.current?.querySelector('svg')
+      if (!qrSource) throw new Error('QR belum siap.')
       const logo = await imageToDataUrl(APP_LOGO_SRC)
-      const photo = employee.photo?.temporaryUrl
-        ? await imageToDataUrl(employee.photo.temporaryUrl).catch(() => '')
+      const photoUrl = employeePhotoUrl(employee)
+      const photo = photoUrl
+        ? await imageToDataUrl(photoUrl).catch(() => '')
         : ''
-      const barcode = document.createElementNS(
-        'http://www.w3.org/2000/svg',
-        'svg'
-      )
-      JsBarcode(barcode, employee.barcode, {
-        format: 'CODE128',
-        displayValue: true,
-        fontSize: 18,
-        height: 74,
-        margin: 0,
-        background: '#ffffff',
-        lineColor: NAVY,
-      })
-      barcode.setAttribute('x', '248')
-      barcode.setAttribute('y', '355')
-      const initials = getInitials(employee.fullName)
-      const avatar = photo
-        ? `<image href="${photo}" x="49" y="185" width="150" height="150" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatarClip)" />`
-        : `<circle cx="124" cy="260" r="75" fill="#ffffff" fill-opacity="0.18"/><text x="124" y="280" text-anchor="middle" font-family="Arial" font-size="52" font-weight="700" fill="#ffffff">${escapeXml(initials)}</text>`
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="856" height="540" viewBox="0 0 856 540">
-        <defs><clipPath id="avatarClip"><circle cx="124" cy="260" r="75"/></clipPath></defs>
-        <rect width="856" height="540" rx="28" fill="#ffffff"/>
-        <rect width="240" height="540" rx="28" fill="${NAVY}"/>
-        <rect x="212" width="28" height="540" fill="${NAVY}"/>
-        <image href="${logo}" x="74" y="45" width="100" height="100" preserveAspectRatio="xMidYMid meet"/>
-        ${avatar}
-        <text x="120" y="475" text-anchor="middle" font-family="Arial" font-size="15" font-weight="700" letter-spacing="2" fill="#ffffff">${APP_NAME}</text>
-        <text x="280" y="82" font-family="Arial" font-size="20" font-weight="700" fill="${GREEN}">KARTU IDENTITAS KARYAWAN</text>
-        <text x="280" y="158" font-family="Arial" font-size="38" font-weight="700" fill="${NAVY}">${escapeXml(employee.fullName)}</text>
-        <text x="280" y="205" font-family="Arial" font-size="23" fill="#334155">${escapeXml(employee.employeeNumber)} · Site ${escapeXml(employee.site)}</text>
-        <text x="280" y="247" font-family="Arial" font-size="21" fill="#64748b">${escapeXml(employee.position ?? 'Karyawan')}</text>
-        <line x1="280" y1="292" x2="802" y2="292" stroke="#dbe3ef" stroke-width="2"/>
-        ${barcode.outerHTML}
+      const qr = qrSource.cloneNode(true) as SVGSVGElement
+      qr.setAttribute('x', '165')
+      qr.setAttribute('y', '535')
+      qr.setAttribute('width', '210')
+      qr.setAttribute('height', '210')
+      const training = employee.employeeType === 'TRAINING'
+      const role = employee.productionSection || employee.position || 'Karyawan'
+      const photoMarkup = training
+        ? ''
+        : photo
+          ? `<image href="${photo}" x="175" y="115" width="190" height="190" preserveAspectRatio="xMidYMid slice" clip-path="url(#photoClip)"/>`
+          : `<circle cx="270" cy="210" r="95" fill="#0E2459"/><text x="270" y="232" text-anchor="middle" font-family="Arial" font-size="64" font-weight="700" fill="#ffffff">${escapeXml(getInitials(employee.fullName))}</text>`
+      const decoration = training
+        ? `<rect width="540" height="856" fill="#ffffff"/><rect width="540" height="15" fill="#2B902E"/><path d="M540 0v198c-72 21-135 13-190-24-50-34-104-43-162-27C278 49 395 0 540 0Z" fill="#0E2459" fill-opacity=".055"/><line x1="54" y1="820" x2="486" y2="820" stroke="#0E2459" stroke-opacity=".18"/>`
+        : `<rect width="540" height="856" fill="#f8fafc"/><path d="M0 0h540v206c-100 48-185 51-270 10C183 174 100 177 0 240Z" fill="#0E2459"/><path d="M0 166c101-57 191-50 276-8 82 43 166 42 264-13v45c-103 56-193 58-278 15C180 163 95 161 0 216Z" fill="#2B902E"/><path d="M0 730c119-45 217-32 296 11 77 43 154 47 244 10v105H0Z" fill="#0E2459" fill-opacity=".07"/><path d="M185 856c117-79 236-87 355-37v37Z" fill="#2B902E"/>`
+      const nameFontSize =
+        employee.fullName.length > 24
+          ? 22
+          : employee.fullName.length > 18
+            ? 26
+            : 31
+      const identityY = training ? 265 : 360
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="540" height="856" viewBox="0 0 540 856">
+        <defs><clipPath id="photoClip"><circle cx="270" cy="210" r="95"/></clipPath></defs>
+        ${decoration}
+        <rect x="28" y="28" width="76" height="76" rx="38" fill="#ffffff" stroke="#dbe3ef"/>
+        <image href="${logo}" x="38" y="38" width="56" height="56" preserveAspectRatio="xMidYMid meet"/>
+        <text x="500" y="76" text-anchor="end" font-family="Arial" font-size="18" font-weight="700" letter-spacing="3" fill="${training ? '#0E2459' : '#ffffff'}">${training ? 'TRAINING' : 'KARYAWAN'}</text>
+        ${training ? '<text x="270" y="180" text-anchor="middle" font-family="Arial" font-size="58" font-weight="900" letter-spacing="9" fill="#0E2459">TRAINING</text><text x="270" y="215" text-anchor="middle" font-family="Arial" font-size="16" font-weight="700" letter-spacing="5" fill="#2B902E">KARTU IDENTITAS</text>' : ''}
+        ${photoMarkup}
+        <text x="270" y="${identityY}" text-anchor="middle" font-family="Arial" font-size="${nameFontSize}" font-weight="700" fill="#0E2459">${escapeXml(employee.fullName.toUpperCase())}</text>
+        <text x="270" y="${identityY + 40}" text-anchor="middle" font-family="Arial" font-size="21" fill="#475569">${escapeXml(role)}</text>
+        <text x="270" y="${identityY + 82}" text-anchor="middle" font-family="Arial" font-size="25" font-weight="700" fill="#0E2459">${escapeXml(employee.employeeNumber)}</text>
+        <text x="270" y="${identityY + 112}" text-anchor="middle" font-family="Arial" font-size="16" fill="#64748b">Site ${escapeXml(employee.site)} · ${APP_NAME}</text>
+        ${qr.outerHTML}
+        <text x="270" y="772" text-anchor="middle" font-family="monospace" font-size="13" fill="#64748b">${escapeXml(qrPayload)}</text>
       </svg>`
       const url = URL.createObjectURL(
         new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })
@@ -70,51 +248,9 @@ export function EmployeeIdCard({ employee }: { employee: Employee }) {
   }
 
   return (
-    <div className='id-card-print-root space-y-4'>
-      <div
-        id={`id-card-${employee.uid}`}
-        className='employee-id-card mx-auto grid aspect-[1.586/1] max-w-xl grid-cols-[112px_1fr] overflow-hidden rounded-2xl border-4 border-primary bg-white text-slate-900 shadow-lg'
-      >
-        <div className='flex flex-col items-center justify-between bg-primary p-4 text-center text-white'>
-          <img
-            src={APP_LOGO_SRC}
-            alt={`Logo ${APP_NAME}`}
-            className='size-14 rounded-full bg-white object-contain p-1'
-          />
-          {employee.photo?.temporaryUrl ? (
-            <img
-              src={employee.photo.temporaryUrl}
-              alt={`Foto ${employee.fullName}`}
-              className='size-16 rounded-full border-2 border-white/50 object-cover'
-            />
-          ) : (
-            <div className='flex size-16 items-center justify-center rounded-full bg-white/20 text-2xl font-bold'>
-              {getInitials(employee.fullName)}
-            </div>
-          )}
-          <span className='text-[9px] font-semibold tracking-wider'>
-            {APP_NAME}
-          </span>
-        </div>
-        <div className='flex flex-col justify-between p-5'>
-          <div>
-            <p className='text-xs font-semibold text-positive'>
-              KARTU IDENTITAS KARYAWAN
-            </p>
-            <h2 className='mt-2 text-2xl font-bold'>{employee.fullName}</h2>
-            <p className='text-sm'>
-              {employee.employeeNumber} · Site {employee.site}
-            </p>
-            <p className='mt-1 text-sm text-slate-600'>
-              {employee.position ?? 'Karyawan'}
-            </p>
-          </div>
-          <svg
-            ref={barcodeRef}
-            aria-label={`Barcode ${employee.barcode}`}
-            className='max-w-full self-end'
-          />
-        </div>
+    <>
+      <div className='sr-only' ref={qrContainerRef} aria-hidden='true'>
+        <QRCodeSVG value={qrPayload} size={200} level='M' marginSize={0} />
       </div>
       <div className='id-card-actions flex flex-wrap justify-center gap-2'>
         <Button variant='outline' onClick={() => window.print()}>
@@ -124,20 +260,20 @@ export function EmployeeIdCard({ employee }: { employee: Employee }) {
           <Download /> Unduh SVG
         </Button>
       </div>
-    </div>
+    </>
   )
 }
 
-function renderBarcode(target: SVGSVGElement, value: string) {
-  JsBarcode(target, value, {
-    format: 'CODE128',
-    displayValue: true,
-    fontSize: 12,
-    height: 42,
-    margin: 2,
-    background: '#ffffff',
-    lineColor: NAVY,
-  })
+function machineReadablePayload(employee: IdCardEmployee) {
+  return 'machineReadable' in employee
+    ? employee.machineReadable.qrPayload
+    : employee.barcode
+}
+
+function employeePhotoUrl(employee: IdCardEmployee) {
+  const photo = employee.photo
+  if (!photo) return undefined
+  return photo.url ?? ('temporaryUrl' in photo ? photo.temporaryUrl : undefined)
 }
 
 function getInitials(name: string) {

@@ -30,7 +30,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['jsbarcode'],
+    include: ['qrcode.react'],
   },
   test: {
     silent: 'passed-only',

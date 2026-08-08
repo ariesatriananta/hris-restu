@@ -342,6 +342,38 @@ export interface EmployeeListParams {
   page?: number
   pageSize?: number
 }
+export interface EmployeeIdCardItem {
+  uid: string
+  employeeNumber: string
+  fullName: string
+  employeeType: EmployeeTypeCode
+  employeeStatus: EmployeeStatusCode
+  site: SiteCode
+  position?: string | null
+  productionModule?: string | null
+  productionSection?: string | null
+  photo?: {
+    uid: string
+    url: string
+  } | null
+  machineReadable: {
+    version: 1
+    barcodePayload: string
+    qrPayload: string
+  }
+}
+export interface EmployeeIdCardListParams {
+  query?: string
+  site?: SiteCode[]
+  employeeType?: EmployeeTypeCode[]
+  employeeStatus?: EmployeeStatusCode[]
+  page: number
+  pageSize: number
+}
+export interface EmployeeIdCardPrintData {
+  generatedAt: string
+  items: EmployeeIdCardItem[]
+}
 export interface EmployeeRecordListParams {
   query?: string
   site?: SiteCode[]
@@ -384,6 +416,10 @@ export interface PaginatedResult<T> {
 }
 export interface EmployeeRepository {
   list(params: EmployeeListParams): Promise<PaginatedResult<Employee>>
+  listIdCards(
+    params: EmployeeIdCardListParams
+  ): Promise<PaginatedResult<EmployeeIdCardItem>>
+  getIdCardPrintData(employeeUids: string[]): Promise<EmployeeIdCardPrintData>
   getByUid(uid: string): Promise<Employee | null>
   save(input: EmployeeInput, uid?: string): Promise<Employee>
   histories(employeeUid?: string): Promise<EmploymentHistory[]>

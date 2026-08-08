@@ -109,6 +109,8 @@
 
   .id-card-print-root,
   .id-card-print-root *,
+  .id-card-batch-print-root,
+  .id-card-batch-print-root *,
   .contract-print-root,
   .contract-print-root * {
     visibility: visible !important;
@@ -168,12 +170,81 @@
     padding: 12mm;
   }
 
+  .id-card-print-root,
+  .id-card-batch-print-root {
+    color-scheme: light;
+    --background: #ffffff;
+    --foreground: #0f172a;
+    --card: #ffffff;
+    --card-foreground: #0f172a;
+    --primary: #0e2459;
+    --primary-foreground: #ffffff;
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --border: #e2e8f0;
+    --positive: #2b902e;
+    --positive-foreground: #ffffff;
+  }
+
   .employee-id-card {
-    width: 85.6mm;
-    height: 54mm;
+    box-sizing: border-box;
+    width: 54mm;
+    height: 85.6mm;
     max-width: none;
     box-shadow: none;
     break-inside: avoid;
+    page-break-inside: avoid;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .id-card-batch-print-root {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    z-index: 9999 !important;
+    display: block !important;
+    width: 210mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+
+  .id-card-print-page {
+    box-sizing: border-box;
+    display: flex;
+    width: 210mm;
+    height: 297mm;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    padding: 8mm;
+    overflow: hidden;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .id-card-print-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .id-card-print-row {
+    display: grid;
+    min-height: 60.24mm;
+    grid-template-columns: repeat(5, 38mm);
+    justify-content: center;
+    gap: 1mm;
+  }
+
+  .id-card-print-slot {
+    width: 38mm;
+    height: 60.24mm;
+    overflow: hidden;
+  }
+
+  .id-card-print-slot .employee-id-card {
+    transform: scale(0.7037037);
+    transform-origin: top left;
   }
 
   .id-card-actions {
