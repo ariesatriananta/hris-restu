@@ -26,6 +26,7 @@ import type { Employee, PaginatedResult } from '../domain'
 import {
   employeeStatusBadgeClassName,
   employeeStatusBadgeVariant,
+  formatDate,
   statusLabel,
 } from '../utils'
 
@@ -198,9 +199,14 @@ export function EmployeesTable({
                     </Badge>
                   </div>
                   <div className='mt-3 flex items-center justify-between gap-2 text-sm'>
-                    <span>
-                      {employee.site} · {statusLabel(employee.employeeType)}
-                    </span>
+                    <div>
+                      <p>
+                        {employee.site} · {statusLabel(employee.employeeType)}
+                      </p>
+                      <p className='text-xs text-muted-foreground'>
+                        Join Date: {formatDate(employee.joinDate)}
+                      </p>
+                    </div>
                     <div className='flex gap-2'>
                       <Button size='sm' variant='outline' asChild>
                         <Link

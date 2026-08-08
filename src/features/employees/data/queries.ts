@@ -11,6 +11,7 @@ import type {
   EmployeeDocument,
   EmployeeInput,
   EmployeeListParams,
+  EmployeeKpiSummary,
   EmployeeIdCardListParams,
   EmployeeRecordListParams,
   LookupOption,
@@ -52,6 +53,8 @@ export const employeeKeys = {
   all: ['employees'] as const,
   list: (params: EmployeeListParams) =>
     [...employeeKeys.all, 'list', params] as const,
+  summary: (params: Pick<EmployeeListParams, 'site' | 'employeeType'>) =>
+    [...employeeKeys.all, 'summary', params] as const,
   detail: (uid: string) => [...employeeKeys.all, 'detail', uid] as const,
   idCards: (params: EmployeeIdCardListParams) =>
     [...employeeKeys.all, 'id-cards', params] as const,
@@ -113,6 +116,17 @@ export const useEmployeeList = (
       queryKey: employeeKeys.list(params),
       queryFn: () => httpEmployeeRepository.list(params),
       placeholderData: options?.keepPreviousData ? keepPreviousData : undefined,
+    })
+  )
+export const useEmployeeKpiSummary = (
+  params: Pick<EmployeeListParams, 'site' | 'employeeType'>
+) =>
+  useQuery(
+    queryOptions({
+      queryKey: employeeKeys.summary(params),
+      queryFn: (): Promise<EmployeeKpiSummary> =>
+        httpEmployeeRepository.summary(params),
+      staleTime: 30 * 1000,
     })
   )
 export const useEmployee = (uid: string) =>

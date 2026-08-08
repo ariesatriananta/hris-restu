@@ -33,6 +33,7 @@ import {
 } from '../lib/employee-contract-policy.js'
 import { authenticate, requirePermission, type AuthContext } from '../middleware/authenticate.js'
 import { employeeIdCardsRouter } from './employee-id-cards.js'
+import { employeeSummaryRouter } from './employee-summary.js'
 
 const siteCode = z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])
 const optional = z
@@ -539,6 +540,7 @@ const scheduledMutationSelect = `SELECT sm.uid,sm.status,sm.change_type changeTy
 export const employeesRouter = Router()
 employeesRouter.use(authenticate)
 employeesRouter.use(employeeIdCardsRouter)
+employeesRouter.use(employeeSummaryRouter)
 
 employeesRouter.get('/lookups', requirePermission('employees.view'), async (_req, res, next) => {
   try {

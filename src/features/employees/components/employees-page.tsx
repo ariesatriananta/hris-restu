@@ -11,12 +11,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Main } from '@/components/layout/main'
-import { useEmployeeList } from '../data/queries'
+import { useEmployeeKpiSummary, useEmployeeList } from '../data/queries'
 import type { Employee, EmployeeListParams } from '../domain'
 import { createEmployeeColumns } from './employees-columns'
 import { EmployeesTable } from './employees-table'
 import { RegistrationCorrectionDialog } from './registration-correction-dialog'
 import { EmployeeImportDialog } from './employee-import-dialog'
+import { EmployeeKpiCards } from './employee-kpi-cards'
 
 export function EmployeesPage({
   search,
@@ -38,6 +39,10 @@ export function EmployeesPage({
     pageSize: typeof search.pageSize === 'number' ? search.pageSize : 50,
   }
   const query = useEmployeeList(params, { keepPreviousData: true })
+  const employeeKpis = useEmployeeKpiSummary({
+    site: params.site,
+    employeeType: params.employeeType,
+  })
   const returnTo = currentListReturnTo()
   const routerNavigate = useNavigate()
   const [correctionEmployee, setCorrectionEmployee] = useState<Employee>()
@@ -83,6 +88,11 @@ export function EmployeesPage({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      <EmployeeKpiCards
+        data={employeeKpis.data}
+        isPending={employeeKpis.isPending}
+        isError={employeeKpis.isError}
+      />
       {query.isPending && !query.data ? (
         <p className='py-10 text-center text-muted-foreground'>
           Memuat data karyawan...

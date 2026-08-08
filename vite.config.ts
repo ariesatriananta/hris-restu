@@ -30,7 +30,12 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['jsbarcode', 'qrcode.react'],
+    include: [
+      '@radix-ui/react-tooltip',
+      'jsbarcode',
+      'lucide-react',
+      'qrcode.react',
+    ],
   },
   test: {
     silent: 'passed-only',

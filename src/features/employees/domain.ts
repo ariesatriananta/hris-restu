@@ -214,6 +214,14 @@ export interface ContractKpiSummary {
   scheduled: number
   totalContracts: number
 }
+export interface EmployeeKpiSummary {
+  totalEmployees: number
+  activeEmployees: number
+  inactiveEmployees: number
+  resignedEmployees: number
+  activeTrainingEmployees: number
+  incompletePlacementEmployees: number
+}
 export interface EmployeeDocument {
   uid: string
   employeeUid: string
@@ -416,6 +424,9 @@ export interface PaginatedResult<T> {
 }
 export interface EmployeeRepository {
   list(params: EmployeeListParams): Promise<PaginatedResult<Employee>>
+  summary(
+    params: Pick<EmployeeListParams, 'site' | 'employeeType'>
+  ): Promise<EmployeeKpiSummary>
   listIdCards(
     params: EmployeeIdCardListParams
   ): Promise<PaginatedResult<EmployeeIdCardItem>>

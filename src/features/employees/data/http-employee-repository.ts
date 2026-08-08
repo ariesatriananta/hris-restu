@@ -5,6 +5,7 @@ import type {
   EmployeeIdCardListParams,
   EmployeeIdCardItem,
   EmployeeIdCardPrintData,
+  EmployeeKpiSummary,
   Employee,
   EmploymentHistory,
   EmployeeContract,
@@ -55,6 +56,13 @@ export const httpEmployeeRepository: EmployeeRepository = {
   async list(input) {
     return (
       await apiClient.get<PaginatedResult<Employee>>('/employees', {
+        params: params(input),
+      })
+    ).data
+  },
+  async summary(input) {
+    return (
+      await apiClient.get<EmployeeKpiSummary>('/employees/summary', {
         params: params(input),
       })
     ).data

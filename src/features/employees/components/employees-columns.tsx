@@ -10,6 +10,7 @@ import type { Employee } from '../domain'
 import {
   employeeStatusBadgeClassName,
   employeeStatusBadgeVariant,
+  formatDate,
   statusLabel,
 } from '../utils'
 
@@ -60,7 +61,9 @@ export function createEmployeeColumns(
       ),
       cell: ({ row }) => (
         <div>
-          <p className='font-medium'>{statusLabel(row.original.employeeType)}</p>
+          <p className='font-medium'>
+            {statusLabel(row.original.employeeType)}
+          </p>
           <p className='text-[11px] leading-3 text-muted-foreground'>
             {row.original.position || '-'}
           </p>
@@ -89,6 +92,20 @@ export function createEmployeeColumns(
       },
     },
     {
+      accessorKey: 'joinDate',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Join Date' />
+      ),
+      cell: ({ row }) => (
+        <span className='text-sm whitespace-nowrap tabular-nums'>
+          {formatDate(row.original.joinDate)}
+        </span>
+      ),
+      meta: {
+        label: 'Join Date',
+      },
+    },
+    {
       accessorKey: 'employeeStatus',
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title='Status' />
@@ -112,7 +129,10 @@ export function createEmployeeColumns(
       enableHiding: false,
       cell: ({ row }) => (
         <div className='flex justify-end gap-1'>
-          <DataTableActionButton label={`Detail ${row.original.fullName}`} asChild>
+          <DataTableActionButton
+            label={`Detail ${row.original.fullName}`}
+            asChild
+          >
             <Link
               to='/karyawan/data-karyawan/$employeeUid'
               params={{ employeeUid: row.original.uid }}
