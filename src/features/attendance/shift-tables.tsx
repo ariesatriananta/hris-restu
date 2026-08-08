@@ -14,6 +14,7 @@ import {
   RefreshCcw,
   Trash2,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -258,6 +259,7 @@ export function ShiftAssignmentTable({
   search,
   navigate,
   onDelete,
+  onCorrect,
   siteOptions = fallbackSites,
   productionModuleOptions = [],
   productionSectionOptions = [],
@@ -267,6 +269,7 @@ export function ShiftAssignmentTable({
   search: Record<string, unknown>
   navigate: NavigateFn
   onDelete: (assignment: ShiftAssignment) => void
+  onCorrect: (assignment: ShiftAssignment) => void
   siteOptions?: { value: string; label: string }[]
   productionModuleOptions?: { value: string; label: string }[]
   productionSectionOptions?: { value: string; label: string }[]
@@ -279,15 +282,23 @@ export function ShiftAssignmentTable({
           <DataTableColumnHeader column={column} title='Karyawan' />
         ),
         cell: ({ row }) => (
-          <div>
-            <p className='font-medium'>{row.original.employeeName}</p>
+          <div className='min-w-0'>
+            <p
+              className='truncate font-medium'
+              title={row.original.employeeName}
+            >
+              {row.original.employeeName}
+            </p>
             <p className='text-[11px] text-muted-foreground'>
-              {row.original.employeeNumber} ·{' '}
-              {titleCase(row.original.employeeType)}
+              {row.original.employeeNumber}
             </p>
           </div>
         ),
-        meta: { label: 'Karyawan' },
+        meta: {
+          label: 'Karyawan',
+          className: 'w-[15%] px-2',
+          tdClassName: 'whitespace-normal',
+        },
       },
       {
         accessorKey: 'site',
@@ -297,37 +308,72 @@ export function ShiftAssignmentTable({
         cell: ({ row }) => <span>{titleCase(row.original.site)}</span>,
         filterFn: (row, id, value: string[]) =>
           value.includes(row.getValue(id)),
-        meta: { label: 'Penempatan' },
-      },
-      {
-        accessorKey: 'productionModule',
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title='Modul' />
-        ),
-        cell: ({ row }) => row.original.productionModule || '—',
-        filterFn: (row, id, value: string[]) =>
-          value.includes(row.getValue(id)),
-        meta: { label: 'Modul' },
-      },
-      {
-        accessorKey: 'productionSection',
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title='Bagian' />
-        ),
-        cell: ({ row }) => row.original.productionSection || '—',
-        filterFn: (row, id, value: string[]) =>
-          value.includes(row.getValue(id)),
-        meta: { label: 'Bagian' },
+        meta: { label: 'Penempatan', className: 'w-[8%] px-2' },
       },
       {
         accessorKey: 'employeeType',
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title='Jenis' />
+          <DataTableColumnHeader column={column} title='Jenis & Jabatan' />
         ),
-        cell: ({ row }) => titleCase(row.original.employeeType),
+        cell: ({ row }) => (
+          <div className='min-w-0'>
+            <p className='font-medium'>
+              {titleCase(row.original.employeeType)}
+            </p>
+            <p
+              className='truncate text-[11px] leading-3 text-muted-foreground'
+              title={row.original.position || '-'}
+            >
+              {row.original.position || '-'}
+            </p>
+          </div>
+        ),
         filterFn: (row, id, value: string[]) =>
           value.includes(row.getValue(id)),
-        meta: { label: 'Jenis' },
+        meta: {
+          label: 'Jenis & Jabatan',
+          className: 'w-[13%] px-2',
+          tdClassName: 'whitespace-normal',
+        },
+      },
+      {
+        id: 'productionArea',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Bagian Produksi' />
+        ),
+        cell: ({ row }) => (
+          <div className='min-w-0'>
+            <p
+              className='truncate font-medium'
+              title={row.original.productionModule || '-'}
+            >
+              {row.original.productionModule || '-'}
+            </p>
+            <p
+              className='truncate text-[11px] leading-3 text-muted-foreground'
+              title={row.original.productionSection || '-'}
+            >
+              {row.original.productionSection || '-'}
+            </p>
+          </div>
+        ),
+        meta: {
+          label: 'Bagian Produksi',
+          className: 'w-[14%] px-2',
+          tdClassName: 'whitespace-normal',
+        },
+      },
+      {
+        accessorKey: 'productionModule',
+        enableHiding: false,
+        filterFn: (row, id, value: string[]) =>
+          value.includes(row.getValue(id)),
+      },
+      {
+        accessorKey: 'productionSection',
+        enableHiding: false,
+        filterFn: (row, id, value: string[]) =>
+          value.includes(row.getValue(id)),
       },
       {
         accessorKey: 'shiftUid',
@@ -335,8 +381,10 @@ export function ShiftAssignmentTable({
           <DataTableColumnHeader column={column} title='Shift' />
         ),
         cell: ({ row }) => (
-          <div>
-            <p className='font-medium'>{row.original.shiftName}</p>
+          <div className='min-w-0'>
+            <p className='truncate font-medium' title={row.original.shiftName}>
+              {row.original.shiftName}
+            </p>
             <p className='text-[11px] text-muted-foreground tabular-nums'>
               {row.original.shiftCode} · {shortTime(row.original.startTime)}–
               {shortTime(row.original.endTime)}
@@ -345,7 +393,11 @@ export function ShiftAssignmentTable({
         ),
         filterFn: (row, id, value: string[]) =>
           value.includes(row.getValue(id)),
-        meta: { label: 'Shift' },
+        meta: {
+          label: 'Shift',
+          className: 'w-[14%] px-2',
+          tdClassName: 'whitespace-normal',
+        },
       },
       {
         id: 'period',
@@ -365,7 +417,11 @@ export function ShiftAssignmentTable({
             </p>
           </div>
         ),
-        meta: { label: 'Periode & Hari' },
+        meta: {
+          label: 'Periode & Hari',
+          className: 'w-[19%] px-2',
+          tdClassName: 'whitespace-normal leading-4',
+        },
       },
       {
         accessorKey: 'status',
@@ -375,15 +431,23 @@ export function ShiftAssignmentTable({
         cell: ({ row }) => <AssignmentStatus value={row.original.status} />,
         filterFn: (row, id, value: string[]) =>
           value.includes(row.getValue(id)),
-        meta: { label: 'Status' },
+        meta: { label: 'Status', className: 'w-[9%] px-2' },
       },
       {
         id: 'actions',
         enableSorting: false,
         enableHiding: false,
-        cell: ({ row }) =>
-          row.original.status === 'UPCOMING' ? (
-            <div className='flex justify-end'>
+        cell: ({ row }) => (
+          <div className='flex justify-end gap-1'>
+            {row.original.status !== 'UPCOMING' && (
+              <DataTableActionButton
+                label={`Koreksi penugasan ${row.original.employeeName}`}
+                onClick={() => onCorrect(row.original)}
+              >
+                <Pencil />
+              </DataTableActionButton>
+            )}
+            {row.original.status === 'UPCOMING' && (
               <DataTableActionButton
                 className='text-destructive hover:text-destructive'
                 label={`Hapus penugasan mendatang ${row.original.employeeName}`}
@@ -391,11 +455,13 @@ export function ShiftAssignmentTable({
               >
                 <Trash2 />
               </DataTableActionButton>
-            </div>
-          ) : null,
+            )}
+          </div>
+        ),
+        meta: { className: 'w-[5%] px-1' },
       },
     ],
-    [onDelete]
+    [onCorrect, onDelete]
   )
   return (
     <AttendanceTable
@@ -443,6 +509,8 @@ export function ShiftAssignmentTable({
         { columnId: 'shiftUid', searchKey: 'shiftUid', type: 'array' },
         { columnId: 'status', searchKey: 'status', type: 'array' },
       ]}
+      hiddenColumnIds={['productionModule', 'productionSection']}
+      compactDesktop
       empty='Tidak ada penugasan shift yang sesuai filter.'
       mobile={(assignment) => (
         <Card key={assignment.uid}>
@@ -457,6 +525,22 @@ export function ShiftAssignmentTable({
               <AssignmentStatus value={assignment.status} />
             </div>
             <div className='text-sm'>
+              <div className='mb-2 grid grid-cols-2 gap-3 text-xs'>
+                <div>
+                  <p className='text-muted-foreground'>Jenis & Jabatan</p>
+                  <p>
+                    {titleCase(assignment.employeeType)} ·{' '}
+                    {assignment.position || '-'}
+                  </p>
+                </div>
+                <div>
+                  <p className='text-muted-foreground'>Bagian Produksi</p>
+                  <p>
+                    {assignment.productionModule || '-'} ·{' '}
+                    {assignment.productionSection || '-'}
+                  </p>
+                </div>
+              </div>
               <p className='font-medium'>{assignment.shiftName}</p>
               <p className='text-xs text-muted-foreground'>
                 {formatDate(assignment.effectiveFrom)} –{' '}
@@ -465,6 +549,16 @@ export function ShiftAssignmentTable({
                   : 'seterusnya'}
               </p>
             </div>
+            {assignment.status !== 'UPCOMING' && (
+              <Button
+                size='sm'
+                variant='outline'
+                className='w-full'
+                onClick={() => onCorrect(assignment)}
+              >
+                <Pencil /> Koreksi penugasan
+              </Button>
+            )}
             {assignment.status === 'UPCOMING' && (
               <Button
                 size='sm'
@@ -490,6 +584,8 @@ function AttendanceTable<T extends { uid: string }>({
   searchPlaceholder,
   filters,
   columnFilters,
+  hiddenColumnIds = [],
+  compactDesktop = false,
   empty,
   mobile,
 }: {
@@ -504,6 +600,8 @@ function AttendanceTable<T extends { uid: string }>({
     options: { value: string; label: string }[]
   }[]
   columnFilters: { columnId: string; searchKey: string; type: 'array' }[]
+  hiddenColumnIds?: string[]
+  compactDesktop?: boolean
   empty: string
   mobile: (item: T) => React.ReactNode
 }) {
@@ -523,6 +621,9 @@ function AttendanceTable<T extends { uid: string }>({
       globalFilter: url.globalFilter,
       columnFilters: url.columnFilters,
       pagination: url.pagination,
+      columnVisibility: Object.fromEntries(
+        hiddenColumnIds.map((columnId) => [columnId, false])
+      ),
     },
     pageCount: Math.max(
       1,
@@ -575,13 +676,24 @@ function AttendanceTable<T extends { uid: string }>({
         </div>
       ) : (
         <>
-          <div className='hidden rounded-md border md:block'>
-            <Table>
+          <div
+            className={cn(
+              'hidden rounded-md border',
+              compactDesktop ? 'xl:block' : 'md:block'
+            )}
+          >
+            <Table className={compactDesktop ? 'table-fixed' : undefined}>
               <TableHeader>
                 {table.getHeaderGroups().map((group) => (
                   <TableRow key={group.id}>
                     {group.headers.map((header) => (
-                      <TableHead key={header.id}>
+                      <TableHead
+                        key={header.id}
+                        className={cn(
+                          header.column.columnDef.meta?.className,
+                          header.column.columnDef.meta?.thClassName
+                        )}
+                      >
                         {header.isPlaceholder
                           ? null
                           : flexRender(
@@ -597,7 +709,13 @@ function AttendanceTable<T extends { uid: string }>({
                 {table.getRowModel().rows.map((row) => (
                   <TableRow key={row.id}>
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
+                      <TableCell
+                        key={cell.id}
+                        className={cn(
+                          cell.column.columnDef.meta?.className,
+                          cell.column.columnDef.meta?.tdClassName
+                        )}
+                      >
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext()
@@ -609,7 +727,14 @@ function AttendanceTable<T extends { uid: string }>({
               </TableBody>
             </Table>
           </div>
-          <div className='grid gap-3 md:hidden'>{data.items.map(mobile)}</div>
+          <div
+            className={cn(
+              'grid gap-3',
+              compactDesktop ? 'xl:hidden' : 'md:hidden'
+            )}
+          >
+            {data.items.map(mobile)}
+          </div>
           <DataTablePagination
             table={table}
             summary={`Menampilkan ${(data.page - 1) * data.pageSize + 1}–${Math.min(data.page * data.pageSize, data.total)} dari ${data.total} data.`}

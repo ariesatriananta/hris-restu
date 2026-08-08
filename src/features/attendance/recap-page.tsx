@@ -27,6 +27,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
@@ -305,6 +310,8 @@ function Summary({ data }: { data?: AttendanceRecapSummary }) {
       label: 'Grup karyawan',
       value: data?.groups ?? 0,
       icon: Users,
+      description:
+        'Jumlah grup rekap unik berdasarkan kombinasi karyawan, site, dan jenis karyawan pada periode terpilih.',
       tone: 'border-slate-400/25 bg-gradient-to-br from-slate-500/[0.08] via-background to-slate-500/[0.02] text-foreground',
       iconTone: 'text-slate-600 dark:text-slate-300',
     },
@@ -312,7 +319,7 @@ function Summary({ data }: { data?: AttendanceRecapSummary }) {
       label: 'Hari kerja',
       value: data?.scheduledDays ?? 0,
       icon: CalendarDays,
-      hint: `${data?.holiday ?? 0} libur kalender · ${data?.weeklyOff ?? 0} libur mingguan`,
+      description: `Total hari kerja yang dijadwalkan. Periode ini juga memuat ${data?.holiday ?? 0} libur kalender dan ${data?.weeklyOff ?? 0} libur mingguan.`,
       tone: 'border-blue-500/20 bg-gradient-to-br from-blue-500/[0.09] via-background to-blue-500/[0.025] text-foreground',
       iconTone: 'text-blue-600 dark:text-blue-400',
     },
@@ -320,6 +327,8 @@ function Summary({ data }: { data?: AttendanceRecapSummary }) {
       label: 'Hadir kerja',
       value: data?.presentWorkday ?? 0,
       icon: UserCheck,
+      description:
+        'Jumlah kehadiran aktual yang tercatat pada hari kerja terjadwal.',
       tone: 'border-emerald-500/20 bg-gradient-to-br from-emerald-500/[0.09] via-background to-emerald-500/[0.025] text-foreground',
       iconTone: 'text-emerald-600 dark:text-emerald-400',
     },
@@ -327,6 +336,8 @@ function Summary({ data }: { data?: AttendanceRecapSummary }) {
       label: 'Hadir hari libur',
       value: data?.presentHoliday ?? 0,
       icon: CalendarCheck2,
+      description:
+        'Jumlah kehadiran aktual pada hari libur kalender atau libur mingguan.',
       tone: 'border-teal-500/20 bg-gradient-to-br from-teal-500/[0.09] via-background to-teal-500/[0.025] text-foreground',
       iconTone: 'text-teal-600 dark:text-teal-400',
     },
@@ -334,6 +345,8 @@ function Summary({ data }: { data?: AttendanceRecapSummary }) {
       label: 'Alpha',
       value: data?.absent ?? 0,
       icon: UserMinus,
+      description:
+        'Jumlah hari kerja terjadwal tanpa kehadiran atau klasifikasi ketidakhadiran yang disetujui.',
       tone: 'border-rose-500/20 bg-gradient-to-br from-rose-500/[0.09] via-background to-rose-500/[0.025] text-foreground',
       iconTone: 'text-rose-600 dark:text-rose-400',
     },
@@ -341,6 +354,8 @@ function Summary({ data }: { data?: AttendanceRecapSummary }) {
       label: 'Cuti / Sakit / Izin',
       value: `${data?.leave ?? 0} / ${data?.sick ?? 0} / ${data?.permission ?? 0}`,
       icon: CalendarDays,
+      description:
+        'Jumlah klasifikasi yang telah diterapkan, berurutan: Cuti, Sakit, lalu Izin.',
       tone: 'border-violet-500/20 bg-gradient-to-br from-violet-500/[0.09] via-background to-violet-500/[0.025] text-foreground',
       iconTone: 'text-violet-600 dark:text-violet-400',
     },
@@ -348,6 +363,8 @@ function Summary({ data }: { data?: AttendanceRecapSummary }) {
       label: 'Abnormal',
       value: data?.abnormal ?? 0,
       icon: AlertTriangle,
+      description:
+        'Jumlah record yang kualitas kehadirannya belum normal, misalnya jam masuk atau jam pulang tidak lengkap.',
       tone: 'border-orange-500/20 bg-gradient-to-br from-orange-500/[0.09] via-background to-orange-500/[0.025] text-foreground',
       iconTone: 'text-orange-600 dark:text-orange-400',
     },
@@ -355,38 +372,43 @@ function Summary({ data }: { data?: AttendanceRecapSummary }) {
       label: 'Total durasi',
       value: durationLabel(data?.workedMinutes),
       icon: Clock3,
-      hint: 'Informasi, bukan dasar upah borongan',
+      description:
+        'Akumulasi durasi antara jam masuk dan jam pulang. Angka ini bersifat informatif dan bukan dasar upah borongan.',
       tone: 'border-cyan-500/20 bg-gradient-to-br from-cyan-500/[0.09] via-background to-cyan-500/[0.025] text-foreground',
       iconTone: 'text-cyan-600 dark:text-cyan-400',
     },
   ]
   return (
     <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8'>
-      {items.map(({ label, value, icon: Icon, hint, tone, iconTone }) => (
-        <section
-          key={label}
-          className={`min-h-[68px] rounded-lg border px-3 py-2.5 ${tone}`}
-          aria-label={label}
-        >
-          <div className='flex items-start justify-between gap-3'>
-            <div>
-              <p className='text-[11px] leading-3 font-medium opacity-80'>
-                {label}
-              </p>
-              <p className='mt-1 text-xl leading-none font-semibold tabular-nums'>
-                {value}
-              </p>
-              {hint && (
-                <p className='mt-1 text-[10px] leading-3 opacity-75'>{hint}</p>
-              )}
-            </div>
-            <Icon
-              className={`size-3.5 shrink-0 ${iconTone}`}
-              aria-hidden='true'
-            />
-          </div>
-        </section>
-      ))}
+      {items.map(
+        ({ label, value, icon: Icon, tone, iconTone, description }) => (
+          <Tooltip key={label}>
+            <TooltipTrigger asChild>
+              <section
+                tabIndex={0}
+                className={`min-h-[68px] rounded-lg border px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none ${tone}`}
+                aria-label={`${label}: ${value}. ${description}`}
+              >
+                <div className='flex items-start justify-between gap-3'>
+                  <div>
+                    <p className='text-[11px] leading-3 font-medium opacity-80'>
+                      {label}
+                    </p>
+                    <p className='mt-1 text-xl leading-none font-semibold tabular-nums'>
+                      {value}
+                    </p>
+                  </div>
+                  <Icon
+                    className={`size-3.5 shrink-0 ${iconTone}`}
+                    aria-hidden='true'
+                  />
+                </div>
+              </section>
+            </TooltipTrigger>
+            <TooltipContent className='max-w-72'>{description}</TooltipContent>
+          </Tooltip>
+        )
+      )}
     </div>
   )
 }

@@ -4,7 +4,7 @@
 >
 > Audiens: HR, administrator site, Site Supervisor, Super Admin, dan tim support HRIS
 >
-> Terakhir diverifikasi: 7 Agustus 2026
+> Terakhir diverifikasi: 8 Agustus 2026
 >
 > Status: indeks aktif; isi teknis dan operasional dibagi menjadi tiga panduan
 

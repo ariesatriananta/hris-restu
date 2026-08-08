@@ -7,6 +7,8 @@ import { pool } from '../db.js'
 import { attendanceCapabilities } from '../lib/attendance-policy.js'
 import {
   deriveCrossesMidnight,
+  backdatedAssignmentFinalizationRange,
+  firstShiftAssignmentEligibility,
   jakartaBusinessDate,
   previousDate,
   shiftAssignmentBatchInput,
@@ -21,6 +23,7 @@ import { attendanceClassificationsRouter } from './attendance-classifications.js
 import { attendanceCalendarRouter } from './attendance-calendar.js'
 import { attendanceFinalizationsRouter } from './attendance-finalizations.js'
 import { attendanceRecapsRouter } from './attendance-recaps.js'
+import { attendanceShiftHistoryRouter } from './attendance-shift-history.js'
 import {
   attendanceClassificationApprovalStatuses,
   attendanceClassificationTypes,
@@ -133,6 +136,7 @@ attendanceRouter.use(attendanceClassificationsRouter)
 attendanceRouter.use(attendanceCalendarRouter)
 attendanceRouter.use(attendanceFinalizationsRouter)
 attendanceRouter.use(attendanceRecapsRouter)
+attendanceRouter.use(attendanceShiftHistoryRouter)
 
 attendanceRouter.get(
   '/foundation',
@@ -542,6 +546,21 @@ attendanceRouter.get(
                 et.code employeeType,s.code site,pm.uid productionModuleUid,
                 pm.name productionModule,ps.uid productionSectionUid,
                 ps.name productionSection,
+                (SELECT COUNT(*) FROM employee_shift_assignments historyesa
+                  WHERE historyesa.employee_id=e.id) assignmentHistoryCount,
+                (SELECT COUNT(*) FROM employee_employment_histories currenteh
+                   JOIN employee_statuses currentehs ON currentehs.id=currenteh.employee_status_id
+                  WHERE currenteh.employee_id=e.id AND currenteh.site_id=e.current_site_id
+                    AND currenteh.effective_from<=?
+                    AND (currenteh.effective_to IS NULL OR currenteh.effective_to>=?)
+                    AND currentehs.code='ACTIVE' AND currentehs.allows_attendance=1) currentEligibleHistoryCount,
+                (SELECT DATE_FORMAT(MIN(eh.effective_from),'%Y-%m-%d')
+                   FROM employee_employment_histories eh
+                   JOIN employee_statuses ehs ON ehs.id=eh.employee_status_id
+                  WHERE eh.employee_id=e.id AND eh.site_id=e.current_site_id
+                    AND eh.effective_from<=?
+                    AND (eh.effective_to IS NULL OR eh.effective_to>=?)
+                    AND ehs.code='ACTIVE' AND ehs.allows_attendance=1) firstEligibleDate,
                 (SELECT sh.name
                    FROM employee_shift_assignments esa
                    JOIN shifts sh ON sh.id=esa.shift_id
@@ -557,10 +576,43 @@ attendanceRouter.get(
           WHERE ${clause}
           ORDER BY e.full_name,e.id
           LIMIT ? OFFSET ?`,
-        [today, today, today, today, ...values, pageSize, (page - 1) * pageSize]
+        [
+          today,
+          today,
+          today,
+          today,
+          today,
+          today,
+          today,
+          today,
+          ...values,
+          pageSize,
+          (page - 1) * pageSize,
+        ]
       )
       res.json({
-        items: rows,
+        items: rows.map((row) => {
+          const firstEligibleDate =
+            Number(row.currentEligibleHistoryCount) === 1 && row.firstEligibleDate
+              ? String(row.firstEligibleDate)
+              : null
+          const eligibility = firstShiftAssignmentEligibility({
+            hasAssignmentHistory: Number(row.assignmentHistoryCount) > 0,
+            firstEligibleDate,
+            goLiveDate: env.ATTENDANCE_GO_LIVE_DATE,
+            today,
+          })
+          const {
+            assignmentHistoryCount: _assignmentHistoryCount,
+            currentEligibleHistoryCount: _currentEligibleHistoryCount,
+            firstEligibleDate: _firstEligibleDate,
+            ...candidate
+          } = row
+          return {
+            ...candidate,
+            ...eligibility,
+          }
+        }),
         total: Number(count[0].total),
         page,
         pageSize,
@@ -628,6 +680,7 @@ attendanceRouter.get(
         JOIN employee_types et ON et.id=e.employee_type_id
         JOIN shifts sh ON sh.id=esa.shift_id
         JOIN sites s ON s.id=sh.site_id
+        LEFT JOIN positions p ON p.id=e.current_position_id
         LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id
         LEFT JOIN production_modules pm ON pm.id=pms.production_module_id
         LEFT JOIN production_sections ps ON ps.id=pms.production_section_id`
@@ -637,7 +690,8 @@ attendanceRouter.get(
       )
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT esa.uid,e.uid employeeUid,e.employee_number employeeNumber,
-                e.full_name employeeName,et.code employeeType,s.code site,
+                e.full_name employeeName,et.code employeeType,p.name position,
+                s.code site,
                 pm.uid productionModuleUid,pm.name productionModule,
                 ps.uid productionSectionUid,ps.name productionSection,
                 sh.uid shiftUid,sh.code shiftCode,sh.name shiftName,
@@ -675,12 +729,6 @@ attendanceRouter.post(
     try {
       const input = shiftAssignmentBatchInput.parse(req.body)
       const today = jakartaBusinessDate()
-      if (input.effectiveFrom < today) {
-        throw new ApiError(
-          422,
-          'Tanggal mulai Shift hanya boleh hari ini atau masa depan.'
-        )
-      }
       const auth = res.locals.auth as AuthContext
       await conn.beginTransaction()
       const shift = await getShiftForUpdate(conn, input.shiftUid)
@@ -691,18 +739,65 @@ attendanceRouter.post(
       const placeholders = input.employeeUids.map(() => '?').join(',')
       const [employees] = await conn.query<RowDataPacket[]>(
         `SELECT e.id,e.uid,e.full_name fullName,s.code site,es.code employeeStatus,
-                es.allows_attendance allowsAttendance
+                es.allows_attendance allowsAttendance,
+                (SELECT COUNT(*) FROM employee_shift_assignments allesa
+                  WHERE allesa.employee_id=e.id) assignmentCount,
+                (SELECT COUNT(*) FROM employee_employment_histories currenteh
+                   JOIN employee_statuses currentehs ON currentehs.id=currenteh.employee_status_id
+                  WHERE currenteh.employee_id=e.id AND currenteh.site_id=?
+                    AND currenteh.effective_from<=?
+                    AND (currenteh.effective_to IS NULL OR currenteh.effective_to>=?)
+                    AND currentehs.code='ACTIVE' AND currentehs.allows_attendance=1) currentEligibleHistoryCount,
+                (SELECT DATE_FORMAT(MIN(eh.effective_from),'%Y-%m-%d')
+                   FROM employee_employment_histories eh
+                   JOIN employee_statuses ehs ON ehs.id=eh.employee_status_id
+                  WHERE eh.employee_id=e.id AND eh.site_id=?
+                    AND eh.effective_from<=?
+                    AND (eh.effective_to IS NULL OR eh.effective_to>=?)
+                    AND ehs.code='ACTIVE' AND ehs.allows_attendance=1) firstEligibleDate
            FROM employees e
            JOIN sites s ON s.id=e.current_site_id
            JOIN employee_statuses es ON es.id=e.employee_status_id
           WHERE e.uid IN (${placeholders})
           FOR UPDATE`,
-        input.employeeUids
+        [
+          shift.site_id,
+          today,
+          today,
+          shift.site_id,
+          today,
+          today,
+          ...input.employeeUids,
+        ]
       )
       if (employees.length !== input.employeeUids.length) {
         throw new ApiError(422, 'Satu atau lebih karyawan tidak ditemukan.')
       }
+      const finalizationRange = backdatedAssignmentFinalizationRange({
+        effectiveFrom: input.effectiveFrom,
+        effectiveTo: input.effectiveTo,
+        today,
+      })
+      if (finalizationRange) {
+        const [finalizationRows] = await conn.query<RowDataPacket[]>(
+          `SELECT id,status FROM attendance_daily_finalization_runs
+            WHERE site_id=? AND business_date BETWEEN ? AND ? FOR UPDATE`,
+          [
+            shift.site_id,
+            finalizationRange.effectiveFrom,
+            finalizationRange.effectiveTo,
+          ]
+        )
+        if (finalizationRows.some((row) => row.status === 'RUNNING')) {
+          throw new ApiError(
+            409,
+            'Finalisasi Attendance sedang berjalan pada rentang backdate assignment.'
+          )
+        }
+      }
       let closedPreviousCount = 0
+      let backdatedFirstAssignmentCount = 0
+      let invalidatedFinalizationCount = 0
       const createdUids: string[] = []
       for (const employee of employees) {
         if (employee.employeeStatus !== 'ACTIVE' || !employee.allowsAttendance) {
@@ -716,6 +811,37 @@ attendanceRouter.post(
             422,
             `${employee.fullName} tidak berada pada site Shift ${shift.site}.`
           )
+        }
+        if (input.effectiveFrom < today) {
+          if (Number(employee.assignmentCount) !== 0) {
+            throw new ApiError(
+              422,
+              `${employee.fullName} sudah memiliki histori assignment; tanggal mulai tetap harus hari ini atau masa depan.`
+            )
+          }
+          if (
+            Number(employee.currentEligibleHistoryCount) !== 1 ||
+            !employee.firstEligibleDate
+          ) {
+            throw new ApiError(
+              422,
+              `${employee.fullName} tidak memiliki histori kerja ACTIVE yang eligible pada site Shift.`
+            )
+          }
+          const { minimumEffectiveFrom: earliestAllowed } =
+            firstShiftAssignmentEligibility({
+              hasAssignmentHistory: false,
+              firstEligibleDate: String(employee.firstEligibleDate),
+              goLiveDate: env.ATTENDANCE_GO_LIVE_DATE,
+              today,
+            })
+          if (input.effectiveFrom < earliestAllowed) {
+            throw new ApiError(
+              422,
+              `Assignment pertama ${employee.fullName} paling awal dapat dimulai ${earliestAllowed}.`
+            )
+          }
+          backdatedFirstAssignmentCount += 1
         }
         const [previous] = await conn.query<RowDataPacket[]>(
           `SELECT id,effective_from effectiveFrom
@@ -774,6 +900,34 @@ attendanceRouter.post(
           ]
         )
       }
+      if (finalizationRange && backdatedFirstAssignmentCount > 0) {
+        const [invalidated] = await conn.execute<ResultSetHeader>(
+          `INSERT INTO attendance_daily_finalization_runs
+            (uid,site_id,business_date,trigger_type,status,grace_minutes,reason,
+             summary,warnings,requested_by,started_at,finished_at,created_by,updated_by)
+           SELECT UUID(),latest.site_id,latest.business_date,'MANUAL','SKIPPED',60,?,
+                  JSON_OBJECT('invalidatedByFirstShiftBackdate',TRUE),JSON_ARRAY(?),?,
+                  CURRENT_TIMESTAMP(3),CURRENT_TIMESTAMP(3),?,?
+             FROM attendance_daily_finalization_runs latest
+            WHERE latest.site_id=? AND latest.business_date BETWEEN ? AND ?
+              AND latest.id=(SELECT MAX(previous.id)
+                FROM attendance_daily_finalization_runs previous
+               WHERE previous.site_id=latest.site_id
+                 AND previous.business_date=latest.business_date)
+              AND latest.status<>'RUNNING'`,
+          [
+            'Assignment Shift pertama diterapkan mundur.',
+            'Finalisasi perlu dijalankan ulang setelah backdate assignment Shift pertama.',
+            auth.id,
+            auth.id,
+            auth.id,
+            shift.site_id,
+            finalizationRange.effectiveFrom,
+            finalizationRange.effectiveTo,
+          ]
+        )
+        invalidatedFinalizationCount = invalidated.affectedRows
+      }
       await writeAudit(
         {
           auth,
@@ -790,6 +944,8 @@ attendanceRouter.post(
             effectiveTo: input.effectiveTo ?? null,
             workDays: input.workDays,
             closedPreviousCount,
+            backdatedFirstAssignmentCount,
+            invalidatedFinalizationCount,
           },
         },
         conn
@@ -798,6 +954,8 @@ attendanceRouter.post(
       res.status(201).json({
         createdCount: createdUids.length,
         closedPreviousCount,
+        backdatedFirstAssignmentCount,
+        invalidatedFinalizationCount,
       })
     } catch (error) {
       await conn.rollback()

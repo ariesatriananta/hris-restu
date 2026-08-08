@@ -5,6 +5,7 @@ import {
   useReactTable,
 } from '@tanstack/react-table'
 import { Eye, LoaderCircle, RefreshCcw, Users } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -21,9 +22,9 @@ import { DataTablePagination, DataTableToolbar } from '@/components/data-table'
 import type { AttendanceRecapGroup, AttendanceRecapResult } from './domain'
 import {
   durationLabel,
+  employeeSiteLabel,
   employeeTypeLabel,
   recapColumns,
-  siteLabel,
 } from './recap-columns'
 
 const employeeTypeOptions = ['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING'].map(
@@ -88,6 +89,7 @@ export function AttendanceRecapTable({
     },
     initialState: {
       columnVisibility: {
+        site: false,
         workedMinutes: false,
         earlyLeaveMinutes: false,
         abnormal: false,
@@ -159,13 +161,19 @@ export function AttendanceRecapTable({
         </StateText>
       ) : (
         <>
-          <div className='hidden overflow-x-auto rounded-md border md:block'>
-            <Table>
+          <div className='hidden rounded-md border xl:block'>
+            <Table className='table-fixed [&_th]:leading-4 [&_th]:whitespace-normal'>
               <TableHeader>
                 {table.getHeaderGroups().map((group) => (
                   <TableRow key={group.id}>
                     {group.headers.map((header) => (
-                      <TableHead key={header.id}>
+                      <TableHead
+                        key={header.id}
+                        className={cn(
+                          header.column.columnDef.meta?.className,
+                          header.column.columnDef.meta?.thClassName
+                        )}
+                      >
                         {header.isPlaceholder
                           ? null
                           : flexRender(
@@ -181,7 +189,13 @@ export function AttendanceRecapTable({
                 {table.getRowModel().rows.map((row) => (
                   <TableRow key={row.id}>
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
+                      <TableCell
+                        key={cell.id}
+                        className={cn(
+                          cell.column.columnDef.meta?.className,
+                          cell.column.columnDef.meta?.tdClassName
+                        )}
+                      >
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext()
@@ -193,7 +207,7 @@ export function AttendanceRecapTable({
               </TableBody>
             </Table>
           </div>
-          <div className='grid gap-3 md:hidden'>
+          <div className='grid gap-3 xl:hidden'>
             {data.items.map((item) => (
               <Card
                 key={`${item.employeeUid}:${item.site}:${item.employeeType}`}
@@ -203,9 +217,7 @@ export function AttendanceRecapTable({
                     <div>
                       <p className='font-semibold'>{item.employeeName}</p>
                       <p className='text-xs text-muted-foreground'>
-                        {item.employeeNumber} ·{' '}
-                        {item.siteName || siteLabel(item.site)} ·{' '}
-                        {employeeTypeLabel(item.employeeType)}
+                        {employeeSiteLabel(item.site)} - {item.employeeNumber}
                       </p>
                     </div>
                     {item.abnormal > 0 && (
@@ -216,6 +228,22 @@ export function AttendanceRecapTable({
                         {item.abnormal} abnormal
                       </Badge>
                     )}
+                  </div>
+                  <div className='grid grid-cols-2 gap-3 text-xs'>
+                    <div className='min-w-0'>
+                      <p className='text-muted-foreground'>Jenis & Jabatan</p>
+                      <p className='truncate'>
+                        {employeeTypeLabel(item.employeeType)} ·{' '}
+                        {compactList(item.positions)}
+                      </p>
+                    </div>
+                    <div className='min-w-0'>
+                      <p className='text-muted-foreground'>Bagian Produksi</p>
+                      <p className='truncate'>
+                        {compactList(item.productionModules)} ·{' '}
+                        {compactList(item.productionSections)}
+                      </p>
+                    </div>
                   </div>
                   <div className='grid grid-cols-4 gap-2 text-center text-xs'>
                     <MobileCount
@@ -290,4 +318,8 @@ function paginationSummary(page: number, pageSize: number, total: number) {
   return total
     ? `Menampilkan ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} dari ${total} grup karyawan.`
     : 'Tidak ada data.'
+}
+
+function compactList(values: string[]) {
+  return values.length ? values.join(', ') : '-'
 }

@@ -6,7 +6,7 @@
 >
 > Audiens: HR Officer, Super Admin, administrator site, dan tim support HRIS
 >
-> Terakhir diverifikasi: 7 Agustus 2026
+> Terakhir diverifikasi: 8 Agustus 2026
 >
 > Status: aktif, sesuai perilaku aplikasi saat dokumen ini dibuat
 
@@ -117,7 +117,8 @@ Informasi assignment:
 
 ### 5.1 Syarat penugasan
 
-- Tanggal mulai hanya boleh hari ini atau masa depan.
+- Untuk karyawan yang pernah memiliki assignment, tanggal mulai hanya boleh hari ini atau masa depan.
+- Penugasan pertama boleh dimundurkan paling awal ke tanggal terbesar antara go-live Attendance dan awal histori employment `ACTIVE` yang eligible pada site Shift.
 - Tanggal selesai tidak boleh sebelum tanggal mulai.
 - Minimal satu hari kerja harus dipilih dan tidak boleh duplikat.
 - Satu batch dapat memuat maksimal 500 karyawan.
@@ -128,11 +129,38 @@ Informasi assignment:
 
 Jika ada tepat satu assignment lama yang masih terbuka pada tanggal assignment baru, sistem menutup assignment lama pada satu hari sebelum tanggal mulai baru. Jika data legacy memiliki lebih dari satu assignment yang tumpang tindih, proses ditolak agar HR memperbaiki konflik terlebih dahulu.
 
-### 5.2 Menghapus assignment
+Dalam satu batch, tanggal mulai harus valid untuk seluruh karyawan terpilih. Sistem menggunakan batas paling akhir dari semua kandidat dan memvalidasinya kembali secara atomik saat disimpan. Jika satu karyawan tidak memenuhi syarat, tidak ada assignment dalam batch yang dibuat.
+
+### 5.2 Koreksi penugasan historis
+
+Gunakan **Koreksi penugasan** jika Shift atau hari kerja pada assignment yang sudah berlaku ternyata salah. Jangan menghapus atau menimpa row histori secara manual.
+
+Alur koreksi:
+
+1. buka tab **Penugasan & Histori**;
+2. pilih **Koreksi penugasan** pada karyawan yang sesuai;
+3. tentukan Shift, rentang tanggal historis, dan hari kerja yang benar;
+4. tampilkan preview timeline serta dampaknya;
+5. isi alasan minimal 10 karakter dan terapkan koreksi.
+
+Koreksi dapat dilakukan langsung oleh pengguna dengan permission `attendance.manage_shift`; tidak ada tahap pengajuan atau approval terpisah. Sistem tetap menyimpan alasan, kondisi sebelum, dan kondisi sesudah pada audit trail.
+
+Rentang koreksi:
+
+- tidak boleh sebelum tanggal go-live Attendance;
+- tidak boleh melewati hari ini;
+- wajib berada pada histori employment `ACTIVE`, eligible Attendance, dan site yang sama dengan Shift tujuan;
+- tidak boleh menghasilkan assignment yang tumpang tindih.
+
+Sistem dapat memotong satu assignment menjadi bagian sebelum dan sesudah rentang koreksi. Scan mentah, klasifikasi approved, serta koreksi Attendance approved tetap dipertahankan. Snapshot Shift, kalender, keterlambatan, pulang awal, dan durasi Attendance pada rentang tersebut direkonsiliasi. Record Alpha/Libur sintetis dapat disesuaikan atau dibuang bila setelah koreksi tanggalnya menjadi libur mingguan.
+
+Koreksi ditolak jika rentang memiliki setoran produksi `POSTED`, menyentuh payroll yang sudah `CALCULATED`, `APPROVED`, atau `CLOSED`, atau mempunyai finalisasi yang sedang `RUNNING`. Finalisasi lama yang aman tidak dihapus; sistem menambahkan marker invalidasi agar tanggal yang relevan dapat difinalisasi ulang.
+
+### 5.3 Menghapus assignment
 
 Hanya assignment yang mulai pada masa depan dan belum dipakai Attendance yang dapat dihapus. Assignment berjalan atau historis dipertahankan sebagai bagian dari konteks rekap.
 
-### 5.3 Kesalahan yang perlu dihindari
+### 5.4 Kesalahan yang perlu dihindari
 
 - Memberi dua assignment pada periode yang sama.
 - Memilih hari kerja kosong karena mengira kalender akan mengisinya.
@@ -292,6 +320,8 @@ Gunakan tindakan ini jika browser diganti, local storage terhapus, perangkat dip
 | `PATCH/DELETE /api/attendance/shifts/:uid` | Mengubah atau menghapus shift yang masih aman. |
 | `GET /api/attendance/shift-assignments` | Daftar assignment shift. |
 | `POST /api/attendance/shift-assignments/batch` | Menugaskan shift maksimal 500 karyawan secara atomik. |
+| `POST /api/attendance/shift-assignments/history/preview` | Memeriksa timeline, dampak, warning, dan blocker koreksi historis. |
+| `POST /api/attendance/shift-assignments/history/apply` | Menerapkan koreksi historis secara atomik dan menulis audit trail. |
 | `DELETE /api/attendance/shift-assignments/:uid` | Menghapus assignment masa depan yang belum dipakai. |
 | `GET /api/attendance/work-calendar` | Daftar kalender sesuai scope site. |
 | `POST/PATCH /api/attendance/work-calendar` | Membuat atau mengubah aturan site. |

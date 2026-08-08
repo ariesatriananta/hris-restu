@@ -11,11 +11,18 @@ export function recapColumns(
     {
       accessorKey: 'employeeName',
       header: 'Karyawan',
-      meta: { label: 'Karyawan' },
+      meta: {
+        label: 'Karyawan',
+        className: 'w-[17%] px-2',
+        tdClassName: 'whitespace-normal',
+      },
       cell: ({ row }) => (
-        <div className='min-w-44'>
-          <p className='font-medium'>{row.original.employeeName}</p>
+        <div className='min-w-0'>
+          <p className='truncate font-medium' title={row.original.employeeName}>
+            {row.original.employeeName}
+          </p>
           <p className='text-xs text-muted-foreground'>
+            {employeeSiteLabel(row.original.site)} -{' '}
             {row.original.employeeNumber}
           </p>
         </div>
@@ -25,13 +32,55 @@ export function recapColumns(
       accessorKey: 'site',
       header: 'Site',
       meta: { label: 'Site' },
-      cell: ({ row }) => row.original.siteName || siteLabel(row.original.site),
+      filterFn: (row, id, value: string[]) => value.includes(row.getValue(id)),
     },
     {
       accessorKey: 'employeeType',
-      header: 'Jenis',
-      meta: { label: 'Jenis' },
-      cell: ({ row }) => employeeTypeLabel(row.original.employeeType),
+      header: 'Jenis & Jabatan',
+      meta: {
+        label: 'Jenis & Jabatan',
+        className: 'w-[12%] px-2',
+        tdClassName: 'whitespace-normal',
+      },
+      cell: ({ row }) => (
+        <div className='min-w-0'>
+          <p className='font-medium'>
+            {employeeTypeLabel(row.original.employeeType)}
+          </p>
+          <p
+            className='truncate text-[11px] leading-3 text-muted-foreground'
+            title={compactList(row.original.positions)}
+          >
+            {compactList(row.original.positions)}
+          </p>
+        </div>
+      ),
+      filterFn: (row, id, value: string[]) => value.includes(row.getValue(id)),
+    },
+    {
+      id: 'productionArea',
+      header: 'Bagian Produksi',
+      meta: {
+        label: 'Bagian Produksi',
+        className: 'w-[13%] px-2',
+        tdClassName: 'whitespace-normal',
+      },
+      cell: ({ row }) => (
+        <div className='min-w-0'>
+          <p
+            className='truncate font-medium'
+            title={compactList(row.original.productionModules)}
+          >
+            {compactList(row.original.productionModules)}
+          </p>
+          <p
+            className='truncate text-[11px] leading-3 text-muted-foreground'
+            title={compactList(row.original.productionSections)}
+          >
+            {compactList(row.original.productionSections)}
+          </p>
+        </div>
+      ),
     },
     {
       accessorKey: 'shiftNames',
@@ -42,31 +91,31 @@ export function recapColumns(
     {
       accessorKey: 'scheduledDays',
       header: 'Hari kerja',
-      meta: { label: 'Hari kerja' },
+      meta: { label: 'Hari kerja', className: 'w-[7%] px-2' },
       cell: numericCell,
     },
     {
       accessorKey: 'presentWorkday',
       header: 'Hadir kerja',
-      meta: { label: 'Hadir kerja' },
+      meta: { label: 'Hadir kerja', className: 'w-[7%] px-2' },
       cell: numericCell,
     },
     {
       accessorKey: 'presentHoliday',
       header: 'Hadir libur',
-      meta: { label: 'Hadir hari libur' },
+      meta: { label: 'Hadir hari libur', className: 'w-[8%] px-2' },
       cell: numericCell,
     },
     {
       accessorKey: 'absent',
       header: 'Alpha',
-      meta: { label: 'Alpha' },
+      meta: { label: 'Alpha', className: 'w-[6%] px-2' },
       cell: numericCell,
     },
     {
       id: 'classified',
       header: 'C / S / I',
-      meta: { label: 'Cuti / Sakit / Izin' },
+      meta: { label: 'Cuti / Sakit / Izin', className: 'w-[9%] px-2' },
       cell: ({ row }) => (
         <span className='whitespace-nowrap tabular-nums'>
           {row.original.leave} / {row.original.sick} / {row.original.permission}
@@ -76,13 +125,12 @@ export function recapColumns(
     {
       id: 'holiday',
       header: 'Libur',
-      meta: { label: 'Libur' },
+      meta: { label: 'Libur', className: 'w-[8%] px-2' },
       cell: ({ row }) => (
-        <div className='whitespace-nowrap tabular-nums'>
-          <span>{row.original.holiday}</span>
-          <span className='text-xs text-muted-foreground'>
-            {' '}
-            + {row.original.weeklyOff} mingguan
+        <div className='tabular-nums'>
+          <span className='block'>{row.original.holiday}</span>
+          <span className='block text-[10px] leading-3 text-muted-foreground'>
+            {row.original.weeklyOff} mingguan
           </span>
         </div>
       ),
@@ -90,7 +138,7 @@ export function recapColumns(
     {
       accessorKey: 'lateMinutes',
       header: 'Terlambat',
-      meta: { label: 'Terlambat' },
+      meta: { label: 'Terlambat', className: 'w-[9%] px-2' },
       cell: ({ row }) =>
         durationWithDays(row.original.lateMinutes, row.original.lateDays),
     },
@@ -142,12 +190,17 @@ export function recapColumns(
           <Eye />
         </DataTableActionButton>
       ),
+      meta: { className: 'w-[4%] px-1' },
     },
   ]
 }
 
 function numericCell({ getValue }: { getValue: () => unknown }) {
   return <span className='tabular-nums'>{Number(getValue() ?? 0)}</span>
+}
+
+function compactList(values: string[]) {
+  return values.length ? values.join(', ') : '-'
 }
 
 export function recapStatusLabel(value: AttendanceRecapStatus) {
@@ -170,6 +223,10 @@ export function employeeTypeLabel(value: string) {
 
 export function siteLabel(value: string) {
   return `Site ${value[0]}${value.slice(1).toLowerCase()}`
+}
+
+export function employeeSiteLabel(value: string) {
+  return `${value[0]}${value.slice(1).toLowerCase()}`
 }
 
 export function durationLabel(value?: number | null) {

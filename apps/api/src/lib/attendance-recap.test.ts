@@ -21,6 +21,7 @@ const detail = (
   siteName: 'Jepara',
   employeeType: 'BORONGAN',
   department: 'Produksi',
+  position: 'Operator Produksi',
   productionModule: 'Modul A',
   productionSection: 'Bagian A',
   workGroup: 'Grup 1',

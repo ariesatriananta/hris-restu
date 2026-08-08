@@ -97,7 +97,15 @@ export interface AttendanceRepository {
   listShiftAssignmentCandidates(
     input: ShiftAssignmentCandidateListParams
   ): Promise<PaginatedAttendanceResult<ShiftAssignmentCandidate>>
-  createShiftAssignments(input: ShiftAssignmentBatchInput): Promise<void>
+  createShiftAssignments(
+    input: ShiftAssignmentBatchInput
+  ): Promise<ShiftAssignmentBatchResult>
+  previewHistoricalShiftAssignment(
+    input: HistoricalShiftAssignmentInput
+  ): Promise<HistoricalShiftAssignmentPreview>
+  applyHistoricalShiftAssignment(
+    input: HistoricalShiftAssignmentApplyInput
+  ): Promise<HistoricalShiftAssignmentApplyResult>
   deleteShiftAssignment(uid: string): Promise<void>
   listDevices(
     input: AttendanceDeviceListParams
@@ -215,6 +223,7 @@ export interface ShiftAssignment {
   employeeNumber: string
   employeeName: string
   employeeType: AttendanceEmployeeType
+  position?: string
   site: AttendanceSiteCode
   productionModule?: string
   productionSection?: string
@@ -241,6 +250,9 @@ export interface ShiftAssignmentCandidate {
   productionSection?: string
   currentShiftName?: string
   currentShiftEffectiveFrom?: string
+  hasAssignmentHistory: boolean
+  minimumEffectiveFrom: string
+  canBackdateFirstAssignment: boolean
 }
 
 export interface ShiftAssignmentListParams {
@@ -266,6 +278,78 @@ export interface ShiftAssignmentBatchInput {
   effectiveFrom: string
   effectiveTo?: string
   workDays: number[]
+}
+
+export interface ShiftAssignmentBatchResult {
+  createdCount: number
+  closedPreviousCount: number
+  backdatedFirstAssignmentCount: number
+  invalidatedFinalizationCount: number
+}
+
+export interface HistoricalShiftAssignmentInput {
+  employeeUid: string
+  shiftUid: string
+  effectiveFrom: string
+  effectiveTo: string
+  workDays: number[]
+}
+
+export type HistoricalShiftAssignmentApplyInput =
+  HistoricalShiftAssignmentInput & {
+    reason: string
+  }
+
+export interface HistoricalShiftAssignmentTimelineItem {
+  shiftUid: string
+  shiftName: string
+  effectiveFrom: string
+  effectiveTo?: string | null
+  workDays: number[]
+  sourceUid: string | null
+  change: 'UNCHANGED' | 'TRUNCATED' | 'SPLIT' | 'REPLACEMENT'
+}
+
+export interface HistoricalShiftAssignmentPreview {
+  employee: {
+    uid: string
+    employeeNumber: string
+    fullName: string
+    site: AttendanceSiteCode
+  }
+  replacement: {
+    shiftUid: string
+    shiftName: string
+    site: AttendanceSiteCode
+    effectiveFrom: string
+    effectiveTo: string
+    workDays: number[]
+  }
+  timeline: HistoricalShiftAssignmentTimelineItem[]
+  impact: {
+    affectedAssignmentCount: number
+    attendanceRecordCount: number
+    rawScanCount: number
+    approvedClassificationCount: number
+    approvedCorrectionCount: number
+    postedProductionCount: number
+    lockedPayrollPeriodCount: number
+    runningFinalizationCount: number
+    finalizationToInvalidateCount: number
+  }
+  blockers: string[]
+  warnings: string[]
+  canApply: boolean
+}
+
+export interface HistoricalShiftAssignmentApplyResult {
+  assignmentUid: string
+  adjustedAssignmentCount: number
+  deletedAssignmentCount: number
+  splitAssignmentCount: number
+  reconciledAttendanceCount: number
+  removedSyntheticAttendanceCount: number
+  invalidatedFinalizationCount: number
 }
 
 export interface AttendanceDevice {
@@ -373,6 +457,9 @@ export interface AttendanceMonitoringRecord {
   employeeNumber: string
   employeeName: string
   employeeType: AttendanceEmployeeType
+  position?: string | null
+  productionModule?: string | null
+  productionSection?: string | null
   site: AttendanceSiteCode
   shiftUid?: string | null
   shiftName?: string | null
@@ -415,6 +502,9 @@ export interface AttendanceRecapGroup {
   site: AttendanceSiteCode
   siteName: string
   employeeType: AttendanceEmployeeType
+  positions: string[]
+  productionModules: string[]
+  productionSections: string[]
   shiftNames: string[]
   scheduledDays: number
   present: number
@@ -498,6 +588,7 @@ export interface AttendanceRecapDay {
   siteName: string
   employeeType: AttendanceEmployeeType
   department?: string | null
+  position?: string | null
   productionModule?: string | null
   productionSection?: string | null
   workGroup?: string | null

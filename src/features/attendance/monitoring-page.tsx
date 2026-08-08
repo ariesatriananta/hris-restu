@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
+import { cn } from '@/lib/utils'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -36,6 +37,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import {
   DataTableActionButton,
   DataTableColumnHeader,
@@ -219,6 +225,8 @@ function Summary({
       value: data?.total ?? 0,
       icon: Users,
       filter: 'ALL',
+      description:
+        'Jumlah seluruh record Attendance pada tanggal dan filter yang sedang dipilih.',
       tone: 'border-slate-400/25 bg-gradient-to-br from-slate-500/[0.08] via-background to-slate-500/[0.02] text-foreground',
       iconTone: 'text-slate-600 dark:text-slate-300',
     },
@@ -227,6 +235,8 @@ function Summary({
       value: data?.present ?? 0,
       icon: Clock3,
       filter: 'PRESENT',
+      description:
+        'Karyawan dengan status Hadir, termasuk record yang masih perlu dilengkapi jam masuk atau pulangnya.',
       tone: 'border-emerald-500/20 bg-gradient-to-br from-emerald-500/[0.09] via-background to-emerald-500/[0.025] text-foreground',
       iconTone: 'text-emerald-600 dark:text-emerald-400',
     },
@@ -235,6 +245,8 @@ function Summary({
       value: data?.absent ?? 0,
       icon: AlertTriangle,
       filter: 'ABSENT',
+      description:
+        'Karyawan terjadwal yang tidak memiliki kehadiran atau klasifikasi ketidakhadiran yang disetujui.',
       tone: 'border-rose-500/20 bg-gradient-to-br from-rose-500/[0.09] via-background to-rose-500/[0.025] text-foreground',
       iconTone: 'text-rose-600 dark:text-rose-400',
     },
@@ -243,6 +255,7 @@ function Summary({
       value: data?.leave ?? 0,
       icon: CalendarRange,
       filter: 'LEAVE',
+      description: 'Karyawan dengan klasifikasi Cuti yang telah diterapkan.',
       tone: 'border-violet-500/20 bg-gradient-to-br from-violet-500/[0.09] via-background to-violet-500/[0.025] text-foreground',
       iconTone: 'text-violet-600 dark:text-violet-400',
     },
@@ -251,6 +264,7 @@ function Summary({
       value: data?.sick ?? 0,
       icon: Users,
       filter: 'SICK',
+      description: 'Karyawan dengan klasifikasi Sakit yang telah diterapkan.',
       tone: 'border-amber-500/20 bg-gradient-to-br from-amber-500/[0.09] via-background to-amber-500/[0.025] text-foreground',
       iconTone: 'text-amber-600 dark:text-amber-400',
     },
@@ -259,6 +273,7 @@ function Summary({
       value: data?.permission ?? 0,
       icon: CalendarRange,
       filter: 'PERMISSION',
+      description: 'Karyawan dengan klasifikasi Izin yang telah diterapkan.',
       tone: 'border-sky-500/20 bg-gradient-to-br from-sky-500/[0.09] via-background to-sky-500/[0.025] text-foreground',
       iconTone: 'text-sky-600 dark:text-sky-400',
     },
@@ -267,6 +282,8 @@ function Summary({
       value: data?.holiday ?? 0,
       icon: CalendarRange,
       filter: 'HOLIDAY',
+      description:
+        'Record libur berdasarkan kalender kerja yang berlaku pada site karyawan.',
       tone: 'border-indigo-500/20 bg-gradient-to-br from-indigo-500/[0.09] via-background to-indigo-500/[0.025] text-foreground',
       iconTone: 'text-indigo-600 dark:text-indigo-400',
     },
@@ -274,8 +291,8 @@ function Summary({
       label: 'Abnormal',
       value: data?.abnormal ?? 0,
       icon: AlertTriangle,
-      hint: `${data?.missingClockIn ?? 0} tanpa masuk · ${data?.missingClockOut ?? 0} tanpa pulang`,
       filter: 'ABNORMAL',
+      description: `Record kehadiran belum lengkap atau tidak normal: ${data?.missingClockIn ?? 0} tanpa jam masuk dan ${data?.missingClockOut ?? 0} tanpa jam pulang.`,
       tone: 'border-orange-500/20 bg-gradient-to-br from-orange-500/[0.09] via-background to-orange-500/[0.025] text-foreground',
       iconTone: 'text-orange-600 dark:text-orange-400',
     },
@@ -286,43 +303,45 @@ function Summary({
     filter: MonitoringView
     tone: string
     iconTone: string
-    hint?: string
+    description: string
   }>
   return (
     <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8'>
       {items.map(
-        ({ label, value, icon: Icon, hint, filter, tone, iconTone }) => (
+        ({ label, value, icon: Icon, filter, tone, iconTone, description }) => (
           <section
             key={label}
             className={`min-h-[68px] rounded-lg border transition-colors ${tone} ${monitoringViewIsActive(search, filter) ? 'border-primary ring-1 ring-primary/30' : ''}`}
           >
-            <button
-              type='button'
-              className='h-full w-full rounded-lg px-3 py-2.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none'
-              aria-pressed={monitoringViewIsActive(search, filter)}
-              aria-label={`Filter ${label}: ${value} data`}
-              onClick={() => applyMonitoringView(navigate, filter)}
-            >
-              <span className='flex items-start justify-between gap-3'>
-                <div>
-                  <p className='text-[11px] leading-3 font-medium opacity-80'>
-                    {label}
-                  </p>
-                  <p className='mt-1 text-xl leading-none font-semibold tabular-nums'>
-                    {value}
-                  </p>
-                  {hint && (
-                    <p className='mt-1 text-[10px] leading-3 opacity-75'>
-                      {hint}
-                    </p>
-                  )}
-                </div>
-                <Icon
-                  className={`size-3.5 shrink-0 ${iconTone}`}
-                  aria-hidden='true'
-                />
-              </span>
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type='button'
+                  className='h-full w-full rounded-lg px-3 py-2.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none'
+                  aria-pressed={monitoringViewIsActive(search, filter)}
+                  aria-label={`Filter ${label}: ${value} data. ${description}`}
+                  onClick={() => applyMonitoringView(navigate, filter)}
+                >
+                  <span className='flex items-start justify-between gap-3'>
+                    <div>
+                      <p className='text-[11px] leading-3 font-medium opacity-80'>
+                        {label}
+                      </p>
+                      <p className='mt-1 text-xl leading-none font-semibold tabular-nums'>
+                        {value}
+                      </p>
+                    </div>
+                    <Icon
+                      className={`size-3.5 shrink-0 ${iconTone}`}
+                      aria-hidden='true'
+                    />
+                  </span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className='max-w-72'>
+                {description}
+              </TooltipContent>
+            </Tooltip>
           </section>
         )
       )}
@@ -448,19 +467,91 @@ function MonitoringTable({
           <DataTableColumnHeader column={column} title='Karyawan' />
         ),
         cell: ({ row }) => (
-          <div>
-            <p className='font-medium'>{row.original.employeeName}</p>
+          <div className='min-w-0'>
+            <p
+              className='truncate font-medium'
+              title={row.original.employeeName}
+            >
+              {row.original.employeeName}
+            </p>
             <p className='text-xs text-muted-foreground'>
+              {monitoringSiteLabel(row.original.site)} -{' '}
               {row.original.employeeNumber}
             </p>
           </div>
         ),
+        meta: {
+          label: 'Karyawan',
+          className: 'w-[18%] px-2',
+          tdClassName: 'whitespace-normal',
+        },
       },
-      { accessorKey: 'site', header: 'Site' },
+      {
+        accessorKey: 'site',
+        header: 'Site',
+        filterFn: (row, id, value: string[]) =>
+          value.includes(row.getValue(id)),
+      },
+      {
+        accessorKey: 'employeeType',
+        header: 'Jenis & Jabatan',
+        cell: ({ row }) => (
+          <div className='min-w-0'>
+            <p className='font-medium'>
+              {employeeTypeLabel(row.original.employeeType)}
+            </p>
+            <p
+              className='truncate text-[11px] leading-3 text-muted-foreground'
+              title={row.original.position || '-'}
+            >
+              {row.original.position || '-'}
+            </p>
+          </div>
+        ),
+        meta: {
+          label: 'Jenis & Jabatan',
+          className: 'w-[14%] px-2',
+          tdClassName: 'whitespace-normal',
+        },
+      },
+      {
+        id: 'productionArea',
+        header: 'Bagian Produksi',
+        cell: ({ row }) => (
+          <div className='min-w-0'>
+            <p
+              className='truncate font-medium'
+              title={row.original.productionModule || '-'}
+            >
+              {row.original.productionModule || '-'}
+            </p>
+            <p
+              className='truncate text-[11px] leading-3 text-muted-foreground'
+              title={row.original.productionSection || '-'}
+            >
+              {row.original.productionSection || '-'}
+            </p>
+          </div>
+        ),
+        meta: {
+          label: 'Bagian Produksi',
+          className: 'w-[16%] px-2',
+          tdClassName: 'whitespace-normal',
+        },
+      },
       {
         accessorKey: 'shiftName',
         header: 'Shift',
-        cell: ({ row }) => row.original.shiftName ?? '-',
+        cell: ({ row }) => (
+          <p className='truncate' title={row.original.shiftName ?? '-'}>
+            {row.original.shiftName ?? '-'}
+          </p>
+        ),
+        meta: {
+          label: 'Shift',
+          className: 'w-[13%] px-2',
+          tdClassName: 'whitespace-normal',
+        },
       },
       {
         accessorKey: 'attendanceStatus',
@@ -468,6 +559,7 @@ function MonitoringTable({
         cell: ({ row }) => (
           <AttendanceStatusBadge value={row.original.attendanceStatus} />
         ),
+        meta: { label: 'Status', className: 'w-[9%] px-2' },
       },
       {
         id: 'clock',
@@ -479,11 +571,13 @@ function MonitoringTable({
             <span>{timeLabel(row.original.clockOutAt)}</span>
           </div>
         ),
+        meta: { label: 'Masuk / Pulang', className: 'w-[13%] px-2' },
       },
       {
         accessorKey: 'qualityStatus',
         header: 'Kualitas',
         cell: ({ row }) => <QualityBadge record={row.original} />,
+        meta: { label: 'Kualitas', className: 'w-[10%] px-2' },
       },
       {
         accessorKey: 'abnormalReasons',
@@ -514,6 +608,7 @@ function MonitoringTable({
             )}
           </div>
         ),
+        meta: { className: 'w-[5%] px-1' },
       },
     ],
     [canClassify, canCorrect, onClassify, onCorrect]
@@ -552,7 +647,9 @@ function MonitoringTable({
     ),
     manualPagination: true,
     manualFiltering: true,
-    initialState: { columnVisibility: { abnormalReasons: false } },
+    initialState: {
+      columnVisibility: { site: false, abnormalReasons: false },
+    },
     onGlobalFilterChange: url.onGlobalFilterChange,
     onColumnFiltersChange: url.onColumnFiltersChange,
     onPaginationChange: url.onPaginationChange,
@@ -603,13 +700,19 @@ function MonitoringTable({
         </StateText>
       ) : (
         <>
-          <div className='hidden rounded-md border md:block'>
-            <Table>
+          <div className='hidden rounded-md border xl:block'>
+            <Table className='table-fixed [&_th]:leading-4 [&_th]:whitespace-normal'>
               <TableHeader>
                 {table.getHeaderGroups().map((group) => (
                   <TableRow key={group.id}>
                     {group.headers.map((header) => (
-                      <TableHead key={header.id}>
+                      <TableHead
+                        key={header.id}
+                        className={cn(
+                          header.column.columnDef.meta?.className,
+                          header.column.columnDef.meta?.thClassName
+                        )}
+                      >
                         {header.isPlaceholder
                           ? null
                           : flexRender(
@@ -632,7 +735,13 @@ function MonitoringTable({
                     }
                   >
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
+                      <TableCell
+                        key={cell.id}
+                        className={cn(
+                          cell.column.columnDef.meta?.className,
+                          cell.column.columnDef.meta?.tdClassName
+                        )}
+                      >
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext()
@@ -644,7 +753,7 @@ function MonitoringTable({
               </TableBody>
             </Table>
           </div>
-          <div className='grid gap-3 md:hidden'>
+          <div className='grid gap-3 xl:hidden'>
             {data.items.map((item) => (
               <MobileRecord
                 key={item.uid}
@@ -685,12 +794,26 @@ function MobileRecord({
         <div>
           <p className='font-medium'>{item.employeeName}</p>
           <p className='text-xs text-muted-foreground'>
-            {item.employeeNumber} · {item.site}
+            {monitoringSiteLabel(item.site)} - {item.employeeNumber}
           </p>
         </div>
         <div className='flex flex-wrap justify-end gap-1.5'>
           <AttendanceStatusBadge value={item.attendanceStatus} />
           <QualityBadge record={item} />
+        </div>
+      </div>
+      <div className='grid grid-cols-2 gap-3 text-xs'>
+        <div className='min-w-0'>
+          <p className='text-muted-foreground'>Jenis & Jabatan</p>
+          <p className='truncate'>
+            {employeeTypeLabel(item.employeeType)} · {item.position || '-'}
+          </p>
+        </div>
+        <div className='min-w-0'>
+          <p className='text-muted-foreground'>Bagian Produksi</p>
+          <p className='truncate'>
+            {item.productionModule || '-'} · {item.productionSection || '-'}
+          </p>
         </div>
       </div>
       <div className='grid grid-cols-2 gap-2 text-sm'>
@@ -940,6 +1063,12 @@ function statusLabel(value: string) {
       HOLIDAY: 'Libur',
     }[value] ?? value
   )
+}
+function employeeTypeLabel(value: string) {
+  return value.charAt(0) + value.slice(1).toLowerCase()
+}
+function monitoringSiteLabel(value: AttendanceSiteCode) {
+  return `${value.charAt(0)}${value.slice(1).toLowerCase()}`
 }
 function abnormalLabel(value: string) {
   return value === 'MISSING_CLOCK_IN'

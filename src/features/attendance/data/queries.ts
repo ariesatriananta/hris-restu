@@ -27,6 +27,8 @@ import type {
   AttendanceRecapDayListParams,
   AttendanceRecapExportInput,
   AttendanceRecapListParams,
+  HistoricalShiftAssignmentApplyInput,
+  HistoricalShiftAssignmentInput,
 } from '../domain'
 import { httpAttendanceRepository } from './http-attendance-repository'
 
@@ -118,6 +120,15 @@ export const useDeleteShift = () =>
 export const useCreateShiftAssignments = () =>
   useAttendanceMutation((input: ShiftAssignmentBatchInput) =>
     httpAttendanceRepository.createShiftAssignments(input)
+  )
+export const usePreviewHistoricalShiftAssignment = () =>
+  useMutation({
+    mutationFn: (input: HistoricalShiftAssignmentInput) =>
+      httpAttendanceRepository.previewHistoricalShiftAssignment(input),
+  })
+export const useApplyHistoricalShiftAssignment = () =>
+  useAttendanceMutation((input: HistoricalShiftAssignmentApplyInput) =>
+    httpAttendanceRepository.applyHistoricalShiftAssignment(input)
   )
 export const useDeleteShiftAssignment = () =>
   useAttendanceMutation((uid: string) =>

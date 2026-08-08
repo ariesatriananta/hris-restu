@@ -160,6 +160,10 @@ attendanceCorrectionsRouter.get(
         JOIN employees e ON e.id=ar.employee_id
         JOIN employee_types et ON et.id=e.employee_type_id
         JOIN sites s ON s.id=ar.site_id
+        LEFT JOIN positions p ON p.id=e.current_position_id
+        LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id
+        LEFT JOIN production_modules pm ON pm.id=pms.production_module_id
+        LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
         LEFT JOIN shifts sh ON sh.id=ar.shift_id`
       const [countRows] = await pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) total ${from} WHERE ${where.join(' AND ')}`,
@@ -173,7 +177,9 @@ attendanceCorrectionsRouter.get(
                 ar.late_minutes lateMinutes,ar.early_leave_minutes earlyLeaveMinutes,
                 ar.worked_minutes workedMinutes,ar.notes,e.uid employeeUid,
                 e.employee_number employeeNumber,e.full_name employeeName,
-                et.code employeeType,s.code site,sh.uid shiftUid,sh.name shiftName,
+                et.code employeeType,p.name position,
+                pm.name productionModule,ps.name productionSection,
+                s.code site,sh.uid shiftUid,sh.name shiftName,
                 DATE_FORMAT(NOW(3),'%Y-%m-%d %H:%i:%s') asOf,
                 DATE_FORMAT(
                   CASE WHEN sh.crosses_midnight=1

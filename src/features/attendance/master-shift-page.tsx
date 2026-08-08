@@ -20,6 +20,7 @@ import type {
   ShiftAssignmentListParams,
   ShiftListParams,
 } from './domain'
+import { ShiftAssignmentHistoryDialog } from './shift-assignment-history-dialog'
 import { ShiftAssignmentDialog, ShiftDialog } from './shift-dialogs'
 import { ShiftAssignmentTable, ShiftTable } from './shift-tables'
 
@@ -36,6 +37,8 @@ export function MasterShiftPage({
   const [editingShift, setEditingShift] = useState<Shift>()
   const [deleteShiftTarget, setDeleteShiftTarget] = useState<Shift>()
   const [deleteAssignmentTarget, setDeleteAssignmentTarget] =
+    useState<ShiftAssignment>()
+  const [correctionAssignmentTarget, setCorrectionAssignmentTarget] =
     useState<ShiftAssignment>()
   const shiftParams: ShiftListParams = {
     query: stringValue(search.filter),
@@ -181,6 +184,7 @@ export function MasterShiftPage({
             search={search}
             navigate={navigate}
             onDelete={requestDeleteAssignment}
+            onCorrect={setCorrectionAssignmentTarget}
             siteOptions={siteOptions}
             productionModuleOptions={productionModuleOptions}
             productionSectionOptions={productionSectionOptions}
@@ -203,6 +207,20 @@ export function MasterShiftPage({
           siteOptions={siteOptions as { value: Shift['site']; label: string }[]}
           productionModules={productionModules}
           productionSections={productionSections}
+        />
+      )}
+      {correctionAssignmentTarget && (
+        <ShiftAssignmentHistoryDialog
+          key={correctionAssignmentTarget.uid}
+          assignment={correctionAssignmentTarget}
+          shifts={allShifts}
+          goLiveDate={
+            foundation.data?.configuration.goLiveDate ?? todayJakarta()
+          }
+          open
+          onOpenChange={(open) =>
+            !open && setCorrectionAssignmentTarget(undefined)
+          }
         />
       )}
       <ConfirmDialog
@@ -270,4 +288,15 @@ function apiMessage(error: unknown, fallback: string) {
 
 function dedupeOptions<T extends { value: string }>(items: T[]) {
   return [...new Map(items.map((item) => [item.value, item])).values()]
+}
+
+function todayJakarta() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${value.year}-${value.month}-${value.day}`
 }

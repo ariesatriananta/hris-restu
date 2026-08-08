@@ -33,6 +33,7 @@ export type AttendanceRecapDetail = {
   siteName: string
   employeeType: string
   department: string | null
+  position: string | null
   productionModule: string | null
   productionSection: string | null
   workGroup: string | null
@@ -66,6 +67,9 @@ export type AttendanceRecapGroup = {
   site: string
   siteName: string
   employeeType: string
+  positions: string[]
+  productionModules: string[]
+  productionSections: string[]
   shiftNames: string[]
   scheduledDays: number
   present: number
@@ -186,7 +190,8 @@ export async function loadAttendanceRecapProjection(
             e.id employeeId,e.uid employeeUid,e.employee_number employeeNumber,
             e.full_name employeeName,h.id historyId,h.site_id historySiteId,
             s.code site,s.name siteName,et.code employeeType,
-            dep.name department,wg.name workGroup,pm.name productionModule,
+            dep.name department,pos.name position,wg.name workGroup,
+            pm.name productionModule,
             ps.name productionSection,es.allows_attendance allowsAttendance,
             esa.id assignmentId,esa.work_days_json workDays,
             sh.id shiftId,sh.uid shiftUid,sh.code shiftCode,sh.name shiftName,
@@ -222,6 +227,7 @@ export async function loadAttendanceRecapProjection(
        JOIN employee_types et ON et.id=h.employee_type_id
        JOIN employee_statuses es ON es.id=h.employee_status_id
        LEFT JOIN departments dep ON dep.id=h.department_id
+       LEFT JOIN positions pos ON pos.id=h.position_id
        LEFT JOIN work_groups wg ON wg.id=h.work_group_id
        LEFT JOIN production_module_sections pms ON pms.id=h.production_module_section_id
        LEFT JOIN production_modules pm ON pm.id=pms.production_module_id
@@ -496,6 +502,7 @@ function mapDetail(
     siteName: String(row.siteName),
     employeeType: String(row.employeeType),
     department: row.department ? String(row.department) : null,
+    position: row.position ? String(row.position) : null,
     productionModule: row.productionModule ? String(row.productionModule) : null,
     productionSection: row.productionSection ? String(row.productionSection) : null,
     workGroup: row.workGroup ? String(row.workGroup) : null,
@@ -578,6 +585,9 @@ export function summarizeAttendanceRecap(details: AttendanceRecapDetail[]) {
         site: detail.site,
         siteName: detail.siteName,
         employeeType: detail.employeeType,
+        positions: [],
+        productionModules: [],
+        productionSections: [],
         shiftNames: [],
         scheduledDays: 0,
         present: 0,
@@ -597,6 +607,21 @@ export function summarizeAttendanceRecap(details: AttendanceRecapDetail[]) {
         abnormal: 0,
       }
       groups.set(key, group)
+    }
+    if (detail.position && !group.positions.includes(detail.position)) {
+      group.positions.push(detail.position)
+    }
+    if (
+      detail.productionModule &&
+      !group.productionModules.includes(detail.productionModule)
+    ) {
+      group.productionModules.push(detail.productionModule)
+    }
+    if (
+      detail.productionSection &&
+      !group.productionSections.includes(detail.productionSection)
+    ) {
+      group.productionSections.push(detail.productionSection)
     }
     if (detail.shiftName && !group.shiftNames.includes(detail.shiftName)) {
       group.shiftNames.push(detail.shiftName)

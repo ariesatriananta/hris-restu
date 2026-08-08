@@ -43,6 +43,7 @@ import type {
   AttendanceProductionSectionLookup,
   AttendanceSiteCode,
   Shift,
+  ShiftAssignmentCandidate,
   ShiftInput,
 } from './domain'
 
@@ -322,7 +323,9 @@ export function ShiftAssignmentDialog({
   const [productionModule, setProductionModule] = useState('')
   const [productionSection, setProductionSection] = useState('')
   const [page, setPage] = useState(1)
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selected, setSelected] = useState<
+    Map<string, ShiftAssignmentCandidate>
+  >(new Map())
   const [shiftUid, setShiftUid] = useState('')
   const [effectiveFrom, setEffectiveFrom] = useState(todayJakarta)
   const [effectiveTo, setEffectiveTo] = useState('')
@@ -348,12 +351,24 @@ export function ShiftAssignmentDialog({
   const items = candidates.data?.items ?? []
   const selectedVisible = items.filter((item) => selected.has(item.uid)).length
   const allVisible = items.length > 0 && selectedVisible === items.length
+  const selectedCandidates = [...selected.values()]
+  const minimumEffectiveFrom = selectedMinimumDate(selectedCandidates)
+  const firstAssignmentCount = selectedCandidates.filter(
+    (candidate) => !candidate.hasAssignmentHistory
+  ).length
+  const replacementCount = selectedCandidates.filter(
+    (candidate) => candidate.hasAssignmentHistory
+  ).length
+  const backdateEligibleCount = selectedCandidates.filter(
+    (candidate) => candidate.canBackdateFirstAssignment
+  ).length
   const valid =
     Boolean(site) &&
     selected.size > 0 &&
     selected.size <= 500 &&
     shiftUid &&
     effectiveFrom &&
+    effectiveFrom >= minimumEffectiveFrom &&
     workDays.length > 0 &&
     (!effectiveTo || effectiveTo >= effectiveFrom)
   const moduleOptions = dedupeByUid(
@@ -366,33 +381,60 @@ export function ShiftAssignmentDialog({
         (!productionModule || section.moduleUid === productionModule)
     )
   )
-  const toggleCandidate = (uid: string, checked: boolean) => {
-    setSelected((current) => {
-      const next = new Set(current)
-      if (checked) {
-        if (next.size >= 500) {
-          toast.error('Maksimal 500 karyawan per penugasan.')
-          return current
-        }
-        next.add(uid)
-      } else next.delete(uid)
-      return next
-    })
+  const applySelection = (next: Map<string, ShiftAssignmentCandidate>) => {
+    setSelected(next)
+    const minimum = selectedMinimumDate([...next.values()])
+    if (next.size > 0 && effectiveFrom < minimum) {
+      setEffectiveFrom(minimum)
+      toast.info(
+        `Tanggal mulai disesuaikan ke ${formatDateShort(minimum)} mengikuti batas kandidat terpilih.`
+      )
+    }
+  }
+  const toggleCandidate = (
+    candidate: ShiftAssignmentCandidate,
+    checked: boolean
+  ) => {
+    const next = new Map(selected)
+    if (checked) {
+      if (next.size >= 500) {
+        toast.error('Maksimal 500 karyawan per penugasan.')
+        return
+      }
+      next.set(candidate.uid, candidate)
+    } else next.delete(candidate.uid)
+    applySelection(next)
+  }
+  const toggleVisibleCandidates = (checked: boolean) => {
+    const next = new Map(selected)
+    if (checked) {
+      const available = Math.max(0, 500 - next.size)
+      const unselected = items.filter((candidate) => !next.has(candidate.uid))
+      unselected.slice(0, available).forEach((candidate) => {
+        next.set(candidate.uid, candidate)
+      })
+      if (unselected.length > available) {
+        toast.error('Maksimal 500 karyawan per penugasan.')
+      }
+    } else {
+      items.forEach((candidate) => next.delete(candidate.uid))
+    }
+    applySelection(next)
   }
   const submit = () => {
     if (!valid) return
     create.mutate(
       {
         shiftUid,
-        employeeUids: [...selected],
+        employeeUids: [...selected.keys()],
         effectiveFrom,
         effectiveTo: effectiveTo || undefined,
         workDays: [...workDays].sort(),
       },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
           toast.success(
-            `Shift berhasil diatur atau diganti untuk ${selected.size} karyawan.`
+            `Shift berhasil disimpan untuk ${result.createdCount} karyawan.${result.backdatedFirstAssignmentCount ? ` ${result.backdatedFirstAssignmentCount} penugasan pertama memakai tanggal lampau.` : ''}${result.invalidatedFinalizationCount > 0 ? ` ${result.invalidatedFinalizationCount} tanggal finalisasi ditandai perlu dijalankan ulang.` : ''}`
           )
           setConfirm(false)
           onOpenChange(false)
@@ -440,7 +482,7 @@ export function ShiftAssignmentDialog({
               value={site}
               onChange={(value) => {
                 setSite(value as typeof site)
-                setSelected(new Set())
+                setSelected(new Map())
                 setShiftUid('')
                 setProductionModule('')
                 setProductionSection('')
@@ -511,9 +553,7 @@ export function ShiftAssignmentDialog({
                         : false
                   }
                   onCheckedChange={(checked) =>
-                    items.forEach((item) =>
-                      toggleCandidate(item.uid, checked === true)
-                    )
+                    toggleVisibleCandidates(checked === true)
                   }
                   aria-label='Pilih semua karyawan pada halaman ini'
                 />
@@ -556,7 +596,7 @@ export function ShiftAssignmentDialog({
                     <Checkbox
                       checked={selected.has(employee.uid)}
                       onCheckedChange={(checked) =>
-                        toggleCandidate(employee.uid, checked === true)
+                        toggleCandidate(employee, checked === true)
                       }
                       aria-label={`Pilih ${employee.fullName}`}
                     />
@@ -578,6 +618,19 @@ export function ShiftAssignmentDialog({
                         {employee.productionSection
                           ? ` · ${employee.productionSection}`
                           : ''}
+                        <span
+                          className={
+                            employee.canBackdateFirstAssignment
+                              ? 'text-positive'
+                              : undefined
+                          }
+                        >
+                          {employee.canBackdateFirstAssignment
+                            ? ` · Penugasan pertama ≥ ${formatDateShort(employee.minimumEffectiveFrom)}`
+                            : employee.hasAssignmentHistory
+                              ? ` · Penggantian shift ≥ ${formatDateShort(employee.minimumEffectiveFrom)}`
+                              : ' · Penugasan pertama, tanggal lampau tidak tersedia'}
+                        </span>
                       </span>
                     </span>
                   </label>
@@ -641,10 +694,15 @@ export function ShiftAssignmentDialog({
                   if (effectiveTo && effectiveTo < next) setEffectiveTo(next)
                 }}
                 disabledDates={(date) => {
-                  const minimum = dateOnlyFromInput(todayJakarta())
+                  const minimum = dateOnlyFromInput(minimumEffectiveFrom)
                   return Boolean(minimum && date < minimum)
                 }}
               />
+              {selected.size > 0 && (
+                <p className='text-xs text-muted-foreground'>
+                  Batas batch: {formatDateShort(minimumEffectiveFrom)}.
+                </p>
+              )}
             </Field>
             <Field label='Berlaku sampai (opsional)'>
               <DatePicker
@@ -685,9 +743,20 @@ export function ShiftAssignmentDialog({
             <div>
               <p className='font-medium'>Histori penugasan tetap aman</p>
               <p className='text-muted-foreground'>
-                Penugasan berjalan ditutup otomatis pada sehari sebelum tanggal
-                mulai baru. Penugasan mendatang yang bentrok akan ditolak agar
-                jadwal tidak tumpang tindih.
+                {backdateEligibleCount > 0 && (
+                  <>
+                    {backdateEligibleCount} penugasan pertama dapat memakai
+                    tanggal lampau sesuai batas kandidat.{' '}
+                  </>
+                )}
+                {replacementCount > 0 && (
+                  <>
+                    {replacementCount} penggantian mengikuti batas tanggal aman
+                    dari server.{' '}
+                  </>
+                )}
+                Penugasan berjalan ditutup otomatis H-1; benturan jadwal akan
+                menolak seluruh batch.
               </p>
             </div>
           </div>
@@ -705,7 +774,7 @@ export function ShiftAssignmentDialog({
         open={confirm}
         onOpenChange={setConfirm}
         title='Konfirmasi atur / ganti shift'
-        desc={`Terapkan shift kepada ${selected.size} karyawan mulai ${effectiveFrom}${effectiveTo ? ` sampai ${effectiveTo}` : ''}? Penugasan lama tetap tersimpan sebagai histori dan ditutup otomatis H-1.`}
+        desc={`Terapkan shift kepada ${selected.size} karyawan mulai ${effectiveFrom}${effectiveTo ? ` sampai ${effectiveTo}` : ''}? ${firstAssignmentCount} penugasan pertama, ${replacementCount} penggantian. Jika satu kandidat melanggar batas tanggal atau bentrok, seluruh batch dibatalkan.`}
         confirmText='Ya, simpan perubahan'
         isLoading={create.isPending}
         handleConfirm={submit}
@@ -776,6 +845,28 @@ function todayJakarta() {
   }).formatToParts(new Date())
   const value = Object.fromEntries(parts.map((part) => [part.type, part.value]))
   return `${value.year}-${value.month}-${value.day}`
+}
+
+function selectedMinimumDate(candidates: ShiftAssignmentCandidate[]) {
+  if (!candidates.length) return todayJakarta()
+  const today = todayJakarta()
+  return candidates.reduce(
+    (minimum, candidate) => {
+      const candidateMinimum = candidate.canBackdateFirstAssignment
+        ? candidate.minimumEffectiveFrom
+        : today
+      return candidateMinimum > minimum ? candidateMinimum : minimum
+    },
+    candidates[0]?.canBackdateFirstAssignment
+      ? candidates[0].minimumEffectiveFrom
+      : today
+  )
+}
+
+function formatDateShort(value?: string) {
+  const date = dateOnlyFromInput(value ?? todayJakarta())
+  if (!date) return value ?? todayJakarta()
+  return new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium' }).format(date)
 }
 
 function apiMessage(error: unknown, fallback: string) {

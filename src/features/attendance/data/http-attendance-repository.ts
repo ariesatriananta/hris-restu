@@ -10,6 +10,7 @@ import type {
   PaginatedAttendanceResult,
   Shift,
   ShiftAssignment,
+  ShiftAssignmentBatchResult,
   ShiftAssignmentCandidate,
   ShiftAssignmentListParams,
   ShiftListParams,
@@ -28,6 +29,8 @@ import type {
   AttendanceRecapDayResult,
   AttendanceRecapListParams,
   AttendanceRecapResult,
+  HistoricalShiftAssignmentApplyResult,
+  HistoricalShiftAssignmentPreview,
 } from '../domain'
 
 const listParams = (
@@ -89,7 +92,28 @@ export const httpAttendanceRepository: AttendanceRepository = {
     ).data
   },
   async createShiftAssignments(input) {
-    await apiClient.post('/attendance/shift-assignments/batch', input)
+    return (
+      await apiClient.post<ShiftAssignmentBatchResult>(
+        '/attendance/shift-assignments/batch',
+        input
+      )
+    ).data
+  },
+  async previewHistoricalShiftAssignment(input) {
+    return (
+      await apiClient.post<HistoricalShiftAssignmentPreview>(
+        '/attendance/shift-assignments/history/preview',
+        input
+      )
+    ).data
+  },
+  async applyHistoricalShiftAssignment(input) {
+    return (
+      await apiClient.post<HistoricalShiftAssignmentApplyResult>(
+        '/attendance/shift-assignments/history/apply',
+        input
+      )
+    ).data
   },
   async deleteShiftAssignment(uid) {
     await apiClient.delete(`/attendance/shift-assignments/${uid}`)

@@ -2,7 +2,6 @@ import {
   BadgeDollarSign,
   Building2,
   CalendarClock,
-  CalendarDays,
   ClipboardCheck,
   Database,
   FileBarChart,
@@ -76,7 +75,6 @@ export const sidebarData: SidebarData = {
             {
               title: 'Kalender Kerja',
               url: '/attendance/kalender-kerja',
-              icon: CalendarDays,
               anyOfPermissions: ['attendance.view'],
             },
           ],
