@@ -1775,6 +1775,14 @@ FROM roles r
 JOIN permissions p ON p.module = 'attendance'
 WHERE r.code = 'HR_OFFICER';
 
+-- HR Officer mengelola data Karyawan sesuai pembatasan site miliknya.
+INSERT INTO role_permissions (uid, role_id, permission_id)
+SELECT UUID(), r.id, p.id
+FROM roles r
+JOIN permissions p
+  ON p.code IN ('employees.view', 'employees.manage', 'documents.manage')
+WHERE r.code = 'HR_OFFICER';
+
 INSERT INTO role_permissions (uid, role_id, permission_id)
 SELECT UUID(), r.id, p.id
 FROM roles r

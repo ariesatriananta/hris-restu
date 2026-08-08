@@ -31,6 +31,7 @@ export const sidebarData: SidebarData = {
         {
           title: 'Karyawan',
           icon: Users,
+          anyOfPermissions: ['employees.view'],
           items: [
             { title: 'Data Karyawan', url: '/karyawan/data-karyawan' },
             { title: 'Mutasi Karyawan', url: '/karyawan/riwayat-mutasi' },
