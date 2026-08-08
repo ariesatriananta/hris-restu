@@ -299,7 +299,7 @@ BEGIN
   SELECT
     UUID(),affected.site_id,affected.business_date,'MANUAL','SKIPPED',60,
     'Diinvalidasi oleh reset onboarding development; jalankan finalisasi ulang.',
-    JSON_OBJECT(),
+    JSON_OBJECT('invalidatedByOnboardingReset',TRUE),
     JSON_ARRAY('Data Attendance berubah akibat reset onboarding karyawan.'),
     NULL,CURRENT_TIMESTAMP(3),CURRENT_TIMESTAMP(3),NULL,NULL
   FROM tmp_onboarding_reset_site_dates affected

@@ -9,14 +9,27 @@ import {
   Keyboard,
   LoaderCircle,
   LogOut,
+  Maximize2,
+  Minimize2,
   ScanBarcode,
   ShieldAlert,
+  Volume2,
+  VolumeX,
   Wifi,
   WifiOff,
   XCircle,
 } from 'lucide-react'
+import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -25,11 +38,13 @@ import { Main } from '@/components/layout/main'
 import { useActivateAttendanceDevice, useAttendanceScan } from './data/queries'
 import type {
   ActivatedAttendanceDevice,
+  AttendanceDeviceType,
   AttendanceScanEventType,
   AttendanceScanSuccess,
 } from './domain'
 
 const storageKey = 'hris-rsia-attendance-device-v1'
+const soundPreferenceKey = 'hris-rsia-attendance-sound-v1'
 
 type TerminalSession = ActivatedAttendanceDevice
 type RecentResult = {
@@ -148,6 +163,11 @@ function ScanTerminal({
   const [feedback, setFeedback] = useState<RecentResult>()
   const [recent, setRecent] = useState<RecentResult[]>([])
   const [cameraOpen, setCameraOpen] = useState(false)
+  const [cameraTestOpen, setCameraTestOpen] = useState(false)
+  const [soundEnabled, setSoundEnabled] = useState(readSoundPreference)
+  const [fullscreen, setFullscreen] = useState(
+    () => typeof document !== 'undefined' && Boolean(document.fullscreenElement)
+  )
   const [confirmDeactivate, setConfirmDeactivate] = useState(false)
   const browserOnline = useBrowserOnline()
   const submitting = useRef(false)
@@ -160,6 +180,36 @@ function ScanTerminal({
   useEffect(() => {
     if (browserOnline) focusInput()
   }, [browserOnline, focusInput])
+  useEffect(() => {
+    const update = () => setFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener('fullscreenchange', update)
+    return () => document.removeEventListener('fullscreenchange', update)
+  }, [])
+
+  const toggleSound = () => {
+    setSoundEnabled((current) => {
+      const next = !current
+      try {
+        localStorage.setItem(soundPreferenceKey, String(next))
+      } catch {
+        // Preferensi tetap berlaku selama halaman aktif bila storage diblokir.
+      }
+      if (next) void playResultSound('success', true)
+      return next
+    })
+    focusInput()
+  }
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen()
+      else await document.documentElement.requestFullscreen()
+    } catch {
+      toast.error('Mode layar penuh tidak dapat dibuka oleh browser ini.')
+    } finally {
+      focusInput()
+    }
+  }
 
   const submitBarcode = useCallback(
     async (rawBarcode: string) => {
@@ -183,6 +233,7 @@ function ScanTerminal({
         })
         const item = successResult(result)
         vibrateForResult(item.severity)
+        void playResultSound(item.severity, soundEnabled)
         setFeedback(item)
         setRecent((current) => [item, ...current].slice(0, 5))
         setBarcode('')
@@ -195,6 +246,7 @@ function ScanTerminal({
         }
         const item = rejectedResult(error, eventType)
         vibrateForResult(item.severity)
+        void playResultSound(item.severity, soundEnabled)
         setFeedback(item)
         setRecent((current) => [item, ...current].slice(0, 5))
         setBarcode('')
@@ -210,12 +262,13 @@ function ScanTerminal({
       onDeactivate,
       scan,
       session.deviceToken,
+      soundEnabled,
     ]
   )
 
   return (
     <Main className='mx-auto w-full max-w-5xl p-3 sm:p-6'>
-      <div className='mb-4 flex items-start justify-between gap-3 rounded-xl border bg-card p-4'>
+      <div className='mb-4 flex flex-col gap-3 rounded-xl border bg-card p-4 sm:flex-row sm:items-start sm:justify-between'>
         <div className='min-w-0'>
           <p className='text-xs font-medium text-primary'>
             Terminal Attendance
@@ -223,11 +276,17 @@ function ScanTerminal({
           <h1 className='truncate text-lg font-bold sm:text-xl'>
             {session.device.name}
           </h1>
-          <p className='text-xs text-muted-foreground'>
-            {session.device.code} · {session.device.site}
-          </p>
+          <div className='mt-1 flex flex-wrap items-center gap-1.5'>
+            <Badge className='bg-primary text-primary-foreground'>
+              Site {session.device.site}
+            </Badge>
+            <Badge variant='outline'>{session.device.code}</Badge>
+            <Badge variant='secondary'>
+              {deviceTypeLabel(session.device.deviceType)}
+            </Badge>
+          </div>
         </div>
-        <div className='flex shrink-0 flex-col items-end gap-2'>
+        <div className='flex min-w-0 flex-col gap-2 sm:items-end'>
           <div
             role='status'
             title='Status jaringan browser. Koneksi server tetap diverifikasi saat scan.'
@@ -243,13 +302,50 @@ function ScanTerminal({
           <span className='text-[10px] text-muted-foreground'>
             Server diverifikasi saat scan
           </span>
-          <Button
-            variant='outline'
-            size='sm'
-            onClick={() => setConfirmDeactivate(true)}
-          >
-            <LogOut /> <span className='hidden sm:inline'>Putuskan</span>
-          </Button>
+          <div className='flex flex-wrap gap-1.5 sm:justify-end'>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              aria-pressed={soundEnabled}
+              title={
+                soundEnabled
+                  ? 'Matikan suara feedback'
+                  : 'Aktifkan suara feedback'
+              }
+              onClick={toggleSound}
+            >
+              {soundEnabled ? <Volume2 /> : <VolumeX />}
+              {soundEnabled ? 'Suara aktif' : 'Suara mati'}
+            </Button>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              onClick={() => setCameraTestOpen(true)}
+            >
+              <Camera /> Uji kamera
+            </Button>
+            {document.fullscreenEnabled && (
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                aria-pressed={fullscreen}
+                onClick={() => void toggleFullscreen()}
+              >
+                {fullscreen ? <Minimize2 /> : <Maximize2 />}
+                {fullscreen ? 'Keluar kiosk' : 'Mode kiosk'}
+              </Button>
+            )}
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => setConfirmDeactivate(true)}
+            >
+              <LogOut /> Putuskan
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -361,7 +457,7 @@ function ScanTerminal({
               </Button>
               {cameraOpen && (
                 <NativeBarcodeCamera
-                  onDetected={(value) => submitBarcode(value)}
+                  onDetected={submitBarcode}
                   onClose={() => {
                     setCameraOpen(false)
                     focusInput()
@@ -423,6 +519,23 @@ function ScanTerminal({
           </CardContent>
         </Card>
       </div>
+      <Dialog open={cameraTestOpen} onOpenChange={setCameraTestOpen}>
+        <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-lg'>
+          <DialogHeader>
+            <DialogTitle>Uji Kamera Terminal</DialogTitle>
+            <DialogDescription>
+              Memastikan browser dapat membuka kamera. Mode ini tidak membaca
+              barcode dan tidak mengirim data scan.
+            </DialogDescription>
+          </DialogHeader>
+          {cameraTestOpen && (
+            <NativeBarcodeCamera
+              testOnly
+              onClose={() => setCameraTestOpen(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
       <ConfirmDialog
         open={confirmDeactivate}
         onOpenChange={setConfirmDeactivate}
@@ -469,9 +582,11 @@ function FeedbackPanel({ result }: { result: RecentResult }) {
 function NativeBarcodeCamera({
   onDetected,
   onClose,
+  testOnly = false,
 }: {
-  onDetected: (value: string) => Promise<void>
+  onDetected?: (value: string) => Promise<void>
   onClose: () => void
+  testOnly?: boolean
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | undefined>(undefined)
@@ -496,7 +611,7 @@ function NativeBarcodeCamera({
       streamRef.current?.getTracks().forEach((track) => track.stop())
     }
     const detected = async (value: string) => {
-      if (disposed) return
+      if (disposed || !onDetected) return
       disposed = true
       stop()
       await onDetected(value)
@@ -517,12 +632,13 @@ function NativeBarcodeCamera({
           stop()
           return
         }
+        video.srcObject = stream
+        await video.play()
+        if (testOnly) return
         if (Detector) {
           const detector = new Detector({
             formats: ['code_128', 'code_39', 'ean_13', 'qr_code'],
           })
-          video.srcObject = stream
-          await video.play()
           const detect = async () => {
             if (disposed || !videoRef.current) return
             if (!detecting.current && videoRef.current.readyState >= 2) {
@@ -546,9 +662,8 @@ function NativeBarcodeCamera({
           return
         }
 
-        const { BarcodeFormat, BrowserMultiFormatReader } = await import(
-          '@zxing/browser'
-        )
+        const { BarcodeFormat, BrowserMultiFormatReader } =
+          await import('@zxing/browser')
         if (disposed) return stop()
         const reader = new BrowserMultiFormatReader()
         reader.possibleFormats = [
@@ -575,7 +690,7 @@ function NativeBarcodeCamera({
       disposed = true
       stop()
     }
-  }, [cameraSupported, onDetected])
+  }, [cameraSupported, onDetected, testOnly])
   if (!cameraSupported)
     return (
       <div
@@ -588,7 +703,7 @@ function NativeBarcodeCamera({
           : 'Kamera hanya dapat digunakan melalui HTTPS atau localhost.'}{' '}
         Gunakan scanner USB atau input manual bila kamera tidak tersedia.
         <Button variant='link' className='mt-2 block w-full' onClick={onClose}>
-          Kembali ke input barcode
+          {testOnly ? 'Tutup uji kamera' : 'Kembali ke input barcode'}
         </Button>
       </div>
     )
@@ -601,7 +716,7 @@ function NativeBarcodeCamera({
         <CameraOff className='mx-auto mb-2' />
         {error}
         <Button variant='link' className='mt-2 block w-full' onClick={onClose}>
-          Kembali ke input barcode
+          {testOnly ? 'Tutup uji kamera' : 'Kembali ke input barcode'}
         </Button>
       </div>
     )
@@ -612,10 +727,16 @@ function NativeBarcodeCamera({
         className='aspect-[4/3] w-full object-cover'
         muted
         playsInline
-        aria-label='Pratinjau kamera pemindai barcode'
+        aria-label={
+          testOnly
+            ? 'Pratinjau uji kamera'
+            : 'Pratinjau kamera pemindai barcode'
+        }
       />
       <p className='bg-black p-2 text-center text-xs text-white'>
-        Arahkan barcode ke tengah kamera. Tidak ada foto yang disimpan.
+        {testOnly
+          ? 'Kamera aktif. Tidak ada foto atau barcode yang disimpan.'
+          : 'Arahkan barcode ke tengah kamera. Tidak ada foto yang disimpan.'}
       </p>
     </div>
   )
@@ -671,6 +792,58 @@ function vibrateForResult(severity: RecentResult['severity']) {
   }
 }
 
+let feedbackAudioContext: AudioContext | undefined
+
+async function playResultSound(
+  severity: RecentResult['severity'],
+  enabled: boolean
+) {
+  if (!enabled || typeof window === 'undefined') return
+  const AudioContextConstructor =
+    window.AudioContext ??
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext
+  if (!AudioContextConstructor) return
+  try {
+    const context =
+      feedbackAudioContext ??
+      (feedbackAudioContext = new AudioContextConstructor())
+    if (context.state === 'suspended') await context.resume()
+    const pattern =
+      severity === 'success'
+        ? [
+            { frequency: 660, offset: 0, duration: 0.08 },
+            { frequency: 880, offset: 0.1, duration: 0.11 },
+          ]
+        : severity === 'warning'
+          ? [
+              { frequency: 480, offset: 0, duration: 0.1 },
+              { frequency: 480, offset: 0.15, duration: 0.1 },
+            ]
+          : [
+              { frequency: 220, offset: 0, duration: 0.15 },
+              { frequency: 180, offset: 0.2, duration: 0.18 },
+            ]
+    const start = context.currentTime + 0.01
+    pattern.forEach(({ frequency, offset, duration }) => {
+      const oscillator = context.createOscillator()
+      const gain = context.createGain()
+      const toneStart = start + offset
+      oscillator.type = 'sine'
+      oscillator.frequency.setValueAtTime(frequency, toneStart)
+      gain.gain.setValueAtTime(0.0001, toneStart)
+      gain.gain.exponentialRampToValueAtTime(0.025, toneStart + 0.015)
+      gain.gain.exponentialRampToValueAtTime(0.0001, toneStart + duration)
+      oscillator.connect(gain)
+      gain.connect(context.destination)
+      oscillator.start(toneStart)
+      oscillator.stop(toneStart + duration + 0.01)
+    })
+  } catch {
+    // Audio hanya enhancement; kegagalan browser tidak boleh menghambat scan.
+  }
+}
+
 function successResult(result: AttendanceScanSuccess): RecentResult {
   const warning = result.warnings?.[0]
   return {
@@ -717,6 +890,24 @@ function formatServerTime(value: string) {
     timeStyle: 'medium',
     timeZone: 'Asia/Jakarta',
   }).format(new Date(value))
+}
+function readSoundPreference() {
+  if (typeof window === 'undefined') return true
+  try {
+    return localStorage.getItem(soundPreferenceKey) !== 'false'
+  } catch {
+    return true
+  }
+}
+function deviceTypeLabel(value: AttendanceDeviceType) {
+  return (
+    {
+      MOBILE_CAMERA: 'Kamera seluler',
+      USB_SCANNER: 'Scanner USB',
+      TERMINAL: 'Terminal',
+      OTHER: 'Perangkat lain',
+    }[value] ?? value
+  )
 }
 function readSession(): TerminalSession | null {
   if (typeof window === 'undefined') return null

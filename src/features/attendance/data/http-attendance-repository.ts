@@ -16,6 +16,8 @@ import type {
   ShiftListParams,
   AttendanceMonitoringListParams,
   AttendanceMonitoringResult,
+  AttendanceReadiness,
+  AttendanceRecordTimeline,
   AttendanceFinalization,
   AttendanceFinalizationListParams,
   AttendanceCorrection,
@@ -172,6 +174,22 @@ export const httpAttendanceRepository: AttendanceRepository = {
         {
           params: listParams(input),
         }
+      )
+    ).data
+  },
+  async getReadiness(input) {
+    const params = new URLSearchParams()
+    input.site?.forEach((site) => params.append('site', site))
+    return (
+      await apiClient.get<AttendanceReadiness>('/attendance/readiness', {
+        params,
+      })
+    ).data
+  },
+  async getRecordTimeline(attendanceUid) {
+    return (
+      await apiClient.get<AttendanceRecordTimeline>(
+        `/attendance/records/${attendanceUid}/timeline`
       )
     ).data
   },

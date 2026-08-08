@@ -90,6 +90,8 @@ Jika browser belum terhubung:
 
 Terminal membutuhkan internet. Tidak ada antrean scan offline. Sistem tidak meminta foto atau geolocation. Kamera pada halaman terminal hanya dipakai untuk membaca barcode dan tidak menyimpan foto karyawan.
 
+Setelah terminal aktif, bagian identitas menampilkan site, kode perangkat, dan tipe perangkat. Gunakan **Uji kamera** sebelum jam operasional untuk memastikan izin dan kamera browser bekerja tanpa mengirim scan. **Mode kiosk** membuka layar penuh, sedangkan tombol suara mengaktifkan atau mematikan bunyi pendek yang membedakan hasil berhasil, peringatan, dan gagal. Pilihan suara disimpan pada browser terminal tersebut.
+
 ### 4.2 Scan Masuk
 
 1. Pilih tab **Masuk**. Pilihan ini eksplisit; sistem tidak menebak Masuk/Pulang dari urutan scan.
@@ -136,7 +138,21 @@ Aksi **Putuskan** menghapus token dari browser. Aktivasi baru diperlukan untuk m
 
 Halaman `/attendance/monitoring-harian` membutuhkan `attendance.view`. Data dibatasi berdasarkan satu business date, filter, dan scope site akun.
 
-### 5.1 Panel ringkasan
+Gunakan tombol tanggal sebelumnya/berikutnya untuk pemeriksaan harian, tombol **Hari ini** untuk kembali ke tanggal berjalan, atau Date Picker untuk memilih tanggal tertentu. Sistem membatasi tanggal dari go-live Attendance sampai hari ini.
+
+### 5.1 Kesiapan Attendance per site
+
+Panel kesiapan merangkum kondisi operasional pada site yang sedang difilter:
+
+- karyawan eligible tanpa assignment Shift atau assignment yang tumpang tindih;
+- terminal aktif yang sudah atau belum siap dipakai;
+- bukti konfigurasi kalender resmi tahun berjalan;
+- finalisasi yang diinvalidasi dan harus dijalankan ulang;
+- koreksi serta klasifikasi yang masih `PENDING`.
+
+Angka tersebut adalah pemeriksaan kesiapan, bukan jumlah record Attendance hari yang sedang dibuka. Gunakan tombol tindakan pada setiap site untuk menuju Master Shift, Master Perangkat, Kalender Kerja, Tindak Lanjut, atau panel finalisasi. Status kalender **Belum dikonfigurasi** berarti sistem belum menemukan bukti master kalender resmi pada tahun tersebut; status ini tidak menebak apakah suatu tanggal adalah hari kerja.
+
+### 5.2 Panel ringkasan
 
 | Panel | Arti |
 |---|---|
@@ -151,7 +167,7 @@ Halaman `/attendance/monitoring-harian` membutuhkan `attendance.view`. Data diba
 
 Panel menghitung data pada tanggal dan scope site yang aktif. Filter kualitas pada tabel tidak mengubah ringkasan dasar status.
 
-### 5.2 Kualitas record
+### 5.3 Kualitas record
 
 Kualitas bukan status kehadiran.
 
@@ -163,11 +179,16 @@ Kualitas bukan status kehadiran.
 
 Record Masuk yang masih menunggu jam Pulang tidak langsung dianggap abnormal sebelum akhir shift. Terlambat dan pulang awal juga bukan kategori abnormal; keduanya metrik terpisah.
 
-### 5.3 Aksi dari Monitoring
+### 5.4 Aksi dan timeline dari Monitoring
 
+- **Lihat timeline** menampilkan urutan terbaru scan, koreksi, klasifikasi, dan finalisasi yang membentuk record. Pada desktop, baris tabel juga dapat dibuka dengan klik, Enter, atau Spasi.
 - **Ajukan koreksi** tersedia jika akun memiliki `attendance.correct`.
 - **Ajukan klasifikasi** tersedia pada record Alpha bagi HR Officer/Super Admin yang memiliki permission terkait.
 - Pengguna hanya dapat memproses record pada site yang dapat diakses.
+
+### 5.5 Tindak Lanjut Attendance
+
+Menu **Tindak Lanjut Attendance** menyatukan workflow Koreksi dan Klasifikasi dalam dua tab. Badge pada masing-masing tab menunjukkan jumlah request `PENDING` sesuai filter site. Angka `…` berarti pemeriksaan masih berjalan, sedangkan `?` berarti jumlah gagal dimuat; daftar tetap dapat dibuka dan dicoba ulang.
 
 ## 6. Koreksi Attendance
 
@@ -188,7 +209,7 @@ Alasan minimal 5 karakter dan maksimal 500 karakter. Nilai baru harus benar-bena
 
 1. Pengguna dengan `attendance.correct` mengajukan koreksi.
 2. Request berstatus `PENDING`; pada satu record tidak boleh ada dua koreksi pending.
-3. Pengguna dengan `attendance.approve` membuka daftar Koreksi Attendance.
+3. Pengguna dengan `attendance.approve` membuka tab Koreksi pada Tindak Lanjut Attendance.
 4. Reviewer memilih `APPROVED` atau `REJECTED`.
 5. Catatan review wajib saat menolak.
 6. Jika disetujui, server menerapkan perubahan secara atomik dan menghitung ulang menit terlambat, pulang awal, serta durasi.
@@ -378,6 +399,8 @@ Scan Pulang saja, koreksi manual saja, atau status Hadir tanpa scan Masuk tidak 
 |---|---|
 | `POST /api/attendance/terminal/scan` | Mencatat scan Masuk/Pulang dengan token perangkat. |
 | `GET /api/attendance/monitoring` | Data dan ringkasan Monitoring Harian. |
+| `GET /api/attendance/readiness` | Ringkasan kesiapan Shift, perangkat, kalender, finalisasi, dan workflow per site. |
+| `GET /api/attendance/records/:uid/timeline` | Timeline audit satu record Attendance berdasarkan UID publik. |
 | `GET/POST /api/attendance/corrections` | Daftar dan pengajuan koreksi. |
 | `POST /api/attendance/corrections/:uid/review` | Menyetujui atau menolak koreksi. |
 | `GET/POST /api/attendance/classifications` | Daftar dan pengajuan klasifikasi. |
@@ -392,6 +415,7 @@ Scan Pulang saja, koreksi manual saja, atau status Hadir tanpa scan Masuk tidak 
 | File | Tanggung jawab |
 |---|---|
 | `apps/api/src/routes/attendance-terminal.ts` | Transaksi scan dan event mentah. |
+| `apps/api/src/routes/attendance-insights.ts` | Readiness per site dan timeline record Attendance. |
 | `apps/api/src/lib/attendance-device-policy.ts` | Input scan, idempotensi, dan business date lintas tengah malam. |
 | `apps/api/src/lib/attendance-correction-policy.ts` | Validasi koreksi dan derivasi abnormal. |
 | `apps/api/src/routes/attendance-corrections.ts` | Workflow koreksi dan penerapannya. |

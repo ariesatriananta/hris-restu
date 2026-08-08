@@ -15,6 +15,7 @@ import type {
   AttendanceDeviceListParams,
   AttendanceScanInput,
   AttendanceMonitoringListParams,
+  AttendanceReadinessParams,
   AttendanceFinalizationListParams,
   AttendanceFinalizationRunInput,
   AttendanceCorrectionListParams,
@@ -45,6 +46,10 @@ export const attendanceKeys = {
     [...attendanceKeys.all, 'devices', params] as const,
   monitoring: (params?: AttendanceMonitoringListParams) =>
     [...attendanceKeys.all, 'monitoring', params] as const,
+  readiness: (params?: AttendanceReadinessParams) =>
+    [...attendanceKeys.all, 'readiness', params] as const,
+  recordTimeline: (attendanceUid: string) =>
+    [...attendanceKeys.all, 'record-timeline', attendanceUid] as const,
   finalizations: (params: AttendanceFinalizationListParams) =>
     [...attendanceKeys.all, 'finalizations', params] as const,
   corrections: (params?: AttendanceCorrectionListParams) =>
@@ -182,6 +187,25 @@ export const useAttendanceMonitoring = (
     queryKey: attendanceKeys.monitoring(params),
     queryFn: () => httpAttendanceRepository.listMonitoring(params),
     placeholderData: keepPreviousData,
+  })
+
+export const useAttendanceReadiness = (
+  params: AttendanceReadinessParams = {},
+  enabled = true
+) =>
+  useQuery({
+    queryKey: attendanceKeys.readiness(params),
+    queryFn: () => httpAttendanceRepository.getReadiness(params),
+    staleTime: 60 * 1000,
+    enabled,
+  })
+
+export const useAttendanceRecordTimeline = (attendanceUid?: string) =>
+  useQuery({
+    queryKey: attendanceKeys.recordTimeline(attendanceUid ?? ''),
+    queryFn: () =>
+      httpAttendanceRepository.getRecordTimeline(attendanceUid ?? ''),
+    enabled: Boolean(attendanceUid),
   })
 
 export const useAttendanceFinalizations = (

@@ -124,6 +124,8 @@ export interface AttendanceRepository {
   listMonitoring(
     input: AttendanceMonitoringListParams
   ): Promise<AttendanceMonitoringResult>
+  getReadiness(input: AttendanceReadinessParams): Promise<AttendanceReadiness>
+  getRecordTimeline(attendanceUid: string): Promise<AttendanceRecordTimeline>
   listFinalizations(
     input: AttendanceFinalizationListParams
   ): Promise<{ items: AttendanceFinalization[] }>
@@ -491,6 +493,85 @@ export interface AttendanceMonitoringListParams {
   abnormalReason?: AttendanceAbnormalReason[]
   page: number
   pageSize: number
+}
+
+export interface AttendanceReadinessParams {
+  site?: AttendanceSiteCode[]
+}
+
+export interface AttendanceReadinessSite {
+  site: AttendanceSiteCode
+  siteName: string
+  shift: {
+    eligibleEmployeeCount: number
+    withoutAssignmentCount: number
+    ambiguousAssignmentCount: number
+    ready: boolean
+  }
+  devices: {
+    totalCount: number
+    readyCount: number
+    notReadyCount: number
+    hasReadyDevice: boolean
+  }
+  calendar: {
+    nationalHolidayCount: number
+    collectiveLeaveAvailableCount: number
+    collectiveLeaveSelectedCount: number
+    evidenceStatus: 'CONFIGURED' | 'NOT_CONFIGURED'
+  }
+  finalization: {
+    rerunRequiredCount: number
+  }
+  followUp: {
+    pendingCorrectionCount: number
+    pendingClassificationCount: number
+    totalCount: number
+  }
+  attentionCount: number
+}
+
+export interface AttendanceReadiness {
+  asOfDate: string
+  calendarYear: number
+  items: AttendanceReadinessSite[]
+  totals: {
+    siteCount: number
+    attentionCount: number
+    withoutAssignmentCount: number
+    notReadyDeviceCount: number
+    finalizationRerunCount: number
+    pendingFollowUpCount: number
+  }
+}
+
+export type AttendanceTimelineType =
+  | 'SCAN'
+  | 'CORRECTION'
+  | 'CLASSIFICATION'
+  | 'FINALIZATION'
+
+export interface AttendanceRecordTimeline {
+  attendance: {
+    uid: string
+    employeeUid: string
+    employeeNumber: string
+    employeeName: string
+    site: AttendanceSiteCode
+    businessDate: string
+    status: AttendanceStatus
+    shiftName?: string | null
+  }
+  items: Array<{
+    uid: string
+    type: AttendanceTimelineType
+    occurredAt: string
+    title: string
+    status: string
+    description: string
+    actorName?: string | null
+    metadata?: Record<string, unknown> | null
+  }>
 }
 
 export type AttendanceRecapStatus = AttendanceStatus | 'WEEKLY_OFF'

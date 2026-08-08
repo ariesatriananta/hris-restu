@@ -24,6 +24,7 @@ import { attendanceCalendarRouter } from './attendance-calendar.js'
 import { attendanceFinalizationsRouter } from './attendance-finalizations.js'
 import { attendanceRecapsRouter } from './attendance-recaps.js'
 import { attendanceShiftHistoryRouter } from './attendance-shift-history.js'
+import { attendanceInsightsRouter } from './attendance-insights.js'
 import {
   attendanceClassificationApprovalStatuses,
   attendanceClassificationTypes,
@@ -137,6 +138,7 @@ attendanceRouter.use(attendanceCalendarRouter)
 attendanceRouter.use(attendanceFinalizationsRouter)
 attendanceRouter.use(attendanceRecapsRouter)
 attendanceRouter.use(attendanceShiftHistoryRouter)
+attendanceRouter.use(attendanceInsightsRouter)
 
 attendanceRouter.get(
   '/foundation',

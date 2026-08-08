@@ -10,7 +10,10 @@ import {
 import {
   AlertTriangle,
   CalendarRange,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
+  Eye,
   RefreshCcw,
   Users,
 } from 'lucide-react'
@@ -52,6 +55,8 @@ import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
 import { AttendanceDateTimePicker } from './attendance-date-time-picker'
+import { AttendanceReadinessPanel } from './attendance-readiness-panel'
+import { AttendanceRecordTimelineSheet } from './attendance-record-timeline-sheet'
 import {
   useAttendanceFoundation,
   useAttendanceMonitoring,
@@ -100,6 +105,17 @@ export function AttendanceMonitoringPage({
     pageSize: numberValue(search.pageSize, 50),
   })
   const [selected, setSelected] = useState<AttendanceMonitoringRecord>()
+  const [timelineUid, setTimelineUid] = useState<string>()
+  const goLiveDate = foundation.data?.configuration.goLiveDate
+  const selectedSites = arrayValue<AttendanceSiteCode>(search.site)
+  const setBusinessDate = (value: string) =>
+    navigate({
+      search: (previous) => ({
+        ...previous,
+        businessDate: value === today() ? undefined : value,
+        page: undefined,
+      }),
+    })
   const siteOptions = (foundation.data?.sites ?? []).map((site) => ({
     value: site.code,
     label: site.name,
@@ -117,30 +133,65 @@ export function AttendanceMonitoringPage({
             Pantau kehadiran dan rekaman jam yang perlu ditindaklanjuti HR.
           </p>
         </div>
-        <label className='grid gap-1 text-sm sm:w-48'>
+        <div className='grid gap-1 text-sm'>
           <span className='font-medium'>Tanggal kerja</span>
-          <DatePicker
-            selected={dateOnlyFromInput(businessDate)}
-            onSelect={(date) => {
-              const value = dateOnlyToInput(date)
-              if (!value) return
-              navigate({
-                search: (previous) => ({
-                  ...previous,
-                  businessDate: value === today() ? undefined : value,
-                  page: undefined,
-                }),
-              })
-            }}
-          />
-        </label>
+          <div className='flex flex-wrap items-center gap-1.5'>
+            <Button
+              type='button'
+              size='icon'
+              variant='outline'
+              aria-label='Tanggal sebelumnya'
+              disabled={Boolean(goLiveDate && businessDate <= goLiveDate)}
+              onClick={() => setBusinessDate(moveDate(businessDate, -1))}
+            >
+              <ChevronLeft />
+            </Button>
+            <DatePicker
+              selected={dateOnlyFromInput(businessDate)}
+              onSelect={(date) => {
+                const value = dateOnlyToInput(date)
+                if (value) setBusinessDate(value)
+              }}
+              disabledDates={(date) => {
+                const value = dateOnlyToInput(date)
+                return Boolean(
+                  value &&
+                  ((goLiveDate && value < goLiveDate) || value > today())
+                )
+              }}
+              triggerClassName='w-[11.5rem]'
+            />
+            <Button
+              type='button'
+              size='icon'
+              variant='outline'
+              aria-label='Tanggal berikutnya'
+              disabled={businessDate >= today()}
+              onClick={() => setBusinessDate(moveDate(businessDate, 1))}
+            >
+              <ChevronRight />
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              variant={businessDate === today() ? 'secondary' : 'outline'}
+              disabled={businessDate === today()}
+              onClick={() => setBusinessDate(today())}
+            >
+              Hari ini
+            </Button>
+          </div>
+        </div>
       </div>
 
-      <MonitoringFinalizationPanel
-        businessDate={businessDate}
-        sites={arrayValue<AttendanceSiteCode>(search.site)}
-        canFinalize={canFinalize}
-      />
+      <AttendanceReadinessPanel sites={selectedSites} />
+      <div id='finalisasi-attendance' className='scroll-mt-4'>
+        <MonitoringFinalizationPanel
+          businessDate={businessDate}
+          sites={selectedSites}
+          canFinalize={canFinalize}
+        />
+      </div>
       <AttentionShortcuts
         summary={result.data?.summary}
         businessDate={businessDate}
@@ -183,6 +234,7 @@ export function AttendanceMonitoringPage({
           siteOptions={siteOptions}
           canCorrect={canCorrect}
           canClassify={canClassify}
+          onOpenDetail={(record) => setTimelineUid(record.uid)}
           onCorrect={setSelected}
           onClassify={(record) =>
             void routerNavigate({
@@ -205,6 +257,10 @@ export function AttendanceMonitoringPage({
         record={selected}
         open={Boolean(selected)}
         onOpenChange={(open) => !open && setSelected(undefined)}
+      />
+      <AttendanceRecordTimelineSheet
+        attendanceUid={timelineUid}
+        onOpenChange={(open) => !open && setTimelineUid(undefined)}
       />
     </Main>
   )
@@ -447,6 +503,7 @@ function MonitoringTable({
   siteOptions,
   canCorrect,
   canClassify,
+  onOpenDetail,
   onCorrect,
   onClassify,
 }: {
@@ -456,6 +513,7 @@ function MonitoringTable({
   siteOptions: { value: string; label: string }[]
   canCorrect: boolean
   canClassify: boolean
+  onOpenDetail: (record: AttendanceMonitoringRecord) => void
   onCorrect: (record: AttendanceMonitoringRecord) => void
   onClassify: (record: AttendanceMonitoringRecord) => void
 }) {
@@ -589,7 +647,17 @@ function MonitoringTable({
         id: 'actions',
         header: () => <span className='sr-only'>Aksi</span>,
         cell: ({ row }) => (
-          <div className='flex items-center justify-end gap-1'>
+          <div
+            className='flex items-center justify-end gap-1'
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <DataTableActionButton
+              label='Lihat timeline'
+              onClick={() => onOpenDetail(row.original)}
+            >
+              <Eye />
+            </DataTableActionButton>
             {canCorrect && (
               <DataTableActionButton
                 label='Ajukan koreksi'
@@ -608,10 +676,10 @@ function MonitoringTable({
             )}
           </div>
         ),
-        meta: { className: 'w-[5%] px-1' },
+        meta: { className: 'w-[7%] px-1' },
       },
     ],
-    [canClassify, canCorrect, onClassify, onCorrect]
+    [canClassify, canCorrect, onClassify, onCorrect, onOpenDetail]
   )
   const url = useTableUrlState({
     search,
@@ -728,11 +796,21 @@ function MonitoringTable({
                 {table.getRowModel().rows.map((row) => (
                   <TableRow
                     key={row.id}
-                    className={
+                    tabIndex={0}
+                    aria-label={`Buka timeline ${row.original.employeeName}`}
+                    onClick={() => onOpenDetail(row.original)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        onOpenDetail(row.original)
+                      }
+                    }}
+                    className={cn(
+                      'cursor-pointer focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
                       row.original.qualityStatus === 'ABNORMAL'
                         ? 'bg-warning/5'
                         : undefined
-                    }
+                    )}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell
@@ -760,6 +838,7 @@ function MonitoringTable({
                 item={item}
                 canCorrect={canCorrect}
                 canClassify={canClassify}
+                onOpenDetail={onOpenDetail}
                 onCorrect={onCorrect}
                 onClassify={onClassify}
               />
@@ -779,12 +858,14 @@ function MobileRecord({
   item,
   canCorrect,
   canClassify,
+  onOpenDetail,
   onCorrect,
   onClassify,
 }: {
   item: AttendanceMonitoringRecord
   canCorrect: boolean
   canClassify: boolean
+  onOpenDetail: (item: AttendanceMonitoringRecord) => void
   onCorrect: (item: AttendanceMonitoringRecord) => void
   onClassify: (item: AttendanceMonitoringRecord) => void
 }) {
@@ -826,6 +907,13 @@ function MobileRecord({
           {timeLabel(item.clockOutAt)}
         </div>
       </div>
+      <Button
+        variant='outline'
+        className='w-full'
+        onClick={() => onOpenDetail(item)}
+      >
+        <Eye /> Lihat timeline
+      </Button>
       {canCorrect && (
         <Button
           variant='outline'
@@ -1042,6 +1130,11 @@ function today() {
   const now = new Date()
   now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
   return now.toISOString().slice(0, 10)
+}
+function moveDate(value: string, days: number) {
+  const date = new Date(`${value}T12:00:00`)
+  date.setDate(date.getDate() + days)
+  return dateOnlyToInput(date) ?? value
 }
 function stringValue(value: unknown) {
   return typeof value === 'string' && value ? value : undefined
