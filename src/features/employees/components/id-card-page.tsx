@@ -6,10 +6,12 @@ import {
 } from '@tanstack/react-table'
 import {
   CheckCheck,
+  CreditCard,
   Eye,
   LoaderCircle,
   Printer,
   RefreshCcw,
+  Tags,
   Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -24,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DataTablePagination, DataTableToolbar } from '@/components/data-table'
 import { Main } from '@/components/layout/main'
 import {
@@ -42,6 +45,7 @@ import type {
 import { statusLabel } from '../utils'
 import { EmployeeIdCardFace } from './id-card'
 import { IdCardPrintSheet } from './id-card-print-sheet'
+import { ProductionLabelPage } from './production-label-page'
 
 const maxSelection = 100
 
@@ -92,6 +96,76 @@ const columns: ColumnDef<EmployeeIdCardItem>[] = [
 ]
 
 export function IdCardPage({
+  employeeUid,
+  tab = 'id-card',
+  search,
+  navigate,
+}: {
+  employeeUid?: string
+  tab?: 'id-card' | 'production-label'
+  search: Record<string, unknown>
+  navigate: NavigateFn
+}) {
+  return (
+    <Main>
+      <div className='mb-4'>
+        <p className='text-sm font-medium text-primary'>Karyawan</p>
+        <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
+          ID Card & Label Barcode
+        </h1>
+        <p className='text-sm text-muted-foreground'>
+          Kelola cetak identitas karyawan dan label barcode untuk nampan setoran
+          produksi.
+        </p>
+      </div>
+
+      <Tabs
+        value={tab}
+        onValueChange={(value) =>
+          navigate({
+            search: (previous) => ({
+              ...previous,
+              tab: value as 'id-card' | 'production-label',
+              page: 1,
+            }),
+          })
+        }
+      >
+        <TabsList className='h-auto max-w-full justify-start gap-1 overflow-x-auto p-1'>
+          <TabsTrigger value='id-card' className='h-10 flex-none gap-2 px-4'>
+            <CreditCard /> ID Card
+          </TabsTrigger>
+          <TabsTrigger
+            value='production-label'
+            className='h-10 flex-none gap-2 px-4'
+          >
+            <Tags /> Label Setoran Produksi
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent
+          value='id-card'
+          forceMount
+          className='data-[state=inactive]:hidden'
+        >
+          <IdCardManager
+            employeeUid={employeeUid}
+            search={search}
+            navigate={navigate}
+          />
+        </TabsContent>
+        <TabsContent
+          value='production-label'
+          forceMount
+          className='data-[state=inactive]:hidden'
+        >
+          <ProductionLabelPage search={search} navigate={navigate} />
+        </TabsContent>
+      </Tabs>
+    </Main>
+  )
+}
+
+function IdCardManager({
   employeeUid,
   search,
   navigate,
@@ -248,13 +322,10 @@ export function IdCardPage({
   }
 
   return (
-    <Main>
+    <div className='pt-4'>
       <div className='mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
         <div>
-          <p className='text-sm font-medium text-primary'>Karyawan</p>
-          <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
-            Cetak ID Card
-          </h1>
+          <h2 className='text-lg font-semibold'>ID Card Karyawan</h2>
           <p className='text-sm text-muted-foreground'>
             Pilih hingga 100 karyawan. Setiap lembar A4 memuat satu baris berisi
             lima kartu portrait berukuran ringkas.
@@ -347,7 +418,7 @@ export function IdCardPage({
                 gallery...
               </p>
             )}
-            <div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'>
+            <div className='grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5'>
               {pageItems.map((employee) => {
                 const checked = selected.has(employee.uid)
                 const printable = employee.employeeStatus === 'ACTIVE'
@@ -459,7 +530,7 @@ export function IdCardPage({
           generatedAt={printData.generatedAt}
         />
       )}
-    </Main>
+    </div>
   )
 }
 

@@ -6,6 +6,7 @@ import { IdCardPage } from '@/features/employees/components/id-card-page'
 export const Route = createFileRoute('/_authenticated/karyawan/cetak-id-card')({
   beforeLoad: () => requirePermission('employees.view'),
   validateSearch: z.object({
+    tab: z.enum(['id-card', 'production-label']).default('id-card'),
     employeeUid: z.string().uuid().optional(),
     page: z.number().int().positive().optional(),
     pageSize: z.number().int().min(1).max(500).optional(),
@@ -27,6 +28,7 @@ function RouteComponent() {
   return (
     <IdCardPage
       employeeUid={search.employeeUid}
+      tab={search.tab}
       search={search}
       navigate={Route.useNavigate()}
     />

@@ -111,6 +111,8 @@
   .id-card-print-root *,
   .id-card-batch-print-root,
   .id-card-batch-print-root *,
+  .production-label-print-root,
+  .production-label-print-root *,
   .contract-print-root,
   .contract-print-root * {
     visibility: visible !important;
@@ -171,7 +173,8 @@
   }
 
   .id-card-print-root,
-  .id-card-batch-print-root {
+  .id-card-batch-print-root,
+  .production-label-print-root {
     color-scheme: light;
     --background: #ffffff;
     --foreground: #0f172a;
@@ -249,5 +252,66 @@
 
   .id-card-actions {
     display: none !important;
+  }
+
+  .production-label-print-root {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    z-index: 9999 !important;
+    display: block !important;
+    width: 210mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    color: #000 !important;
+    background: #fff !important;
+    color-scheme: light;
+    --background: #ffffff;
+    --foreground: #000000;
+    --card: #ffffff;
+    --card-foreground: #000000;
+    --border: #000000;
+  }
+
+  .production-label-print-page {
+    box-sizing: border-box;
+    display: flex;
+    width: 210mm;
+    height: 297mm;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1mm;
+    margin: 0;
+    padding: 8mm;
+    overflow: hidden;
+    background: #fff !important;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .production-label-print-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .production-label-print-row {
+    display: grid;
+    width: 194mm;
+    grid-template-columns: repeat(5, 38mm);
+    gap: 1mm;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .production-label-face {
+    box-sizing: border-box;
+    width: 38mm;
+    height: 27mm;
+    max-width: none;
+    color: #000 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 }

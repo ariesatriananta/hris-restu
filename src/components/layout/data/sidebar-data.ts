@@ -35,7 +35,10 @@ export const sidebarData: SidebarData = {
             { title: 'Data Karyawan', url: '/karyawan/data-karyawan' },
             { title: 'Mutasi Karyawan', url: '/karyawan/riwayat-mutasi' },
             { title: 'Kontrak Karyawan', url: '/karyawan/pkwt-dokumen' },
-            { title: 'Cetak ID Card', url: '/karyawan/cetak-id-card' },
+            {
+              title: 'ID Card & Label Barcode',
+              url: '/karyawan/cetak-id-card',
+            },
           ],
         },
         {
