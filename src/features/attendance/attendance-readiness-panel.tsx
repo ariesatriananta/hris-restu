@@ -26,8 +26,10 @@ import type { AttendanceReadinessSite, AttendanceSiteCode } from './domain'
 
 export function AttendanceReadinessPanel({
   sites,
+  onOpenFinalization,
 }: {
   sites?: AttendanceSiteCode[]
+  onOpenFinalization?: (site: AttendanceSiteCode) => void
 }) {
   const [open, setOpen] = useState(true)
   const result = useAttendanceReadiness({ site: sites })
@@ -147,6 +149,11 @@ export function AttendanceReadinessPanel({
                         },
                       })
                     }
+                    onOpenFinalization={
+                      onOpenFinalization
+                        ? () => onOpenFinalization(item.site)
+                        : undefined
+                    }
                   />
                 ))}
               </div>
@@ -168,6 +175,7 @@ function ReadinessSiteCard({
   onOpenDevice,
   onOpenCalendar,
   onOpenFollowUp,
+  onOpenFinalization,
 }: {
   item: AttendanceReadinessSite
   canManageShift: boolean
@@ -178,6 +186,7 @@ function ReadinessSiteCard({
   onOpenDevice: () => void
   onOpenCalendar: () => void
   onOpenFollowUp: () => void
+  onOpenFinalization?: () => void
 }) {
   const ready = item.attentionCount === 0
   return (
@@ -265,11 +274,16 @@ function ReadinessSiteCard({
               Buka tindak lanjut
             </Button>
           )}
-          {item.finalization.rerunRequiredCount > 0 && (
-            <Button size='sm' variant='outline' asChild>
-              <a href='#finalisasi-attendance'>Tinjau finalisasi</a>
-            </Button>
-          )}
+          {item.finalization.rerunRequiredCount > 0 &&
+            (onOpenFinalization ? (
+              <Button size='sm' variant='outline' onClick={onOpenFinalization}>
+                Tinjau finalisasi
+              </Button>
+            ) : (
+              <Button size='sm' variant='outline' asChild>
+                <a href='#finalisasi-attendance'>Tinjau finalisasi</a>
+              </Button>
+            ))}
         </div>
       )}
     </section>

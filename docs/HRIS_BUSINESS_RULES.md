@@ -27,3 +27,12 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Payroll draft/simulasi dapat dihitung ulang. Payroll yang sudah closing bersifat immutable.
 - Koreksi setelah payroll closing tidak termasuk scope saat ini.
 - Semua aksi penting dan koreksi harus dapat ditelusuri melalui audit trail.
+- Identitas global perusahaan bersumber dari pengaturan `company.profile`. Nama
+  dan alamat pada pengaturan Kontrak mengikuti profil tersebut, sedangkan nama
+  serta jabatan direktur tetap menjadi konfigurasi pihak penandatangan PKWT.
+  Snapshot kontrak yang sudah dibuat tidak berubah ketika profil diperbarui.
+- Pengaturan Attendance tidak menduplikasi Master Shift, Perangkat, dan Kalender
+  Kerja. Tanggal go-live, timezone efektif, dan grace finalisasi ditampilkan
+  sebagai kebijakan read-only selama source engine-nya masih environment atau
+  kebijakan tetap; toggle hanya boleh ditampilkan setelah benar-benar dipakai
+  oleh engine operasional.

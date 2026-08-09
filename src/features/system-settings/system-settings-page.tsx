@@ -31,6 +31,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Main } from '@/components/layout/main'
+import { AttendanceSettingsContent } from './attendance-settings'
+import { CompanyProfileSettingsContent } from './company-profile-settings'
 import { useContractSettings, useUpdateContractSettings } from './data/queries'
 import type {
   ContractFirstPartySettings,
@@ -57,31 +59,9 @@ const tabItems: Array<{
 ]
 
 const placeholders: Record<
-  Exclude<SystemSettingsTab, 'kontrak'>,
+  Exclude<SystemSettingsTab, 'kontrak' | 'profil-perusahaan' | 'attendance'>,
   { title: string; description: string; scope: string; items: string[] }
 > = {
-  'profil-perusahaan': {
-    title: 'Profil Perusahaan',
-    description:
-      'Identitas perusahaan umum yang digunakan lintas modul dan laporan.',
-    scope: 'Global',
-    items: [
-      'Identitas legal perusahaan',
-      'Alamat dan kontak resmi',
-      'Logo dokumen',
-    ],
-  },
-  attendance: {
-    title: 'Attendance',
-    description:
-      'Konfigurasi operasional pencatatan kehadiran dan toleransi waktu.',
-    scope: 'Per Site',
-    items: [
-      'Toleransi keterlambatan',
-      'Aturan scan',
-      'Kebijakan pergantian hari',
-    ],
-  },
   payroll: {
     title: 'Payroll',
     description:
@@ -145,7 +125,15 @@ export function SystemSettingsPage({
         </div>
 
         <TabsContent value='kontrak' className='min-w-0 flex-1'>
-          <ContractSettingsContent />
+          <ContractSettingsContent
+            onOpenCompanyProfile={() => onTabChange('profil-perusahaan')}
+          />
+        </TabsContent>
+        <TabsContent value='profil-perusahaan' className='min-w-0 flex-1'>
+          <CompanyProfileSettingsContent />
+        </TabsContent>
+        <TabsContent value='attendance' className='min-w-0 flex-1'>
+          <AttendanceSettingsContent />
         </TabsContent>
         {(Object.keys(placeholders) as Array<keyof typeof placeholders>).map(
           (value) => (
@@ -159,7 +147,11 @@ export function SystemSettingsPage({
   )
 }
 
-function ContractSettingsContent() {
+function ContractSettingsContent({
+  onOpenCompanyProfile,
+}: {
+  onOpenCompanyProfile: () => void
+}) {
   const settings = useContractSettings()
   const update = useUpdateContractSettings()
   const [firstParty, setFirstParty] = useState<FirstPartyDraft>(emptyFirstParty)
@@ -168,6 +160,8 @@ function ContractSettingsContent() {
 
   useEffect(() => {
     if (!settings.data) return
+    // State draft mengikuti snapshot query terbaru setelah simpan/refetch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFirstParty(firstPartyDraft(settings.data))
     setTargets(targetDrafts(settings.data.targets))
   }, [settings.data])
@@ -265,16 +259,14 @@ function ContractSettingsContent() {
             label='Nama perusahaan'
             error={fieldError(errors, 'companyName')}
           >
-            <Input
-              value={firstParty.companyName}
-              maxLength={150}
-              onChange={(event) =>
-                setFirstParty((current) => ({
-                  ...current,
-                  companyName: event.target.value,
-                }))
-              }
-            />
+            <Input value={firstParty.companyName} readOnly />
+            <button
+              type='button'
+              className='w-fit text-xs font-medium text-primary underline-offset-4 hover:underline'
+              onClick={onOpenCompanyProfile}
+            >
+              Ubah di Profil Perusahaan
+            </button>
           </SettingsField>
           <SettingsField
             label='Nama direktur'
@@ -311,17 +303,14 @@ function ContractSettingsContent() {
             error={fieldError(errors, 'headOfficeAddress')}
             className='sm:col-span-2'
           >
-            <Textarea
-              value={firstParty.headOfficeAddress}
-              maxLength={500}
-              rows={3}
-              onChange={(event) =>
-                setFirstParty((current) => ({
-                  ...current,
-                  headOfficeAddress: event.target.value,
-                }))
-              }
-            />
+            <Textarea value={firstParty.headOfficeAddress} rows={3} readOnly />
+            <button
+              type='button'
+              className='w-fit text-xs font-medium text-primary underline-offset-4 hover:underline'
+              onClick={onOpenCompanyProfile}
+            >
+              Ubah di Profil Perusahaan
+            </button>
           </SettingsField>
         </CardContent>
       </Card>

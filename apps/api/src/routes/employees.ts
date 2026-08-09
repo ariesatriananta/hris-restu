@@ -500,16 +500,20 @@ async function ensureContractPrintSnapshot(conn: PoolConnection, auth: AuthConte
   const [settingRows] = await conn.query<RowDataPacket[]>(
     `SELECT site_id siteId,setting_key settingKey,setting_value settingValue
      FROM system_settings
-     WHERE (site_id IS NULL AND setting_key='contract.pkwt.first_party')
+     WHERE (site_id IS NULL AND setting_key IN ('company.profile','contract.pkwt.first_party'))
         OR (site_id=? AND setting_key=?)`,
     [employment.siteId, targetSettingKey]
   )
   const firstPartyRow = settingRows.find((row) => row.settingKey === 'contract.pkwt.first_party' && row.siteId === null)
+  const companyProfileRow = settingRows.find((row) => row.settingKey === 'company.profile' && row.siteId === null)
   const targetRow = settingRows.find((row) => row.settingKey === targetSettingKey && Number(row.siteId) === Number(employment.siteId))
   if (!firstPartyRow) throw new ApiError(422, 'Pengaturan pihak pertama kontrak PKWT belum tersedia. Jalankan migration pengaturan template PKWT.')
   if (!targetRow) throw new ApiError(422, `Target kerja untuk bagian ${employment.productionSectionName} di site ${employment.siteName} belum tersedia pada Pengaturan Sistem.`)
 
   const firstParty = settingObject(firstPartyRow.settingValue, 'Identitas pihak pertama')
+  const companyProfile = companyProfileRow
+    ? settingObject(companyProfileRow.settingValue, 'Profil perusahaan')
+    : firstParty
   const target = settingObject(targetRow.settingValue, `Target kerja ${employment.productionSectionName}`)
   const targetValue = Number(target.value)
   if (!Number.isFinite(targetValue) || targetValue <= 0) throw new ApiError(422, `Angka target kerja ${employment.productionSectionName} pada Pengaturan Sistem harus lebih dari 0.`)
@@ -519,8 +523,12 @@ async function ensureContractPrintSnapshot(conn: PoolConnection, auth: AuthConte
     generatedAt: new Date().toISOString(),
     contract: { uid: c.uid, number: c.contractNumber, type: c.contractType, startDate: c.startDate, endDate: c.endDate, signedDate: c.signedDate },
     company: {
-      name: requiredSettingText(firstParty, 'companyName', 'Nama perusahaan'),
-      headOfficeAddress: requiredSettingText(firstParty, 'headOfficeAddress', 'Alamat kantor pusat'),
+      name: requiredSettingText(companyProfile, 'companyName', 'Nama perusahaan'),
+      headOfficeAddress: requiredSettingText(
+        companyProfile,
+        companyProfileRow ? 'legalAddress' : 'headOfficeAddress',
+        'Alamat kantor pusat'
+      ),
       director: {
         name: requiredSettingText(firstParty, 'directorName', 'Nama direktur'),
         title: requiredSettingText(firstParty, 'directorTitle', 'Jabatan direktur'),

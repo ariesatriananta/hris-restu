@@ -2,10 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { Router } from 'express'
 import type { RowDataPacket } from 'mysql2'
 import { z } from 'zod'
+import { env } from '../config.js'
 import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
+import { companyProfileInput } from '../lib/company-settings.js'
 import { contractSettingsInput } from '../lib/contract-settings.js'
 import { paginationMeta } from '../lib/contract-lifecycle-policy.js'
+import { attendanceFinalizationGraceMinutes } from '../lib/attendance-finalization-policy.js'
 import { ApiError } from '../lib/errors.js'
 import {
   authenticate,
@@ -92,6 +95,43 @@ systemRouter.put(
           )
           updatedCount += 1
         }
+
+        const [profileRows] = await connection.query<RowDataPacket[]>(
+          `SELECT id,uid,setting_value settingValue
+             FROM system_settings
+            WHERE site_id IS NULL AND setting_key='company.profile'
+            FOR UPDATE`
+        )
+        const profile = settingObject(profileRows[0]?.settingValue)
+        const synchronizedProfile = {
+          companyName: input.firstParty.companyName,
+          legalAddress: input.firstParty.headOfficeAddress,
+          phone: settingText(profile.phone),
+          email: settingText(profile.email),
+          website: settingText(profile.website),
+          taxNumber: settingText(profile.taxNumber),
+          logoFileUid:
+            typeof profile.logoFileUid === 'string'
+              ? profile.logoFileUid
+              : null,
+        }
+        if (!sameSetting(profile, synchronizedProfile)) {
+          await connection.execute(
+            `INSERT INTO system_settings
+               (uid,site_id,setting_key,setting_value,description,is_secret,created_by,updated_by)
+             VALUES (?,NULL,'company.profile',?,'Profil global perusahaan.',0,?,?)
+             ON DUPLICATE KEY UPDATE
+               setting_value=VALUES(setting_value),description=VALUES(description),
+               is_secret=0,updated_by=VALUES(updated_by)`,
+            [
+              profileRows[0]?.uid ?? randomUUID(),
+              JSON.stringify(synchronizedProfile),
+              auth.id,
+              auth.id,
+            ]
+          )
+          updatedCount += 1
+        }
       }
 
       for (const target of input.targets) {
@@ -170,6 +210,168 @@ systemRouter.put(
       next(error)
     } finally {
       connection.release()
+    }
+  }
+)
+
+systemRouter.get(
+  '/settings/company-profile',
+  requirePermission('settings.manage'),
+  requireSuperAdmin,
+  async (_req, res, next) => {
+    try {
+      res.json(await readCompanyProfile())
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+systemRouter.put(
+  '/settings/company-profile',
+  requirePermission('settings.manage'),
+  requireSuperAdmin,
+  async (req, res, next) => {
+    const connection = await pool.getConnection()
+    try {
+      const input = companyProfileInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      await connection.beginTransaction()
+
+      // Urutan lock disamakan dengan endpoint Kontrak untuk mencegah deadlock.
+      const [legacyRows] = await connection.query<RowDataPacket[]>(
+        `SELECT id,uid,setting_value settingValue
+           FROM system_settings
+          WHERE site_id IS NULL AND setting_key='contract.pkwt.first_party'
+          FOR UPDATE`
+      )
+      const [profileRows] = await connection.query<RowDataPacket[]>(
+        `SELECT id,uid,setting_value settingValue
+           FROM system_settings
+          WHERE site_id IS NULL AND setting_key='company.profile'
+          FOR UPDATE`
+      )
+
+      if (input.logoFileUid) {
+        const [fileRows] = await connection.query<RowDataPacket[]>(
+          `SELECT id,uid,original_name originalName,mime_type mimeType,
+                  size_bytes sizeBytes,storage_path storagePath
+            FROM files
+            WHERE uid=? AND mime_type IN ('image/jpeg','image/png','image/webp')
+              AND storage_path LIKE ?
+            LIMIT 1`,
+          [
+            input.logoFileUid,
+            `${env.R2_KEY_PREFIX.replace(/\/?$/, '/')}settings/company-logo/%`,
+          ]
+        )
+        if (!fileRows[0]) {
+          throw new ApiError(422, 'Logo perusahaan tidak valid atau bukan file gambar yang didukung.')
+        }
+      }
+
+      const before = profileRows[0]
+        ? settingObject(profileRows[0].settingValue)
+        : companyProfileFromLegacy(settingObject(legacyRows[0]?.settingValue))
+      const after = { ...input }
+      const changed = !sameSetting(before, after)
+
+      if (changed) {
+        const uid = profileRows[0]?.uid ?? randomUUID()
+        await connection.execute(
+          `INSERT INTO system_settings
+             (uid,site_id,setting_key,setting_value,description,is_secret,created_by,updated_by)
+           VALUES (?,NULL,'company.profile',?,'Profil global perusahaan.',0,?,?)
+           ON DUPLICATE KEY UPDATE
+             setting_value=VALUES(setting_value),description=VALUES(description),
+             is_secret=0,updated_by=VALUES(updated_by)`,
+          [uid, JSON.stringify(after), auth.id, auth.id]
+        )
+
+        const legacy = settingObject(legacyRows[0]?.settingValue)
+        const synchronizedLegacy = {
+          ...legacy,
+          companyName: input.companyName,
+          headOfficeAddress: input.legalAddress,
+        }
+        await connection.execute(
+          `INSERT INTO system_settings
+             (uid,site_id,setting_key,setting_value,description,is_secret,created_by,updated_by)
+           VALUES (?,NULL,'contract.pkwt.first_party',?,'Identitas pihak pertama pada template cetak PKWT.',0,?,?)
+           ON DUPLICATE KEY UPDATE
+             setting_value=VALUES(setting_value),description=VALUES(description),
+             is_secret=0,updated_by=VALUES(updated_by)`,
+          [
+            legacyRows[0]?.uid ?? randomUUID(),
+            JSON.stringify(synchronizedLegacy),
+            auth.id,
+            auth.id,
+          ]
+        )
+
+        await writeAudit(
+          {
+            auth,
+            request: req,
+            module: 'SETTINGS',
+            action: profileRows[0] ? 'UPDATE' : 'CREATE',
+            table: 'system_settings',
+            recordId: profileRows[0]?.id ?? null,
+            recordUid: uid,
+            description: 'Memperbarui profil global perusahaan.',
+            beforeData: before,
+            afterData: after,
+          },
+          connection
+        )
+      }
+
+      await connection.commit()
+      res.json({ updated: changed })
+    } catch (error) {
+      await connection.rollback()
+      next(error)
+    } finally {
+      connection.release()
+    }
+  }
+)
+
+systemRouter.get(
+  '/settings/attendance',
+  requirePermission('settings.manage'),
+  requireSuperAdmin,
+  async (_req, res, next) => {
+    try {
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT setting_value settingValue,updated_at updatedAt
+           FROM system_settings
+          WHERE site_id IS NULL
+            AND setting_key='attendance.production_requires_presence'
+          LIMIT 1`
+      )
+      const productionPolicy = settingObject(rows[0]?.settingValue)
+      res.json({
+        effective: {
+          goLiveDate: env.ATTENDANCE_GO_LIVE_DATE,
+          timezone: 'Asia/Jakarta',
+          finalizationGraceMinutes: attendanceFinalizationGraceMinutes,
+          productionRequiresPresence:
+            typeof productionPolicy.value === 'boolean'
+              ? productionPolicy.value
+              : true,
+          productionIntegrationStatus: 'PLANNED',
+        },
+        sources: {
+          goLiveDate: 'ENVIRONMENT',
+          timezone: 'APPLICATION_POLICY',
+          finalizationGraceMinutes: 'FIXED_POLICY',
+          productionRequiresPresence: 'SYSTEM_SETTING',
+        },
+        updatedAt: rows[0]?.updatedAt ?? null,
+      })
+    } catch (error) {
+      next(error)
     }
   }
 )
@@ -342,6 +544,12 @@ async function readContractSettings() {
       WHERE site_id IS NULL AND setting_key='contract.pkwt.first_party'
       LIMIT 1`
   )
+  const [profileRows] = await pool.query<RowDataPacket[]>(
+    `SELECT setting_value settingValue
+       FROM system_settings
+      WHERE site_id IS NULL AND setting_key='company.profile'
+      LIMIT 1`
+  )
   const [targetRows] = await pool.query<RowDataPacket[]>(
     `SELECT s.code siteCode,s.name siteName,
             ps.code sectionCode,ps.name sectionName,
@@ -361,13 +569,17 @@ async function readContractSettings() {
       ORDER BY s.name,ps.name`
   )
   const firstParty = settingObject(firstPartyRows[0]?.settingValue)
+  const profile = settingObject(profileRows[0]?.settingValue)
 
   return {
     firstParty: {
-      companyName: settingText(firstParty.companyName),
+      companyName:
+        settingText(profile.companyName) || settingText(firstParty.companyName),
       directorName: settingText(firstParty.directorName),
       directorTitle: settingText(firstParty.directorTitle),
-      headOfficeAddress: settingText(firstParty.headOfficeAddress),
+      headOfficeAddress:
+        settingText(profile.legalAddress) ||
+        settingText(firstParty.headOfficeAddress),
       configured: Boolean(firstPartyRows[0]),
       updatedAt: firstPartyRows[0]?.updatedAt ?? null,
     },
@@ -388,6 +600,86 @@ async function readContractSettings() {
         updatedAt: row.updatedAt ?? null,
       }
     }),
+  }
+}
+
+async function readCompanyProfile() {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT setting_key settingKey,setting_value settingValue,
+            updated_at updatedAt
+       FROM system_settings
+      WHERE site_id IS NULL
+        AND setting_key IN ('company.profile','contract.pkwt.first_party')`
+  )
+  const profileRow = rows.find((row) => row.settingKey === 'company.profile')
+  const legacyRow = rows.find(
+    (row) => row.settingKey === 'contract.pkwt.first_party'
+  )
+  const legacy = companyProfileFromLegacy(
+    settingObject(legacyRow?.settingValue)
+  )
+  const stored = settingObject(profileRow?.settingValue)
+  const profile = {
+    companyName: settingText(stored.companyName) || legacy.companyName,
+    legalAddress: settingText(stored.legalAddress) || legacy.legalAddress,
+    phone: settingText(stored.phone),
+    email: settingText(stored.email),
+    website: settingText(stored.website),
+    taxNumber: settingText(stored.taxNumber),
+    logoFileUid:
+      typeof stored.logoFileUid === 'string' ? stored.logoFileUid : null,
+  }
+
+  let logo = null
+  if (profile.logoFileUid) {
+    const [fileRows] = await pool.query<RowDataPacket[]>(
+      `SELECT uid,original_name originalName,mime_type mimeType,
+              size_bytes sizeBytes,storage_path storagePath
+         FROM files
+        WHERE uid=? AND mime_type IN ('image/jpeg','image/png','image/webp')
+          AND storage_path LIKE ?
+        LIMIT 1`,
+      [
+        profile.logoFileUid,
+        `${env.R2_KEY_PREFIX.replace(/\/?$/, '/')}settings/company-logo/%`,
+      ]
+    )
+    const file = fileRows[0]
+    if (file) {
+      logo = {
+        uid: file.uid,
+        originalName: file.originalName,
+        mimeType: file.mimeType,
+        sizeBytes: Number(file.sizeBytes),
+        url: `${env.R2_PUBLIC_BASE_URL.replace(/\/$/, '')}/${file.storagePath}`,
+      }
+    }
+  }
+
+  return {
+    companyName: profile.companyName,
+    legalAddress: profile.legalAddress,
+    phone: profile.phone,
+    email: profile.email,
+    website: profile.website,
+    taxNumber: profile.taxNumber,
+    logo,
+    configured: Boolean(profileRow),
+    updatedAt: profileRow?.updatedAt ?? legacyRow?.updatedAt ?? null,
+  }
+}
+
+function companyProfileFromLegacy(
+  legacy: Record<string, unknown>
+) {
+  return {
+    companyName: settingText(legacy.companyName),
+    legalAddress: settingText(legacy.headOfficeAddress),
+    phone: '',
+    email: '',
+    website: '',
+    taxNumber: '',
+    logoFileUid: null,
   }
 }
 

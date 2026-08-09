@@ -40,3 +40,45 @@ export type UpdateContractSettingsInput = {
     > & { value: number }
   >
 }
+
+export type CompanyLogo = {
+  uid: string
+  originalName: string
+  mimeType: string
+  sizeBytes: number
+  url: string
+}
+
+export type CompanyProfileSettings = {
+  companyName: string
+  legalAddress: string
+  phone: string
+  email: string
+  website: string
+  taxNumber: string
+  logo: CompanyLogo | null
+  configured: boolean
+  updatedAt: string | null
+}
+
+export type UpdateCompanyProfileInput = Pick<
+  CompanyProfileSettings,
+  'companyName' | 'legalAddress' | 'phone' | 'email' | 'website' | 'taxNumber'
+> & { logoFileUid: string | null }
+
+export type AttendanceSystemSettings = {
+  effective: {
+    goLiveDate: string
+    timezone: string
+    finalizationGraceMinutes: number
+    productionRequiresPresence: boolean
+    productionIntegrationStatus: 'PLANNED'
+  }
+  sources: {
+    goLiveDate: 'ENVIRONMENT'
+    timezone: 'APPLICATION_POLICY'
+    finalizationGraceMinutes: 'FIXED_POLICY'
+    productionRequiresPresence: 'SYSTEM_SETTING'
+  }
+  updatedAt: string | null
+}

@@ -1808,6 +1808,21 @@ VALUES
       'headOfficeAddress', 'Jl. Industri Terboyo Blok F, Desa/Kelurahan Trimulyo, Kec. Genuk, Kota Semarang, Jawa Tengah'
     ),
     'Identitas pihak pertama pada template cetak PKWT.'
+  ),
+  (
+    UUID(),
+    NULL,
+    'company.profile',
+    JSON_OBJECT(
+      'companyName', 'PT Restu Sejati Inti Abadi',
+      'legalAddress', 'Jl. Industri Terboyo Blok F, Desa/Kelurahan Trimulyo, Kec. Genuk, Kota Semarang, Jawa Tengah',
+      'phone', '',
+      'email', '',
+      'website', '',
+      'taxNumber', '',
+      'logoFileUid', NULL
+    ),
+    'Profil global perusahaan.'
   );
 
 SET FOREIGN_KEY_CHECKS = 1;
