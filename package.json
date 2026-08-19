@@ -3,13 +3,22 @@
   "private": false,
   "version": "2.2.1",
   "type": "module",
+  "main": "server.js",
+  "workspaces": [
+    "apps/api"
+  ],
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "concurrently --kill-others-on-fail --names frontend,api --prefix-colors blue,green \"pnpm dev:frontend\" \"pnpm dev:api\"",
     "dev:frontend": "vite",
     "dev:api": "pnpm --filter @hris-restu/api dev",
-    "build:api": "pnpm --filter @hris-restu/api build",
+    "build:frontend": "tsc -b && vite build",
+    "build:api": "tsc -p apps/api/tsconfig.json",
     "test:api": "pnpm --filter @hris-restu/api test",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && tsc -p apps/api/tsconfig.json",
+    "start": "node server.js",
     "lint": "eslint .",
     "preview": "vite preview",
     "format:check": "prettier --check .",
@@ -20,6 +29,7 @@
     "test:ui": "vitest --ui --browser.headless",
     "test:browser": "vitest",
     "test:smoke": "node scripts/smoke-frontend.mjs",
+    "test:smoke:production": "node --env-file=apps/api/.env scripts/smoke-production-server.mjs",
     "test:smoke:employees": "node scripts/smoke-employees.mjs",
     "test:coverage": "vitest run --coverage --browser.headless",
     "test:browser:install": "playwright install chromium --with-deps"
@@ -48,7 +58,8 @@
     "@tanstack/react-query": "^5.99.0",
     "@tanstack/react-router": "^1.168.22",
     "@tanstack/react-table": "^8.21.3",
-    "@zxing/browser": "^0.2.1",
+    "@zxing/browser": "0.1.5",
+    "@zxing/library": "0.21.3",
     "axios": "^1.15.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

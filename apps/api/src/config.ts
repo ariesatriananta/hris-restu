@@ -2,7 +2,8 @@ import { z } from 'zod'
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().default(3001),
+  PORT: z.coerce.number().default(3000),
+  TRUST_PROXY: z.enum(['0', '1']).default('0').transform((value) => value === '1'),
   DATABASE_URL: z.string().url(),
   FRONTEND_ORIGIN: z.string().url().default('http://localhost:5173'),
   JWT_ACCESS_SECRET: z.string().min(32),

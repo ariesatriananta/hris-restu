@@ -78,8 +78,11 @@ importers:
         specifier: ^8.21.3
         version: 8.21.3(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@zxing/browser':
-        specifier: ^0.2.1
-        version: 0.2.1(@zxing/library@0.23.0)
+        specifier: 0.1.5
+        version: 0.1.5(@zxing/library@0.21.3)
+      '@zxing/library':
+        specifier: 0.21.3
+        version: 0.21.3
       axios:
         specifier: ^1.15.0
         version: 1.15.0
@@ -2540,14 +2543,14 @@ packages:
   '@vitest/utils@4.1.4':
     resolution: {integrity: sha512-13QMT+eysM5uVGa1rG4kegGYNp6cnQcsTc67ELFbhNLQO+vgsygtYJx2khvdt4gVQqSSpC/KT5FZZxUpP3Oatw==}
 
-  '@zxing/browser@0.2.1':
-    resolution: {integrity: sha512-92pVfVDUXbc15xu9vIEmhNyqIEASMEkDF92CwT6T+7sg2EHXJRktH9CQKoQSXe51UtbNsj+Fm09H/JBWHMs/Sw==}
+  '@zxing/browser@0.1.5':
+    resolution: {integrity: sha512-4Lmrn/il4+UNb87Gk8h1iWnhj39TASEHpd91CwwSJtY5u+wa0iH9qS0wNLAWbNVYXR66WmT5uiMhZ7oVTrKfxw==}
     peerDependencies:
-      '@zxing/library': ^0.23.0
+      '@zxing/library': ^0.21.0
 
-  '@zxing/library@0.23.0':
-    resolution: {integrity: sha512-6fkkoFwP8CHxl6ugnPsj74PLJgX2iRv5zczGAyt5OBzQgxFhuhF0NCEc4t4OvSr8xAv2MRLlI0Iu9ZGDZQ2urA==}
-    engines: {node: '>= 24.0.0'}
+  '@zxing/library@0.21.3':
+    resolution: {integrity: sha512-hZHqFe2JyH/ZxviJZosZjV+2s6EDSY0O24R+FQmlWZBZXP9IqMo7S3nb3+2LBWxodJQkSurdQGnqE7KXqrYgow==}
+    engines: {node: '>= 10.4.0'}
 
   '@zxing/text-encoding@0.9.0':
     resolution: {integrity: sha512-U/4aVJ2mxI0aDNI8Uq0wEhMgY+u4CNtEb0om3+y3+niDAsoTCOB33UF0sxpzqzdqXLqmvc+vZyAt4O8pPdfkwA==}
@@ -7031,13 +7034,13 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
 
-  '@zxing/browser@0.2.1(@zxing/library@0.23.0)':
+  '@zxing/browser@0.1.5(@zxing/library@0.21.3)':
     dependencies:
-      '@zxing/library': 0.23.0
+      '@zxing/library': 0.21.3
     optionalDependencies:
       '@zxing/text-encoding': 0.9.0
 
-  '@zxing/library@0.23.0':
+  '@zxing/library@0.21.3':
     dependencies:
       ts-custom-error: 3.3.1
     optionalDependencies:

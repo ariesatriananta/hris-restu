@@ -11,7 +11,9 @@ import { internalRouter } from './routes/internal.js'
 import { productionStructureRouter } from './routes/production-structure.js'
 import { systemRouter } from './routes/system.js'
 import { attendanceRouter } from './routes/attendance.js'
+import { registerProductionFrontend } from './lib/production-frontend.js'
 export const app = express()
+if (env.NODE_ENV === 'production' && env.TRUST_PROXY) app.set('trust proxy', 1)
 app.use(cors({ origin: env.FRONTEND_ORIGIN, credentials: true }))
 app.use(express.json({ limit: '1mb' }))
 app.use(cookieParser())
@@ -23,4 +25,6 @@ app.use('/api/internal', internalRouter)
 app.use('/api/production-structure', productionStructureRouter)
 app.use('/api/system', systemRouter)
 app.use('/api/attendance', attendanceRouter)
+app.use('/api', (_req, res) => res.status(404).json({ message: 'Endpoint API tidak ditemukan.' }))
+if (env.NODE_ENV === 'production') registerProductionFrontend(app)
 app.use(errorHandler)
