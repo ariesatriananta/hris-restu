@@ -1,8 +1,8 @@
 packages:
   - apps/*
 
-# pnpm modern memblokir lifecycle script dependency secara default. Hanya
-# dependency native/build yang benar-benar diperlukan aplikasi yang diberi izin.
-onlyBuiltDependencies:
-  - argon2
-  - esbuild
+# pnpm 11 memblokir lifecycle script dependency secara default. Izinkan hanya
+# package dan versi native/build yang sudah ditinjau dalam lockfile ini.
+allowBuilds:
+  'argon2@0.44.0': true
+  'esbuild@0.18.20 || 0.25.11 || 0.28.1': true

@@ -19,10 +19,10 @@ proses install, build, dan start secara otomatis saat deployment. Versi pnpm
 dikunci melalui `packageManager: pnpm@11.9.0` agar sama dengan runner Hostinger,
 sedangkan dependency dikunci oleh
 `pnpm-lock.yaml`; jangan memakai `package-lock.json` untuk deployment ini.
-File `.npmrc` menjaga devDependencies (TypeScript dan Vite) tetap terpasang pada
-tahap build walaupun `NODE_ENV=production`, sedangkan `pnpm-workspace.yaml`
-hanya mengizinkan build script dependency yang dibutuhkan (`argon2` dan
-`esbuild`).
+Log instalasi Hostinger harus tetap menampilkan devDependencies karena build
+membutuhkan TypeScript dan Vite. `pnpm-workspace.yaml` memakai `allowBuilds`
+pnpm 11 untuk mengizinkan hanya versi `argon2` dan `esbuild` yang sudah ditinjau
+dan dikunci di lockfile.
 
 Jangan memakai `vite preview` sebagai server production. Deep-link frontend dan asset production dilayani langsung oleh Express dari folder `dist`.
 
