@@ -1,2 +1,8 @@
 packages:
   - apps/*
+
+# pnpm 10 memblokir lifecycle script dependency secara default. Hanya dependency
+# native/build yang benar-benar diperlukan aplikasi yang diberi izin.
+onlyBuiltDependencies:
+  - argon2
+  - esbuild

@@ -10,12 +10,18 @@ Dokumen ini untuk deployment satu domain: Express melayani API `/api` sekaligus 
 | Root directory | `./` |
 | Branch | branch deployment, biasanya `main` |
 | Node.js | `22.x` |
-| Package manager | npm |
+| Package manager | pnpm |
 | Entry file | `server.js` |
 
 Pada tampilan hPanel ini tidak ada field untuk mengetik build command. Hostinger
 membaca script `build` dan `start` langsung dari `package.json`, lalu menjalankan
-proses install, build, dan start secara otomatis saat deployment.
+proses install, build, dan start secara otomatis saat deployment. Versi pnpm
+dikunci melalui `packageManager: pnpm@10.33.0` dan dependency dikunci oleh
+`pnpm-lock.yaml`; jangan memakai `package-lock.json` untuk deployment ini.
+File `.npmrc` menjaga devDependencies (TypeScript dan Vite) tetap terpasang pada
+tahap build walaupun `NODE_ENV=production`, sedangkan `pnpm-workspace.yaml`
+hanya mengizinkan build script dependency yang dibutuhkan (`argon2` dan
+`esbuild`).
 
 Jangan memakai `vite preview` sebagai server production. Deep-link frontend dan asset production dilayani langsung oleh Express dari folder `dist`.
 
@@ -54,10 +60,14 @@ karena aplikasi berada di belakang reverse proxy Hostinger.
 ## Validasi sebelum push
 
 ```bash
-npm ci
-npm run build
-npm run test:smoke:production
+pnpm install --frozen-lockfile
+pnpm build
+pnpm test:smoke:production
 ```
+
+Script `build` sengaja memanggil `tsc` dan `vite` secara langsung. Tidak ada
+pemanggilan pnpm bertingkat di dalam build production, sehingga sesuai dengan
+runner Hostinger yang sudah menangani package manager di level deployment.
 
 Smoke production memakai `.env` lokal API, membuka server pada port acak, memeriksa health API, deep-link SPA, respons `404` API berbentuk JSON, lalu menutup server otomatis.
 
@@ -70,3 +80,12 @@ Smoke production memakai `.env` lokal API, membuka server pada port acak, memeri
 5. Periksa Runtime Log Hostinger setelah smoke test.
 
 Import schema dan migration database tetap dilakukan terkontrol oleh operator. Jangan menjalankan seed demo/reset pada database production.
+
+## Jika deployment sebelumnya memakai npm
+
+Ubah package manager pada hPanel menjadi `pnpm`, simpan, lalu lakukan deploy
+ulang dari commit terbaru. Jika log masih diawali perintah npm atau masih
+menyebut versi dependency lama, hapus cache deployment/build dari hPanel bila
+opsinya tersedia, kemudian deploy ulang. Log instalasi yang benar harus membaca
+`pnpm-lock.yaml` dan tidak memasang `@zxing/library@0.23.0`; project ini mengunci
+`@zxing/library@0.21.3`, yang kompatibel dengan Node.js 22.
