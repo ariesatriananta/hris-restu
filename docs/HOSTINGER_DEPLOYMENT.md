@@ -16,7 +16,8 @@ Dokumen ini untuk deployment satu domain: Express melayani API `/api` sekaligus 
 Pada tampilan hPanel ini tidak ada field untuk mengetik build command. Hostinger
 membaca script `build` dan `start` langsung dari `package.json`, lalu menjalankan
 proses install, build, dan start secara otomatis saat deployment. Versi pnpm
-dikunci melalui `packageManager: pnpm@10.33.0` dan dependency dikunci oleh
+dikunci melalui `packageManager: pnpm@11.9.0` agar sama dengan runner Hostinger,
+sedangkan dependency dikunci oleh
 `pnpm-lock.yaml`; jangan memakai `package-lock.json` untuk deployment ini.
 File `.npmrc` menjaga devDependencies (TypeScript dan Vite) tetap terpasang pada
 tahap build walaupun `NODE_ENV=production`, sedangkan `pnpm-workspace.yaml`
