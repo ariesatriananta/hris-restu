@@ -1,12 +1,9 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type { Express } from 'express'
 import express from 'express'
 
-const defaultDistPath = fileURLToPath(
-  new URL('../../../../dist/', import.meta.url)
-)
+const defaultDistPath = join(process.cwd(), 'dist')
 
 export function registerProductionFrontend(
   app: Express,

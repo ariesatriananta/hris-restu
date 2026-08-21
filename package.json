@@ -3,7 +3,7 @@
   "private": false,
   "version": "2.2.1",
   "type": "module",
-  "main": "server.js",
+  "main": "dist-server/server.js",
   "packageManager": "pnpm@11.9.0",
   "engines": {
     "node": "22.x"
@@ -14,10 +14,10 @@
     "dev:api": "pnpm --filter @hris-restu/api dev",
     "prepare:esbuild": "node scripts/prepare-esbuild-binaries.mjs",
     "build:frontend": "node scripts/prepare-esbuild-binaries.mjs && tsc -b && vite build",
-    "build:api": "tsc -p apps/api/tsconfig.json",
+    "build:api": "tsc -p apps/api/tsconfig.production.json",
     "test:api": "pnpm --filter @hris-restu/api test",
-    "build": "node scripts/prepare-esbuild-binaries.mjs && tsc -b && vite build && tsc -p apps/api/tsconfig.json",
-    "start": "node server.js",
+    "build": "node scripts/prepare-esbuild-binaries.mjs && tsc -b && vite build && tsc -p apps/api/tsconfig.production.json && node scripts/verify-production-build.mjs",
+    "start": "node dist-server/server.js",
     "lint": "eslint .",
     "preview": "vite preview",
     "format:check": "prettier --check .",

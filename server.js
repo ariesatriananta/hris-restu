@@ -1,2 +1,3 @@
-// Entry produksi Hostinger. Backend hasil build tetap berada di apps/api/dist.
-import './apps/api/dist/server.js'
+// Fallback entry untuk platform yang masih menunjuk server.js.
+// Build produksi utama berada di root dist-server agar ikut runtime bundle.
+import './dist-server/server.js'

@@ -11,7 +11,7 @@ Dokumen ini untuk deployment satu domain: Express melayani API `/api` sekaligus 
 | Branch | branch deployment, biasanya `main` |
 | Node.js | `22.x` |
 | Package manager | pnpm |
-| Entry file | `server.js` |
+| Entry file | `dist-server/server.js` |
 
 Pada tampilan hPanel ini tidak ada field untuk mengetik build command. Hostinger
 membaca script `build` dan `start` langsung dari `package.json`, lalu menjalankan
@@ -27,6 +27,14 @@ execute. Awal script `build` menjalankan helper Node untuk memulihkan permission
 binary esbuild yang sudah dikunci di lockfile.
 
 Jangan memakai `vite preview` sebagai server production. Deep-link frontend dan asset production dilayani langsung oleh Express dari folder `dist`.
+Backend TypeScript dibangun ke `dist-server/server.js` pada root repository agar
+artefaknya ikut dipindahkan ke runtime Managed Node.js. Jangan arahkan entry ke
+`apps/api/dist/server.js`; folder build workspace tersebut tidak dijamin ikut
+runtime bundle Hostinger. Server mencari frontend dari `dist` relatif terhadap
+root proses aplikasi, sehingga backend dan SPA tetap dapat dijalankan dari dua
+folder build root yang terpisah. Tahap terakhir script `build` memverifikasi
+kedua artefak tersebut; deployment harus gagal saat build bila salah satunya
+tidak terbentuk, bukan baru gagal sebagai 503 ketika startup.
 
 ## Environment variables
 
