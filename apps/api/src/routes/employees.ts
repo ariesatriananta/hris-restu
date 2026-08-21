@@ -31,6 +31,14 @@ import {
   contractTypeRuleMessage,
   isContractTypeAllowed,
 } from '../lib/employee-contract-policy.js'
+import {
+  acquireContractNumberLock,
+  canPreserveContractNumberSequence,
+  contractNumberSiteFromSnapshot,
+  formatContractNumber,
+  nextContractNumberSequence,
+  releaseContractNumberLock,
+} from '../lib/contract-number.js'
 import { authenticate, requirePermission, type AuthContext } from '../middleware/authenticate.js'
 import { employeeIdCardsRouter } from './employee-id-cards.js'
 import { employeeSummaryRouter } from './employee-summary.js'
@@ -208,13 +216,6 @@ function mapEmployee(row: RowDataPacket) {
   return { ...employee, canCorrectRegistration: Boolean(employee.canCorrectRegistration), photo: photoUid ? { uid: photoUid, originalName: photoName, mimeType: photoMimeType, sizeBytes: Number(photoSizeBytes), extension: photoExtension, url: fileUrl(photoPath) } : undefined }
 }
 const fileUrl = (path?: string) => path ? `${env.R2_PUBLIC_BASE_URL.replace(/\/$/, '')}/${path}` : undefined
-function formatContractNumber(contractType: string, employeeNumber: string, sequenceNumber: number) {
-  const prefix = contractType
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-  return `${prefix}-${employeeNumber}-${String(sequenceNumber).padStart(2, '0')}`
-}
 async function references(input: z.infer<typeof employeeInput> | z.infer<typeof mutationInput> | z.infer<typeof registrationCorrectionInput>, employeeStatus: string) {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT s.id siteId,s.employee_number_prefix employeeNumberPrefix,(SELECT id FROM departments WHERE site_id=s.id AND name=? AND is_active=1 LIMIT 1) departmentId,(SELECT id FROM positions WHERE name=? AND is_active=1 LIMIT 1) positionId,(SELECT id FROM work_groups WHERE site_id=s.id AND name=? AND is_active=1 LIMIT 1) workGroupId,(SELECT id FROM employee_types WHERE code=? AND is_active=1 LIMIT 1) typeId,(SELECT id FROM employee_statuses WHERE code=? LIMIT 1) statusId FROM sites s WHERE s.code=? AND s.is_active=1 LIMIT 1`,
@@ -1561,10 +1562,16 @@ async function createDraftContract(
     [employee.id]
   )
   const sequenceNumber = Number(sequences[0]?.nextSequence ?? 1)
+  const contractNumberSequence = await nextContractNumberSequence(
+    conn,
+    employee.site,
+    input.startDate
+  )
   const contractNumber = formatContractNumber(
     contractType.code,
-    employee.employeeNumber,
-    sequenceNumber
+    employee.site,
+    contractNumberSequence,
+    input.startDate
   )
   await assertContractRules(
     conn,
@@ -1609,10 +1616,13 @@ async function createDraftContract(
 
 employeesRouter.post('/contracts/batch', requirePermission('employees.manage'), async (req, res, next) => {
   const conn = await pool.getConnection()
+  let contractNumberLockAcquired = false
   try {
     const { items } = contractBatchInput.parse(req.body)
     const auth = res.locals.auth as AuthContext
     await conn.beginTransaction()
+    await acquireContractNumberLock(conn)
+    contractNumberLockAcquired = true
     const created = []
     for (const item of items) {
       created.push(
@@ -1628,7 +1638,11 @@ employeesRouter.post('/contracts/batch', requirePermission('employees.manage'), 
     await conn.rollback()
     next(error)
   } finally {
-    conn.release()
+    let connectionDestroyed = false
+    if (contractNumberLockAcquired) {
+      try { await releaseContractNumberLock(conn) } catch { conn.destroy(); connectionDestroyed = true }
+    }
+    if (!connectionDestroyed) conn.release()
   }
 })
 
@@ -1636,12 +1650,21 @@ employeesRouter.post('/:uid/contracts', requirePermission('employees.manage'), a
   try {
     const input = contractCreateInput.parse(req.body); const auth = res.locals.auth as AuthContext; const conn = await pool.getConnection()
     let uid = ''
+    let contractNumberLockAcquired = false
     try {
       await conn.beginTransaction()
+      await acquireContractNumberLock(conn)
+      contractNumberLockAcquired = true
       const created = await createDraftContract(conn, auth, req, routeParam(req.params.uid), input)
       uid = created.uid
       await conn.commit()
-    } catch (error) { await conn.rollback(); throw error } finally { conn.release() }
+    } catch (error) { await conn.rollback(); throw error } finally {
+      let connectionDestroyed = false
+      if (contractNumberLockAcquired) {
+        try { await releaseContractNumberLock(conn) } catch { conn.destroy(); connectionDestroyed = true }
+      }
+      if (!connectionDestroyed) conn.release()
+    }
     res.status(201).json({ uid })
   } catch (error) { next(error) }
 })
@@ -1651,9 +1674,12 @@ employeesRouter.patch('/contracts/:contractUid', requirePermission('employees.ma
     const auth = res.locals.auth as AuthContext
     const contractUid = routeParam(req.params.contractUid)
     const conn = await pool.getConnection()
+    let contractNumberLockAcquired = false
     try {
       await conn.beginTransaction()
-      const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.employee_id,c.contract_number,c.sequence_number,c.status,ct.code contractType,et.code employeeType,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.notes,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,s.id siteId,s.code site FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [contractUid])
+      await acquireContractNumberLock(conn)
+      contractNumberLockAcquired = true
+      const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.employee_id,c.contract_number,c.sequence_number,c.status,c.site_name_snapshot siteNameSnapshot,ct.code contractType,et.code employeeType,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.notes,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,s.id siteId,s.code site FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [contractUid])
       const contract = rows[0]
       if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
       enforceSite(auth, contract.site)
@@ -1666,7 +1692,23 @@ employeesRouter.patch('/contracts/:contractUid', requirePermission('employees.ma
       if (!isContractTypeAllowed(type.code)) throw new ApiError(422, contractTypeRuleMessage())
       await assertNoOpenScheduledStatusChange(conn, contract.employee_id, contract.id)
       await assertContractRules(conn, contract.employee_id, type.code, input.startDate, input.endDate, contract.id, contract.joinDate)
-      const contractNumber = contract.status === 'ACTIVE' ? contract.contract_number : formatContractNumber(type.code, (await conn.query<RowDataPacket[]>('SELECT employee_number employeeNumber FROM employees WHERE id=? FOR UPDATE', [contract.employee_id]))[0][0].employeeNumber, contract.sequence_number)
+      const contractNumberSite = contractNumberSiteFromSnapshot(
+        contract.siteNameSnapshot,
+        contract.site
+      )
+      const preservedContractNumberSequence = canPreserveContractNumberSequence(
+        contract.contract_number,
+        contractNumberSite,
+        input.startDate
+      )
+      const contractNumberSequence = preservedContractNumberSequence ?? await nextContractNumberSequence(
+        conn,
+        contractNumberSite,
+        input.startDate
+      )
+      const contractNumber = contract.status === 'ACTIVE'
+        ? contract.contract_number
+        : formatContractNumber(type.code, contractNumberSite, contractNumberSequence, input.startDate)
       await conn.execute("UPDATE employee_contracts SET contract_number=?,contract_type_id=?,start_date=?,end_date=?,signed_date=?,issued_file_id=?,notes=?,terms_json=JSON_REMOVE(COALESCE(terms_json,JSON_OBJECT()), '$.contractPrintV1', '$.contractPrintV2'),updated_by=? WHERE id=?", [contractNumber,type.id,input.startDate,empty(input.endDate),empty(input.signedDate),await fileId(input.issuedFileUid),empty(input.notes),auth.id,contract.id])
       await synchronizeActiveContractAfterEdit(conn,{ id: contract.id, uid: contract.uid, employeeId: contract.employee_id, siteId: contract.siteId, status: contract.status, startDate: input.startDate, endDate: input.endDate },auth)
       await writeAudit({
@@ -1696,7 +1738,13 @@ employeesRouter.patch('/contracts/:contractUid', requirePermission('employees.ma
         },
       }, conn)
       await conn.commit()
-    } catch (error) { await conn.rollback(); throw error } finally { conn.release() }
+    } catch (error) { await conn.rollback(); throw error } finally {
+      let connectionDestroyed = false
+      if (contractNumberLockAcquired) {
+        try { await releaseContractNumberLock(conn) } catch { conn.destroy(); connectionDestroyed = true }
+      }
+      if (!connectionDestroyed) conn.release()
+    }
     res.status(204).end()
   } catch (error) { next(error) }
 })

@@ -26,6 +26,7 @@ import {
 
 const siteCode = z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])
 const employeeType = z.enum(['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING'])
+const productionSectionUid = z.string().uuid()
 const attendanceStatus = z.enum(recapAttendanceStatuses)
 
 const filtersSchema = attendanceRecapPeriodInput.and(
@@ -33,6 +34,7 @@ const filtersSchema = attendanceRecapPeriodInput.and(
     query: z.string().trim().max(150).optional(),
     site: z.array(siteCode).default([]),
     employeeType: z.array(employeeType).default([]),
+    productionSection: z.array(productionSectionUid).default([]),
     attendanceStatus: z.array(attendanceStatus).default([]),
   })
 )
@@ -66,6 +68,7 @@ function parseQuery(raw: Record<string, unknown>) {
     query: String(raw.query ?? '').trim() || undefined,
     site: csv(raw.site, siteCode),
     employeeType: csv(raw.employeeType, employeeType),
+    productionSection: csv(raw.productionSection, productionSectionUid),
     attendanceStatus: csv(raw.attendanceStatus, attendanceStatus),
   })
 }
@@ -124,6 +127,9 @@ function applyDetailFilters(
         input.employeeType.includes(
           row.employeeType as (typeof input.employeeType)[number]
         )) &&
+      (!input.productionSection.length ||
+        (row.productionSectionUid !== null &&
+          input.productionSection.includes(row.productionSectionUid))) &&
       (!input.attendanceStatus.length ||
         input.attendanceStatus.includes(
           row.status as (typeof input.attendanceStatus)[number]
@@ -228,6 +234,7 @@ attendanceRecapsRouter.post(
         dateTo: input.dateTo,
         sites: sites.map((site) => site.code),
         employeeTypes: input.employeeType,
+        productionSections: input.productionSection,
         attendanceStatuses: input.attendanceStatus,
         hasEmployeeSearch: Boolean(input.query),
       }

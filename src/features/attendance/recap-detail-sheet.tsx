@@ -37,6 +37,7 @@ export function AttendanceRecapDetailSheet({
   dateFrom,
   dateTo,
   attendanceStatus,
+  productionSection,
   onOpenChange,
 }: {
   employeeUid?: string
@@ -45,6 +46,7 @@ export function AttendanceRecapDetailSheet({
   dateFrom: string
   dateTo: string
   attendanceStatus?: AttendanceRecapStatus[]
+  productionSection?: string[]
   onOpenChange: (open: boolean) => void
 }) {
   const result = useAttendanceRecapDays(employeeUid, {
@@ -52,6 +54,7 @@ export function AttendanceRecapDetailSheet({
     dateTo,
     site,
     employeeType,
+    productionSection,
     attendanceStatus,
     page: 1,
     pageSize: 50,
@@ -66,13 +69,14 @@ export function AttendanceRecapDetailSheet({
           <SheetDescription>
             {first
               ? `${first.employeeName} · ${first.employeeNumber} · ${first.siteName}`
-              : 'Rincian fakta attendance dan hari libur mingguan virtual.'}
+              : 'Rincian kehadiran dan hari libur mingguan.'}
           </SheetDescription>
         </SheetHeader>
         <div className='px-4 pb-6'>
           <div className='mb-3 rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground'>
-            Libur mingguan ditampilkan sebagai baris virtual dan tidak disimpan
-            sebagai transaksi attendance. Scan aktual pada hari libur tetap
+            Hari libur mingguan tanpa scan ditampilkan otomatis agar rekap tetap
+            lengkap. Data ini hanya tampil di rekap dan bukan catatan kehadiran
+            yang tersimpan. Jika ada scan pada hari libur, statusnya tetap
             tampil sebagai{' '}
             <strong className='text-foreground'>Hadir Hari Libur</strong>.
           </div>
@@ -228,7 +232,7 @@ function DailyStatus({ item }: { item: AttendanceRecapDay }) {
         {item.status === 'WEEKLY_OFF' && <CalendarOff className='size-3' />}
         {label}
       </Badge>
-      {item.virtual && <Badge variant='outline'>Virtual</Badge>}
+      {item.virtual && <Badge variant='outline'>Hanya di rekap</Badge>}
       {item.isCorrected && <Badge variant='outline'>Dikoreksi</Badge>}
       {item.qualityStatus === 'ABNORMAL' && (
         <Badge variant='outline' className='border-warning/60 bg-warning/10'>

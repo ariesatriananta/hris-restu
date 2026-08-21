@@ -10,6 +10,7 @@ import {
 import {
   AlertTriangle,
   CalendarRange,
+  ClipboardCheck,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -57,6 +58,7 @@ import { hasPermission } from '@/features/auth/permissions'
 import { AttendanceDateTimePicker } from './attendance-date-time-picker'
 import { AttendanceReadinessPanel } from './attendance-readiness-panel'
 import { AttendanceRecordTimelineSheet } from './attendance-record-timeline-sheet'
+import { AttendanceCorrectionReviewDialog } from './correction-review-dialog'
 import {
   useAttendanceFoundation,
   useAttendanceMonitoring,
@@ -71,6 +73,10 @@ import type {
   AttendanceSiteCode,
   AttendanceStatus,
 } from './domain'
+import {
+  attendanceEmployeeTypeOptions,
+  attendanceProductionSectionOptions,
+} from './filter-options'
 import { MonitoringFinalizationPanel } from './monitoring-finalization-panel'
 
 export function AttendanceMonitoringPage({
@@ -98,6 +104,8 @@ export function AttendanceMonitoringPage({
     businessDate,
     query: stringValue(search.filter),
     site: arrayValue(search.site),
+    employeeType: arrayValue(search.employeeType),
+    productionSection: arrayValue(search.productionSection),
     attendanceStatus: arrayValue(search.attendanceStatus),
     qualityStatus: arrayValue(search.qualityStatus),
     abnormalReason: arrayValue(search.abnormalReason),
@@ -105,6 +113,7 @@ export function AttendanceMonitoringPage({
     pageSize: numberValue(search.pageSize, 50),
   })
   const [selected, setSelected] = useState<AttendanceMonitoringRecord>()
+  const [reviewCorrectionUid, setReviewCorrectionUid] = useState<string>()
   const [timelineUid, setTimelineUid] = useState<string>()
   const goLiveDate = foundation.data?.configuration.goLiveDate
   const selectedSites = arrayValue<AttendanceSiteCode>(search.site)
@@ -120,6 +129,10 @@ export function AttendanceMonitoringPage({
     value: site.code,
     label: site.name,
   }))
+  const productionSectionOptions = attendanceProductionSectionOptions(
+    foundation.data,
+    selectedSites
+  )
 
   return (
     <Main>
@@ -184,7 +197,22 @@ export function AttendanceMonitoringPage({
         </div>
       </div>
 
-      <AttendanceReadinessPanel sites={selectedSites} />
+      <AttendanceReadinessPanel
+        sites={selectedSites}
+        onOpenFinalization={(site, rerunDate) => {
+          void navigate({
+            search: (previous) => ({
+              ...previous,
+              site: [site],
+              businessDate: rerunDate ?? previous.businessDate,
+              page: undefined,
+            }),
+          })
+          document
+            .getElementById('finalisasi-attendance')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }}
+      />
       <div id='finalisasi-attendance' className='scroll-mt-4'>
         <MonitoringFinalizationPanel
           businessDate={businessDate}
@@ -232,10 +260,15 @@ export function AttendanceMonitoringPage({
           search={search}
           navigate={navigate}
           siteOptions={siteOptions}
+          productionSectionOptions={productionSectionOptions}
           canCorrect={canCorrect}
+          canApprove={canApprove}
           canClassify={canClassify}
           onOpenDetail={(record) => setTimelineUid(record.uid)}
           onCorrect={setSelected}
+          onReviewCorrection={(record) =>
+            setReviewCorrectionUid(record.pendingCorrectionUid ?? undefined)
+          }
           onClassify={(record) =>
             void routerNavigate({
               to: '/attendance/tindak-lanjut',
@@ -257,6 +290,13 @@ export function AttendanceMonitoringPage({
         record={selected}
         open={Boolean(selected)}
         onOpenChange={(open) => !open && setSelected(undefined)}
+      />
+      <AttendanceCorrectionReviewDialog
+        key={reviewCorrectionUid ?? 'closed-review'}
+        correctionUid={reviewCorrectionUid}
+        canApprove={canApprove}
+        open={Boolean(reviewCorrectionUid)}
+        onOpenChange={(open) => !open && setReviewCorrectionUid(undefined)}
       />
       <AttendanceRecordTimelineSheet
         attendanceUid={timelineUid}
@@ -501,20 +541,26 @@ function MonitoringTable({
   search,
   navigate,
   siteOptions,
+  productionSectionOptions,
   canCorrect,
+  canApprove,
   canClassify,
   onOpenDetail,
   onCorrect,
+  onReviewCorrection,
   onClassify,
 }: {
   result: ReturnType<typeof useAttendanceMonitoring>
   search: Record<string, unknown>
   navigate: NavigateFn
   siteOptions: { value: string; label: string }[]
+  productionSectionOptions: { value: string; label: string }[]
   canCorrect: boolean
+  canApprove: boolean
   canClassify: boolean
   onOpenDetail: (record: AttendanceMonitoringRecord) => void
   onCorrect: (record: AttendanceMonitoringRecord) => void
+  onReviewCorrection: (record: AttendanceMonitoringRecord) => void
   onClassify: (record: AttendanceMonitoringRecord) => void
 }) {
   const columns = useMemo<ColumnDef<AttendanceMonitoringRecord>[]>(
@@ -571,6 +617,11 @@ function MonitoringTable({
           className: 'w-[14%] px-2',
           tdClassName: 'whitespace-normal',
         },
+      },
+      {
+        accessorKey: 'productionSectionUid',
+        id: 'productionSection',
+        header: 'Bagian produksi',
       },
       {
         id: 'productionArea',
@@ -658,7 +709,15 @@ function MonitoringTable({
             >
               <Eye />
             </DataTableActionButton>
-            {canCorrect && (
+            {canApprove && row.original.pendingCorrectionUid && (
+              <DataTableActionButton
+                label='Review koreksi menunggu'
+                onClick={() => onReviewCorrection(row.original)}
+              >
+                <ClipboardCheck />
+              </DataTableActionButton>
+            )}
+            {canCorrect && !row.original.pendingCorrectionUid && (
               <DataTableActionButton
                 label='Ajukan koreksi'
                 onClick={() => onCorrect(row.original)}
@@ -679,7 +738,15 @@ function MonitoringTable({
         meta: { className: 'w-[7%] px-1' },
       },
     ],
-    [canClassify, canCorrect, onClassify, onCorrect, onOpenDetail]
+    [
+      canApprove,
+      canClassify,
+      canCorrect,
+      onClassify,
+      onCorrect,
+      onOpenDetail,
+      onReviewCorrection,
+    ]
   )
   const url = useTableUrlState({
     search,
@@ -687,6 +754,16 @@ function MonitoringTable({
     globalFilter: { key: 'filter' },
     columnFilters: [
       { columnId: 'site', searchKey: 'site', type: 'array' },
+      {
+        columnId: 'employeeType',
+        searchKey: 'employeeType',
+        type: 'array',
+      },
+      {
+        columnId: 'productionSection',
+        searchKey: 'productionSection',
+        type: 'array',
+      },
       {
         columnId: 'attendanceStatus',
         searchKey: 'attendanceStatus',
@@ -716,7 +793,11 @@ function MonitoringTable({
     manualPagination: true,
     manualFiltering: true,
     initialState: {
-      columnVisibility: { site: false, abnormalReasons: false },
+      columnVisibility: {
+        site: false,
+        productionSection: false,
+        abnormalReasons: false,
+      },
     },
     onGlobalFilterChange: url.onGlobalFilterChange,
     onColumnFiltersChange: url.onColumnFiltersChange,
@@ -732,6 +813,16 @@ function MonitoringTable({
         searchDebounceMs={500}
         filters={[
           { columnId: 'site', title: 'Site', options: siteOptions },
+          {
+            columnId: 'employeeType',
+            title: 'Jenis karyawan',
+            options: attendanceEmployeeTypeOptions,
+          },
+          {
+            columnId: 'productionSection',
+            title: 'Bagian produksi',
+            options: productionSectionOptions,
+          },
           {
             columnId: 'attendanceStatus',
             title: 'Status',
@@ -837,9 +928,11 @@ function MonitoringTable({
                 key={item.uid}
                 item={item}
                 canCorrect={canCorrect}
+                canApprove={canApprove}
                 canClassify={canClassify}
                 onOpenDetail={onOpenDetail}
                 onCorrect={onCorrect}
+                onReviewCorrection={onReviewCorrection}
                 onClassify={onClassify}
               />
             ))}
@@ -857,16 +950,20 @@ function MonitoringTable({
 function MobileRecord({
   item,
   canCorrect,
+  canApprove,
   canClassify,
   onOpenDetail,
   onCorrect,
+  onReviewCorrection,
   onClassify,
 }: {
   item: AttendanceMonitoringRecord
   canCorrect: boolean
+  canApprove: boolean
   canClassify: boolean
   onOpenDetail: (item: AttendanceMonitoringRecord) => void
   onCorrect: (item: AttendanceMonitoringRecord) => void
+  onReviewCorrection: (item: AttendanceMonitoringRecord) => void
   onClassify: (item: AttendanceMonitoringRecord) => void
 }) {
   return (
@@ -914,7 +1011,12 @@ function MobileRecord({
       >
         <Eye /> Lihat timeline
       </Button>
-      {canCorrect && (
+      {canApprove && item.pendingCorrectionUid && (
+        <Button className='w-full' onClick={() => onReviewCorrection(item)}>
+          <ClipboardCheck /> Review koreksi menunggu
+        </Button>
+      )}
+      {canCorrect && !item.pendingCorrectionUid && (
         <Button
           variant='outline'
           className='w-full'

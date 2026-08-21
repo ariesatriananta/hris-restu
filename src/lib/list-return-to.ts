@@ -33,6 +33,7 @@ export function returnToLabel(returnTo: string, fallback: string) {
     '/karyawan/data-karyawan': 'Data Karyawan',
     '/karyawan/riwayat-mutasi': 'Mutasi Karyawan',
     '/karyawan/pkwt-dokumen': 'Kontrak Karyawan',
+    '/attendance/master-shift': 'Master Shift',
   }
 
   return labels[pathname] ?? fallback

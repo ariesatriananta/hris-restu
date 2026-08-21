@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
 import {
   flexRender,
   getCoreRowModel,
   useReactTable,
   type ColumnDef,
+  type RowSelectionState,
+  type Table as TanStackTable,
 } from '@tanstack/react-table'
 import {
   Check,
@@ -22,6 +24,7 @@ import { cn } from '@/lib/utils'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Command,
   CommandEmpty,
@@ -64,6 +67,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
   DataTableActionButton,
+  DataTableBulkActions,
   DataTableColumnHeader,
   DataTablePagination,
   DataTableToolbar,
@@ -78,17 +82,24 @@ import {
   useAttendanceClassificationEmployees,
   useAttendanceClassifications,
   useAttendanceFoundation,
+  useBulkReviewAttendanceClassifications,
   useCreateAttendanceClassification,
   useReviewAttendanceClassification,
 } from './data/queries'
 import { dateOnlyFromInput, dateOnlyToInput } from './date-only'
 import type {
   AttendanceClassification,
+  AttendanceBulkReviewResult,
   AttendanceClassificationApprovalStatus,
   AttendanceClassificationEmployee,
   AttendanceClassificationType,
+  AttendanceEmployeeType,
   AttendanceSiteCode,
 } from './domain'
+import {
+  attendanceEmployeeTypeOptions,
+  attendanceProductionSectionOptions,
+} from './filter-options'
 
 export function AttendanceClassificationPage({
   search,
@@ -110,6 +121,8 @@ export function AttendanceClassificationPage({
   const result = useAttendanceClassifications({
     query: stringValue(search.filter),
     site: arrayValue(search.site),
+    employeeType: arrayValue<AttendanceEmployeeType>(search.employeeTypeFilter),
+    productionSection: arrayValue(search.productionSection),
     classificationType: arrayValue(search.classificationType),
     approvalStatus: arrayValue(search.approvalStatus),
     dateFrom: stringValue(search.dateFrom),
@@ -125,6 +138,17 @@ export function AttendanceClassificationPage({
     ?.length
     ? foundation.data.lookups.classificationTypes
     : classificationTypeOptions
+  const selectedSites = arrayValue<AttendanceSiteCode>(search.site) ?? []
+  const productionSectionOptions = attendanceProductionSectionOptions(
+    foundation.data,
+    selectedSites
+  )
+  const bulkSite =
+    selectedSites.length === 1
+      ? selectedSites[0]
+      : siteOptions.length === 1
+        ? (siteOptions[0].value as AttendanceSiteCode)
+        : undefined
   const handleCreateOpenChange = (open: boolean) => {
     setCreateOpen(open)
     if (!open && search.employeeUid) {
@@ -206,7 +230,10 @@ export function AttendanceClassificationPage({
         search={search}
         navigate={navigate}
         siteOptions={siteOptions}
+        productionSectionOptions={productionSectionOptions}
         classificationOptions={classificationOptions}
+        canApprove={canApprove}
+        bulkSite={bulkSite}
         onOpen={(item) => setSelectedUid(item.uid)}
       />
       <CreateClassificationDialog
@@ -245,21 +272,90 @@ function ClassificationTable({
   search,
   navigate,
   siteOptions,
+  productionSectionOptions,
   classificationOptions,
+  canApprove,
+  bulkSite,
   onOpen,
 }: {
   result: ReturnType<typeof useAttendanceClassifications>
   search: Record<string, unknown>
   navigate: NavigateFn
   siteOptions: { value: string; label: string }[]
+  productionSectionOptions: { value: string; label: string }[]
   classificationOptions: {
     value: AttendanceClassificationType
     label: string
   }[]
+  canApprove: boolean
+  bulkSite?: AttendanceSiteCode
   onOpen: (item: AttendanceClassification) => void
 }) {
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const pageItemKey = (result.data?.items ?? [])
+    .map((item) => item.uid)
+    .join('|')
+  const selectionScopeKey = JSON.stringify([
+    search.filter,
+    search.site,
+    search.employeeTypeFilter,
+    search.productionSection,
+    search.classificationType,
+    search.approvalStatus,
+    search.dateFrom,
+    search.dateTo,
+    search.page,
+    search.pageSize,
+    pageItemKey,
+  ])
+  useEffect(() => setRowSelection({}), [selectionScopeKey])
   const columns = useMemo<ColumnDef<AttendanceClassification>[]>(
     () => [
+      ...(canApprove && bulkSite
+        ? [
+            {
+              id: 'select',
+              header: ({ table }) => {
+                const eligible = table
+                  .getRowModel()
+                  .rows.filter((row) => row.getCanSelect())
+                  .slice(0, 50)
+                const allSelected =
+                  eligible.length > 0 &&
+                  eligible.every((row) => row.getIsSelected())
+                const someSelected = eligible.some((row) => row.getIsSelected())
+                return (
+                  <Checkbox
+                    checked={allSelected || (someSelected && 'indeterminate')}
+                    onCheckedChange={(checked) =>
+                      eligible.forEach((row) => row.toggleSelected(!!checked))
+                    }
+                    aria-label='Pilih semua klasifikasi menunggu pada halaman ini, maksimal 50'
+                  />
+                )
+              },
+              cell: ({ row, table }) =>
+                row.getCanSelect() ? (
+                  <Checkbox
+                    checked={row.getIsSelected()}
+                    onCheckedChange={(checked) => {
+                      if (checked && tableSelectedCount(table) >= 50) {
+                        toast.error(
+                          'Maksimal 50 klasifikasi dapat dipilih sekali proses.'
+                        )
+                        return
+                      }
+                      row.toggleSelected(!!checked)
+                    }}
+                    aria-label={`Pilih klasifikasi ${row.original.employee.fullName}`}
+                  />
+                ) : null,
+              enableSorting: false,
+              enableHiding: false,
+            } satisfies ColumnDef<AttendanceClassification>,
+          ]
+        : []),
       {
         id: 'employee',
         accessorFn: (item) => item.employee.fullName,
@@ -276,6 +372,16 @@ function ClassificationTable({
         ),
       },
       { accessorKey: 'site', header: 'Site' },
+      {
+        id: 'employeeType',
+        accessorFn: (item) => item.employee.employeeType,
+        header: 'Jenis karyawan',
+      },
+      {
+        id: 'productionSection',
+        accessorFn: (item) => item.employee.productionSectionUid,
+        header: 'Bagian produksi',
+      },
       {
         accessorKey: 'classificationType',
         header: 'Klasifikasi',
@@ -319,7 +425,7 @@ function ClassificationTable({
         ),
       },
     ],
-    [onOpen]
+    [bulkSite, canApprove, onOpen]
   )
   const url = useTableUrlState({
     search,
@@ -327,6 +433,16 @@ function ClassificationTable({
     globalFilter: { key: 'filter' },
     columnFilters: [
       { columnId: 'site', searchKey: 'site', type: 'array' },
+      {
+        columnId: 'employeeType',
+        searchKey: 'employeeTypeFilter',
+        type: 'array',
+      },
+      {
+        columnId: 'productionSection',
+        searchKey: 'productionSection',
+        type: 'array',
+      },
       {
         columnId: 'classificationType',
         searchKey: 'classificationType',
@@ -347,6 +463,7 @@ function ClassificationTable({
       globalFilter: url.globalFilter,
       columnFilters: url.columnFilters,
       pagination: url.pagination,
+      rowSelection,
     },
     pageCount: Math.max(
       1,
@@ -357,7 +474,20 @@ function ClassificationTable({
     onGlobalFilterChange: url.onGlobalFilterChange,
     onColumnFiltersChange: url.onColumnFiltersChange,
     onPaginationChange: url.onPaginationChange,
+    onRowSelectionChange: setRowSelection,
+    enableRowSelection: (row) =>
+      canApprove &&
+      Boolean(bulkSite) &&
+      row.original.approvalStatus === 'PENDING',
+    getRowId: (row) => row.uid,
     getCoreRowModel: getCoreRowModel(),
+    initialState: {
+      columnVisibility: {
+        site: false,
+        employeeType: false,
+        productionSection: false,
+      },
+    },
   })
   const data = result.data
   return (
@@ -368,6 +498,16 @@ function ClassificationTable({
         searchDebounceMs={500}
         filters={[
           { columnId: 'site', title: 'Site', options: siteOptions },
+          {
+            columnId: 'employeeType',
+            title: 'Jenis karyawan',
+            options: attendanceEmployeeTypeOptions,
+          },
+          {
+            columnId: 'productionSection',
+            title: 'Bagian produksi',
+            options: productionSectionOptions,
+          },
           {
             columnId: 'classificationType',
             title: 'Klasifikasi',
@@ -380,6 +520,22 @@ function ClassificationTable({
           },
         ]}
       />
+      {canApprove && !bulkSite && (
+        <p className='text-sm text-muted-foreground'>
+          Pilih tepat satu site untuk menggunakan approval massal.
+        </p>
+      )}
+      {bulkSite && (
+        <DataTableBulkActions
+          table={table}
+          entityName='klasifikasi'
+          entityNamePlural='klasifikasi'
+        >
+          <Button size='sm' className='h-8' onClick={() => setBulkOpen(true)}>
+            <Check /> Approve terpilih
+          </Button>
+        </DataTableBulkActions>
+      )}
       {result.isPending ? (
         <StateText>Memuat klasifikasi attendance...</StateText>
       ) : result.isError ? (
@@ -433,29 +589,57 @@ function ClassificationTable({
           </div>
           <div className='grid gap-3 md:hidden'>
             {data.items.map((item) => (
-              <button
+              <div
                 key={item.uid}
-                type='button'
                 className='space-y-2 rounded-lg border p-3 text-left'
-                onClick={() => onOpen(item)}
               >
                 <div className='flex items-start justify-between gap-2'>
-                  <div>
-                    <p className='font-medium'>{item.employee.fullName}</p>
-                    <p className='text-xs text-muted-foreground'>
-                      {item.employee.employeeNumber} · {item.site}
-                    </p>
+                  <div className='flex min-w-0 items-start gap-3'>
+                    {canApprove &&
+                      bulkSite &&
+                      item.approvalStatus === 'PENDING' && (
+                        <Checkbox
+                          checked={table.getRow(item.uid).getIsSelected()}
+                          onCheckedChange={(checked) => {
+                            const row = table.getRow(item.uid)
+                            if (checked && tableSelectedCount(table) >= 50) {
+                              toast.error(
+                                'Maksimal 50 klasifikasi dapat dipilih sekali proses.'
+                              )
+                              return
+                            }
+                            row.toggleSelected(!!checked)
+                          }}
+                          aria-label={`Pilih klasifikasi ${item.employee.fullName}`}
+                        />
+                      )}
+                    <button
+                      type='button'
+                      className='min-w-0 text-left'
+                      onClick={() => onOpen(item)}
+                    >
+                      <p className='font-medium'>{item.employee.fullName}</p>
+                      <p className='text-xs text-muted-foreground'>
+                        {item.employee.employeeNumber} · {item.site}
+                      </p>
+                    </button>
                   </div>
                   <ApprovalBadge value={item.approvalStatus} />
                 </div>
-                <p className='text-sm'>
-                  {classificationLabel(item.classificationType)} ·{' '}
-                  {periodLabel(item.startDate, item.endDate)}
-                </p>
-                <p className='line-clamp-2 text-xs text-muted-foreground'>
-                  {item.reason}
-                </p>
-              </button>
+                <button
+                  type='button'
+                  className='block w-full text-left'
+                  onClick={() => onOpen(item)}
+                >
+                  <p className='text-sm'>
+                    {classificationLabel(item.classificationType)} ·{' '}
+                    {periodLabel(item.startDate, item.endDate)}
+                  </p>
+                  <p className='line-clamp-2 text-xs text-muted-foreground'>
+                    {item.reason}
+                  </p>
+                </button>
+              </div>
             ))}
           </div>
           <DataTablePagination
@@ -464,7 +648,154 @@ function ClassificationTable({
           />
         </>
       )}
+      {bulkSite && (
+        <BulkClassificationApprovalDialog
+          open={bulkOpen}
+          onOpenChange={setBulkOpen}
+          site={bulkSite}
+          items={table
+            .getFilteredSelectedRowModel()
+            .rows.map((row) => row.original)}
+          onFinished={() => table.resetRowSelection()}
+        />
+      )}
     </div>
+  )
+}
+
+function BulkClassificationApprovalDialog({
+  open,
+  onOpenChange,
+  site,
+  items,
+  onFinished,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  site: AttendanceSiteCode
+  items: AttendanceClassification[]
+  onFinished: () => void
+}) {
+  const mutation = useBulkReviewAttendanceClassifications()
+  const [notes, setNotes] = useState('')
+  const [result, setResult] = useState<AttendanceBulkReviewResult>()
+  const dates = items.flatMap((item) => [item.startDate, item.endDate]).sort()
+  const close = () => {
+    onOpenChange(false)
+    setResult(undefined)
+    setNotes('')
+  }
+  const submit = () => {
+    mutation.mutate(
+      {
+        site,
+        uids: items.map((item) => item.uid),
+        decision: 'APPROVED',
+        reviewNotes: notes.trim() || undefined,
+      },
+      {
+        onSuccess: (response) => {
+          onFinished()
+          setResult(response)
+          if (response.failed) {
+            toast.warning(
+              `${response.approved} berhasil disetujui, ${response.failed} gagal dan tetap menunggu.`
+            )
+          } else {
+            toast.success(
+              `${response.approved} klasifikasi berhasil disetujui.`
+            )
+          }
+        },
+        onError: (error) =>
+          toast.error(
+            apiError(error, 'Approval massal klasifikasi gagal diproses.')
+          ),
+      }
+    )
+  }
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (mutation.isPending) return
+        if (next) onOpenChange(true)
+        else close()
+      }}
+    >
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-lg'>
+        <DialogHeader>
+          <DialogTitle>
+            {result
+              ? 'Hasil approval klasifikasi'
+              : `Setujui ${items.length} klasifikasi?`}
+          </DialogTitle>
+          <DialogDescription>
+            {result
+              ? `${result.approved} berhasil, ${result.failed} gagal dari ${result.requested} data.`
+              : 'Approval akan menerapkan klasifikasi pada tanggal kerja yang masih valid.'}
+          </DialogDescription>
+        </DialogHeader>
+        {result ? (
+          result.failures.length > 0 && (
+            <div className='rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm'>
+              <p className='font-medium'>Data gagal dan tetap menunggu</p>
+              <ul className='mt-2 max-h-48 space-y-1 overflow-y-auto text-muted-foreground'>
+                {result.failures.map((failure) => (
+                  <li key={failure.uid}>• {failure.message}</li>
+                ))}
+              </ul>
+            </div>
+          )
+        ) : (
+          <div className='space-y-4'>
+            <div className='grid gap-2 rounded-lg bg-muted/50 p-3 text-sm sm:grid-cols-2'>
+              <Field label='Site'>{siteLabel(site)}</Field>
+              <Field label='Rentang tanggal'>{dateRangeLabel(dates)}</Field>
+            </div>
+            <div className='grid gap-2'>
+              <Label htmlFor='bulk-classification-notes'>
+                Catatan review (opsional)
+              </Label>
+              <Textarea
+                id='bulk-classification-notes'
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder='Catatan yang berlaku untuk seluruh approval ini.'
+              />
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          {result ? (
+            <Button onClick={close}>Tutup</Button>
+          ) : (
+            <>
+              <Button
+                variant='outline'
+                onClick={close}
+                disabled={mutation.isPending}
+              >
+                Periksa kembali
+              </Button>
+              <Button
+                onClick={submit}
+                disabled={
+                  mutation.isPending || !items.length || items.length > 50
+                }
+              >
+                {mutation.isPending ? (
+                  <LoaderCircle className='animate-spin' />
+                ) : (
+                  <Check />
+                )}
+                Setujui {items.length} data
+              </Button>
+            </>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -1170,6 +1501,21 @@ function paginationSummary(page: number, pageSize: number, total: number) {
   return total
     ? `Menampilkan ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} dari ${total} data.`
     : 'Tidak ada data.'
+}
+
+function tableSelectedCount<T>(table: TanStackTable<T>) {
+  return table.getFilteredSelectedRowModel().rows.length
+}
+
+function siteLabel(site: AttendanceSiteCode) {
+  return site[0] + site.slice(1).toLowerCase()
+}
+
+function dateRangeLabel(dates: string[]) {
+  if (!dates.length) return '-'
+  return dates[0] === dates[dates.length - 1]
+    ? dateLabel(dates[0])
+    : `${dateLabel(dates[0])}–${dateLabel(dates[dates.length - 1])}`
 }
 
 function apiError(error: unknown, fallback: string) {

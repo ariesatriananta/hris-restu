@@ -153,13 +153,13 @@ Rincian menampilkan:
 - keterlambatan dan pulang awal;
 - kalender dan penempatan historis;
 - catatan;
-- badge `Virtual`, `Dikoreksi`, atau `Abnormal`.
+- badge `Hanya di rekap`, `Dikoreksi`, atau `Abnormal`.
 
-### 7.1 Libur mingguan virtual
+### 7.1 Libur mingguan yang hanya tampil di rekap
 
-Jika hari tidak termasuk hari kerja assignment dan tidak ada scan aktual, rekap membuat baris `WEEKLY_OFF` virtual. Baris ini tidak mempunyai `attendance_records` dan tidak boleh diperlakukan sebagai transaksi Attendance yang hilang.
+Jika hari tidak termasuk hari kerja assignment dan tidak ada scan aktual, sistem tetap menampilkan `WEEKLY_OFF` agar kalender rekap lengkap. Baris berlabel **Hanya di rekap** ini tidak mempunyai `attendance_records` dan bukan transaksi Attendance yang hilang.
 
-Jika karyawan benar-benar scan pada hari tersebut, rekap menampilkan fakta `PRESENT` sebagai **Hadir Hari Libur**, bukan weekly off virtual.
+Jika karyawan benar-benar scan pada hari tersebut, rekap menampilkan fakta `PRESENT` sebagai **Hadir Hari Libur**, bukan baris otomatis.
 
 ### 7.2 Sumber jam
 
@@ -213,7 +213,7 @@ Berisi satu baris per tanggal-karyawan yang diproyeksikan, termasuk:
 - kode/nama/jam shift;
 - status dan konteks kalender;
 - jam, metrik, dan sumber Masuk/Pulang;
-- penanda Dikoreksi dan Virtual;
+- penanda Dikoreksi dan Baris Otomatis;
 - catatan.
 
 ### 8.3 Sheet Metadata Export
@@ -224,7 +224,7 @@ Berisi:
 - waktu ekspor dan pengguna yang mengekspor;
 - status official dan izin ekspor;
 - jumlah baris ringkasan/detail;
-- jumlah weekly off virtual;
+- jumlah libur mingguan otomatis;
 - filter yang digunakan;
 - alasan blokir jika ada;
 - status kelengkapan setiap tanggal-site.
@@ -283,7 +283,7 @@ Keputusan rencana yang sudah disepakati adalah gate membutuhkan **scan Masuk ter
 | Karyawan tidak muncul | Periksa histori employment, status yang mengizinkan Attendance, site, jenis karyawan, periode, dan filter. |
 | Satu karyawan muncul dua baris | Periksa perubahan site/jenis karyawan historis; pemisahan grup dapat memang benar. |
 | Hari kerja kurang/lebih | Periksa periode assignment, hari kerja ISO, dan kalender/override. |
-| Weekly off tidak ada di `attendance_records` | Ini normal; weekly off tanpa scan adalah proyeksi virtual. |
+| Libur mingguan tidak ada di `attendance_records` | Ini normal; libur mingguan tanpa scan hanya ditampilkan otomatis di rekap. |
 | Hadir hari libur muncul | Ada record scan/fakta `PRESENT` pada hari libur; periksa detail dan event scan. |
 | Abnormal tetap ada setelah koreksi | Pastikan koreksi `APPROVED`, jam benar-benar diterapkan, dan muat ulang data. |
 | Status Partial | Buka alasan tanggal-site, selesaikan blocker, lalu finalisasi ulang. |
@@ -333,7 +333,7 @@ Keputusan rencana yang sudah disepakati adalah gate membutuhkan **scan Masuk ter
 | `apps/api/src/routes/attendance-recaps.ts` | API list, detail, dan ekspor. |
 | `src/features/attendance/recap-page.tsx` | Panel kelengkapan, ringkasan, periode, dan tombol ekspor. |
 | `src/features/attendance/recap-columns.tsx` | Definisi kolom ringkasan. |
-| `src/features/attendance/recap-detail-sheet.tsx` | Rincian harian dan label virtual/koreksi/abnormal. |
+| `src/features/attendance/recap-detail-sheet.tsx` | Rincian harian dan label hanya-di-rekap/koreksi/abnormal. |
 | `db/HRIS_PT_RESTU_SCHEMA_MYSQL.sql` | Sumber kebenaran struktur database. |
 
 ## 14. Navigasi KBase

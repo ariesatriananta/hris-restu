@@ -80,10 +80,10 @@ export function AttendanceSettingsContent() {
           menggunakan kondisi data terkini.
         </p>
         <AttendanceReadinessPanel
-          onOpenFinalization={(site) =>
+          onOpenFinalization={(site, businessDate) =>
             void navigate({
               to: '/attendance/monitoring-harian',
-              search: { site: [site] },
+              search: { site: [site], businessDate },
             })
           }
         />

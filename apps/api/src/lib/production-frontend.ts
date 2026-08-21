@@ -1,7 +1,6 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Express } from 'express'
-import express from 'express'
+import express, { type Express } from 'express'
 
 const defaultDistPath = join(process.cwd(), 'dist')
 

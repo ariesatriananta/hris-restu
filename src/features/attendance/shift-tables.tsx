@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link } from '@tanstack/react-router'
 import {
   flexRender,
   getCoreRowModel,
@@ -15,6 +16,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { currentListReturnTo } from '@/lib/list-return-to'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -274,6 +276,7 @@ export function ShiftAssignmentTable({
   productionModuleOptions?: { value: string; label: string }[]
   productionSectionOptions?: { value: string; label: string }[]
 }) {
+  const returnTo = currentListReturnTo()
   const columns = useMemo<ColumnDef<ShiftAssignment>[]>(
     () => [
       {
@@ -283,12 +286,15 @@ export function ShiftAssignmentTable({
         ),
         cell: ({ row }) => (
           <div className='min-w-0'>
-            <p
-              className='truncate font-medium'
+            <Link
+              className='block truncate font-medium hover:underline'
               title={row.original.employeeName}
+              to='/karyawan/data-karyawan/$employeeUid'
+              params={{ employeeUid: row.original.employeeUid }}
+              search={{ returnTo }}
             >
               {row.original.employeeName}
-            </p>
+            </Link>
             <p className='text-[11px] text-muted-foreground'>
               {row.original.employeeNumber}
             </p>
@@ -461,7 +467,7 @@ export function ShiftAssignmentTable({
         meta: { className: 'w-[5%] px-1' },
       },
     ],
-    [onCorrect, onDelete]
+    [onCorrect, onDelete, returnTo]
   )
   return (
     <AttendanceTable
@@ -517,7 +523,14 @@ export function ShiftAssignmentTable({
           <CardContent className='space-y-3 p-4'>
             <div className='flex items-start justify-between gap-3'>
               <div>
-                <p className='font-semibold'>{assignment.employeeName}</p>
+                <Link
+                  className='font-semibold hover:underline'
+                  to='/karyawan/data-karyawan/$employeeUid'
+                  params={{ employeeUid: assignment.employeeUid }}
+                  search={{ returnTo }}
+                >
+                  {assignment.employeeName}
+                </Link>
                 <p className='text-xs text-muted-foreground'>
                   {assignment.employeeNumber} · {titleCase(assignment.site)}
                 </p>

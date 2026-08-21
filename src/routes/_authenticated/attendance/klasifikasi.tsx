@@ -21,6 +21,10 @@ export const Route = createFileRoute('/_authenticated/attendance/klasifikasi')({
     pageSize: z.number().int().min(1).max(500).optional(),
     filter: z.string().optional(),
     site: z.array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])).optional(),
+    employeeTypeFilter: z
+      .array(z.enum(['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING']))
+      .optional(),
+    productionSection: z.array(z.string().uuid()).optional(),
     classificationType: z
       .array(z.enum(['LEAVE', 'SICK', 'PERMISSION']))
       .optional(),

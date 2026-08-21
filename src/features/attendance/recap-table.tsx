@@ -46,6 +46,7 @@ export function AttendanceRecapTable({
   search,
   navigate,
   siteOptions,
+  productionSectionOptions,
   isPending,
   isFetching,
   isError,
@@ -56,6 +57,7 @@ export function AttendanceRecapTable({
   search: Record<string, unknown>
   navigate: NavigateFn
   siteOptions: { value: string; label: string }[]
+  productionSectionOptions: { value: string; label: string }[]
   isPending: boolean
   isFetching: boolean
   isError: boolean
@@ -70,6 +72,11 @@ export function AttendanceRecapTable({
     columnFilters: [
       { columnId: 'site', searchKey: 'site', type: 'array' },
       { columnId: 'employeeType', searchKey: 'employeeType', type: 'array' },
+      {
+        columnId: 'productionSection',
+        searchKey: 'productionSection',
+        type: 'array',
+      },
       {
         columnId: 'attendanceStatus',
         searchKey: 'attendanceStatus',
@@ -95,6 +102,7 @@ export function AttendanceRecapTable({
         abnormal: false,
         shiftNames: false,
         attendanceStatus: false,
+        productionSection: false,
       },
     },
     pageCount: Math.max(
@@ -122,8 +130,13 @@ export function AttendanceRecapTable({
               { columnId: 'site', title: 'Site', options: siteOptions },
               {
                 columnId: 'employeeType',
-                title: 'Jenis',
+                title: 'Jenis karyawan',
                 options: employeeTypeOptions,
+              },
+              {
+                columnId: 'productionSection',
+                title: 'Bagian produksi',
+                options: productionSectionOptions,
               },
               {
                 columnId: 'attendanceStatus',

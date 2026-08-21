@@ -35,6 +35,7 @@ export type AttendanceRecapDetail = {
   department: string | null
   position: string | null
   productionModule: string | null
+  productionSectionUid: string | null
   productionSection: string | null
   workGroup: string | null
   shiftUid: string | null
@@ -69,6 +70,7 @@ export type AttendanceRecapGroup = {
   employeeType: string
   positions: string[]
   productionModules: string[]
+  productionSectionUids: string[]
   productionSections: string[]
   shiftNames: string[]
   scheduledDays: number
@@ -192,7 +194,8 @@ export async function loadAttendanceRecapProjection(
             s.code site,s.name siteName,et.code employeeType,
             dep.name department,pos.name position,wg.name workGroup,
             pm.name productionModule,
-            ps.name productionSection,es.allows_attendance allowsAttendance,
+            ps.uid productionSectionUid,ps.name productionSection,
+            es.allows_attendance allowsAttendance,
             esa.id assignmentId,esa.work_days_json workDays,
             sh.id shiftId,sh.uid shiftUid,sh.code shiftCode,sh.name shiftName,
             TIME_FORMAT(sh.start_time,'%H:%i') shiftStartTime,
@@ -504,6 +507,9 @@ function mapDetail(
     department: row.department ? String(row.department) : null,
     position: row.position ? String(row.position) : null,
     productionModule: row.productionModule ? String(row.productionModule) : null,
+    productionSectionUid: row.productionSectionUid
+      ? String(row.productionSectionUid)
+      : null,
     productionSection: row.productionSection ? String(row.productionSection) : null,
     workGroup: row.workGroup ? String(row.workGroup) : null,
     shiftUid: row.shiftUid ? String(row.shiftUid) : null,
@@ -587,6 +593,7 @@ export function summarizeAttendanceRecap(details: AttendanceRecapDetail[]) {
         employeeType: detail.employeeType,
         positions: [],
         productionModules: [],
+        productionSectionUids: [],
         productionSections: [],
         shiftNames: [],
         scheduledDays: 0,
@@ -616,6 +623,12 @@ export function summarizeAttendanceRecap(details: AttendanceRecapDetail[]) {
       !group.productionModules.includes(detail.productionModule)
     ) {
       group.productionModules.push(detail.productionModule)
+    }
+    if (
+      detail.productionSectionUid &&
+      !group.productionSectionUids.includes(detail.productionSectionUid)
+    ) {
+      group.productionSectionUids.push(detail.productionSectionUid)
     }
     if (
       detail.productionSection &&
@@ -733,7 +746,7 @@ export async function buildAttendanceRecapWorkbook(input: {
     'Kode Shift', 'Nama Shift', 'Jam Shift Masuk', 'Jam Shift Pulang',
     'Status', 'Jenis Hari', 'Alasan Kalender', 'Nama Kalender', 'Jam Masuk',
     'Jam Pulang', 'Menit Terlambat', 'Menit Pulang Cepat', 'Menit Kerja',
-    'Sumber Masuk', 'Sumber Pulang', 'Dikoreksi', 'Virtual', 'Catatan',
+    'Sumber Masuk', 'Sumber Pulang', 'Dikoreksi', 'Baris Otomatis', 'Catatan',
   ]
   detail.addRow(detailHeaders)
   input.details.forEach((row) =>
@@ -762,7 +775,7 @@ export async function buildAttendanceRecapWorkbook(input: {
     ['Ekspor Diizinkan', input.completeness.exportAllowed ? 'Ya' : 'Tidak'],
     ['Jumlah Ringkasan', input.groups.length],
     ['Jumlah Detail', input.details.length],
-    ['Jumlah Libur Mingguan Virtual', input.details.filter((row) => row.virtual).length],
+    ['Jumlah Libur Mingguan Otomatis', input.details.filter((row) => row.virtual).length],
     ['Filter', JSON.stringify(input.filters)],
     ['Alasan Blokir', input.completeness.blockedReasons.join(' | ')],
     [],

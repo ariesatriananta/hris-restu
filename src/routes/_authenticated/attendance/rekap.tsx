@@ -14,6 +14,7 @@ export const Route = createFileRoute('/_authenticated/attendance/rekap')({
     filter: z.string().optional(),
     site: z.array(site).optional(),
     employeeType: z.array(employeeType).optional(),
+    productionSection: z.array(z.string().uuid()).optional(),
     attendanceStatus: z
       .array(
         z.enum([

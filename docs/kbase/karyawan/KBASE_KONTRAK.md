@@ -131,7 +131,7 @@ Satu kontrak menyimpan informasi utama berikut:
 | Kontrak ke | Nomor urut kontrak milik karyawan. Dibuat otomatis. |
 | Tanggal mulai | Awal periode kontrak. |
 | Tanggal berakhir | Akhir periode; wajib untuk Training dan PKWT. |
-| Tanggal tanda tangan | Metadata tanggal tanda tangan jika tersedia pada data. |
+| Tanggal tanda tangan | Metadata tanggal tanda tangan jika tersedia. Pada template cetak, tanggal mulai kontrak dipakai jika metadata ini kosong. |
 | Status | Posisi kontrak dalam lifecycle. |
 | Tanggal terminasi | Tanggal efektif ketika kontrak dihentikan. |
 | Alasan terminasi | Alasan terminasi atau resign. |
@@ -173,25 +173,37 @@ Relasi penting:
 
 Nomor kontrak dibuat otomatis dengan pola:
 
-`{JENIS-KONTRAK}-{EMPLOYEE-ID}-{URUTAN-2-DIGIT}`
+`{JENIS-KONTRAK}/{KODE-SITE-HR}/{URUTAN-BULANAN-SITE}/{BULAN-ROMAWI}/{TAHUN}`
 
 Contoh:
 
-`PKWT-PKDS-2608-01001-01`
+`PKWT/RSIASMG-HR/007/VIII/2026`
 
 Artinya:
 
 - jenis kontrak: `PKWT`;
-- Employee ID: `PKDS-2608-01001`;
-- kontrak ke: `01`.
+- site: Semarang (`RSIASMG-HR`);
+- nomor urut kontrak site Semarang pada Agustus 2026: `007`;
+- bulan dan tahun tanggal mulai kontrak: Agustus (`VIII`) 2026.
+
+Kode nomor kontrak per site:
+
+| Site | Kode nomor kontrak |
+| --- | --- |
+| Semarang | `RSIASMG-HR` |
+| Klaten | `RSIASLO-HR` |
+| Jepara | `RSIAKDS-HR` |
 
 Aturannya:
 
 - HR tidak mengisi nomor kontrak manual;
-- urutan dihitung dari urutan terbesar milik karyawan lalu ditambah satu;
-- kontrak yang dibatalkan tetap menjadi bagian histori urutan;
-- nomor yang pernah dipakai tidak digunakan ulang;
-- saat jenis kontrak pada `DRAFT` atau `SCHEDULED` diubah, prefix nomor kontrak ikut disesuaikan, tetapi urutannya tetap;
+- urutan nomor dihitung per site dan direset setiap awal bulan;
+- bulan Romawi dan tahun mengikuti `start_date` kontrak;
+- urutan ditampilkan minimal tiga digit dan dapat bertambah menjadi empat digit atau lebih;
+- pembuatan single maupun batch memakai alokasi yang sama agar nomor tidak bentrok;
+- saat jenis kontrak pada `DRAFT` atau `SCHEDULED` diubah, bagian jenis kontrak ikut disesuaikan;
+- saat tanggal mulai `DRAFT` atau `SCHEDULED` pindah bulan atau tahun, nomor memperoleh urutan baru dari periode tujuan;
+- perubahan yang tetap berada pada site, bulan, dan tahun yang sama mempertahankan nomor urut yang sudah dialokasikan;
 - nomor kontrak `ACTIVE` tidak berubah.
 
 ## 6. Membuat Single Kontrak
@@ -337,7 +349,7 @@ Kontrak `DRAFT` dan `SCHEDULED` dapat diubah selama seluruh validasi tetap terpe
 - catatan;
 - scan kontrak asli.
 
-Perubahan jenis kontrak akan menghitung ulang prefix nomor kontrak tanpa mengganti urutan kontrak.
+Perubahan jenis kontrak akan memperbarui bagian jenis pada nomor kontrak. Jika tanggal mulai berpindah bulan atau tahun, sistem mengalokasikan urutan baru pada periode tujuan; jika periodenya tetap, urutan lama dipertahankan.
 
 ### 9.2 ACTIVE
 
@@ -851,6 +863,10 @@ Ketika **Cetak Template Kontrak** pertama kali dipilih, sistem menyimpan snapsho
 - jabatan penandatangan perusahaan: Kepala Produksi Site.
 
 Snapshot disimpan di kontrak agar perubahan tarif master setelahnya tidak mengubah kontrak lama.
+
+Kalimat pembuka template memakai tanggal tanda tangan kontrak. Jika tanggal
+tanda tangan belum tersedia, template memakai tanggal mulai kontrak agar hari,
+tanggal, bulan, dan tahun tidak dibiarkan kosong.
 
 Identitas pribadi seperti nama, NIK, dan alamat dibaca dari data karyawan ketika snapshot pertama kali dibuat. Site dan jabatan diambil dari histori penempatan pada tanggal mulai kontrak, sedangkan pekerjaan dan tarif diambil dari master yang efektif pada site dan tanggal tersebut.
 

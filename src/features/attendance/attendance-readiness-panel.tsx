@@ -29,9 +29,12 @@ export function AttendanceReadinessPanel({
   onOpenFinalization,
 }: {
   sites?: AttendanceSiteCode[]
-  onOpenFinalization?: (site: AttendanceSiteCode) => void
+  onOpenFinalization?: (
+    site: AttendanceSiteCode,
+    businessDate?: string
+  ) => void
 }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
   const result = useAttendanceReadiness({ site: sites })
   const session = useAuthStore((state) => state.session)
   const navigate = useNavigate()
@@ -151,7 +154,8 @@ export function AttendanceReadinessPanel({
                     }
                     onOpenFinalization={
                       onOpenFinalization
-                        ? () => onOpenFinalization(item.site)
+                        ? (businessDate) =>
+                            onOpenFinalization(item.site, businessDate)
                         : undefined
                     }
                   />
@@ -186,7 +190,7 @@ function ReadinessSiteCard({
   onOpenDevice: () => void
   onOpenCalendar: () => void
   onOpenFollowUp: () => void
-  onOpenFinalization?: () => void
+  onOpenFinalization?: (businessDate?: string) => void
 }) {
   const ready = item.attentionCount === 0
   return (
@@ -247,7 +251,12 @@ function ReadinessSiteCard({
           ready={item.finalization.rerunRequiredCount === 0}
           detail={
             item.finalization.rerunRequiredCount > 0
-              ? `${item.finalization.rerunRequiredCount} tanggal perlu dijalankan ulang`
+              ? (
+                  <FinalizationReadinessDetail
+                    dates={item.finalization.rerunRequiredDates}
+                    onOpen={onOpenFinalization}
+                  />
+                )
               : 'Tidak ada finalisasi yang perlu diulang'
           }
         />
@@ -276,7 +285,15 @@ function ReadinessSiteCard({
           )}
           {item.finalization.rerunRequiredCount > 0 &&
             (onOpenFinalization ? (
-              <Button size='sm' variant='outline' onClick={onOpenFinalization}>
+              <Button
+                size='sm'
+                variant='outline'
+                onClick={() =>
+                  onOpenFinalization(
+                    item.finalization.rerunRequiredDates[0]
+                  )
+                }
+              >
                 Tinjau finalisasi
               </Button>
             ) : (
@@ -298,7 +315,7 @@ function ReadinessLine({
 }: {
   icon: typeof UsersRound
   label: string
-  detail: string
+  detail: React.ReactNode
   ready: boolean
 }) {
   return (
@@ -312,7 +329,39 @@ function ReadinessLine({
       />
       <div className='min-w-0'>
         <p className='font-medium'>{label}</p>
-        <p className='break-words text-muted-foreground'>{detail}</p>
+        <div className='break-words text-muted-foreground'>{detail}</div>
+      </div>
+    </div>
+  )
+}
+
+function FinalizationReadinessDetail({
+  dates,
+  onOpen,
+}: {
+  dates: string[]
+  onOpen?: (businessDate?: string) => void
+}) {
+  return (
+    <div>
+      <p>{dates.length} tanggal perlu dijalankan ulang:</p>
+      <div className='mt-1 flex max-h-20 flex-wrap gap-x-2 gap-y-1 overflow-y-auto pr-1'>
+        {dates.map((date) =>
+          onOpen ? (
+            <button
+              key={date}
+              type='button'
+              className='rounded-sm font-medium text-foreground underline decoration-dotted underline-offset-2 hover:text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none'
+              onClick={() => onOpen(date)}
+            >
+              {shortDateLabel(date)}
+            </button>
+          ) : (
+            <span key={date} className='font-medium text-foreground'>
+              {shortDateLabel(date)}
+            </span>
+          )
+        )}
       </div>
     </div>
   )
@@ -330,4 +379,12 @@ function dateLabel(value: string) {
   return new Intl.DateTimeFormat('id-ID', { dateStyle: 'long' }).format(
     new Date(`${value}T00:00:00`)
   )
+}
+
+function shortDateLabel(value: string) {
+  return new Intl.DateTimeFormat('id-ID', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(`${value}T00:00:00`))
 }

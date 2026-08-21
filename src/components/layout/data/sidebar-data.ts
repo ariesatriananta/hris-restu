@@ -86,12 +86,38 @@ export const sidebarData: SidebarData = {
         {
           title: 'Produksi Borongan',
           icon: ScanLine,
+          anyOfPermissions: [
+            'production.view',
+            'production.scan',
+            'production.correct',
+            'production.manage_master',
+          ],
           items: [
-            { title: 'Terminal Setoran', url: '/produksi/terminal-setoran' },
-            { title: 'Transaksi Produksi', url: '/produksi/transaksi' },
-            { title: 'Rekap Produksi', url: '/produksi/rekap' },
-            { title: 'Master Pekerjaan', url: '/produksi/master-pekerjaan' },
-            { title: 'Tarif per Site', url: '/produksi/tarif-site' },
+            {
+              title: 'Terminal Setoran',
+              url: '/produksi/terminal-setoran',
+              anyOfPermissions: ['production.scan'],
+            },
+            {
+              title: 'Transaksi Produksi',
+              url: '/produksi/transaksi',
+              anyOfPermissions: ['production.view'],
+            },
+            {
+              title: 'Rekap Produksi',
+              url: '/produksi/rekap',
+              anyOfPermissions: ['production.view'],
+            },
+            {
+              title: 'Master Pekerjaan',
+              url: '/produksi/master-pekerjaan',
+              anyOfPermissions: ['production.view'],
+            },
+            {
+              title: 'Tarif per Site',
+              url: '/produksi/tarif-site',
+              anyOfPermissions: ['production.view'],
+            },
           ],
         },
         {

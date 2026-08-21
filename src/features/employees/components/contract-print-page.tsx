@@ -264,7 +264,9 @@ export function ContractPrintDocument({
 }: {
   data: ContractPrintSnapshot
 }) {
-  const signed = openingDate(data.contract.signedDate)
+  const signed = openingDate(
+    data.contract.signedDate ?? data.contract.startDate
+  )
   const target = `${new Intl.NumberFormat('id-ID').format(data.target.value)} ${data.target.unit}`
 
   return (
@@ -278,7 +280,9 @@ export function ContractPrintDocument({
                 <br />
                 dengan Sistem Pengupahan Satuan Hasil
               </h1>
-              <p className='mt-6 normal-case'>Nomor: {data.contract.number}</p>
+              <p className='mt-6 whitespace-nowrap normal-case'>
+                Nomor: {data.contract.number}
+              </p>
             </header>
 
             <p>

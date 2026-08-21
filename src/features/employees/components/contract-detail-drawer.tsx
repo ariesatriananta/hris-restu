@@ -164,7 +164,7 @@ export function ContractDetailDrawer({
 
             <DetailSection title='Kontrak'>
               <DetailRow label='Nomor kontrak'>
-                {contract.contractNumber}
+                <span className='break-all'>{contract.contractNumber}</span>
               </DetailRow>
               <DetailRow label='Jenis kontrak'>
                 {contract.contractType}

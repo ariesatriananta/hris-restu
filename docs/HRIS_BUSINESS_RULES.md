@@ -12,6 +12,10 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 
 ## Aturan bisnis penting
 - Jenis karyawan operasional: `BORONGAN`, `HARIAN`, `BULANAN`, dan `TRAINING`.
+- Karyawan `BORONGAN` dan `TRAINING` menggunakan basis payroll `PIECE_RATE`
+  dan eligible untuk penugasan pekerjaan Produksi selama histori employment
+  efektifnya mengizinkan Produksi. Penugasan Produksi wajib mengikuti periode
+  histori tersebut dan tidak boleh menyeberangi periode inactive.
 - Semua jenis karyawan wajib memiliki penempatan Modul dan Bagian produksi pada registrasi dan mutasi.
 - Jenis kontrak `TRAINING`, `PKWT`, dan `PKWTT` dipilih sesuai kebijakan HR dan tidak ditentukan otomatis dari jenis karyawan.
 - Cetak template kontrak produksi tahap pertama hanya untuk kombinasi karyawan `BORONGAN` dengan kontrak `PKWT`.
@@ -23,6 +27,12 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Pekerja borongan dibayar berdasarkan hasil produksi, bukan durasi kerja.
 - Satu karyawan dapat melakukan setoran produksi lebih dari satu kali dalam sehari.
 - Tarif pekerjaan berbeda per site dan memiliki periode berlaku.
+- Tarif Produksi baru selalu dibuat sebagai `DRAFT` dan baru dipakai setelah
+  aktivasi eksplisit. Tarif aktif untuk site dan pekerjaan yang sama tidak boleh
+  overlap; penggantian tarif menutup histori lama pada H-1.
+- Penugasan pekerjaan Produksi disimpan sebagai histori, tidak dihapus atau
+  ditimpa. Satu pekerja maksimal memiliki satu pekerjaan utama efektif pada
+  tanggal yang sama.
 - Transaksi produksi menyimpan snapshot tarif agar histori tidak berubah saat tarif diperbarui.
 - Payroll draft/simulasi dapat dihitung ulang. Payroll yang sudah closing bersifat immutable.
 - Koreksi setelah payroll closing tidak termasuk scope saat ini.

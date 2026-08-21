@@ -113,7 +113,11 @@ export function ScheduledStatusChangesTable({
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title='Kontrak acuan' />
       ),
-      cell: ({ row }) => row.original.contractNumber ?? '—',
+      cell: ({ row }) => (
+        <span className='break-all' title={row.original.contractNumber}>
+          {row.original.contractNumber ?? '—'}
+        </span>
+      ),
     },
     {
       accessorKey: 'action',

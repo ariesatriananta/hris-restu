@@ -51,6 +51,7 @@ import type {
   AttendanceRecapStatus,
   AttendanceSiteCode,
 } from './domain'
+import { attendanceProductionSectionOptions } from './filter-options'
 import { durationLabel, siteLabel } from './recap-columns'
 import { AttendanceRecapDetailSheet } from './recap-detail-sheet'
 import { AttendanceRecapTable } from './recap-table'
@@ -73,6 +74,7 @@ export function AttendanceRecapPage({
     query: stringValue(search.filter),
     site: arrayValue<AttendanceSiteCode>(search.site),
     employeeType: arrayValue<AttendanceEmployeeType>(search.employeeType),
+    productionSection: arrayValue(search.productionSection),
     attendanceStatus: arrayValue<AttendanceRecapStatus>(
       search.attendanceStatus
     ),
@@ -130,6 +132,7 @@ export function AttendanceRecapPage({
         query: params.query,
         site: params.site,
         employeeType: params.employeeType,
+        productionSection: params.productionSection,
         attendanceStatus: params.attendanceStatus,
       },
       {
@@ -156,6 +159,10 @@ export function AttendanceRecapPage({
     value: site.code,
     label: site.name,
   }))
+  const productionSectionOptions = attendanceProductionSectionOptions(
+    foundation.data,
+    params.site
+  )
 
   return (
     <Main>
@@ -269,6 +276,7 @@ export function AttendanceRecapPage({
               search={search}
               navigate={navigate}
               siteOptions={siteOptions}
+              productionSectionOptions={productionSectionOptions}
               isPending={result.isPending}
               isFetching={result.isFetching}
               isError={result.isError}
@@ -288,6 +296,7 @@ export function AttendanceRecapPage({
         dateFrom={dateFrom}
         dateTo={dateTo}
         attendanceStatus={params.attendanceStatus}
+        productionSection={params.productionSection}
         onOpenChange={(open) => {
           if (open) return
           navigate({

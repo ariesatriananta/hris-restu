@@ -496,7 +496,7 @@ function ContractConflictItem({
       </div>
       <p className='text-sm leading-relaxed'>{conflict.reason}</p>
       {conflict.contractNumbers.length ? (
-        <p className='text-xs text-muted-foreground'>
+        <p className='break-words text-xs text-muted-foreground'>
           Kontrak: {conflict.contractNumbers.join(', ')}
         </p>
       ) : null}

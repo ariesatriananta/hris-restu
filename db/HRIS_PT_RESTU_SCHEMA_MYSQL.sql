@@ -1660,7 +1660,7 @@ VALUES
   (UUID(), 'BORONGAN', 'Pekerja Borongan', 'PIECE_RATE', 'Pekerja produksi yang dibayar berdasarkan hasil kerja.'),
   (UUID(), 'HARIAN', 'Karyawan Harian', 'TIME_BASED', 'Karyawan dengan satuan upah berbasis waktu dan pembayaran harian atau mingguan.'),
   (UUID(), 'BULANAN', 'Karyawan Bulanan', 'MONTHLY', 'Staff/non-produksi yang dibayar bulanan dan dapat menggunakan aturan shift.'),
-  (UUID(), 'TRAINING', 'Karyawan Training', 'TIME_BASED', 'Karyawan dalam masa pelatihan dengan satuan upah berbasis waktu.');
+  (UUID(), 'TRAINING', 'Pekerja Training', 'PIECE_RATE', 'Pekerja dalam masa pelatihan produksi yang dicatat berdasarkan hasil kerja.');
 
 INSERT INTO employee_statuses (uid, code, name, allows_attendance, allows_production)
 VALUES
@@ -1751,6 +1751,7 @@ VALUES
   (UUID(), 'production.view', 'production', 'Lihat Produksi'),
   (UUID(), 'production.scan', 'production', 'Input Setoran Produksi'),
   (UUID(), 'production.correct', 'production', 'Koreksi Setoran Produksi'),
+  (UUID(), 'production.manage_master', 'production', 'Kelola Master Produksi'),
   (UUID(), 'payroll.view', 'payroll', 'Lihat Payroll'),
   (UUID(), 'payroll.calculate', 'payroll', 'Hitung Payroll'),
   (UUID(), 'payroll.approve', 'payroll', 'Approve Payroll'),
@@ -1789,6 +1790,25 @@ FROM roles r
 JOIN permissions p
   ON p.code IN ('attendance.view', 'attendance.scan', 'attendance.export')
 WHERE r.code = 'SITE_SUPERVISOR';
+
+-- Matriks akses awal Produksi Borongan.
+INSERT INTO role_permissions (uid, role_id, permission_id)
+SELECT UUID(), r.id, p.id
+FROM roles r
+JOIN permissions p
+  ON p.code IN ('production.view', 'production.scan', 'production.correct')
+WHERE r.code = 'PRODUCTION_ADMIN';
+
+INSERT INTO role_permissions (uid, role_id, permission_id)
+SELECT UUID(), r.id, p.id
+FROM roles r
+JOIN permissions p ON p.code = 'production.view'
+WHERE r.code IN (
+  'DIRECTOR',
+  'HR_OFFICER',
+  'PAYROLL_FINANCE',
+  'SITE_SUPERVISOR'
+);
 
 -- Pengaturan global awal.
 INSERT INTO system_settings (uid, site_id, setting_key, setting_value, description)

@@ -48,6 +48,13 @@ export type AttendanceFinalizationRequirement = {
   unresolvedTargets: number
 }
 
+export function attendanceFinalizationLockName(
+  siteId: number | string,
+  businessDate: string
+) {
+  return `hris:attendance:finalize:${siteId}:${businessDate}`
+}
+
 export async function getAttendanceFinalizationRequirement(input: {
   siteId: number
   businessDate: string
@@ -226,7 +233,7 @@ export async function finalizeAttendanceDay(input: {
         'Tanggal ini tidak memerlukan finalisasi Attendance.'
       )
     }
-    lockName = `hris:attendance:finalize:${site.id}:${input.businessDate}`
+    lockName = attendanceFinalizationLockName(site.id, input.businessDate)
     const [locks] = await conn.query<RowDataPacket[]>('SELECT GET_LOCK(?,0) acquired', [lockName])
     lockHeld = Number(locks[0]?.acquired) === 1
     if (!lockHeld) throw new ApiError(409, 'Finalisasi site dan tanggal ini sedang berjalan.')

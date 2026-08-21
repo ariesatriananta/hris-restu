@@ -52,6 +52,10 @@ type TestState = {
   correctionUid: string | null
   correctionStatus: 'PENDING' | 'APPROVED' | null
   correctionNewStatus: string | null
+  finalizationLockAcquired?: boolean
+  lockedPayroll?: boolean
+  payrollSnapshot?: boolean
+  finalized?: boolean
 }
 
 const attendanceUid = '11111111-1111-4111-8111-111111111111'
@@ -80,6 +84,10 @@ function connection(state: TestState): FakeConnection {
 
   conn.query.mockImplementation(async (sqlValue: unknown) => {
     const sql = String(sqlValue)
+    if (sql.includes('GET_LOCK')) {
+      return [[{ acquired: state.finalizationLockAcquired === false ? 0 : 1 }]]
+    }
+    if (sql.includes('RELEASE_LOCK')) return [[{ released: 1 }]]
     if (sql.includes('WHERE ar.uid=?')) {
       return [[{
         id: 88,
@@ -122,7 +130,12 @@ function connection(state: TestState): FakeConnection {
         earlyLeaveToleranceMinutes: 15,
       }]]
     }
-    if (sql.includes('FROM payroll_periods')) return [[]]
+    if (sql.includes('FROM payroll_periods')) {
+      return [state.lockedPayroll ? [{ id: 70 }] : []]
+    }
+    if (sql.includes('FROM payroll_attendance_summaries')) {
+      return [state.payrollSnapshot ? [{ id: 80 }] : []]
+    }
     if (sql.includes('rawLate')) {
       return [[{ rawLate: 60, rawEarly: 0, workedMinutes: 600 }]]
     }
@@ -149,6 +162,9 @@ function connection(state: TestState): FakeConnection {
         state.correctionStatus = 'APPROVED'
         return [{ affectedRows: 1 }]
       }
+      if (sql.includes('INSERT INTO attendance_daily_finalization_runs')) {
+        return [{ affectedRows: state.finalized ? 1 : 0 }]
+      }
       throw new Error(`Execute test belum dimock: ${sql.slice(0, 100)}`)
     }
   )
@@ -156,11 +172,11 @@ function connection(state: TestState): FakeConnection {
   return conn
 }
 
-async function post(path: string, body: unknown) {
+async function post(path: string, body: unknown, actor = auth()) {
   const app = express()
   app.use(express.json())
   app.use((_req, res, next) => {
-    res.locals.auth = auth()
+    res.locals.auth = actor
     next()
   })
   app.use('/api/attendance', attendanceCorrectionsRouter)
@@ -195,6 +211,7 @@ describe('Attendance correction API integration', () => {
       correctionUid: null,
       correctionStatus: null,
       correctionNewStatus: null,
+      finalized: true,
     }
     const conn = connection(state)
     mocks.getConnection.mockResolvedValue(conn)
@@ -234,5 +251,221 @@ describe('Attendance correction API integration', () => {
     })
     expect(conn.commit).toHaveBeenCalledTimes(2)
     expect(conn.rollback).not.toHaveBeenCalled()
+    expect(conn.execute).toHaveBeenCalledWith(
+      expect.stringContaining('invalidatedByAttendanceCorrection'),
+      expect.any(Array)
+    )
+    expect(conn.query).toHaveBeenCalledWith(
+      'SELECT RELEASE_LOCK(?)',
+      ['hris:attendance:finalize:1:2026-08-07']
+    )
+  })
+
+  it('menolak approval saat finalisasi tanggal-site sedang berjalan', async () => {
+    const uid = '22222222-2222-4222-8222-222222222222'
+    const conn = connection({
+      attendanceStatus: 'ABSENT',
+      clockInAt: null,
+      clockOutAt: null,
+      correctionUid: uid,
+      correctionStatus: 'PENDING',
+      correctionNewStatus: 'PRESENT',
+      finalizationLockAcquired: false,
+    })
+    mocks.getConnection.mockResolvedValue(conn)
+
+    const response = await post(`/corrections/${uid}/review`, {
+      decision: 'APPROVED',
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      message:
+        'Finalisasi site dan tanggal ini sedang berjalan. Coba lagi setelah proses selesai.',
+    })
+    expect(conn.rollback).toHaveBeenCalledOnce()
+  })
+
+  it('menolak approval bila payroll sudah dihitung', async () => {
+    const uid = '22222222-2222-4222-8222-222222222222'
+    const conn = connection({
+      attendanceStatus: 'ABSENT',
+      clockInAt: null,
+      clockOutAt: null,
+      correctionUid: uid,
+      correctionStatus: 'PENDING',
+      correctionNewStatus: 'PRESENT',
+      lockedPayroll: true,
+    })
+    mocks.getConnection.mockResolvedValue(conn)
+
+    const response = await post(`/corrections/${uid}/review`, {
+      decision: 'APPROVED',
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      message:
+        'Attendance dalam periode payroll yang sudah dihitung, disetujui, atau ditutup tidak dapat dikoreksi.',
+    })
+    expect(conn.rollback).toHaveBeenCalledOnce()
+  })
+
+  it('menolak approval bila snapshot payroll sudah tersedia', async () => {
+    const uid = '22222222-2222-4222-8222-222222222222'
+    const conn = connection({
+      attendanceStatus: 'ABSENT',
+      clockInAt: null,
+      clockOutAt: null,
+      correctionUid: uid,
+      correctionStatus: 'PENDING',
+      correctionNewStatus: 'PRESENT',
+      payrollSnapshot: true,
+    })
+    mocks.getConnection.mockResolvedValue(conn)
+
+    const response = await post(`/corrections/${uid}/review`, {
+      decision: 'APPROVED',
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      message:
+        'Attendance sudah tersimpan dalam snapshot payroll dan tidak dapat dikoreksi.',
+    })
+    expect(conn.rollback).toHaveBeenCalledOnce()
+  })
+
+  it('bulk approval memproses item secara terpisah dan melaporkan partial success', async () => {
+    const firstUid = '22222222-2222-4222-8222-222222222222'
+    const secondUid = '33333333-3333-4333-8333-333333333333'
+    const successful = connection({
+      attendanceStatus: 'ABSENT',
+      clockInAt: null,
+      clockOutAt: null,
+      correctionUid: firstUid,
+      correctionStatus: 'PENDING',
+      correctionNewStatus: 'PRESENT',
+    })
+    const alreadyReviewed = connection({
+      attendanceStatus: 'ABSENT',
+      clockInAt: null,
+      clockOutAt: null,
+      correctionUid: secondUid,
+      correctionStatus: 'APPROVED',
+      correctionNewStatus: 'PRESENT',
+    })
+    mocks.getConnection
+      .mockResolvedValueOnce(successful)
+      .mockResolvedValueOnce(alreadyReviewed)
+
+    const response = await post('/corrections/batch-review', {
+      site: 'JEPARA',
+      uids: [firstUid, secondUid],
+      decision: 'APPROVED',
+      reviewNotes: 'Sudah diperiksa bersama supervisor.',
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      requested: 2,
+      approved: 1,
+      failed: 1,
+      failures: [
+        {
+          uid: secondUid,
+          message: 'Koreksi Attendance ini sudah ditinjau.',
+        },
+      ],
+    })
+    expect(successful.commit).toHaveBeenCalledOnce()
+    expect(alreadyReviewed.rollback).toHaveBeenCalledOnce()
+    expect(mocks.writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordUid: firstUid,
+        requestId: expect.any(String),
+      }),
+      successful
+    )
+  })
+
+  it('menolak payload bulk duplikat sebelum membuka transaksi', async () => {
+    const uid = '22222222-2222-4222-8222-222222222222'
+    const response = await post('/corrections/batch-review', {
+      site: 'JEPARA',
+      uids: [uid, uid],
+      decision: 'APPROVED',
+    })
+
+    expect(response.status).toBe(422)
+    expect(mocks.getConnection).not.toHaveBeenCalled()
+  })
+
+  it('menolak site bulk di luar scope pengguna', async () => {
+    const response = await post('/corrections/batch-review', {
+      site: 'SEMARANG',
+      uids: ['22222222-2222-4222-8222-222222222222'],
+      decision: 'APPROVED',
+    })
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ message: 'Akses site ditolak.' })
+    expect(mocks.getConnection).not.toHaveBeenCalled()
+  })
+
+  it('menolak item yang tidak sesuai site batch meskipun pengguna Super Admin', async () => {
+    const uid = '22222222-2222-4222-8222-222222222222'
+    const conn = connection({
+      attendanceStatus: 'ABSENT',
+      clockInAt: null,
+      clockOutAt: null,
+      correctionUid: uid,
+      correctionStatus: 'PENDING',
+      correctionNewStatus: 'PRESENT',
+    })
+    mocks.getConnection.mockResolvedValue(conn)
+    const actor = auth()
+    actor.roles = ['SUPER_ADMIN']
+
+    const response = await post(
+      '/corrections/batch-review',
+      {
+        site: 'SEMARANG',
+        uids: [uid],
+        decision: 'APPROVED',
+      },
+      actor
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      requested: 1,
+      approved: 0,
+      failed: 1,
+      failures: [
+        {
+          uid,
+          message: 'Koreksi Attendance tidak sesuai site yang dipilih.',
+        },
+      ],
+    })
+    expect(conn.rollback).toHaveBeenCalledOnce()
+  })
+
+  it('memerlukan permission attendance.approve untuk bulk approval', async () => {
+    const actor = auth()
+    actor.permissions = ['attendance.correct']
+    const response = await post(
+      '/corrections/batch-review',
+      {
+        site: 'JEPARA',
+        uids: ['22222222-2222-4222-8222-222222222222'],
+        decision: 'APPROVED',
+      },
+      actor
+    )
+
+    expect(response.status).toBe(403)
+    expect(mocks.getConnection).not.toHaveBeenCalled()
   })
 })

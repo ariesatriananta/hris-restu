@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Router, type NextFunction, type Request, type Response } from 'express'
-import type { RowDataPacket } from 'mysql2'
+import type { ResultSetHeader, RowDataPacket } from 'mysql2'
+import type { PoolConnection } from 'mysql2/promise'
 import { z } from 'zod'
 import { pool } from '../db.js'
 import {
@@ -16,7 +17,16 @@ import {
 import { nextDate } from '../lib/attendance-device-policy.js'
 import { jakartaBusinessDate } from '../lib/attendance-shift-policy.js'
 import { writeAudit } from '../lib/audit.js'
+import {
+  attendanceBulkApprovalInput,
+  safeBulkReviewMessage,
+} from '../lib/attendance-bulk-review.js'
+import {
+  appendAttendanceEmployeeFilters,
+  parseAttendanceEmployeeFilters,
+} from '../lib/attendance-employee-filter.js'
 import { ApiError } from '../lib/errors.js'
+import { attendanceFinalizationLockName } from '../lib/attendance-finalization.js'
 import {
   requirePermission,
   type AuthContext,
@@ -99,6 +109,250 @@ function validCorrectionDateTime(value: unknown, businessDate: string) {
   return date === businessDate || date === nextDate(businessDate)
 }
 
+type FinalizationLockState = { name?: string }
+
+async function acquireFinalizationLock(
+  conn: PoolConnection,
+  siteId: number,
+  businessDate: string,
+  state: FinalizationLockState
+) {
+  const name = attendanceFinalizationLockName(siteId, businessDate)
+  const [rows] = await conn.query<RowDataPacket[]>(
+    'SELECT GET_LOCK(?,0) acquired',
+    [name]
+  )
+  if (Number(rows[0]?.acquired) !== 1) {
+    throw new ApiError(
+      409,
+      'Finalisasi site dan tanggal ini sedang berjalan. Coba lagi setelah proses selesai.'
+    )
+  }
+  state.name = name
+}
+
+async function releaseFinalizationLock(
+  conn: PoolConnection | undefined,
+  state: FinalizationLockState
+) {
+  if (!conn || !state.name) return
+  await conn.query('SELECT RELEASE_LOCK(?)', [state.name]).catch(() => undefined)
+  state.name = undefined
+}
+
+async function approveCorrection(
+  conn: PoolConnection,
+  input: {
+    auth: AuthContext
+    request: Request
+    uid: string
+    reviewNotes?: string
+    batchId?: string
+    expectedSite?: string
+    finalizationLock: FinalizationLockState
+  }
+) {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT ac.id,ac.uid,ac.attendance_record_id attendanceRecordId,
+            ac.correction_type correctionType,ac.new_clock_in_at newClockInAt,
+            ac.new_clock_out_at newClockOutAt,ac.new_status newStatus,
+            ac.reason,ac.approval_status approvalStatus,
+            ar.uid attendanceUid,ar.site_id siteId,
+            DATE_FORMAT(ar.business_date,'%Y-%m-%d') businessDate,
+            ar.attendance_status attendanceStatus,ar.clock_in_at clockInAt,
+            ar.clock_out_at clockOutAt,ar.shift_id shiftId,s.code site,
+            sh.start_time startTime,sh.end_time endTime,
+            sh.crosses_midnight crossesMidnight,
+            sh.late_tolerance_minutes lateToleranceMinutes,
+            sh.early_leave_tolerance_minutes earlyLeaveToleranceMinutes
+       FROM attendance_corrections ac
+       JOIN attendance_records ar ON ar.id=ac.attendance_record_id
+       JOIN sites s ON s.id=ar.site_id
+       LEFT JOIN shifts sh ON sh.id=ar.shift_id
+      WHERE ac.uid=?
+      FOR UPDATE`,
+    [input.uid]
+  )
+  const correction = rows[0]
+  if (!correction) throw new ApiError(404, 'Koreksi Attendance tidak ditemukan.')
+  enforceSite(input.auth, correction.site)
+  if (input.expectedSite && correction.site !== input.expectedSite) {
+    throw new ApiError(409, 'Koreksi Attendance tidak sesuai site yang dipilih.')
+  }
+  if (correction.approvalStatus !== 'PENDING') {
+    throw new ApiError(409, 'Koreksi Attendance ini sudah ditinjau.')
+  }
+
+  await acquireFinalizationLock(
+    conn,
+    Number(correction.siteId),
+    String(correction.businessDate),
+    input.finalizationLock
+  )
+
+  const [lockedPayroll] = await conn.query<RowDataPacket[]>(
+    `SELECT id FROM payroll_periods
+      WHERE site_id=? AND status IN ('CALCULATED','APPROVED','CLOSED')
+        AND ? BETWEEN period_start AND period_end
+      LIMIT 1 FOR UPDATE`,
+    [correction.siteId, correction.businessDate]
+  )
+  if (lockedPayroll[0]) {
+    throw new ApiError(
+      409,
+      'Attendance dalam periode payroll yang sudah dihitung, disetujui, atau ditutup tidak dapat dikoreksi.'
+    )
+  }
+  const [payrollSnapshots] = await conn.query<RowDataPacket[]>(
+    `SELECT pas.id
+       FROM payroll_attendance_summaries pas
+       JOIN payroll_employee_results per ON per.id=pas.payroll_employee_result_id
+       JOIN payroll_periods pp ON pp.id=per.payroll_period_id
+      WHERE pp.site_id=? AND ? BETWEEN pp.period_start AND pp.period_end
+      LIMIT 1 FOR UPDATE`,
+    [correction.siteId, correction.businessDate]
+  )
+  if (payrollSnapshots[0]) {
+    throw new ApiError(
+      409,
+      'Attendance sudah tersimpan dalam snapshot payroll dan tidak dapat dikoreksi.'
+    )
+  }
+  const proposedClockIn =
+    correction.correctionType === 'CLOCK_IN' || correction.correctionType === 'BOTH'
+      ? correction.newClockInAt
+      : correction.clockInAt
+  const proposedClockOut =
+    correction.correctionType === 'CLOCK_OUT' || correction.correctionType === 'BOTH'
+      ? correction.newClockOutAt
+      : correction.clockOutAt
+  const proposedStatus = resolveCorrectionAttendanceStatus({
+    correctionType: correction.correctionType,
+    currentStatus: correction.attendanceStatus,
+    newStatus: correction.newStatus,
+    clockInAt: proposedClockIn,
+    clockOutAt: proposedClockOut,
+  })
+  if (!validateClockOrder(proposedClockIn, proposedClockOut)) {
+    throw new ApiError(422, 'Jam pulang tidak boleh sebelum jam masuk.')
+  }
+  if (proposedStatus !== 'PRESENT') {
+    const [production] = await conn.query<RowDataPacket[]>(
+      `SELECT id FROM production_transactions
+        WHERE attendance_record_id=? AND status='POSTED'
+        LIMIT 1 FOR UPDATE`,
+      [correction.attendanceRecordId]
+    )
+    if (production[0]) {
+      throw new ApiError(409, 'Status hadir tidak dapat diubah karena Attendance sudah dipakai setoran produksi.')
+    }
+  }
+
+  let lateMinutes = 0
+  let earlyLeaveMinutes = 0
+  let workedMinutes: number | null = null
+  if (correction.shiftId) {
+    const [metricRows] = await conn.query<RowDataPacket[]>(
+      `SELECT
+         CASE WHEN ? IS NULL THEN 0 ELSE GREATEST(0,TIMESTAMPDIFF(MINUTE,TIMESTAMP(?,?),?)) END rawLate,
+         CASE WHEN ? IS NULL THEN 0 ELSE GREATEST(0,TIMESTAMPDIFF(MINUTE,?,${Number(correction.crossesMidnight) === 1 ? 'DATE_ADD(TIMESTAMP(?,?),INTERVAL 1 DAY)' : 'TIMESTAMP(?,?)'})) END rawEarly,
+         CASE WHEN ? IS NULL OR ? IS NULL THEN NULL ELSE GREATEST(0,TIMESTAMPDIFF(MINUTE,?,?)) END workedMinutes`,
+      [
+        proposedClockIn, correction.businessDate, correction.startTime, proposedClockIn,
+        proposedClockOut, proposedClockOut, correction.businessDate, correction.endTime,
+        proposedClockIn, proposedClockOut, proposedClockIn, proposedClockOut,
+      ]
+    )
+    const rawLate = Number(metricRows[0].rawLate ?? 0)
+    const rawEarly = Number(metricRows[0].rawEarly ?? 0)
+    lateMinutes = rawLate > Number(correction.lateToleranceMinutes) ? rawLate : 0
+    earlyLeaveMinutes = rawEarly > Number(correction.earlyLeaveToleranceMinutes) ? rawEarly : 0
+    workedMinutes = metricRows[0].workedMinutes === null ? null : Number(metricRows[0].workedMinutes)
+  } else if (proposedClockIn && proposedClockOut) {
+    const [metricRows] = await conn.query<RowDataPacket[]>(
+      'SELECT GREATEST(0,TIMESTAMPDIFF(MINUTE,?,?)) workedMinutes',
+      [proposedClockIn, proposedClockOut]
+    )
+    workedMinutes = Number(metricRows[0].workedMinutes ?? 0)
+  }
+  await conn.execute(
+    `UPDATE attendance_records
+        SET attendance_status=?,clock_in_at=?,clock_out_at=?,late_minutes=?,
+            early_leave_minutes=?,worked_minutes=?,
+            clock_in_device_id=CASE WHEN ? IN ('CLOCK_IN','BOTH') THEN NULL ELSE clock_in_device_id END,
+            clock_in_source=CASE WHEN ? IN ('CLOCK_IN','BOTH') THEN 'CORRECTION' ELSE clock_in_source END,
+            clock_out_device_id=CASE WHEN ? IN ('CLOCK_OUT','BOTH') THEN NULL ELSE clock_out_device_id END,
+            clock_out_source=CASE WHEN ? IN ('CLOCK_OUT','BOTH') THEN 'CORRECTION' ELSE clock_out_source END,
+            is_corrected=1,updated_by=?
+      WHERE id=?`,
+    [
+      proposedStatus, proposedClockIn, proposedClockOut, lateMinutes,
+      earlyLeaveMinutes, workedMinutes, correction.correctionType,
+      correction.correctionType, correction.correctionType,
+      correction.correctionType, input.auth.id, correction.attendanceRecordId,
+    ]
+  )
+  await conn.execute(
+    `UPDATE attendance_corrections
+        SET approval_status='APPROVED',reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP(3),
+            review_notes=?,applied_at=CURRENT_TIMESTAMP(3),updated_by=?
+      WHERE id=?`,
+    [input.auth.id, input.reviewNotes ?? null, input.auth.id, correction.id]
+  )
+  const [invalidatedFinalization] = await conn.execute<ResultSetHeader>(
+    `INSERT INTO attendance_daily_finalization_runs
+      (uid,site_id,business_date,trigger_type,status,grace_minutes,reason,
+       summary,warnings,requested_by,started_at,finished_at,created_by,updated_by)
+     SELECT UUID(),latest.site_id,latest.business_date,'MANUAL','SKIPPED',60,?,
+            JSON_OBJECT('invalidatedByAttendanceCorrection',TRUE),JSON_ARRAY(?),?,
+            CURRENT_TIMESTAMP(3),CURRENT_TIMESTAMP(3),?,?
+       FROM attendance_daily_finalization_runs latest
+      WHERE latest.site_id=? AND latest.business_date=?
+        AND latest.id=(SELECT MAX(previous.id)
+          FROM attendance_daily_finalization_runs previous
+         WHERE previous.site_id=latest.site_id
+           AND previous.business_date=latest.business_date)
+        AND latest.status='SUCCEEDED'`,
+    [
+      'Koreksi Attendance disetujui dan diterapkan.',
+      'Finalisasi perlu dijalankan ulang setelah koreksi Attendance diterapkan.',
+      input.auth.id,
+      input.auth.id,
+      input.auth.id,
+      correction.siteId,
+      correction.businessDate,
+    ]
+  )
+  await writeAudit(
+    {
+      auth: input.auth,
+      request: input.request,
+      module: 'ATTENDANCE',
+      siteId: correction.siteId,
+      action: 'APPROVE',
+      table: 'attendance_corrections',
+      recordId: correction.id,
+      recordUid: input.uid,
+      description: 'Menyetujui dan menerapkan koreksi Attendance.',
+      reason: correction.reason,
+      requestId: input.batchId,
+      beforeData: {
+        attendanceStatus: correction.attendanceStatus,
+        clockInAt: correction.clockInAt,
+        clockOutAt: correction.clockOutAt,
+      },
+      afterData: {
+        attendanceStatus: proposedStatus,
+        clockInAt: proposedClockIn,
+        clockOutAt: proposedClockOut,
+        finalizationInvalidated: invalidatedFinalization.affectedRows > 0,
+      },
+    },
+    conn
+  )
+  return { uid: input.uid, approvalStatus: 'APPROVED' as const, applied: true }
+}
+
 export const attendanceCorrectionsRouter = Router()
 
 attendanceCorrectionsRouter.get(
@@ -121,6 +375,11 @@ attendanceCorrectionsRouter.get(
         baseWhere.push(`s.code IN (${sites.map(() => '?').join(',')})`)
         baseValues.push(...sites)
       }
+      appendAttendanceEmployeeFilters(
+        baseWhere,
+        baseValues,
+        parseAttendanceEmployeeFilters(req.query)
+      )
       const statuses = listFilter(req.query.attendanceStatus, attendanceStatusValues)
       if (statuses.length) {
         baseWhere.push(
@@ -158,13 +417,24 @@ attendanceCorrectionsRouter.get(
 
       const from = `FROM attendance_records ar
         JOIN employees e ON e.id=ar.employee_id
-        JOIN employee_types et ON et.id=e.employee_type_id
         JOIN sites s ON s.id=ar.site_id
-        LEFT JOIN positions p ON p.id=e.current_position_id
-        LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id
+        JOIN employee_employment_histories eh
+          ON eh.employee_id=ar.employee_id AND eh.site_id=ar.site_id
+         AND eh.effective_from<=ar.business_date
+         AND (eh.effective_to IS NULL OR eh.effective_to>=ar.business_date)
+        JOIN employee_types et ON et.id=eh.employee_type_id
+        LEFT JOIN positions p ON p.id=eh.position_id
+        LEFT JOIN production_module_sections pms ON pms.id=eh.production_module_section_id
         LEFT JOIN production_modules pm ON pm.id=pms.production_module_id
         LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
-        LEFT JOIN shifts sh ON sh.id=ar.shift_id`
+        LEFT JOIN shifts sh ON sh.id=ar.shift_id
+        LEFT JOIN attendance_corrections pending_correction
+          ON pending_correction.id=(
+            SELECT MAX(candidate.id)
+              FROM attendance_corrections candidate
+             WHERE candidate.attendance_record_id=ar.id
+               AND candidate.approval_status='PENDING'
+          )`
       const [countRows] = await pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) total ${from} WHERE ${where.join(' AND ')}`,
         values
@@ -178,7 +448,10 @@ attendanceCorrectionsRouter.get(
                 ar.worked_minutes workedMinutes,ar.notes,e.uid employeeUid,
                 e.employee_number employeeNumber,e.full_name employeeName,
                 et.code employeeType,p.name position,
-                pm.name productionModule,ps.name productionSection,
+                pm.name productionModule,ps.uid productionSectionUid,
+                ps.name productionSection,
+                pending_correction.uid pendingCorrectionUid,
+                pending_correction.correction_type pendingCorrectionType,
                 s.code site,sh.uid shiftUid,sh.name shiftName,
                 DATE_FORMAT(NOW(3),'%Y-%m-%d %H:%i:%s') asOf,
                 DATE_FORMAT(
@@ -262,6 +535,11 @@ attendanceCorrectionsRouter.get(
         where.push('ar.business_date=?')
         values.push(parseBusinessDate(req.query.businessDate))
       }
+      appendAttendanceEmployeeFilters(
+        where,
+        values,
+        parseAttendanceEmployeeFilters(req.query)
+      )
       for (const [raw, allowed, column] of [
         [req.query.site, siteCodes, 's.code'],
         [req.query.approvalStatus, approvalStatuses, 'ac.approval_status'],
@@ -279,8 +557,14 @@ attendanceCorrectionsRouter.get(
       const from = `FROM attendance_corrections ac
         JOIN attendance_records ar ON ar.id=ac.attendance_record_id
         JOIN employees e ON e.id=ar.employee_id
-        JOIN employee_types et ON et.id=e.employee_type_id
         JOIN sites s ON s.id=ar.site_id
+        JOIN employee_employment_histories eh
+          ON eh.employee_id=ar.employee_id AND eh.site_id=ar.site_id
+         AND eh.effective_from<=ar.business_date
+         AND (eh.effective_to IS NULL OR eh.effective_to>=ar.business_date)
+        JOIN employee_types et ON et.id=eh.employee_type_id
+        LEFT JOIN production_module_sections pms ON pms.id=eh.production_module_section_id
+        LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
         JOIN users requester ON requester.id=ac.requested_by
         LEFT JOIN users reviewer ON reviewer.id=ac.reviewed_by`
       const [countRows] = await pool.query<RowDataPacket[]>(
@@ -292,6 +576,7 @@ attendanceCorrectionsRouter.get(
                 DATE_FORMAT(ar.business_date,'%Y-%m-%d') businessDate,
                 e.uid employeeUid,e.employee_number employeeNumber,
                 e.full_name employeeName,et.code employeeType,s.code site,
+                ps.uid productionSectionUid,ps.name productionSection,
                 ac.correction_type correctionType,
                 DATE_FORMAT(ac.old_clock_in_at,'%Y-%m-%dT%H:%i:%s+07:00') oldClockInAt,
                 DATE_FORMAT(ac.new_clock_in_at,'%Y-%m-%dT%H:%i:%s+07:00') newClockInAt,
@@ -316,6 +601,59 @@ attendanceCorrectionsRouter.get(
         page,
         pageSize,
       })
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+attendanceCorrectionsRouter.get(
+  '/corrections/:uid',
+  requireCorrectionListAccess,
+  async (req, res, next) => {
+    try {
+      const auth = res.locals.auth as AuthContext
+      const uid = routeParam(req.params.uid)
+      const scope = scopeWhere(auth)
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT ac.uid,ar.uid attendanceUid,
+                DATE_FORMAT(ar.business_date,'%Y-%m-%d') businessDate,
+                e.uid employeeUid,e.employee_number employeeNumber,
+                e.full_name employeeName,et.code employeeType,s.code site,
+                ps.uid productionSectionUid,ps.name productionSection,
+                ac.correction_type correctionType,
+                DATE_FORMAT(ac.old_clock_in_at,'%Y-%m-%dT%H:%i:%s+07:00') oldClockInAt,
+                DATE_FORMAT(ac.new_clock_in_at,'%Y-%m-%dT%H:%i:%s+07:00') newClockInAt,
+                DATE_FORMAT(ac.old_clock_out_at,'%Y-%m-%dT%H:%i:%s+07:00') oldClockOutAt,
+                DATE_FORMAT(ac.new_clock_out_at,'%Y-%m-%dT%H:%i:%s+07:00') newClockOutAt,
+                ac.old_status oldStatus,ac.new_status newStatus,ac.reason,
+                ac.approval_status approvalStatus,requester.full_name requestedByName,
+                DATE_FORMAT(ac.requested_at,'%Y-%m-%dT%H:%i:%s+07:00') requestedAt,
+                reviewer.full_name reviewedByName,
+                DATE_FORMAT(ac.reviewed_at,'%Y-%m-%dT%H:%i:%s+07:00') reviewedAt,
+                ac.review_notes reviewNotes,
+                DATE_FORMAT(ac.applied_at,'%Y-%m-%dT%H:%i:%s+07:00') appliedAt
+           FROM attendance_corrections ac
+           JOIN attendance_records ar ON ar.id=ac.attendance_record_id
+           JOIN employees e ON e.id=ar.employee_id
+           JOIN sites s ON s.id=ar.site_id
+           JOIN employee_employment_histories eh
+             ON eh.employee_id=ar.employee_id AND eh.site_id=ar.site_id
+            AND eh.effective_from<=ar.business_date
+            AND (eh.effective_to IS NULL OR eh.effective_to>=ar.business_date)
+           JOIN employee_types et ON et.id=eh.employee_type_id
+           LEFT JOIN production_module_sections pms ON pms.id=eh.production_module_section_id
+           LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
+           JOIN users requester ON requester.id=ac.requested_by
+           LEFT JOIN users reviewer ON reviewer.id=ac.reviewed_by
+          WHERE ac.uid=? AND ${scope.sql}
+          LIMIT 1`,
+        [uid, ...scope.params]
+      )
+      if (!rows[0]) {
+        throw new ApiError(404, 'Koreksi Attendance tidak ditemukan.')
+      }
+      res.json(rows[0])
     } catch (error) {
       next(error)
     }
@@ -459,10 +797,61 @@ attendanceCorrectionsRouter.post(
 )
 
 attendanceCorrectionsRouter.post(
+  '/corrections/batch-review',
+  requirePermission('attendance.approve'),
+  async (req, res, next) => {
+    try {
+      const auth = res.locals.auth as AuthContext
+      const input = attendanceBulkApprovalInput.parse(req.body)
+      enforceSite(auth, input.site)
+      const batchId = randomUUID()
+      const failures: { uid: string; message: string }[] = []
+      let approved = 0
+
+      for (const uid of input.uids) {
+        let conn: PoolConnection | undefined
+        const finalizationLock: FinalizationLockState = {}
+        try {
+          conn = await pool.getConnection()
+          await conn.beginTransaction()
+          await approveCorrection(conn, {
+            auth,
+            request: req,
+            uid,
+            reviewNotes: input.reviewNotes,
+            batchId,
+            expectedSite: input.site,
+            finalizationLock,
+          })
+          await conn.commit()
+          approved += 1
+        } catch (error) {
+          await conn?.rollback().catch(() => undefined)
+          failures.push({ uid, message: safeBulkReviewMessage(error) })
+        } finally {
+          await releaseFinalizationLock(conn, finalizationLock)
+          conn?.release()
+        }
+      }
+
+      res.json({
+        requested: input.uids.length,
+        approved,
+        failed: failures.length,
+        failures,
+      })
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+attendanceCorrectionsRouter.post(
   '/corrections/:uid/review',
   requirePermission('attendance.approve'),
   async (req, res, next) => {
     const conn = await pool.getConnection()
+    const finalizationLock: FinalizationLockState = {}
     try {
       const auth = res.locals.auth as AuthContext
       const uid = routeParam(req.params.uid)
@@ -523,154 +912,21 @@ attendanceCorrectionsRouter.post(
         return res.json({ uid, approvalStatus: 'REJECTED', applied: false })
       }
 
-      const [closedPayroll] = await conn.query<RowDataPacket[]>(
-        `SELECT id FROM payroll_periods
-          WHERE site_id=? AND status='CLOSED' AND ? BETWEEN period_start AND period_end
-          LIMIT 1 FOR UPDATE`,
-        [correction.siteId, correction.businessDate]
-      )
-      if (closedPayroll[0]) {
-        throw new ApiError(409, 'Attendance dalam periode payroll yang sudah closing tidak dapat dikoreksi.')
-      }
-      const proposedClockIn =
-        correction.correctionType === 'CLOCK_IN' ||
-        correction.correctionType === 'BOTH'
-          ? correction.newClockInAt
-          : correction.clockInAt
-      const proposedClockOut =
-        correction.correctionType === 'CLOCK_OUT' ||
-        correction.correctionType === 'BOTH'
-          ? correction.newClockOutAt
-          : correction.clockOutAt
-      const proposedStatus = resolveCorrectionAttendanceStatus({
-        correctionType: correction.correctionType,
-        currentStatus: correction.attendanceStatus,
-        newStatus: correction.newStatus,
-        clockInAt: proposedClockIn,
-        clockOutAt: proposedClockOut,
+      const result = await approveCorrection(conn, {
+        auth,
+        request: req,
+        uid,
+        reviewNotes: input.reviewNotes,
+        finalizationLock,
       })
-      if (!validateClockOrder(proposedClockIn, proposedClockOut)) {
-        throw new ApiError(422, 'Jam pulang tidak boleh sebelum jam masuk.')
-      }
-      if (proposedStatus !== 'PRESENT') {
-        const [production] = await conn.query<RowDataPacket[]>(
-          `SELECT id FROM production_transactions
-            WHERE attendance_record_id=? AND status='POSTED'
-            LIMIT 1 FOR UPDATE`,
-          [correction.attendanceRecordId]
-        )
-        if (production[0]) {
-          throw new ApiError(
-            409,
-            'Status hadir tidak dapat diubah karena Attendance sudah dipakai setoran produksi.'
-          )
-        }
-      }
-
-      let lateMinutes = 0
-      let earlyLeaveMinutes = 0
-      let workedMinutes: number | null = null
-      if (correction.shiftId) {
-        const [metricRows] = await conn.query<RowDataPacket[]>(
-          `SELECT
-             CASE WHEN ? IS NULL THEN 0 ELSE GREATEST(0,TIMESTAMPDIFF(MINUTE,TIMESTAMP(?,?),?)) END rawLate,
-             CASE WHEN ? IS NULL THEN 0 ELSE GREATEST(0,TIMESTAMPDIFF(MINUTE,?,${Number(correction.crossesMidnight) === 1 ? 'DATE_ADD(TIMESTAMP(?,?),INTERVAL 1 DAY)' : 'TIMESTAMP(?,?)'})) END rawEarly,
-             CASE WHEN ? IS NULL OR ? IS NULL THEN NULL ELSE GREATEST(0,TIMESTAMPDIFF(MINUTE,?,?)) END workedMinutes`,
-          [
-            proposedClockIn,
-            correction.businessDate,
-            correction.startTime,
-            proposedClockIn,
-            proposedClockOut,
-            proposedClockOut,
-            correction.businessDate,
-            correction.endTime,
-            proposedClockIn,
-            proposedClockOut,
-            proposedClockIn,
-            proposedClockOut,
-          ]
-        )
-        const rawLate = Number(metricRows[0].rawLate ?? 0)
-        const rawEarly = Number(metricRows[0].rawEarly ?? 0)
-        lateMinutes =
-          rawLate > Number(correction.lateToleranceMinutes) ? rawLate : 0
-        earlyLeaveMinutes =
-          rawEarly > Number(correction.earlyLeaveToleranceMinutes) ? rawEarly : 0
-        workedMinutes =
-          metricRows[0].workedMinutes === null
-            ? null
-            : Number(metricRows[0].workedMinutes)
-      } else if (proposedClockIn && proposedClockOut) {
-        const [metricRows] = await conn.query<RowDataPacket[]>(
-          'SELECT GREATEST(0,TIMESTAMPDIFF(MINUTE,?,?)) workedMinutes',
-          [proposedClockIn, proposedClockOut]
-        )
-        workedMinutes = Number(metricRows[0].workedMinutes ?? 0)
-      }
-      await conn.execute(
-        `UPDATE attendance_records
-            SET attendance_status=?,clock_in_at=?,clock_out_at=?,late_minutes=?,
-                early_leave_minutes=?,worked_minutes=?,
-                clock_in_device_id=CASE WHEN ? IN ('CLOCK_IN','BOTH') THEN NULL ELSE clock_in_device_id END,
-                clock_in_source=CASE WHEN ? IN ('CLOCK_IN','BOTH') THEN 'CORRECTION' ELSE clock_in_source END,
-                clock_out_device_id=CASE WHEN ? IN ('CLOCK_OUT','BOTH') THEN NULL ELSE clock_out_device_id END,
-                clock_out_source=CASE WHEN ? IN ('CLOCK_OUT','BOTH') THEN 'CORRECTION' ELSE clock_out_source END,
-                is_corrected=1,updated_by=?
-          WHERE id=?`,
-        [
-          proposedStatus,
-          proposedClockIn,
-          proposedClockOut,
-          lateMinutes,
-          earlyLeaveMinutes,
-          workedMinutes,
-          correction.correctionType,
-          correction.correctionType,
-          correction.correctionType,
-          correction.correctionType,
-          auth.id,
-          correction.attendanceRecordId,
-        ]
-      )
-      await conn.execute(
-        `UPDATE attendance_corrections
-            SET approval_status='APPROVED',reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP(3),
-                review_notes=?,applied_at=CURRENT_TIMESTAMP(3),updated_by=?
-          WHERE id=?`,
-        [auth.id, input.reviewNotes ?? null, auth.id, correction.id]
-      )
-      await writeAudit(
-        {
-          auth,
-          request: req,
-          module: 'ATTENDANCE',
-          siteId: correction.siteId,
-          action: 'APPROVE',
-          table: 'attendance_corrections',
-          recordId: correction.id,
-          recordUid: uid,
-          description: 'Menyetujui dan menerapkan koreksi Attendance.',
-          reason: correction.reason,
-          beforeData: {
-            attendanceStatus: correction.attendanceStatus,
-            clockInAt: correction.clockInAt,
-            clockOutAt: correction.clockOutAt,
-          },
-          afterData: {
-            attendanceStatus: proposedStatus,
-            clockInAt: proposedClockIn,
-            clockOutAt: proposedClockOut,
-          },
-        },
-        conn
-      )
       await conn.commit()
-      res.json({ uid, approvalStatus: 'APPROVED', applied: true })
+      res.json(result)
+      return
     } catch (error) {
       await conn.rollback()
       next(error)
     } finally {
+      await releaseFinalizationLock(conn, finalizationLock)
       conn.release()
     }
   }

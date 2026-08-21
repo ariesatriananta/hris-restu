@@ -30,6 +30,7 @@ import type {
   AttendanceRecapListParams,
   HistoricalShiftAssignmentApplyInput,
   HistoricalShiftAssignmentInput,
+  AttendanceBulkReviewInput,
 } from '../domain'
 import { httpAttendanceRepository } from './http-attendance-repository'
 
@@ -54,6 +55,8 @@ export const attendanceKeys = {
     [...attendanceKeys.all, 'finalizations', params] as const,
   corrections: (params?: AttendanceCorrectionListParams) =>
     [...attendanceKeys.all, 'corrections', params] as const,
+  correction: (uid: string) =>
+    [...attendanceKeys.all, 'corrections', uid] as const,
   classificationEmployees: (
     params: AttendanceClassificationEmployeeListParams
   ) => [...attendanceKeys.all, 'classification-employees', params] as const,
@@ -257,6 +260,13 @@ export const useAttendanceCorrections = (
     placeholderData: keepPreviousData,
   })
 
+export const useAttendanceCorrection = (uid?: string) =>
+  useQuery({
+    queryKey: attendanceKeys.correction(uid ?? ''),
+    queryFn: () => httpAttendanceRepository.getCorrection(uid ?? ''),
+    enabled: Boolean(uid),
+  })
+
 export const useCreateAttendanceCorrection = () =>
   useAttendanceMutation((input: AttendanceCorrectionInput) =>
     httpAttendanceRepository.createCorrection(input)
@@ -266,6 +276,11 @@ export const useReviewAttendanceCorrection = () =>
   useAttendanceMutation(
     ({ uid, input }: { uid: string; input: AttendanceCorrectionReviewInput }) =>
       httpAttendanceRepository.reviewCorrection(uid, input)
+  )
+
+export const useBulkReviewAttendanceCorrections = () =>
+  useAttendanceMutation((input: AttendanceBulkReviewInput) =>
+    httpAttendanceRepository.bulkReviewCorrections(input)
   )
 
 export const useAttendanceClassificationEmployees = (
@@ -309,6 +324,11 @@ export const useReviewAttendanceClassification = () =>
       uid: string
       input: AttendanceClassificationReviewInput
     }) => httpAttendanceRepository.reviewClassification(uid, input)
+  )
+
+export const useBulkReviewAttendanceClassifications = () =>
+  useAttendanceMutation((input: AttendanceBulkReviewInput) =>
+    httpAttendanceRepository.bulkReviewClassifications(input)
   )
 
 export const useCancelAttendanceClassification = () =>

@@ -23,6 +23,7 @@ const detail = (
   department: 'Produksi',
   position: 'Operator Produksi',
   productionModule: 'Modul A',
+  productionSectionUid: '33333333-3333-4333-8333-333333333333',
   productionSection: 'Bagian A',
   workGroup: 'Grup 1',
   shiftUid: '22222222-2222-4222-8222-222222222222',
@@ -178,7 +179,7 @@ describe('attendance recap workbook', () => {
       'Sumber Masuk',
       'Sumber Pulang',
       'Dikoreksi',
-      'Virtual',
+      'Baris Otomatis',
       'Catatan',
     ])
     expect(daily.getRow(3).getCell(15).value).toBe('Libur Mingguan')
@@ -191,7 +192,7 @@ describe('attendance recap workbook', () => {
     ])
     expect(metadata.getRow(11).values).toEqual([
       undefined,
-      'Jumlah Libur Mingguan Virtual',
+      'Jumlah Libur Mingguan Otomatis',
       1,
     ])
   })

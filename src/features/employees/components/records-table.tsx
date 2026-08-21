@@ -209,13 +209,16 @@ export function RecordsTable({
             <Button
               type='button'
               variant='link'
-              className='h-auto p-0 text-left font-medium'
+              className='h-auto max-w-72 justify-start whitespace-normal break-all p-0 text-left leading-tight font-medium'
+              title={row.original.title}
               onClick={() => onView(row.original)}
             >
               {row.original.title}
             </Button>
           ) : (
-            <p className='font-medium'>{row.original.title}</p>
+            <p className='break-all font-medium' title={row.original.title}>
+              {row.original.title}
+            </p>
           )}
           <p className='text-[11px] leading-3 text-muted-foreground'>
             {row.original.detail}

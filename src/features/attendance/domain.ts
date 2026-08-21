@@ -143,11 +143,15 @@ export interface AttendanceRepository {
   listCorrections(
     input: AttendanceCorrectionListParams
   ): Promise<PaginatedAttendanceResult<AttendanceCorrection>>
+  getCorrection(uid: string): Promise<AttendanceCorrection>
   createCorrection(input: AttendanceCorrectionInput): Promise<void>
   reviewCorrection(
     uid: string,
     input: AttendanceCorrectionReviewInput
   ): Promise<void>
+  bulkReviewCorrections(
+    input: AttendanceBulkReviewInput
+  ): Promise<AttendanceBulkReviewResult>
   listClassificationEmployees(
     input: AttendanceClassificationEmployeeListParams
   ): Promise<PaginatedAttendanceResult<AttendanceClassificationEmployee>>
@@ -162,6 +166,9 @@ export interface AttendanceRepository {
     uid: string,
     input: AttendanceClassificationReviewInput
   ): Promise<AttendanceClassificationReviewResult>
+  bulkReviewClassifications(
+    input: AttendanceBulkReviewInput
+  ): Promise<AttendanceBulkReviewResult>
   cancelClassification(uid: string): Promise<void>
   uploadClassificationAttachment(
     file: File
@@ -462,6 +469,8 @@ export interface AttendanceMonitoringRecord {
   position?: string | null
   productionModule?: string | null
   productionSection?: string | null
+  pendingCorrectionUid?: string | null
+  pendingCorrectionType?: AttendanceCorrectionType | null
   site: AttendanceSiteCode
   shiftUid?: string | null
   shiftName?: string | null
@@ -488,6 +497,8 @@ export interface AttendanceMonitoringListParams {
   businessDate: string
   query?: string
   site?: AttendanceSiteCode[]
+  employeeType?: AttendanceEmployeeType[]
+  productionSection?: string[]
   attendanceStatus?: AttendanceStatus[]
   qualityStatus?: AttendanceQualityStatus[]
   abnormalReason?: AttendanceAbnormalReason[]
@@ -522,6 +533,7 @@ export interface AttendanceReadinessSite {
   }
   finalization: {
     rerunRequiredCount: number
+    rerunRequiredDates: string[]
   }
   followUp: {
     pendingCorrectionCount: number
@@ -585,6 +597,7 @@ export interface AttendanceRecapGroup {
   employeeType: AttendanceEmployeeType
   positions: string[]
   productionModules: string[]
+  productionSectionUids: string[]
   productionSections: string[]
   shiftNames: string[]
   scheduledDays: number
@@ -654,6 +667,7 @@ export interface AttendanceRecapListParams {
   query?: string
   site?: AttendanceSiteCode[]
   employeeType?: AttendanceEmployeeType[]
+  productionSection?: string[]
   attendanceStatus?: AttendanceRecapStatus[]
   page: number
   pageSize: number
@@ -701,6 +715,7 @@ export interface AttendanceRecapDayListParams {
   dateTo: string
   site?: AttendanceSiteCode
   employeeType?: AttendanceEmployeeType
+  productionSection?: string[]
   attendanceStatus?: AttendanceRecapStatus[]
   page: number
   pageSize: number
@@ -776,6 +791,8 @@ export interface AttendanceCorrection {
   employeeNumber: string
   employeeName: string
   employeeType: AttendanceEmployeeType
+  productionSectionUid?: string | null
+  productionSection?: string | null
   site: AttendanceSiteCode
   businessDate: string
   correctionType: AttendanceCorrectionType
@@ -799,6 +816,8 @@ export interface AttendanceCorrectionListParams {
   businessDate?: string
   query?: string
   site?: AttendanceSiteCode[]
+  employeeType?: AttendanceEmployeeType[]
+  productionSection?: string[]
   approvalStatus?: CorrectionApprovalStatus[]
   page: number
   pageSize: number
@@ -816,6 +835,25 @@ export interface AttendanceCorrectionInput {
 export interface AttendanceCorrectionReviewInput {
   decision: 'APPROVED' | 'REJECTED'
   reviewNotes?: string
+}
+
+export interface AttendanceBulkReviewInput {
+  site: AttendanceSiteCode
+  uids: string[]
+  decision: 'APPROVED'
+  reviewNotes?: string
+}
+
+export interface AttendanceBulkReviewFailure {
+  uid: string
+  message: string
+}
+
+export interface AttendanceBulkReviewResult {
+  requested: number
+  approved: number
+  failed: number
+  failures: AttendanceBulkReviewFailure[]
 }
 
 export interface AttendanceClassificationEmployee {
@@ -850,6 +888,8 @@ export interface AttendanceClassification {
     employeeNumber: string
     fullName: string
     employeeType: AttendanceEmployeeType
+    productionSectionUid?: string | null
+    productionSection?: string | null
   }
   site: AttendanceSiteCode
   classificationType: AttendanceClassificationType
@@ -884,6 +924,8 @@ export interface AttendanceClassificationDetail extends AttendanceClassification
 export interface AttendanceClassificationListParams {
   query?: string
   site?: AttendanceSiteCode[]
+  employeeType?: AttendanceEmployeeType[]
+  productionSection?: string[]
   classificationType?: AttendanceClassificationType[]
   approvalStatus?: AttendanceClassificationApprovalStatus[]
   dateFrom?: string

@@ -83,6 +83,11 @@ export function recapColumns(
       ),
     },
     {
+      id: 'productionSection',
+      accessorFn: (item) => item.productionSectionUids,
+      header: 'Bagian produksi',
+    },
+    {
       accessorKey: 'shiftNames',
       header: 'Shift',
       meta: { label: 'Shift' },

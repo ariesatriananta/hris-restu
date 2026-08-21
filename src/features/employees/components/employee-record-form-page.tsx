@@ -272,6 +272,7 @@ function ContractForm({
         >
           <Input
             value={record?.contractNumber ?? 'Akan dibuat otomatis'}
+            title={record?.contractNumber ?? 'Akan dibuat otomatis'}
             readOnly
             disabled
           />

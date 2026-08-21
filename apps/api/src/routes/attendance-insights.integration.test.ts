@@ -102,7 +102,12 @@ describe('Attendance insights API', () => {
         return [[{ selectedCount: 3 }]]
       }
       if (sql.includes('FROM attendance_daily_finalization_runs latest')) {
-        return [[{ rerunRequiredCount: 2 }]]
+        return [
+          [
+            { businessDate: '2026-08-17' },
+            { businessDate: '2026-08-16' },
+          ],
+        ]
       }
       if (sql.includes('FROM attendance_corrections ac')) {
         return [[{ pendingCorrectionCount: 4, pendingClassificationCount: 5 }]]
@@ -131,7 +136,10 @@ describe('Attendance insights API', () => {
           notReadyCount: 1,
           hasReadyDevice: true,
         }),
-        finalization: { rerunRequiredCount: 2 },
+        finalization: {
+          rerunRequiredCount: 2,
+          rerunRequiredDates: ['2026-08-17', '2026-08-16'],
+        },
         followUp: {
           pendingCorrectionCount: 4,
           pendingClassificationCount: 5,

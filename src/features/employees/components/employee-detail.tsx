@@ -413,7 +413,9 @@ export function EmployeeDetail({
                 content: (
                   <div className='min-w-0 flex-1'>
                     <div className='flex flex-wrap items-center gap-2'>
-                      <span className='font-medium'>{item.contractNumber}</span>
+                      <span className='break-all font-medium'>
+                        {item.contractNumber}
+                      </span>
                       <Badge
                         variant={contractStatusBadgeVariant(item.status)}
                         className={contractStatusBadgeClassName(item.status)}

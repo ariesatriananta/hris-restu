@@ -127,7 +127,8 @@ attendanceInsightsRouter.get(
             [site.id, year]
           )
           const [rerunRows] = await pool.query<RowDataPacket[]>(
-            `SELECT COUNT(*) rerunRequiredCount FROM attendance_daily_finalization_runs latest
+            `SELECT DATE_FORMAT(latest.business_date,'%Y-%m-%d') businessDate
+               FROM attendance_daily_finalization_runs latest
               WHERE latest.site_id=? AND latest.business_date<=?
                 AND latest.id=(SELECT MAX(previous.id)
                   FROM attendance_daily_finalization_runs previous
@@ -136,7 +137,9 @@ attendanceInsightsRouter.get(
                 AND latest.status='SKIPPED'
                 AND (JSON_UNQUOTE(JSON_EXTRACT(latest.summary,'$.invalidatedByShiftCorrection'))='true'
                   OR JSON_UNQUOTE(JSON_EXTRACT(latest.summary,'$.invalidatedByFirstShiftBackdate'))='true'
-                  OR JSON_UNQUOTE(JSON_EXTRACT(latest.summary,'$.invalidatedByOnboardingReset'))='true')`,
+                  OR JSON_UNQUOTE(JSON_EXTRACT(latest.summary,'$.invalidatedByOnboardingReset'))='true'
+                  OR JSON_UNQUOTE(JSON_EXTRACT(latest.summary,'$.invalidatedByAttendanceCorrection'))='true')
+              ORDER BY latest.business_date DESC`,
             [site.id, today]
           )
           const [pendingRows] = await pool.query<RowDataPacket[]>(
@@ -154,9 +157,10 @@ attendanceInsightsRouter.get(
           const pendingClassificationCount = Number(
             pendingRows[0]?.pendingClassificationCount ?? 0
           )
-          const rerunRequiredCount = Number(
-            rerunRows[0]?.rerunRequiredCount ?? 0
+          const rerunRequiredDates = rerunRows.map((row) =>
+            String(row.businessDate)
           )
+          const rerunRequiredCount = rerunRequiredDates.length
           const calendarConfigured =
             nationalHolidayCount > 0 || collectiveLeaveAvailableCount > 0
           const pendingTotal =
@@ -196,7 +200,7 @@ attendanceInsightsRouter.get(
                 ? ('CONFIGURED' as const)
                 : ('NOT_CONFIGURED' as const),
             },
-            finalization: { rerunRequiredCount },
+            finalization: { rerunRequiredCount, rerunRequiredDates },
             followUp: {
               pendingCorrectionCount,
               pendingClassificationCount,
