@@ -5,4 +5,6 @@ packages:
 # package dan versi native/build yang sudah ditinjau dalam lockfile ini.
 allowBuilds:
   'argon2@0.44.0': true
-  'esbuild@0.18.20 || 0.25.11 || 0.28.1': true
+  # Postinstall esbuild mencoba menjalankan binary sebelum permission Hostinger
+  # diperbaiki. Build script menyiapkannya secara eksplisit setelah install.
+  'esbuild@0.18.20 || 0.25.11 || 0.28.1': false

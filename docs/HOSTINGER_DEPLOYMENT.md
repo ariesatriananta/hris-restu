@@ -21,8 +21,10 @@ sedangkan dependency dikunci oleh
 `pnpm-lock.yaml`; jangan memakai `package-lock.json` untuk deployment ini.
 Log instalasi Hostinger harus tetap menampilkan devDependencies karena build
 membutuhkan TypeScript dan Vite. `pnpm-workspace.yaml` memakai `allowBuilds`
-pnpm 11 untuk mengizinkan hanya versi `argon2` dan `esbuild` yang sudah ditinjau
-dan dikunci di lockfile.
+pnpm 11: build native `argon2` diizinkan, sedangkan postinstall `esbuild`
+dinonaktifkan karena filesystem build Hostinger dapat kehilangan permission
+execute. Awal script `build` menjalankan helper Node untuk memulihkan permission
+binary esbuild yang sudah dikunci di lockfile.
 
 Jangan memakai `vite preview` sebagai server production. Deep-link frontend dan asset production dilayani langsung oleh Express dari folder `dist`.
 
@@ -90,3 +92,11 @@ menyebut versi dependency lama, hapus cache deployment/build dari hPanel bila
 opsinya tersedia, kemudian deploy ulang. Log instalasi yang benar harus membaca
 `pnpm-lock.yaml` dan tidak memasang `@zxing/library@0.23.0`; project ini mengunci
 `@zxing/library@0.21.3`, yang kompatibel dengan Node.js 22.
+
+Jika log berhenti pada postinstall esbuild dengan `spawnSync ... EACCES`, pastikan
+commit sudah memuat `scripts/prepare-esbuild-binaries.mjs` dan konfigurasi
+`allowBuilds` yang menolak postinstall esbuild. Log tahap build selanjutnya harus
+menampilkan jumlah binary esbuild yang permission-nya disiapkan. Bila helper
+sudah berjalan tetapi Vite tetap menghasilkan `EACCES`, minta Hostinger
+membersihkan dependency cache atau memeriksa mount `noexec`; itu sudah merupakan
+masalah permission filesystem hosting, bukan dependency aplikasi.
