@@ -42,6 +42,7 @@ import {
 import { authenticate, requirePermission, type AuthContext } from '../middleware/authenticate.js'
 import { employeeIdCardsRouter } from './employee-id-cards.js'
 import { employeeSummaryRouter } from './employee-summary.js'
+import { reconcileProductionAssignmentsAtEmploymentBoundary } from '../lib/production-assignment-lifecycle.js'
 
 const siteCode = z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])
 const optional = z
@@ -204,6 +205,7 @@ const registrationCorrectionEligibilitySql = `(
   AND NOT EXISTS (SELECT 1 FROM attendance_records ar WHERE ar.employee_id=e.id)
   AND NOT EXISTS (SELECT 1 FROM attendance_scan_events ase WHERE ase.employee_id=e.id)
   AND NOT EXISTS (SELECT 1 FROM production_transactions pt WHERE pt.employee_id=e.id)
+  AND NOT EXISTS (SELECT 1 FROM employee_job_assignments pja WHERE pja.employee_id=e.id)
   AND NOT EXISTS (SELECT 1 FROM payroll_employee_results pr WHERE pr.employee_id=e.id)
   AND (SELECT COUNT(*) FROM employee_employment_histories h WHERE h.employee_id=e.id)=1
   AND EXISTS (SELECT 1 FROM employee_employment_histories h WHERE h.employee_id=e.id AND h.change_type='INITIAL' AND h.effective_to IS NULL)
@@ -1228,6 +1230,7 @@ employeesRouter.post('/:uid/mutations', requirePermission('employees.manage'), a
       if (active[0]) await conn.execute('UPDATE employee_employment_histories SET effective_to=DATE_SUB(?,INTERVAL 1 DAY),updated_by=? WHERE id=?', [input.effectiveFrom,auth.id,active[0].id])
       await conn.execute(`INSERT INTO employee_employment_histories(uid,employee_id,site_id,department_id,position_id,work_group_id,production_module_section_id,employee_type_id,employee_status_id,effective_from,change_type,reference_number,reason,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [uid,employee.id,refs.siteId,refs.departmentId,refs.positionId,refs.workGroupId,refs.productionModuleSectionId,refs.typeId,active[0].statusId,input.effectiveFrom,input.changeType,empty(input.referenceNumber),empty(input.reason),empty(input.notes),auth.id,auth.id])
       await conn.execute('UPDATE employees SET employee_type_id=?,current_site_id=?,current_department_id=?,current_position_id=?,current_work_group_id=?,current_production_module_section_id=?,updated_by=? WHERE id=?', [refs.typeId,refs.siteId,refs.departmentId,refs.positionId,refs.workGroupId,refs.productionModuleSectionId,auth.id,employee.id])
+      await reconcileProductionAssignmentsAtEmploymentBoundary(conn, employee.id, input.effectiveFrom, auth.id)
       await writeAudit({ auth, request: req, siteId: refs.siteId, action: 'CREATE', table: 'employee_employment_histories', recordUid: uid, description: `Mencatat mutasi ${input.changeType}.` }, conn); await conn.commit()
     } catch (error) { await conn.rollback(); throw error } finally { conn.release() }
     res.status(201).json({ uid })
@@ -1378,6 +1381,12 @@ employeesRouter.post('/mutations/batch', requirePermission('employees.manage'), 
               auth.id,
               employee.id,
             ]
+          )
+          await reconcileProductionAssignmentsAtEmploymentBoundary(
+            conn,
+            Number(employee.id),
+            item.input.effectiveFrom,
+            auth.id
           )
           await writeAudit(
             {

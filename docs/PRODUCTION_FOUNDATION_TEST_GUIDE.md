@@ -202,8 +202,44 @@ pnpm exec vitest run --browser.headless src/features/production/production-trans
 pnpm exec tsc -b --pretty false
 ```
 
-## 8. Batas Fase 2B
+## 8. Uji Rekap Produksi Fase 2C
 
-Rekap resmi dan proses perhitungan Payroll Produksi belum termasuk Fase 2B.
-Jangan mengubah row `production_transactions` langsung lewat SQL; seluruh
-koreksi dan void wajib melalui endpoint agar revision dan audit tetap utuh.
+1. Jalankan migration
+   `db/migrations/20260821_production_recap_export_permission.sql`.
+2. Buka **Produksi Borongan > Rekap Produksi** dan pilih periode maksimal 31
+   hari. Pastikan KPI, ledger karyawan, dan card pekerjaan hanya menghitung
+   transaksi `POSTED`.
+3. Bila periode memuat lebih dari satu satuan, pastikan hasil tampil terpisah
+   sebagai `PCS`, `KG`, `BOX`, dan seterusnya. Tidak boleh ada satu total
+   kuantitas campuran.
+4. Buka drawer karyawan dan pekerjaan. Periksa rincian pekerjaan, kronologi
+   transaksi, status snapshot Payroll, serta timeline perubahan penempatan.
+5. Login dengan akun terbatas site dan pastikan filter, drawer, serta ekspor
+   tidak dapat membaca site lain.
+6. Ekspor Excel sebagai user dengan `production.export`. Pastikan empat sheet
+   terbentuk dan audit `PRODUCTION/EXPORT` tercatat per site.
+7. Masukkan sebagian transaksi ke `payroll_production_details`; status harus
+   berubah dari **Belum disnapshot** menjadi **Sebagian disnapshot**, lalu
+   **Sudah disnapshot** setelah seluruh transaksi terkait masuk snapshot.
+
+Automated checks Fase 2C:
+
+```powershell
+pnpm --dir apps/api exec vitest run src/lib/production-recap.test.ts src/routes/production-recaps.integration.test.ts
+pnpm exec vitest run src/features/production/production-recap-policy.test.ts
+pnpm exec tsc -b --pretty false
+```
+
+## 9. Batas Fase 2C
+
+Rekap Fase 2C bersifat live dan belum melakukan finalisasi, perhitungan,
+approval, atau closing Payroll Produksi. Jangan mengubah row
+`production_transactions` langsung lewat SQL; seluruh koreksi dan void wajib
+melalui endpoint agar revision dan audit tetap utuh.
+
+## 10. Fase 2D
+
+Jalankan `db/migrations/20260822_production_exception_integrity.sql` setelah
+migration revisi transaksi. Verifikasi setoran susulan, koreksi salah karyawan,
+Payroll lock pada terminal, auto-close assignment setelah mutasi/status,
+readiness perangkat/job/unit, serta koreksi dan pembatalan tarif unused.

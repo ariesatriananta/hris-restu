@@ -1,5 +1,5 @@
 export function validateProductionQuantity(value: string, precision: number) {
-  const normalized = normalizeProductionQuantity(value)
+  const normalized = normalizeProductionDecimalInput(value)
   if (!normalized || !/^\d+(?:\.\d+)?$/.test(normalized))
     return 'Jumlah wajib berupa angka lebih dari nol.'
   if (Number(normalized) <= 0) return 'Jumlah wajib lebih besar dari nol.'
@@ -10,6 +10,10 @@ export function validateProductionQuantity(value: string, precision: number) {
 }
 
 export function normalizeProductionQuantity(value: string) {
+  return normalizeProductionDecimalInput(value)
+}
+
+export function normalizeProductionDecimalInput(value: string) {
   return value.trim().replace(',', '.')
 }
 
@@ -17,7 +21,14 @@ export function formatProductionQuantityInput(
   value: string,
   decimalPrecision: number
 ) {
-  const normalized = normalizeProductionQuantity(value)
+  return formatProductionDecimalInput(value, decimalPrecision)
+}
+
+export function formatProductionDecimalInput(
+  value: string,
+  decimalPrecision = 4
+) {
+  const normalized = normalizeProductionDecimalInput(value)
   const match = /^(\d+)(?:\.(\d+))?$/.exec(normalized)
   if (!match) return normalized
 

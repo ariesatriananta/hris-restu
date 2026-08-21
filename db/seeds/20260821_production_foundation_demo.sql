@@ -215,6 +215,7 @@ BEGIN
     FROM tmp_production_seed_candidates candidate
     JOIN employee_job_assignments assignment
       ON assignment.employee_id=candidate.employee_id
+     AND assignment.status='ACTIVE'
      AND assignment.site_id=candidate.site_id
      AND assignment.effective_from<=COALESCE(candidate.effective_to,'9999-12-31')
      AND (assignment.effective_to IS NULL OR assignment.effective_to>=candidate.effective_from)
@@ -240,6 +241,7 @@ BEGIN
     SELECT 1
     FROM employee_job_assignments assignment
     WHERE assignment.employee_id=candidate.employee_id
+      AND assignment.status='ACTIVE'
       AND assignment.production_job_id=candidate.job_id
       AND assignment.site_id=candidate.site_id
       AND assignment.effective_from=candidate.effective_from
@@ -252,6 +254,7 @@ BEGIN
       SELECT 1
       FROM employee_job_assignments assignment
       WHERE assignment.employee_id=candidate.employee_id
+        AND assignment.status='ACTIVE'
         AND assignment.site_id=candidate.site_id
         AND assignment.is_primary=1
         AND assignment.effective_from<=@seed_as_of
@@ -280,6 +283,7 @@ BEGIN
   FROM employee_job_assignments assignment
   JOIN sites s ON s.id=assignment.site_id
   WHERE assignment.is_primary=1
+    AND assignment.status='ACTIVE'
     AND assignment.effective_from<=@seed_as_of
     AND (assignment.effective_to IS NULL OR assignment.effective_to>=@seed_as_of)
   GROUP BY s.code

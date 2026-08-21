@@ -115,6 +115,87 @@ describe('Production foundation API', () => {
     expect(mocks.query).not.toHaveBeenCalled()
   })
 
+  it('memuat karyawan eligible beserta assignment tanpa fungsi JSON agregat', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[{ total: 1 }]])
+      .mockResolvedValueOnce([
+        [
+          {
+            employeeId: 42,
+            uid: '33333333-3333-4333-8333-333333333333',
+            employeeNumber: 'J3108-001',
+            fullName: 'Ariel Peterpan',
+            site: 'JEPARA',
+            employeeType: 'BORONGAN',
+            productionSectionUid: '44444444-4444-4444-8444-444444444444',
+            productionSectionCode: 'LINTING',
+            productionSectionName: 'Linting',
+            assignmentCount: 1,
+            hasPrimary: 1,
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([
+        [
+          {
+            employeeId: 42,
+            uid: '55555555-5555-4555-8555-555555555555',
+            jobUid: '66666666-6666-4666-8666-666666666666',
+            jobCode: 'BORONGAN-LINTING',
+            jobName: 'Linting',
+            isPrimary: 1,
+            unitUid: '77777777-7777-4777-8777-777777777777',
+            unitCode: 'PCS',
+            unitName: 'Pcs / Batang',
+            decimalPrecision: 0,
+            rateUid: '88888888-8888-4888-8888-888888888888',
+            rateAmount: '925.0000',
+            currency: 'IDR',
+          },
+        ],
+      ])
+
+    const response = await request(
+      '/eligible-employees?site=JEPARA&asOf=2026-08-21&page=1&pageSize=20',
+      { auth: auth({ sites: ['JEPARA'] }) }
+    )
+
+    expect(response.status).toBe(200)
+    expect(mocks.query).toHaveBeenCalledTimes(3)
+    expect(String(mocks.query.mock.calls[1]?.[0])).not.toContain('JSON_ARRAYAGG')
+    expect(String(mocks.query.mock.calls[2]?.[0])).toContain(
+      'a.employee_id IN (?)'
+    )
+    expect(mocks.query.mock.calls[2]?.[1]).toEqual([
+      'JEPARA',
+      '2026-08-21',
+      '2026-08-21',
+      42,
+      '2026-08-21',
+      '2026-08-21',
+      '2026-08-21',
+      '2026-08-21',
+    ])
+    await expect(response.json()).resolves.toMatchObject({
+      total: 1,
+      items: [
+        {
+          uid: '33333333-3333-4333-8333-333333333333',
+          fullName: 'Ariel Peterpan',
+          assignments: [
+            {
+              uid: '55555555-5555-4555-8555-555555555555',
+              jobCode: 'BORONGAN-LINTING',
+              isPrimary: true,
+              unit: { code: 'PCS', decimalPrecision: 0 },
+              rate: { amount: '925.0000', currency: 'IDR' },
+            },
+          ],
+        },
+      ],
+    })
+  })
+
   it('membatasi readiness ke site milik Production Admin', async () => {
     mocks.query.mockResolvedValueOnce([[]])
 

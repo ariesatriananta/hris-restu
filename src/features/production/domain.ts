@@ -1,6 +1,10 @@
 export type ProductionSite = 'JEPARA' | 'SEMARANG' | 'KLATEN'
 export type ProductionRateStatus = 'DRAFT' | 'ACTIVE' | 'INACTIVE'
-export type ProductionAssignmentStatus = 'ACTIVE' | 'UPCOMING' | 'ENDED'
+export type ProductionAssignmentStatus =
+  | 'ACTIVE'
+  | 'UPCOMING'
+  | 'ENDED'
+  | 'CANCELLED'
 export type ProductionAssignmentReadinessIssue =
   | 'ALL'
   | 'UNASSIGNED'
@@ -70,6 +74,29 @@ export type ProductionAssignment = {
   status: ProductionAssignmentStatus
 }
 
+export type ProductionEligibleEmployee = {
+  uid: string
+  employeeNumber: string
+  fullName: string
+  site: ProductionSite
+  employeeType: string
+  productionSection?: { uid: string; code: string; name: string } | null
+  assignments: Array<{
+    uid: string
+    jobUid: string
+    jobCode: string
+    jobName: string
+    isPrimary: boolean
+    unit: {
+      uid: string
+      code: string
+      name: string
+      decimalPrecision: number
+    }
+    rate: { uid: string; amount: string; currency: 'IDR' }
+  }>
+}
+
 export type ProductionReadiness = {
   asOf: string
   sites: Array<{
@@ -85,6 +112,9 @@ export type ProductionReadiness = {
       assignedJobsWithoutActiveRate: number
       assignedJobsWithAmbiguousRate: number
       activeProductionAdmins: number
+      readyProductionDevices: number
+      inactiveAssignedJobs: number
+      inactiveAssignedUnits: number
     }
     blockers: Array<{
       code: string
@@ -207,6 +237,7 @@ export type ProductionTransaction = {
   businessDate: string
   transactionAt: string
   status: ProductionTransactionStatus
+  entrySource?: 'TERMINAL' | 'HISTORICAL' | 'CORRECTION'
   quantity: string
   rateSnapshot: string
   grossAmount: string
@@ -318,6 +349,7 @@ export type ProductionCorrectionContext = {
 
 export type ProductionCorrectionPreview = {
   source: ProductionTransaction
+  targetEmployee?: ProductionTransaction['employee']
   proposed: {
     job: { uid: string; code: string; name: string }
     unit: ProductionCorrectionJob['unit']
@@ -331,6 +363,55 @@ export type ProductionCorrectionPreview = {
     grossAmount: string
   }
   payrollLock: ProductionPayrollLock
+  canApply: boolean
+}
+
+export type ProductionHistoricalPreview = {
+  employee: ProductionTransaction['employee']
+  site: ProductionSite
+  businessDate: string
+  attendance: { uid: string; clockInAt: string }
+  jobs: ProductionCorrectionJob[]
+  proposed: ProductionCorrectionPreview['proposed']
+  payrollLock: ProductionPayrollLock
+  canApply: boolean
+}
+
+export type ProductionAssignmentCorrectionPreview = {
+  source: {
+    uid?: string
+    employeeUid: string
+    site: ProductionSite
+    jobUid: string
+    jobCode: string
+    jobName: string
+    effectiveFrom: string
+    effectiveTo?: string | null
+    isPrimary: boolean | number
+  }
+  proposed: {
+    job: { uid: string; code: string; name: string }
+    effectiveFrom: string
+    effectiveTo?: string | null
+    isPrimary: boolean
+  }
+  impact?: { postedTransactions?: number; payrollLocked?: boolean }
+  canApply: boolean
+}
+
+export type ProductionRateCorrectionPreview = {
+  source: ProductionRate
+  proposed: Pick<
+    ProductionRate,
+    'rateAmount' | 'effectiveTo' | 'referenceNumber' | 'notes'
+  >
+  impact?: { transactionCount?: number }
+  canApply: boolean
+}
+
+export type ProductionRateCancellationPreview = {
+  source: ProductionRate
+  proposed?: { status: 'INACTIVE' }
   canApply: boolean
 }
 
@@ -374,10 +455,141 @@ export type ProductionTransactionResult =
     summary: {
       transactionCount: number
       employeeCount: number
-      totalQuantity: string
+      totalQuantity: string | null
+      quantityTotals?: ProductionRecapQuantity[]
       totalGrossAmount: string
     }
   }
+
+export type ProductionPayrollSnapshotStatus = 'NONE' | 'PARTIAL' | 'SNAPSHOTTED'
+
+export type ProductionRecapQuantity = {
+  unit: {
+    uid: string
+    code: string
+    name: string
+    decimalPrecision: number
+  }
+  quantity: string
+}
+
+export type ProductionRecapJobBreakdown = {
+  job: { uid: string; code: string; name: string }
+  transactionCount: number
+  quantityTotals: ProductionRecapQuantity[]
+  grossAmount: string
+}
+
+export type ProductionRecapEmployee = {
+  employee: { uid: string; employeeNumber: string; fullName: string }
+  site: { code: ProductionSite; name: string }
+  placement: {
+    employeeType: { code: string; name: string }
+    position?: { uid: string; name: string } | null
+    department?: { uid: string; name: string } | null
+    productionSection?: { uid: string; code: string; name: string } | null
+    workGroup?: { uid: string; code: string; name: string } | null
+  }
+  placementChanged: boolean
+  transactionCount: number
+  jobCount: number
+  grossAmount: string
+  payrollStatus: ProductionPayrollSnapshotStatus
+  quantityTotals: ProductionRecapQuantity[]
+  jobs: ProductionRecapJobBreakdown[]
+}
+
+export type ProductionRecapJob = ProductionRecapJobBreakdown & {
+  job: { uid: string; code: string; name: string }
+  employeeCount: number
+  sites: Array<{ code: ProductionSite; name: string }>
+  payrollStatus: ProductionPayrollSnapshotStatus
+}
+
+export type ProductionRecapFacet = { value: string; label: string }
+
+export type ProductionRecapParams = {
+  dateFrom: string
+  dateTo: string
+  query?: string
+  site?: ProductionSite[]
+  jobUid?: string[]
+  employeeType?: string[]
+  productionSectionUid?: string[]
+  workGroupUid?: string[]
+  page: number
+  pageSize: number
+}
+
+export type ProductionRecapResult = {
+  period: {
+    dateFrom: string
+    dateTo: string
+    dayCount: number
+    maxDays: number
+    live: boolean
+  }
+  summary: {
+    employeeCount: number
+    transactionCount: number
+    jobCount: number
+    totalGrossAmount: string
+  }
+  quantityTotals: ProductionRecapQuantity[]
+  employees: PaginatedProductionResult<ProductionRecapEmployee>
+  jobs: ProductionRecapJob[]
+  facets: {
+    sites: ProductionRecapFacet[]
+    jobs: ProductionRecapFacet[]
+    employeeTypes: ProductionRecapFacet[]
+    productionSections: ProductionRecapFacet[]
+    workGroups: ProductionRecapFacet[]
+  }
+}
+
+export type ProductionRecapTransaction = Pick<
+  ProductionTransaction,
+  | 'uid'
+  | 'transactionNumber'
+  | 'businessDate'
+  | 'transactionAt'
+  | 'quantity'
+  | 'rateSnapshot'
+  | 'grossAmount'
+  | 'job'
+  | 'unit'
+> & {
+  payrollSnapshotted: boolean
+  correctionSource?: {
+    uid: string
+    transactionNumber: string
+    reason: string
+  } | null
+}
+
+export type ProductionRecapPlacementHistory =
+  ProductionRecapEmployee['placement'] & {
+    uid: string
+    effectiveFrom: string
+    effectiveTo?: string | null
+  }
+
+export type ProductionEmployeeRecapDetail = {
+  period: ProductionRecapResult['period']
+  employee: ProductionRecapEmployee['employee']
+  site: ProductionRecapEmployee['site']
+  summary: ProductionRecapEmployee
+  placementTimeline: ProductionRecapPlacementHistory[]
+  transactions: ProductionRecapTransaction[]
+}
+
+export type ProductionJobRecapDetail = {
+  period: ProductionRecapResult['period']
+  job: ProductionRecapJob['job']
+  summary: ProductionRecapJob
+  employees: ProductionRecapEmployee[]
+  transactions: ProductionRecapTransaction[]
+}
 
 export function canOfferProductionRevision(
   transaction: Pick<ProductionTransaction, 'status' | 'payrollLocked'>,
@@ -390,4 +602,12 @@ export function canOfferProductionRevision(
     transaction.payrollLocked !== true &&
     apiAllowsAction
   )
+}
+
+export function productionEntrySourceLabel(
+  source: ProductionTransaction['entrySource']
+) {
+  if (source === 'HISTORICAL') return 'Setoran susulan oleh HR'
+  if (source === 'CORRECTION') return 'Hasil koreksi HR'
+  return 'Terminal Produksi'
 }

@@ -9,13 +9,22 @@ import type {
   ActivatedProductionDevice,
   PaginatedProductionResult,
   ProductionAssignment,
+  ProductionAssignmentCorrectionPreview,
   ProductionAssignmentReadinessParams,
   ProductionAssignmentReadinessResult,
   ProductionCorrectionContext,
   ProductionCorrectionPreview,
+  ProductionEligibleEmployee,
+  ProductionHistoricalPreview,
   ProductionJob,
   ProductionListParams,
   ProductionRate,
+  ProductionRateCancellationPreview,
+  ProductionRateCorrectionPreview,
+  ProductionRecapParams,
+  ProductionRecapResult,
+  ProductionEmployeeRecapDetail,
+  ProductionJobRecapDetail,
   ProductionReadiness,
   ProductionPostResult,
   ProductionTerminalLookup,
@@ -45,6 +54,14 @@ const keys = {
   transaction: (uid: string) => [...keys.all, 'transaction', uid] as const,
   correctionContext: (uid: string) =>
     [...keys.all, 'transaction', uid, 'correction-context'] as const,
+  eligibleEmployees: (input: Record<string, unknown>) =>
+    [...keys.all, 'eligible-employees', input] as const,
+  recaps: (input: ProductionRecapParams) =>
+    [...keys.all, 'recaps', input] as const,
+  employeeRecap: (uid: string, input: Record<string, unknown>) =>
+    [...keys.all, 'recaps', 'employees', uid, input] as const,
+  jobRecap: (uid: string, input: Record<string, unknown>) =>
+    [...keys.all, 'recaps', 'jobs', uid, input] as const,
 }
 
 function params(value: Record<string, unknown> | undefined) {
@@ -58,7 +75,24 @@ function params(value: Record<string, unknown> | undefined) {
   return output
 }
 
-export function useProductionUnits(input = { pageSize: 500, isActive: true }) {
+function recapParams(value: Record<string, unknown> | undefined) {
+  const output = new URLSearchParams()
+  Object.entries(value ?? {}).forEach(([key, item]) => {
+    if (Array.isArray(item)) {
+      if (item.length) output.set(key, item.join(','))
+    } else if (item !== undefined && item !== null && item !== '') {
+      output.set(key, String(item))
+    }
+  })
+  return output
+}
+
+export function useProductionUnits(
+  input: ProductionListParams & { isActive?: boolean } = {
+    pageSize: 500,
+    isActive: true,
+  }
+) {
   return useQuery({
     queryKey: keys.units(input),
     queryFn: async () =>
@@ -71,7 +105,12 @@ export function useProductionUnits(input = { pageSize: 500, isActive: true }) {
   })
 }
 
-export function useProductionJobs(input = { pageSize: 500, isActive: true }) {
+export function useProductionJobs(
+  input: ProductionListParams & { isActive?: boolean } = {
+    pageSize: 500,
+    isActive: true,
+  }
+) {
   return useQuery({
     queryKey: keys.jobs(input),
     queryFn: async () =>
@@ -124,6 +163,29 @@ export function useProductionAssignmentReadiness(
       ).data,
     placeholderData: keepPreviousData,
     enabled,
+  })
+}
+
+export function useProductionEligibleEmployees(
+  input: {
+    site: string
+    asOf: string
+    query?: string
+    page?: number
+    pageSize?: number
+  },
+  enabled = true
+) {
+  return useQuery({
+    queryKey: keys.eligibleEmployees(input),
+    queryFn: async () =>
+      (
+        await apiClient.get<
+          PaginatedProductionResult<ProductionEligibleEmployee>
+        >(`/production-structure/eligible-employees?${params(input)}`)
+      ).data,
+    placeholderData: keepPreviousData,
+    enabled: enabled && Boolean(input.site) && Boolean(input.asOf),
   })
 }
 
@@ -233,6 +295,80 @@ export function useProductionTransactions(
   })
 }
 
+export function useProductionRecaps(
+  input: ProductionRecapParams,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: keys.recaps(input),
+    queryFn: async () =>
+      (
+        await apiClient.get<ProductionRecapResult>(
+          `/production/recaps?${recapParams(input)}`
+        )
+      ).data,
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+}
+
+export function useProductionEmployeeRecap(
+  uid: string | undefined,
+  input: Record<string, unknown>
+) {
+  return useQuery({
+    queryKey: keys.employeeRecap(uid ?? '', input),
+    queryFn: async () =>
+      (
+        await apiClient.get<ProductionEmployeeRecapDetail>(
+          `/production/recaps/employees/${uid}?${recapParams(input)}`
+        )
+      ).data,
+    enabled: Boolean(uid),
+  })
+}
+
+export function useProductionJobRecap(
+  uid: string | undefined,
+  input: Record<string, unknown>
+) {
+  return useQuery({
+    queryKey: keys.jobRecap(uid ?? '', input),
+    queryFn: async () =>
+      (
+        await apiClient.get<ProductionJobRecapDetail>(
+          `/production/recaps/jobs/${uid}?${recapParams(input)}`
+        )
+      ).data,
+    enabled: Boolean(uid),
+  })
+}
+
+export function useExportProductionRecaps() {
+  return useMutation({
+    mutationFn: async (
+      input: Omit<ProductionRecapParams, 'page' | 'pageSize'>
+    ) => {
+      const response = await apiClient.post<Blob>(
+        '/production/recaps/export',
+        input,
+        { responseType: 'blob' }
+      )
+      const disposition = response.headers['content-disposition'] as
+        | string
+        | undefined
+      const encodedName = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+      const plainName = disposition?.match(/filename="?([^";]+)"?/i)?.[1]
+      return {
+        blob: response.data,
+        fileName: encodedName
+          ? decodeURIComponent(encodedName)
+          : (plainName ?? 'rekap-produksi.xlsx'),
+      }
+    },
+  })
+}
+
 export function useProductionTransaction(uid?: string) {
   return useQuery({
     queryKey: keys.transaction(uid ?? ''),
@@ -292,7 +428,7 @@ function useProductionRevisionMutation<TInput extends object, TResult>(
 
 export function usePreviewProductionCorrection(uid?: string) {
   return useProductionRevisionMutation<
-    { jobUid: string; quantity: string },
+    { employeeUid?: string; jobUid: string; quantity: string },
     ProductionCorrectionPreview
   >(uid, 'correction-preview')
 }
@@ -300,6 +436,7 @@ export function usePreviewProductionCorrection(uid?: string) {
 export function useCorrectProductionTransaction(uid?: string) {
   return useProductionRevisionMutation<
     {
+      employeeUid?: string
       jobUid: string
       quantity: string
       reason: string
@@ -321,4 +458,124 @@ export function useVoidProductionTransaction(uid?: string) {
     { reason: string; idempotencyKey: string },
     ProductionRevisionResult
   >(uid, 'void', true)
+}
+
+export function usePreviewHistoricalProduction() {
+  return useMutation({
+    mutationFn: async (input: {
+      employeeUid: string
+      site: string
+      businessDate: string
+      jobUid: string
+      quantity: string
+    }) =>
+      (
+        await apiClient.post<ProductionHistoricalPreview>(
+          '/production/transactions/historical-preview',
+          input
+        )
+      ).data,
+  })
+}
+
+export function useCreateHistoricalProduction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      employeeUid: string
+      site: string
+      businessDate: string
+      jobUid: string
+      quantity: string
+      reason: string
+      idempotencyKey: string
+    }) =>
+      (
+        await apiClient.post<ProductionPostResult>(
+          '/production/transactions/historical',
+          input
+        )
+      ).data,
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: [...keys.all, 'transactions'],
+      }),
+  })
+}
+
+function useProductionFoundationAction<TInput extends object, TResult>(
+  path: string
+) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: TInput) =>
+      (await apiClient.post<TResult>(path, input)).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),
+  })
+}
+
+export function usePreviewProductionAssignmentCorrection(uid?: string) {
+  return useProductionFoundationAction<
+    {
+      jobUid: string
+      effectiveFrom: string
+      effectiveTo: string | null
+      isPrimary: boolean
+    },
+    ProductionAssignmentCorrectionPreview
+  >(`/production-structure/assignments/${uid}/correction-preview`)
+}
+
+export function useCorrectProductionAssignment(uid?: string) {
+  return useProductionFoundationAction<
+    {
+      jobUid: string
+      effectiveFrom: string
+      effectiveTo: string | null
+      isPrimary: boolean
+      reason: string
+      idempotencyKey: string
+    },
+    ProductionAssignmentCorrectionPreview
+  >(`/production-structure/assignments/${uid}/correct`)
+}
+
+export function usePreviewProductionRateCancellation(uid?: string) {
+  return useProductionFoundationAction<
+    Record<string, never>,
+    ProductionRateCancellationPreview
+  >(`/production-structure/rates/${uid}/cancellation-preview`)
+}
+
+export function useCancelProductionRate(uid?: string) {
+  return useProductionFoundationAction<
+    { reason: string; idempotencyKey: string },
+    ProductionRateCancellationPreview
+  >(`/production-structure/rates/${uid}/cancel`)
+}
+
+export function usePreviewProductionRateCorrection(uid?: string) {
+  return useProductionFoundationAction<
+    {
+      rateAmount: string
+      effectiveTo: string | null
+      referenceNumber: string | null
+      notes: string | null
+    },
+    ProductionRateCorrectionPreview
+  >(`/production-structure/rates/${uid}/correction-preview`)
+}
+
+export function useCorrectProductionRate(uid?: string) {
+  return useProductionFoundationAction<
+    {
+      rateAmount: string
+      effectiveTo: string | null
+      referenceNumber: string | null
+      notes: string | null
+      reason: string
+      idempotencyKey: string
+    },
+    ProductionRateCorrectionPreview
+  >(`/production-structure/rates/${uid}/correct`)
 }

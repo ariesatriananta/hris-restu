@@ -21,8 +21,26 @@ export const productionTerminalPostInput = z
   })
   .strict()
 
+const historicalBase = z.object({
+  employeeUid: z.string().uuid(),
+  site: z.enum(['JEPARA', 'SEMARANG', 'KLATEN']),
+  businessDate: z.string().date(),
+  jobUid: z.string().uuid(),
+  quantity: decimalInput,
+})
+
+export const productionHistoricalPreviewInput = historicalBase.strict()
+
+export const productionHistoricalPostInput = historicalBase
+  .extend({
+    reason: z.string().trim().min(5).max(500),
+    idempotencyKey: z.string().uuid(),
+  })
+  .strict()
+
 export const productionCorrectionPreviewInput = z
   .object({
+    employeeUid: z.string().uuid().optional(),
     jobUid: z.string().uuid(),
     quantity: decimalInput,
   })

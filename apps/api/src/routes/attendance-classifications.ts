@@ -204,6 +204,39 @@ async function getClassificationForUpdate(conn: PoolConnection, uid: string) {
   return rows[0]
 }
 
+async function acquireClassificationReversalLocks(
+  conn: PoolConnection,
+  siteId: number,
+  businessDates: string[],
+  acquiredLocks: string[]
+) {
+  for (const businessDate of [...new Set(businessDates)].sort()) {
+    const lockName = attendanceFinalizationLockName(siteId, businessDate)
+    const [rows] = await conn.query<RowDataPacket[]>(
+      'SELECT GET_LOCK(?,0) acquired',
+      [lockName]
+    )
+    if (Number(rows[0]?.acquired) !== 1) {
+      throw new ApiError(
+        409,
+        `Finalisasi tanggal ${businessDate} sedang berjalan. Coba lagi setelah proses selesai.`
+      )
+    }
+    acquiredLocks.push(lockName)
+  }
+}
+
+async function releaseClassificationReversalLocks(
+  conn: PoolConnection | undefined,
+  acquiredLocks: string[]
+) {
+  if (!conn) return
+  for (const lockName of [...acquiredLocks].reverse()) {
+    await conn.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(() => undefined)
+  }
+  acquiredLocks.length = 0
+}
+
 async function approveClassification(
   conn: PoolConnection,
   input: {
@@ -755,6 +788,266 @@ attendanceClassificationsRouter.post(
       next(error)
     } finally {
       conn.release()
+    }
+  }
+)
+
+attendanceClassificationsRouter.post(
+  '/classifications/:uid/reverse',
+  requirePermission('attendance.approve'),
+  async (req, res, next) => {
+    let conn: PoolConnection | undefined
+    const acquiredLocks: string[] = []
+    try {
+      const auth = res.locals.auth as AuthContext
+      const uid = routeParam(req.params.uid)
+      const input = attendanceClassificationReversalInput.parse(req.body)
+      conn = await pool.getConnection()
+      await conn.beginTransaction()
+
+      const classification = await getClassificationForUpdate(conn, uid)
+      enforceSite(auth, classification.site)
+      if (classification.approval_status !== 'APPROVED') {
+        throw new ApiError(
+          409,
+          'Hanya klasifikasi yang sudah disetujui yang dapat dibatalkan.'
+        )
+      }
+
+      const [details] = await conn.query<RowDataPacket[]>(
+        `SELECT id,employee_id employeeId,
+                DATE_FORMAT(business_date,'%Y-%m-%d') businessDate,
+                attendance_record_id attendanceRecordId,outcome
+           FROM attendance_classification_details
+          WHERE request_id=?
+          ORDER BY business_date,id FOR UPDATE`,
+        [classification.id]
+      )
+      const appliedDetails = details.filter((detail) => detail.outcome === 'APPLIED')
+      if (appliedDetails.some((detail) => !detail.attendanceRecordId)) {
+        throw new ApiError(
+          409,
+          'Detail klasifikasi tidak memiliki referensi Attendance yang lengkap.'
+        )
+      }
+
+      const businessDates = appliedDetails.map((detail) =>
+        String(detail.businessDate)
+      )
+      await acquireClassificationReversalLocks(
+        conn,
+        Number(classification.site_id),
+        businessDates,
+        acquiredLocks
+      )
+
+      const attendanceIds = appliedDetails.map((detail) =>
+        Number(detail.attendanceRecordId)
+      )
+      const attendanceById = new Map<number, RowDataPacket>()
+      if (attendanceIds.length) {
+        const placeholders = attendanceIds.map(() => '?').join(',')
+        const [attendanceRows] = await conn.query<RowDataPacket[]>(
+          `SELECT id,employee_id employeeId,site_id siteId,
+                  DATE_FORMAT(business_date,'%Y-%m-%d') businessDate,
+                  attendance_status attendanceStatus,
+                  clock_in_at clockInAt,clock_out_at clockOutAt
+             FROM attendance_records
+            WHERE id IN (${placeholders}) FOR UPDATE`,
+          attendanceIds
+        )
+        attendanceRows.forEach((row) => attendanceById.set(Number(row.id), row))
+
+        for (const detail of appliedDetails) {
+          const attendance = attendanceById.get(Number(detail.attendanceRecordId))
+          if (!attendance) {
+            throw new ApiError(409, 'Record Attendance klasifikasi tidak ditemukan.')
+          }
+          if (
+            Number(attendance.employeeId) !== Number(classification.employee_id) ||
+            Number(attendance.employeeId) !== Number(detail.employeeId) ||
+            Number(attendance.siteId) !== Number(classification.site_id) ||
+            attendance.businessDate !== detail.businessDate
+          ) {
+            throw new ApiError(
+              409,
+              `Relasi Attendance tanggal ${detail.businessDate} tidak konsisten.`
+            )
+          }
+          if (
+            attendance.attendanceStatus !== classification.classification_type ||
+            attendance.clockInAt ||
+            attendance.clockOutAt
+          ) {
+            throw new ApiError(
+              409,
+              `Attendance tanggal ${detail.businessDate} sudah berubah setelah klasifikasi diterapkan.`
+            )
+          }
+        }
+
+        const [successfulScans] = await conn.query<RowDataPacket[]>(
+          `SELECT id FROM attendance_scan_events
+            WHERE attendance_record_id IN (${placeholders})
+              AND result_status='SUCCESS'
+            LIMIT 1 FOR UPDATE`,
+          attendanceIds
+        )
+        if (successfulScans[0]) {
+          throw new ApiError(
+            409,
+            'Klasifikasi tidak dapat dibatalkan karena sudah ada scan Attendance berhasil.'
+          )
+        }
+
+        const [postedProduction] = await conn.query<RowDataPacket[]>(
+          `SELECT id FROM production_transactions
+            WHERE attendance_record_id IN (${placeholders}) AND status='POSTED'
+            LIMIT 1 FOR UPDATE`,
+          attendanceIds
+        )
+        if (postedProduction[0]) {
+          throw new ApiError(
+            409,
+            'Klasifikasi tidak dapat dibatalkan karena Attendance sudah dipakai setoran produksi.'
+          )
+        }
+
+        const datePredicates = businessDates
+          .map(() => '? BETWEEN period_start AND period_end')
+          .join(' OR ')
+        const [lockedPayroll] = await conn.query<RowDataPacket[]>(
+          `SELECT id FROM payroll_periods
+            WHERE site_id=? AND status IN ('CALCULATED','APPROVED','CLOSED')
+              AND (${datePredicates})
+            LIMIT 1 FOR UPDATE`,
+          [classification.site_id, ...businessDates]
+        )
+        if (lockedPayroll[0]) {
+          throw new ApiError(
+            409,
+            'Klasifikasi menyentuh periode payroll yang sudah dihitung, disetujui, atau ditutup.'
+          )
+        }
+
+        const [payrollSnapshots] = await conn.query<RowDataPacket[]>(
+          `SELECT pas.id
+             FROM payroll_attendance_summaries pas
+             JOIN payroll_employee_results per
+               ON per.id=pas.payroll_employee_result_id
+             JOIN payroll_periods pp ON pp.id=per.payroll_period_id
+            WHERE per.employee_id=? AND pp.site_id=?
+              AND (${businessDates
+                .map(() => '? BETWEEN pp.period_start AND pp.period_end')
+                .join(' OR ')})
+            LIMIT 1 FOR UPDATE`,
+          [classification.employee_id, classification.site_id, ...businessDates]
+        )
+        if (payrollSnapshots[0]) {
+          throw new ApiError(
+            409,
+            'Klasifikasi sudah tersimpan dalam snapshot payroll dan tidak dapat dibatalkan.'
+          )
+        }
+
+        for (const detail of appliedDetails) {
+          await conn.execute(
+            `UPDATE attendance_records
+                SET attendance_status='ABSENT',
+                    notes=LEFT(CONCAT('Klasifikasi ',?,
+                      ' dibatalkan: ',?),500),updated_by=?
+              WHERE id=?`,
+            [
+              classification.classification_type,
+              input.reason,
+              auth.id,
+              detail.attendanceRecordId,
+            ]
+          )
+          await conn.execute(
+            `UPDATE attendance_classification_details
+                SET outcome='REVERSED',notes=LEFT(CONCAT(
+                      'Dibatalkan: ',?),500),updated_by=?
+              WHERE id=? AND outcome='APPLIED'`,
+            [input.reason, auth.id, detail.id]
+          )
+        }
+      }
+
+      await conn.execute(
+        `UPDATE attendance_classification_requests
+            SET approval_status='CANCELLED',cancelled_by=?,
+                cancelled_at=CURRENT_TIMESTAMP(3),updated_by=?
+          WHERE id=?`,
+        [auth.id, auth.id, classification.id]
+      )
+
+      let invalidatedFinalizationCount = 0
+      for (const businessDate of businessDates) {
+        const [invalidated] = await conn.execute<ResultSetHeader>(
+          `INSERT INTO attendance_daily_finalization_runs
+            (uid,site_id,business_date,trigger_type,status,grace_minutes,reason,
+             summary,warnings,requested_by,started_at,finished_at,created_by,updated_by)
+           SELECT UUID(),latest.site_id,latest.business_date,'MANUAL','SKIPPED',60,?,
+                  JSON_OBJECT('invalidatedByClassificationReversal',TRUE),
+                  JSON_ARRAY(?),?,CURRENT_TIMESTAMP(3),CURRENT_TIMESTAMP(3),?,?
+             FROM attendance_daily_finalization_runs latest
+            WHERE latest.site_id=? AND latest.business_date=?
+              AND latest.id=(SELECT MAX(previous.id)
+                FROM attendance_daily_finalization_runs previous
+               WHERE previous.site_id=latest.site_id
+                 AND previous.business_date=latest.business_date)
+              AND latest.status='SUCCEEDED'`,
+          [
+            'Klasifikasi Attendance yang diterapkan telah dibatalkan.',
+            'Finalisasi perlu dijalankan ulang setelah pembatalan klasifikasi Attendance.',
+            auth.id,
+            auth.id,
+            auth.id,
+            classification.site_id,
+            businessDate,
+          ]
+        )
+        invalidatedFinalizationCount += invalidated.affectedRows
+      }
+
+      await writeAudit(
+        {
+          auth,
+          request: req,
+          module: 'ATTENDANCE',
+          siteId: classification.site_id,
+          action: 'UPDATE',
+          table: 'attendance_classification_requests',
+          recordId: classification.id,
+          recordUid: uid,
+          description: `Membatalkan klasifikasi Attendance yang sudah diterapkan: ${appliedDetails.length} hari dikembalikan menjadi Alpha.`,
+          reason: input.reason,
+          beforeData: {
+            approvalStatus: 'APPROVED',
+            appliedCount: appliedDetails.length,
+          },
+          afterData: {
+            approvalStatus: 'CANCELLED',
+            reversedCount: appliedDetails.length,
+            invalidatedFinalizationCount,
+          },
+        },
+        conn
+      )
+
+      await conn.commit()
+      res.json({
+        uid,
+        approvalStatus: 'CANCELLED',
+        reversedCount: appliedDetails.length,
+      })
+    } catch (error) {
+      await conn?.rollback().catch(() => undefined)
+      next(error)
+    } finally {
+      await releaseClassificationReversalLocks(conn, acquiredLocks)
+      conn?.release()
     }
   }
 )

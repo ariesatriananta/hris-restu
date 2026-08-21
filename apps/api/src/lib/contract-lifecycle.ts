@@ -18,6 +18,7 @@ import {
   type ContractTransitionAction,
 } from './contract-lifecycle-policy.js'
 import type { AuthContext } from '../middleware/authenticate.js'
+import { reconcileProductionAssignmentsAtEmploymentBoundary } from './production-assignment-lifecycle.js'
 
 const endDateRequired = ['PKWT', 'TRAINING']
 export const businessDate = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
@@ -51,6 +52,12 @@ export async function employeeStatus(conn: PoolConnection, employeeId: number, n
     await conn.execute('UPDATE employee_employment_histories SET employee_status_id=?,updated_by=? WHERE id=?', [target[0].id, actor?.id ?? null, active[0].id])
   }
   await conn.execute('UPDATE employees SET employee_status_id=?,resign_date=?,resign_reason=?,updated_by=? WHERE id=?', [target[0].id,next === 'RESIGNED' ? effectiveDate : null,next === 'RESIGNED' ? reason ?? null : null,actor?.id ?? null,employeeId])
+  await reconcileProductionAssignmentsAtEmploymentBoundary(
+    conn,
+    employeeId,
+    effectiveDate,
+    actor?.id ?? null
+  )
   return true
 }
 
@@ -136,6 +143,12 @@ async function repairEmployeeStatusTimeline(
         SET employee_status_id=?,resign_date=NULL,resign_reason=NULL,updated_by=NULL
       WHERE id=? AND employee_status_id<>?`,
     [targetId, employeeId, targetId]
+  )
+  await reconcileProductionAssignmentsAtEmploymentBoundary(
+    conn,
+    employeeId,
+    effectiveDate,
+    null
   )
   return Number((result as { affectedRows?: number }).affectedRows ?? 0) > 0 ||
     String(boundary.status) !== targetStatus ||

@@ -106,6 +106,36 @@ export const closeProductionAssignmentInput = z
   })
   .strict()
 
+export const productionAssignmentCorrectionInput = z
+  .object({
+    jobUid: z.string().uuid(),
+    effectiveFrom: z.string().date(),
+    effectiveTo: z.string().date().optional().nullable(),
+    isPrimary: z.boolean(),
+    reason: z.string().trim().min(10).max(500),
+    idempotencyKey: z.string().uuid(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.effectiveTo && value.effectiveTo < value.effectiveFrom) {
+      context.addIssue({ code: 'custom', path: ['effectiveTo'], message: 'Tanggal selesai tidak boleh mendahului tanggal mulai.' })
+    }
+  })
+
+export const productionRateExceptionInput = z.object({
+  reason: z.string().trim().min(10).max(500),
+  idempotencyKey: z.string().uuid(),
+}).strict()
+
+export const productionActiveRateCorrectionInput = productionRateExceptionInput.extend({
+  rateAmount: z.union([z.string(), z.number()]).transform(String),
+  effectiveTo: z.string().date().optional().nullable(),
+  referenceNumber: nullableText(100),
+  notes: nullableText(500),
+}).strict().refine((value) => /^\d+(\.\d{1,4})?$/.test(value.rateAmount), {
+  path: ['rateAmount'], message: 'Tarif maksimal memiliki empat angka desimal.',
+})
+
 export function pageParams(page: unknown, pageSize: unknown) {
   const parsedPage = Number(page ?? 1)
   const parsedPageSize = Number(pageSize ?? 50)
@@ -132,6 +162,7 @@ export function booleanFilter(value: unknown) {
 
 export function assignmentStatusSql(alias = 'a') {
   return `CASE
+    WHEN ${alias}.status='CANCELLED' THEN 'CANCELLED'
     WHEN ${alias}.effective_from>CURDATE() THEN 'UPCOMING'
     WHEN ${alias}.effective_to IS NOT NULL AND ${alias}.effective_to<CURDATE() THEN 'ENDED'
     ELSE 'ACTIVE'

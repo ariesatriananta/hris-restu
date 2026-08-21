@@ -3,6 +3,7 @@ import type { RowDataPacket } from 'mysql2'
 import type { PoolConnection } from 'mysql2/promise'
 import { pool } from '../db.js'
 import { writeSystemAudit } from './audit.js'
+import { reconcileProductionAssignmentsAtEmploymentBoundary } from './production-assignment-lifecycle.js'
 import { businessDate } from './contract-lifecycle.js'
 
 type ApplyResult =
@@ -129,6 +130,12 @@ export async function applyScheduledMutation(uid: string): Promise<ApplyResult> 
     await conn.execute('UPDATE employee_employment_histories SET effective_to=DATE_SUB(?, INTERVAL 1 DAY),updated_by=NULL WHERE id=?', [schedule.effectiveFrom, schedule.base_history_id])
     await conn.execute(`INSERT INTO employee_employment_histories(uid,employee_id,site_id,department_id,position_id,work_group_id,production_module_section_id,employee_type_id,employee_status_id,effective_from,change_type,reference_number,reason,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [historyUid, schedule.employee_id, schedule.target_site_id, schedule.target_department_id, schedule.target_position_id, schedule.target_work_group_id, schedule.target_production_module_section_id, schedule.target_employee_type_id, baseRows[0].employeeStatusId, schedule.effectiveFrom, schedule.change_type, schedule.reference_number, schedule.reason, schedule.notes, null, null])
     await conn.execute('UPDATE employees SET employee_type_id=?,current_site_id=?,current_department_id=?,current_position_id=?,current_work_group_id=?,current_production_module_section_id=?,updated_by=NULL WHERE id=?', [schedule.target_employee_type_id, schedule.target_site_id, schedule.target_department_id, schedule.target_position_id, schedule.target_work_group_id, schedule.target_production_module_section_id, schedule.employee_id])
+    await reconcileProductionAssignmentsAtEmploymentBoundary(
+      conn,
+      Number(schedule.employee_id),
+      String(schedule.effectiveFrom),
+      null
+    )
     await conn.execute("UPDATE scheduled_employee_mutations SET status='APPLIED',failure_reason=NULL,applied_at=CURRENT_TIMESTAMP(3),updated_by=NULL WHERE id=?", [schedule.id])
     await writeSystemAudit({ siteId: schedule.target_site_id, action: 'OTHER', table: 'scheduled_employee_mutations', recordId: schedule.id, recordUid: schedule.uid, description: 'Mutasi terjadwal diterapkan oleh cron.' }, conn)
     await writeSystemAudit({ siteId: schedule.target_site_id, action: 'CREATE', table: 'employee_employment_histories', recordUid: historyUid, description: `Cron menerapkan mutasi ${schedule.change_type}.` }, conn)

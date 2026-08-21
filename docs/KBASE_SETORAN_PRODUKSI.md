@@ -1,8 +1,9 @@
 # Knowledge Base — Produksi Borongan
 
 > Status: Fase 1 Fondasi & Readiness, Fase 2A Terminal Setoran & Transaksi Harian,
-> dan Fase 2B Koreksi/Void sudah tersedia. Rekap dan proses perhitungan Payroll
-> Produksi dikerjakan pada fase berikutnya.
+> Fase 2B Koreksi/Void, dan Fase 2C Rekap Produksi sudah tersedia. Proses
+> perhitungan, approval, dan closing Payroll Produksi dikerjakan pada fase
+> berikutnya.
 
 ## Cakupan Fase 1
 
@@ -70,6 +71,7 @@ tanggal pemeriksaan, status yang mengizinkan Produksi, dan basis upah
 - `production.view`: melihat master, tarif, assignment, readiness, transaksi, dan rekap.
 - `production.scan`: mengakses Terminal Setoran.
 - `production.correct`: koreksi transaksi Produksi pada fase transaksi.
+- `production.export`: mengekspor Rekap Produksi sesuai filter dan akses site.
 - `production.manage_master`: mengelola satuan, pekerjaan, tarif, dan assignment.
 
 `SUPER_ADMIN` mendapat seluruh permission. `PRODUCTION_ADMIN` mendapat view/scan/correct tetapi tidak mengubah master. HR, Payroll, Site Supervisor, dan Director mendapat akses baca sesuai cakupan role/site.
@@ -181,5 +183,61 @@ Endpoint Fase 2B:
 - `POST /api/production/transactions/:uid/void`
 
 Detail transaksi menampilkan status Payroll lock, metadata void, transaksi
-sumber/pengganti, dan timeline revision. Rekap serta perhitungan Payroll
-Produksi tetap menjadi fase berikutnya.
+sumber/pengganti, dan timeline revision.
+
+## Fase 2C — Rekap Produksi operasional
+
+Rekap Produksi bersifat live dan read-only. Hanya transaksi `POSTED` pada
+periode maksimal 31 hari yang dihitung. Transaksi `VOID` dikecualikan dan
+transaksi pengganti hasil koreksi dihitung sebagai transaksi baru.
+
+Tampilan rekap menyediakan:
+
+- ringkasan karyawan, transaksi, pekerjaan, dan nilai bruto tercatat;
+- hasil yang selalu dipisahkan per satuan;
+- ledger karyawan per kombinasi karyawan dan site;
+- card pekerjaan serta drawer rincian karyawan/pekerjaan;
+- filter site, pekerjaan, jenis karyawan, Bagian Produksi, kelompok kerja, dan
+  pencarian karyawan;
+- status `NONE`, `PARTIAL`, atau `SNAPSHOTTED` yang hanya menjelaskan apakah
+  transaksi sudah masuk snapshot Payroll, bukan status pembayaran.
+
+Kelompok kerja pada rekap mengikuti snapshot transaksi. Jenis karyawan,
+jabatan, dan Bagian Produksi dibaca dari histori employment efektif pada
+tanggal transaksi. Jika penempatan berubah dalam periode, rekap menandainya dan
+drawer menampilkan timeline penempatan.
+
+Pengguna dengan `production.export` dapat mengunduh Excel empat sheet:
+Ringkasan Karyawan, Rincian Pekerjaan, Transaksi POSTED, dan Riwayat Revisi.
+Ekspor tetap mengikuti pembatasan site dan dicatat pada audit log.
+
+Endpoint Fase 2C:
+
+- `GET /api/production/recaps`
+- `GET /api/production/recaps/employees/:employeeUid`
+- `GET /api/production/recaps/jobs/:jobUid`
+- `POST /api/production/recaps/export`
+
+Migration permission:
+
+- `db/migrations/20260821_production_recap_export_permission.sql`
+
+Rekap tidak melakukan finalisasi Produksi dan tidak membuat snapshot Payroll.
+Angka dapat berubah sampai transaksi masuk proses Payroll.
+
+## Fase 2D — Exception & Integrity
+
+- Setoran susulan dibuat pemilik izin `production.correct`, tidak boleh
+  bertanggal masa depan, dan wajib memiliki alasan serta idempotency key.
+- Eligibility, Attendance Hadir dengan scan Masuk sukses, assignment, job,
+  satuan, dan tarif dievaluasi ulang pada tanggal yang dicatat.
+- Payroll `PROCESSING`, `CALCULATED`, `APPROVED`, atau `CLOSED` menolak setoran
+  baru, setoran susulan, koreksi, dan void.
+- Koreksi salah karyawan tetap append-only: sumber menjadi `VOID`, transaksi
+  pengganti `POSTED`, dan revisi menyimpan snapshot sebelum/sesudah.
+- Mutasi site/jenis/status menutup assignment lama. Assignment masa depan yang
+  kehilangan employment eligible menjadi `CANCELLED` agar tidak hidup kembali.
+- Tarif Aktif hanya dapat dikoreksi/dibatalkan bila belum pernah direferensikan
+  transaksi. Snapshot transaksi tidak di-reprice; selisih menjadi adjustment
+  Payroll pada fase Payroll.
+- Credential Attendance dan Produksi dipisahkan pada perangkat yang sama.

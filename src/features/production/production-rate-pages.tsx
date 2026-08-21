@@ -7,6 +7,8 @@ import {
   CheckCircle2,
   CircleDollarSign,
   LoaderCircle,
+  PencilLine,
+  Ban,
   Plus,
   Ruler,
   UsersRound,
@@ -29,6 +31,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import {
   Select,
   SelectContent,
@@ -57,31 +60,37 @@ import { AssignmentReadinessTable } from './assignment-readiness-table'
 import {
   useProductionAssignmentReadiness,
   useProductionAssignments,
+  useCorrectProductionAssignment,
+  useCorrectProductionRate,
+  useCancelProductionRate,
   useProductionCommand,
   useProductionJobs,
   useProductionRates,
   useProductionReadiness,
   useProductionUnits,
+  usePreviewProductionAssignmentCorrection,
+  usePreviewProductionRateCancellation,
+  usePreviewProductionRateCorrection,
 } from './data/queries'
 import type {
   PaginatedProductionResult,
+  ProductionAssignment,
   ProductionAssignmentReadinessIssue,
   ProductionAssignmentReadinessItem,
+  ProductionEligibleEmployee,
   ProductionJob,
   ProductionRate,
   ProductionSite,
   WorkUnit,
 } from './domain'
+import { ProductionEmployeePicker } from './production-employee-picker'
+import {
+  formatProductionDecimalInput,
+  normalizeProductionDecimalInput,
+} from './production-terminal-policy'
 
 const sites: ProductionSite[] = ['JEPARA', 'SEMARANG', 'KLATEN']
 type PageProps = { search: Record<string, unknown>; navigate: NavigateFn }
-type EmployeeOption = {
-  uid: string
-  employeeNumber: string
-  fullName: string
-  site: ProductionSite
-  employeeType: string
-}
 type PositionOption = { uid: string; code: string; name: string }
 type AssignmentPreset = {
   employeeUid: string
@@ -106,6 +115,22 @@ function formatCurrency(value: string | number) {
     currency: 'IDR',
     maximumFractionDigits: 4,
   }).format(Number(value))
+}
+
+function createIdempotencyKey() {
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `production-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  )
+}
+
+function apiMessage(error: unknown, fallback: string) {
+  if (!error || typeof error !== 'object') return fallback
+  const response = (error as { response?: { data?: { message?: unknown } } })
+    .response
+  return typeof response?.data?.message === 'string'
+    ? response.data.message
+    : fallback
 }
 
 function DateField({
@@ -253,7 +278,8 @@ function ReadinessPanel({
             </div>
             <p className='text-xs text-muted-foreground'>
               {item.metrics.eligibleEmployees} pekerja eligible ·{' '}
-              {item.metrics.assignedJobs} pekerjaan dipakai
+              {item.metrics.assignedJobs} pekerjaan dipakai ·{' '}
+              {item.metrics.readyProductionDevices ?? 0} terminal siap
             </p>
             {item.blockers.length > 0 && (
               <div className='space-y-1'>
@@ -352,8 +378,8 @@ function ReadinessPanel({
 }
 
 function useReferenceOptions() {
-  const units = useProductionUnits()
-  const jobs = useProductionJobs()
+  const units = useProductionUnits({ pageSize: 500, isActive: undefined })
+  const jobs = useProductionJobs({ pageSize: 500, isActive: undefined })
   const positions = useQuery({
     queryKey: ['production-foundation', 'positions'],
     queryFn: async () =>
@@ -604,35 +630,24 @@ function AssignmentDialog({
     isPrimary: true,
     reason: 'Penugasan awal pekerjaan Produksi.',
   })
+  const [selectedEmployee, setSelectedEmployee] = useState<
+    | Pick<
+        ProductionEligibleEmployee,
+        'uid' | 'fullName' | 'employeeNumber' | 'employeeType' | 'site'
+      >
+    | undefined
+  >(
+    preset
+      ? {
+          uid: preset.employeeUid,
+          employeeNumber: preset.employeeNumber,
+          fullName: preset.fullName,
+          employeeType: '',
+          site: preset.site,
+        }
+      : undefined
+  )
   const command = useProductionCommand()
-  const employees = useQuery({
-    queryKey: ['production-foundation', 'employees', form.site],
-    queryFn: async () =>
-      (
-        await apiClient.get<PaginatedProductionResult<EmployeeOption>>(
-          `/employees?pageSize=500&employeeStatus=ACTIVE&employeeType=BORONGAN&employeeType=TRAINING&site=${form.site}`
-        )
-      ).data,
-    enabled: open,
-  })
-  const employeeOptions = useMemo(() => {
-    const items = employees.data?.items ?? []
-    if (
-      !preset ||
-      items.some((employee) => employee.uid === preset.employeeUid)
-    )
-      return items
-    return [
-      {
-        uid: preset.employeeUid,
-        employeeNumber: preset.employeeNumber,
-        fullName: preset.fullName,
-        site: preset.site,
-        employeeType: '',
-      },
-      ...items,
-    ]
-  }, [employees.data?.items, preset])
   const save = () =>
     command.mutate(
       {
@@ -664,9 +679,10 @@ function AssignmentDialog({
           <Field label='Site'>
             <Select
               value={form.site}
-              onValueChange={(value: ProductionSite) =>
+              onValueChange={(value: ProductionSite) => {
                 setForm({ ...form, site: value, employeeUid: '' })
-              }
+                setSelectedEmployee(undefined)
+              }}
             >
               <SelectTrigger className='w-full'>
                 <SelectValue />
@@ -680,24 +696,27 @@ function AssignmentDialog({
               </SelectContent>
             </Select>
           </Field>
+          <Field label='Tanggal mulai'>
+            <DateField
+              value={form.effectiveFrom}
+              onChange={(value) => {
+                setForm({ ...form, effectiveFrom: value, employeeUid: '' })
+                setSelectedEmployee(undefined)
+              }}
+              placeholder='Pilih tanggal mulai'
+            />
+          </Field>
           <Field label='Karyawan'>
-            <Select
+            <ProductionEmployeePicker
+              site={form.site}
+              asOf={form.effectiveFrom}
               value={form.employeeUid}
-              onValueChange={(value) =>
-                setForm({ ...form, employeeUid: value })
-              }
-            >
-              <SelectTrigger className='w-full'>
-                <SelectValue placeholder='Pilih karyawan' />
-              </SelectTrigger>
-              <SelectContent>
-                {employeeOptions.map((employee) => (
-                  <SelectItem key={employee.uid} value={employee.uid}>
-                    {employee.fullName} · {employee.employeeNumber}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              selected={selectedEmployee}
+              onChange={(employee) => {
+                setSelectedEmployee(employee)
+                setForm({ ...form, employeeUid: employee.uid })
+              }}
+            />
           </Field>
           <Field label='Pekerjaan'>
             <Select
@@ -716,13 +735,54 @@ function AssignmentDialog({
               </SelectContent>
             </Select>
           </Field>
-          <Field label='Tanggal mulai'>
-            <DateField
-              value={form.effectiveFrom}
-              onChange={(value) => setForm({ ...form, effectiveFrom: value })}
-              placeholder='Pilih tanggal mulai'
-            />
-          </Field>
+          <div className='sm:col-span-2'>
+            <Field label='Jenis penugasan'>
+              <RadioGroup
+                value={form.isPrimary ? 'PRIMARY' : 'ADDITIONAL'}
+                onValueChange={(value) =>
+                  setForm({ ...form, isPrimary: value === 'PRIMARY' })
+                }
+                className='grid gap-2 sm:grid-cols-2'
+              >
+                <Label
+                  htmlFor='production-assignment-primary'
+                  className='flex cursor-pointer items-start gap-3 rounded-lg border p-3 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/[0.04]'
+                >
+                  <RadioGroupItem
+                    id='production-assignment-primary'
+                    value='PRIMARY'
+                    className='mt-0.5'
+                  />
+                  <span>
+                    <span className='block font-medium'>Pekerjaan utama</span>
+                    <span className='mt-0.5 block text-xs font-normal text-muted-foreground'>
+                      Menjadi pilihan bawaan terminal. Tepat satu pekerjaan
+                      utama wajib aktif pada tanggal yang sama.
+                    </span>
+                  </span>
+                </Label>
+                <Label
+                  htmlFor='production-assignment-additional'
+                  className='flex cursor-pointer items-start gap-3 rounded-lg border p-3 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/[0.04]'
+                >
+                  <RadioGroupItem
+                    id='production-assignment-additional'
+                    value='ADDITIONAL'
+                    className='mt-0.5'
+                  />
+                  <span>
+                    <span className='block font-medium'>
+                      Pekerjaan tambahan
+                    </span>
+                    <span className='mt-0.5 block text-xs font-normal text-muted-foreground'>
+                      Tersedia sebagai pilihan lain di terminal tanpa mengganti
+                      pekerjaan utama.
+                    </span>
+                  </span>
+                </Label>
+              </RadioGroup>
+            </Field>
+          </div>
           <Field label='Tanggal selesai (opsional)'>
             <DateField
               value={form.effectiveTo}
@@ -836,6 +896,225 @@ function CloseAssignmentDialog({
   )
 }
 
+function AssignmentCorrectionDialog({
+  assignment,
+  jobs,
+}: {
+  assignment: ProductionAssignment
+  jobs: ProductionJob[]
+}) {
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({
+    jobUid: assignment.job.uid,
+    effectiveFrom: assignment.effectiveFrom,
+    effectiveTo: assignment.effectiveTo ?? '',
+    isPrimary: assignment.isPrimary,
+  })
+  const [reason, setReason] = useState('')
+  const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey)
+  const preview = usePreviewProductionAssignmentCorrection(assignment.uid)
+  const correction = useCorrectProductionAssignment(assignment.uid)
+  const resetPreview = () => {
+    preview.reset()
+    setIdempotencyKey(createIdempotencyKey())
+  }
+  const proposal = {
+    jobUid: form.jobUid,
+    effectiveFrom: form.effectiveFrom,
+    effectiveTo: form.effectiveTo || null,
+    isPrimary: form.isPrimary,
+  }
+  const valid = Boolean(
+    form.jobUid &&
+    form.effectiveFrom &&
+    (!form.effectiveTo || form.effectiveTo >= form.effectiveFrom)
+  )
+  const apply = async () => {
+    if (!preview.data?.canApply || reason.trim().length < 5) return
+    try {
+      await correction.mutateAsync({
+        ...proposal,
+        reason: reason.trim(),
+        idempotencyKey,
+      })
+      toast.success('Histori penugasan berhasil dikoreksi.')
+      setOpen(false)
+    } catch (error) {
+      toast.error(apiMessage(error, 'Koreksi penugasan gagal diterapkan.'))
+    }
+  }
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) return
+        setForm({
+          jobUid: assignment.job.uid,
+          effectiveFrom: assignment.effectiveFrom,
+          effectiveTo: assignment.effectiveTo ?? '',
+          isPrimary: assignment.isPrimary,
+        })
+        setReason('')
+        resetPreview()
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button
+          size='sm'
+          variant='ghost'
+          aria-label='Koreksi histori penugasan'
+        >
+          <PencilLine className='size-4' />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-2xl'>
+        <DialogHeader>
+          <DialogTitle>Koreksi Histori Penugasan</DialogTitle>
+          <DialogDescription>
+            Periksa preview sebelum menerapkan. Transaksi Produksi yang sudah
+            tercatat tidak ikut diubah.
+          </DialogDescription>
+        </DialogHeader>
+        <div className='rounded-lg border bg-muted/30 p-3 text-sm'>
+          <p className='font-medium'>{assignment.employee.fullName}</p>
+          <p className='text-xs text-muted-foreground'>
+            {assignment.site} · {assignment.employee.employeeNumber}
+          </p>
+        </div>
+        <div className='grid gap-4 sm:grid-cols-2'>
+          <Field label='Pekerjaan yang benar'>
+            <Select
+              value={form.jobUid}
+              onValueChange={(value) => {
+                setForm({ ...form, jobUid: value })
+                resetPreview()
+              }}
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {jobs
+                  .filter(
+                    (job) => job.isActive || job.uid === assignment.job.uid
+                  )
+                  .map((job) => (
+                    <SelectItem key={job.uid} value={job.uid}>
+                      {job.name} · {job.code}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label='Jenis penugasan'>
+            <Select
+              value={form.isPrimary ? 'PRIMARY' : 'ADDITIONAL'}
+              onValueChange={(value) => {
+                setForm({ ...form, isPrimary: value === 'PRIMARY' })
+                resetPreview()
+              }}
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='PRIMARY'>Pekerjaan utama</SelectItem>
+                <SelectItem value='ADDITIONAL'>Pekerjaan tambahan</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label='Tanggal mulai yang benar'>
+            <DateField
+              value={form.effectiveFrom}
+              onChange={(value) => {
+                setForm({ ...form, effectiveFrom: value })
+                resetPreview()
+              }}
+              placeholder='Tanggal mulai'
+            />
+          </Field>
+          <Field label='Tanggal selesai (opsional)'>
+            <DateField
+              value={form.effectiveTo}
+              onChange={(value) => {
+                setForm({ ...form, effectiveTo: value })
+                resetPreview()
+              }}
+              placeholder='Tanpa tanggal selesai'
+            />
+          </Field>
+        </div>
+        <Button
+          type='button'
+          variant='secondary'
+          className='w-fit'
+          disabled={!valid || preview.isPending}
+          onClick={() =>
+            preview.mutate(proposal, {
+              onError: (error) =>
+                toast.error(apiMessage(error, 'Preview koreksi gagal dibuat.')),
+            })
+          }
+        >
+          {preview.isPending && <LoaderCircle className='animate-spin' />}
+          Preview perubahan
+        </Button>
+        {preview.data && (
+          <div className='grid gap-2 sm:grid-cols-2'>
+            <div className='rounded-lg border p-3 text-sm'>
+              <p className='mb-2 text-xs font-semibold text-muted-foreground uppercase'>
+                Sebelum
+              </p>
+              <p className='font-medium'>{preview.data.source.jobName}</p>
+              <p>{preview.data.source.isPrimary ? 'Utama' : 'Tambahan'}</p>
+              <p>
+                {preview.data.source.effectiveFrom} —{' '}
+                {preview.data.source.effectiveTo ?? 'seterusnya'}
+              </p>
+            </div>
+            <div className='rounded-lg border border-primary/30 bg-primary/[0.03] p-3 text-sm'>
+              <p className='mb-2 text-xs font-semibold text-muted-foreground uppercase'>
+                Sesudah
+              </p>
+              <p className='font-medium'>{preview.data.proposed.job.name}</p>
+              <p>{preview.data.proposed.isPrimary ? 'Utama' : 'Tambahan'}</p>
+              <p>
+                {preview.data.proposed.effectiveFrom} —{' '}
+                {preview.data.proposed.effectiveTo ?? 'seterusnya'}
+              </p>
+            </div>
+          </div>
+        )}
+        <Field label='Alasan koreksi'>
+          <Textarea
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder='Jelaskan kesalahan histori yang diperbaiki.'
+            disabled={!preview.data?.canApply}
+          />
+        </Field>
+        <DialogFooter>
+          <Button variant='outline' onClick={() => setOpen(false)}>
+            Batal
+          </Button>
+          <Button
+            disabled={
+              !preview.data?.canApply ||
+              reason.trim().length < 5 ||
+              correction.isPending
+            }
+            onClick={() => void apply()}
+          >
+            {correction.isPending && <LoaderCircle className='animate-spin' />}
+            Terapkan Koreksi
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function RateDialog({ jobs }: { jobs: ProductionJob[] }) {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState({
@@ -855,6 +1134,7 @@ function RateDialog({ jobs }: { jobs: ProductionJob[] }) {
         path: '/production-structure/rates',
         body: {
           ...form,
+          rateAmount: normalizeProductionDecimalInput(form.rateAmount),
           unitUid: selectedJob?.defaultUnitUid,
           effectiveTo: form.effectiveTo || null,
           referenceNumber: form.referenceNumber || null,
@@ -941,6 +1221,12 @@ function RateDialog({ jobs }: { jobs: ProductionJob[] }) {
               inputMode='decimal'
               value={form.rateAmount}
               onChange={(e) => setForm({ ...form, rateAmount: e.target.value })}
+              onBlur={() =>
+                setForm({
+                  ...form,
+                  rateAmount: formatProductionDecimalInput(form.rateAmount),
+                })
+              }
               placeholder='Contoh: 1200'
             />
           </Field>
@@ -975,6 +1261,286 @@ function RateDialog({ jobs }: { jobs: ProductionJob[] }) {
             onClick={save}
           >
             Simpan Draft
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ActiveRateCorrectionDialog({ rate }: { rate: ProductionRate }) {
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({
+    rateAmount: formatProductionDecimalInput(rate.rateAmount),
+    effectiveTo: rate.effectiveTo ?? '',
+    referenceNumber: rate.referenceNumber ?? '',
+    notes: rate.notes ?? '',
+  })
+  const [reason, setReason] = useState('')
+  const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey)
+  const preview = usePreviewProductionRateCorrection(rate.uid)
+  const correction = useCorrectProductionRate(rate.uid)
+  const proposal = {
+    rateAmount: normalizeProductionDecimalInput(form.rateAmount),
+    effectiveTo: form.effectiveTo || null,
+    referenceNumber: form.referenceNumber || null,
+    notes: form.notes || null,
+  }
+  const resetPreview = () => {
+    preview.reset()
+    setIdempotencyKey(createIdempotencyKey())
+  }
+  const apply = async () => {
+    if (!preview.data?.canApply || reason.trim().length < 5) return
+    try {
+      await correction.mutateAsync({
+        ...proposal,
+        reason: reason.trim(),
+        idempotencyKey,
+      })
+      toast.success('Tarif aktif berhasil dikoreksi.')
+      setOpen(false)
+    } catch (error) {
+      toast.error(apiMessage(error, 'Tarif tidak dapat dikoreksi.'))
+    }
+  }
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) return
+        setForm({
+          rateAmount: formatProductionDecimalInput(rate.rateAmount),
+          effectiveTo: rate.effectiveTo ?? '',
+          referenceNumber: rate.referenceNumber ?? '',
+          notes: rate.notes ?? '',
+        })
+        setReason('')
+        resetPreview()
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size='sm' variant='ghost' aria-label='Koreksi tarif aktif'>
+          <PencilLine className='size-4' />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-xl'>
+        <DialogHeader>
+          <DialogTitle>Koreksi Tarif Aktif</DialogTitle>
+          <DialogDescription>
+            Hanya tarif yang belum pernah dipakai transaksi yang dapat
+            dikoreksi.
+          </DialogDescription>
+        </DialogHeader>
+        <div className='rounded-lg border bg-muted/30 p-3 text-sm'>
+          <p className='font-medium'>{rate.jobName}</p>
+          <p className='text-xs text-muted-foreground'>
+            {rate.site} · berlaku sejak {rate.effectiveFrom}
+          </p>
+        </div>
+        <div className='grid gap-4 sm:grid-cols-2'>
+          <Field label={`Tarif (${rate.unitCode})`}>
+            <Input
+              value={form.rateAmount}
+              inputMode='decimal'
+              onChange={(event) => {
+                setForm({ ...form, rateAmount: event.target.value })
+                resetPreview()
+              }}
+              onBlur={() =>
+                setForm({
+                  ...form,
+                  rateAmount: formatProductionDecimalInput(form.rateAmount),
+                })
+              }
+            />
+          </Field>
+          <Field label='Tanggal selesai (opsional)'>
+            <DateField
+              value={form.effectiveTo}
+              onChange={(value) => {
+                setForm({ ...form, effectiveTo: value })
+                resetPreview()
+              }}
+              placeholder='Tanpa tanggal selesai'
+            />
+          </Field>
+          <Field label='Nomor referensi'>
+            <Input
+              value={form.referenceNumber}
+              onChange={(event) => {
+                setForm({ ...form, referenceNumber: event.target.value })
+                resetPreview()
+              }}
+              placeholder='Opsional'
+            />
+          </Field>
+          <Field label='Catatan'>
+            <Input
+              value={form.notes}
+              onChange={(event) => {
+                setForm({ ...form, notes: event.target.value })
+                resetPreview()
+              }}
+              placeholder='Opsional'
+            />
+          </Field>
+        </div>
+        <Button
+          type='button'
+          variant='secondary'
+          className='w-fit'
+          disabled={!form.rateAmount || preview.isPending}
+          onClick={() =>
+            preview.mutate(proposal, {
+              onError: (error) =>
+                toast.error(
+                  apiMessage(error, 'Preview koreksi tarif gagal dibuat.')
+                ),
+            })
+          }
+        >
+          {preview.isPending && <LoaderCircle className='animate-spin' />}
+          Preview perubahan
+        </Button>
+        {preview.data && (
+          <div className='grid gap-2 sm:grid-cols-2'>
+            <div className='rounded-lg border p-3 text-sm'>
+              <p className='text-xs text-muted-foreground'>Tarif sebelum</p>
+              <p className='text-lg font-semibold'>
+                {formatCurrency(preview.data.source.rateAmount)}
+              </p>
+            </div>
+            <div className='rounded-lg border border-primary/30 bg-primary/[0.03] p-3 text-sm'>
+              <p className='text-xs text-muted-foreground'>Tarif sesudah</p>
+              <p className='text-lg font-semibold'>
+                {formatCurrency(preview.data.proposed.rateAmount)}
+              </p>
+            </div>
+          </div>
+        )}
+        <Field label='Alasan koreksi'>
+          <Textarea
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder='Jelaskan mengapa tarif aktif perlu diperbaiki.'
+            disabled={!preview.data?.canApply}
+          />
+        </Field>
+        <DialogFooter>
+          <Button variant='outline' onClick={() => setOpen(false)}>
+            Batal
+          </Button>
+          <Button
+            disabled={
+              !preview.data?.canApply ||
+              reason.trim().length < 5 ||
+              correction.isPending
+            }
+            onClick={() => void apply()}
+          >
+            {correction.isPending && <LoaderCircle className='animate-spin' />}
+            Terapkan Koreksi
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ActiveRateCancellationDialog({ rate }: { rate: ProductionRate }) {
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey)
+  const preview = usePreviewProductionRateCancellation(rate.uid)
+  const cancel = useCancelProductionRate(rate.uid)
+  const apply = async () => {
+    if (!preview.data?.canApply || reason.trim().length < 5) return
+    try {
+      await cancel.mutateAsync({ reason: reason.trim(), idempotencyKey })
+      toast.success('Tarif aktif berhasil dibatalkan.')
+      setOpen(false)
+    } catch (error) {
+      toast.error(apiMessage(error, 'Tarif tidak dapat dibatalkan.'))
+    }
+  }
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) return
+        setReason('')
+        setIdempotencyKey(createIdempotencyKey())
+        preview.reset()
+        preview.mutate(
+          {},
+          {
+            onError: (error) =>
+              toast.error(
+                apiMessage(error, 'Preview pembatalan tarif gagal dibuat.')
+              ),
+          }
+        )
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button
+          size='sm'
+          variant='ghost'
+          className='text-destructive'
+          aria-label='Batalkan tarif aktif'
+        >
+          <Ban className='size-4' />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className='sm:max-w-lg'>
+        <DialogHeader>
+          <DialogTitle>Batalkan Tarif Aktif?</DialogTitle>
+          <DialogDescription>
+            Pembatalan hanya tersedia bila tarif belum pernah digunakan
+            transaksi.
+          </DialogDescription>
+        </DialogHeader>
+        {preview.isPending ? (
+          <div className='h-24 animate-pulse rounded-lg bg-muted' />
+        ) : preview.data ? (
+          <div className='rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-200'>
+            <p className='font-medium'>
+              {preview.data.source.jobName} · {preview.data.source.site}
+            </p>
+            <p>
+              {formatCurrency(preview.data.source.rateAmount)} per satuan hasil
+            </p>
+          </div>
+        ) : null}
+        <Field label='Alasan pembatalan'>
+          <Textarea
+            value={reason}
+            onChange={(event) => {
+              setReason(event.target.value)
+              setIdempotencyKey(createIdempotencyKey())
+            }}
+            placeholder='Jelaskan alasan pembatalan tarif.'
+            disabled={!preview.data?.canApply}
+          />
+        </Field>
+        <DialogFooter>
+          <Button variant='outline' onClick={() => setOpen(false)}>
+            Kembali
+          </Button>
+          <Button
+            variant='destructive'
+            disabled={
+              !preview.data?.canApply ||
+              reason.trim().length < 5 ||
+              cancel.isPending
+            }
+            onClick={() => void apply()}
+          >
+            {cancel.isPending && <LoaderCircle className='animate-spin' />}
+            Batalkan Tarif
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1139,14 +1705,14 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
           })
         }
       >
-        <TabsList className='h-10 max-w-full justify-start overflow-x-auto'>
-          <TabsTrigger value='jobs' className='h-9 px-4'>
+        <TabsList className='h-auto max-w-full justify-start gap-1 overflow-x-auto p-1'>
+          <TabsTrigger value='jobs' className='h-10 flex-none px-4'>
             <BriefcaseBusiness /> Pekerjaan
           </TabsTrigger>
-          <TabsTrigger value='units' className='h-9 px-4'>
+          <TabsTrigger value='units' className='h-10 flex-none px-4'>
             <Ruler /> Satuan
           </TabsTrigger>
-          <TabsTrigger value='assignments' className='h-9 px-4'>
+          <TabsTrigger value='assignments' className='h-10 flex-none px-4'>
             <UsersRound /> Penugasan
           </TabsTrigger>
         </TabsList>
@@ -1154,7 +1720,9 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
           <div className='flex justify-end'>
             {canManage && (
               <JobDialog
-                units={refs.units.data?.items ?? []}
+                units={(refs.units.data?.items ?? []).filter(
+                  (unit) => unit.isActive
+                )}
                 positions={refs.positions.data?.items ?? []}
               />
             )}
@@ -1308,7 +1876,7 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
                   query={filter}
                   site={site[0] ?? ''}
                   status={status[0] ?? ''}
-                  statuses={['ACTIVE', 'UPCOMING', 'ENDED']}
+                  statuses={['ACTIVE', 'UPCOMING', 'ENDED', 'CANCELLED']}
                   onChange={setSearch}
                 />
               </div>
@@ -1358,15 +1926,22 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
                         </TableCell>
                         {canManage && (
                           <TableCell className='text-right'>
-                            {row.status !== 'ENDED' && (
-                              <CloseAssignmentDialog
-                                assignment={{
-                                  uid: row.uid,
-                                  effectiveFrom: row.effectiveFrom,
-                                  employeeName: row.employee.fullName,
-                                }}
+                            {row.status !== 'CANCELLED' && (
+                              <AssignmentCorrectionDialog
+                                assignment={row}
+                                jobs={refs.jobs.data?.items ?? []}
                               />
                             )}
+                            {row.status !== 'ENDED' &&
+                              row.status !== 'CANCELLED' && (
+                                <CloseAssignmentDialog
+                                  assignment={{
+                                    uid: row.uid,
+                                    effectiveFrom: row.effectiveFrom,
+                                    employeeName: row.employee.fullName,
+                                  }}
+                                />
+                              )}
                           </TableCell>
                         )}
                       </TableRow>
@@ -1395,7 +1970,7 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
       </Tabs>
       {assignmentDialogOpen && (
         <AssignmentDialog
-          jobs={refs.jobs.data?.items ?? []}
+          jobs={(refs.jobs.data?.items ?? []).filter((job) => job.isActive)}
           open={assignmentDialogOpen}
           onOpenChange={setAssignmentDialogOpen}
           preset={assignmentPreset}
@@ -1539,6 +2114,12 @@ export function ProductionRatePage({ search, navigate }: PageProps) {
                       >
                         Aktifkan
                       </Button>
+                    )}
+                    {rate.status === 'ACTIVE' && (
+                      <>
+                        <ActiveRateCorrectionDialog rate={rate} />
+                        <ActiveRateCancellationDialog rate={rate} />
+                      </>
                     )}
                   </TableCell>
                 )}

@@ -64,6 +64,14 @@ async function ensureUnused(
 export const productionStructureRouter = Router()
 productionStructureRouter.use(authenticate)
 
+// Fondasi Produksi modern dipasang lebih dahulu pada prefix yang sama. Bila
+// sebuah sub-route modern tidak ditemukan, jangan pernah jatuh ke handler
+// legacy di bawah yang tidak memiliki seluruh guard histori/overlap.
+productionStructureRouter.use(
+  ['/work-units', '/jobs', '/rates', '/assignments'],
+  (_req, res) => res.status(410).json({ message: 'Endpoint Produksi legacy sudah dinonaktifkan.' })
+)
+
 async function assertNoRateOverlap(conn: Awaited<ReturnType<typeof pool.getConnection>>, siteId: number, jobId: number, from: string, to: string | undefined, excludeId?: number) {
   const [rows] = await conn.query<RowDataPacket[]>(`SELECT id FROM production_job_rates WHERE site_id=? AND production_job_id=? AND status='ACTIVE' ${excludeId ? 'AND id<>?' : ''} AND effective_from<=? AND (effective_to IS NULL OR effective_to>=?) LIMIT 1 FOR UPDATE`, excludeId ? [siteId, jobId, excludeId, to ?? '9999-12-31', from] : [siteId, jobId, to ?? '9999-12-31', from])
   if (rows[0]) throw new ApiError(422, 'Periode tarif Aktif untuk pekerjaan dan site ini bertumpang-tindih.')

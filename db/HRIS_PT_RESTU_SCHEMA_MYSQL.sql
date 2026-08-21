@@ -954,10 +954,13 @@ CREATE TABLE scan_devices (
   name VARCHAR(150) NOT NULL,
   device_type VARCHAR(30) NOT NULL,
   device_token_hash VARCHAR(255) NULL,
+  production_token_hash VARCHAR(255) NULL,
   activation_code_hash VARCHAR(255) NULL,
   activation_code_expires_at DATETIME(3) NULL,
   activated_at DATETIME(3) NULL,
   activated_by BIGINT UNSIGNED NULL,
+  production_activated_at DATETIME(3) NULL,
+  production_activated_by BIGINT UNSIGNED NULL,
   location_description VARCHAR(255) NULL,
   last_seen_at DATETIME(3) NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
@@ -969,12 +972,15 @@ CREATE TABLE scan_devices (
   UNIQUE KEY uq_scan_devices_uid (uid),
   UNIQUE KEY uq_scan_devices_site_code (site_id, code),
   UNIQUE KEY uq_scan_devices_token_hash (device_token_hash),
+  UNIQUE KEY uq_scan_devices_production_token_hash (production_token_hash),
   UNIQUE KEY uq_scan_devices_activation_hash (activation_code_hash),
   KEY idx_scan_devices_activated_by (activated_by),
+  KEY idx_scan_devices_production_activated_by (production_activated_by),
   CONSTRAINT chk_scan_devices_type CHECK (device_type IN ('MOBILE_CAMERA', 'USB_SCANNER', 'TERMINAL', 'OTHER')),
   CONSTRAINT chk_scan_devices_active CHECK (is_active IN (0, 1)),
   CONSTRAINT fk_scan_devices_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT,
-  CONSTRAINT fk_scan_devices_activated_by FOREIGN KEY (activated_by) REFERENCES users (id) ON UPDATE CASCADE ON DELETE SET NULL
+  CONSTRAINT fk_scan_devices_activated_by FOREIGN KEY (activated_by) REFERENCES users (id) ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_scan_devices_production_activated_by FOREIGN KEY (production_activated_by) REFERENCES users (id) ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE attendance_records (
@@ -1151,7 +1157,7 @@ CREATE TABLE attendance_classification_details (
   UNIQUE KEY uq_attendance_classification_request_date (request_id, business_date),
   KEY idx_attendance_classification_detail_employee_date (employee_id, business_date, outcome),
   KEY idx_attendance_classification_detail_attendance (attendance_record_id),
-  CONSTRAINT chk_attendance_classification_outcome CHECK (outcome IN ('PENDING', 'APPLIED', 'SKIPPED_NON_WORKDAY', 'SKIPPED_HOLIDAY')),
+  CONSTRAINT chk_attendance_classification_outcome CHECK (outcome IN ('PENDING', 'APPLIED', 'REVERSED', 'SKIPPED_NON_WORKDAY', 'SKIPPED_HOLIDAY')),
   CONSTRAINT fk_attendance_classification_detail_request FOREIGN KEY (request_id) REFERENCES attendance_classification_requests(id) ON UPDATE CASCADE ON DELETE CASCADE,
   CONSTRAINT fk_attendance_classification_detail_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_attendance_classification_detail_shift_assignment FOREIGN KEY (shift_assignment_id) REFERENCES employee_shift_assignments(id) ON UPDATE CASCADE ON DELETE SET NULL,
@@ -1242,6 +1248,7 @@ CREATE TABLE employee_job_assignments (
   effective_from DATE NOT NULL,
   effective_to DATE NULL,
   is_primary TINYINT(1) NOT NULL DEFAULT 0,
+  status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   created_by BIGINT UNSIGNED NULL,
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
@@ -1252,6 +1259,7 @@ CREATE TABLE employee_job_assignments (
   KEY idx_employee_job_assignment_dates (employee_id, effective_from, effective_to),
   CONSTRAINT chk_employee_job_assignment_dates CHECK (effective_to IS NULL OR effective_to >= effective_from),
   CONSTRAINT chk_employee_job_assignment_primary CHECK (is_primary IN (0, 1)),
+  CONSTRAINT chk_employee_job_assignment_status CHECK (status IN ('ACTIVE','CANCELLED')),
   CONSTRAINT fk_employee_job_assignment_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_employee_job_assignment_job FOREIGN KEY (production_job_id) REFERENCES production_jobs (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_employee_job_assignment_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT
@@ -1275,6 +1283,7 @@ CREATE TABLE production_transactions (
   rate_snapshot DECIMAL(18,4) NOT NULL,
   gross_amount DECIMAL(18,2) NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'POSTED',
+  entry_source VARCHAR(20) NOT NULL DEFAULT 'TERMINAL',
   idempotency_key VARCHAR(100) NULL,
   notes VARCHAR(500) NULL,
   voided_at DATETIME(3) NULL,
@@ -1298,6 +1307,7 @@ CREATE TABLE production_transactions (
   CONSTRAINT chk_production_rate CHECK (rate_snapshot >= 0),
   CONSTRAINT chk_production_gross CHECK (gross_amount >= 0),
   CONSTRAINT chk_production_status CHECK (status IN ('POSTED', 'VOID')),
+  CONSTRAINT chk_production_entry_source CHECK (entry_source IN ('TERMINAL', 'HISTORICAL', 'CORRECTION')),
   CONSTRAINT fk_production_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_production_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_production_group FOREIGN KEY (work_group_id) REFERENCES work_groups (id) ON UPDATE CASCADE ON DELETE SET NULL,
@@ -1333,6 +1343,42 @@ CREATE TABLE production_transaction_revisions (
   CONSTRAINT chk_production_revision_type CHECK (revision_type IN ('CORRECTION', 'VOID')),
   CONSTRAINT fk_production_revision_transaction FOREIGN KEY (production_transaction_id) REFERENCES production_transactions (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_production_revision_replacement FOREIGN KEY (replacement_transaction_id) REFERENCES production_transactions (id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE employee_job_assignment_revisions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  employee_job_assignment_id BIGINT UNSIGNED NOT NULL,
+  idempotency_key VARCHAR(100) NOT NULL,
+  before_data JSON NOT NULL,
+  after_data JSON NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  revised_by BIGINT UNSIGNED NOT NULL,
+  revised_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_employee_job_assignment_revisions_uid (uid),
+  UNIQUE KEY uq_employee_job_assignment_revisions_idempotency (idempotency_key),
+  KEY idx_employee_job_assignment_revisions_assignment (employee_job_assignment_id,revised_at),
+  CONSTRAINT fk_employee_job_assignment_revisions_assignment FOREIGN KEY (employee_job_assignment_id) REFERENCES employee_job_assignments(id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE production_job_rate_revisions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  production_job_rate_id BIGINT UNSIGNED NOT NULL,
+  revision_type VARCHAR(20) NOT NULL,
+  idempotency_key VARCHAR(100) NOT NULL,
+  before_data JSON NOT NULL,
+  after_data JSON NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  revised_by BIGINT UNSIGNED NOT NULL,
+  revised_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_production_job_rate_revisions_uid (uid),
+  UNIQUE KEY uq_production_job_rate_revisions_idempotency (idempotency_key),
+  KEY idx_production_job_rate_revisions_rate (production_job_rate_id,revised_at),
+  CONSTRAINT chk_production_job_rate_revision_type CHECK (revision_type IN ('CORRECTION','CANCELLATION')),
+  CONSTRAINT fk_production_job_rate_revisions_rate FOREIGN KEY (production_job_rate_id) REFERENCES production_job_rates(id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================================
@@ -1520,6 +1566,7 @@ CREATE TABLE payroll_production_details (
   UNIQUE KEY uq_payroll_production_transaction (payroll_employee_result_id, production_transaction_id),
   KEY idx_payroll_production_job (production_job_id),
   KEY idx_payroll_production_date (business_date),
+  KEY idx_payroll_production_transaction (production_transaction_id),
   CONSTRAINT chk_payroll_production_quantity CHECK (quantity_snapshot > 0),
   CONSTRAINT chk_payroll_production_amounts CHECK (rate_snapshot >= 0 AND amount_snapshot >= 0),
   CONSTRAINT fk_payroll_production_result FOREIGN KEY (payroll_employee_result_id) REFERENCES payroll_employee_results (id) ON UPDATE CASCADE ON DELETE RESTRICT,
@@ -1756,6 +1803,7 @@ VALUES
   (UUID(), 'production.view', 'production', 'Lihat Produksi'),
   (UUID(), 'production.scan', 'production', 'Input Setoran Produksi'),
   (UUID(), 'production.correct', 'production', 'Koreksi Setoran Produksi'),
+  (UUID(), 'production.export', 'production', 'Ekspor Rekap Produksi'),
   (UUID(), 'production.manage_master', 'production', 'Kelola Master Produksi'),
   (UUID(), 'payroll.view', 'payroll', 'Lihat Payroll'),
   (UUID(), 'payroll.calculate', 'payroll', 'Hitung Payroll'),
@@ -1801,7 +1849,12 @@ INSERT INTO role_permissions (uid, role_id, permission_id)
 SELECT UUID(), r.id, p.id
 FROM roles r
 JOIN permissions p
-  ON p.code IN ('production.view', 'production.scan', 'production.correct')
+  ON p.code IN (
+    'production.view',
+    'production.scan',
+    'production.correct',
+    'production.export'
+  )
 WHERE r.code = 'PRODUCTION_ADMIN';
 
 INSERT INTO role_permissions (uid, role_id, permission_id)
@@ -1813,6 +1866,15 @@ WHERE r.code IN (
   'HR_OFFICER',
   'PAYROLL_FINANCE',
   'SITE_SUPERVISOR'
+);
+
+INSERT INTO role_permissions (uid, role_id, permission_id)
+SELECT UUID(), r.id, p.id
+FROM roles r
+JOIN permissions p ON p.code = 'production.export'
+WHERE r.code IN (
+  'DIRECTOR',
+  'PAYROLL_FINANCE'
 );
 
 -- Pengaturan global awal.

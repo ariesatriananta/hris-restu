@@ -1,8 +1,34 @@
+import { z } from 'zod'
 import { createFileRoute } from '@tanstack/react-router'
-import { ModulePlaceholder } from '@/features/placeholders/module-placeholder'
 import { requirePermission } from '@/features/auth/permissions'
+import { ProductionRecapPage } from '@/features/production/production-recap-page'
 
 export const Route = createFileRoute('/_authenticated/produksi/rekap')({
   beforeLoad: () => requirePermission('production.view'),
-  component: () => <ModulePlaceholder path='/produksi/rekap' />,
+  validateSearch: z.object({
+    filter: z.string().optional(),
+    site: z.array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])).optional(),
+    dateFrom: z.string().date().optional(),
+    dateTo: z.string().date().optional(),
+    jobUid: z.array(z.string().uuid()).optional(),
+    employeeType: z.array(z.string()).optional(),
+    productionSectionUid: z.array(z.string().uuid()).optional(),
+    page: z.number().int().positive().optional(),
+    pageSize: z.number().int().min(1).max(500).optional(),
+    view: z.enum(['employees', 'jobs']).optional(),
+    detailType: z.enum(['employee', 'job']).optional(),
+    detailUid: z.string().uuid().optional(),
+    detailSite: z.enum(['JEPARA', 'SEMARANG', 'KLATEN']).optional(),
+  }),
+  component: RouteComponent,
 })
+
+// eslint-disable-next-line react-refresh/only-export-components
+function RouteComponent() {
+  return (
+    <ProductionRecapPage
+      search={Route.useSearch()}
+      navigate={Route.useNavigate()}
+    />
+  )
+}

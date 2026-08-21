@@ -138,7 +138,8 @@ attendanceInsightsRouter.get(
                 AND (JSON_UNQUOTE(JSON_EXTRACT(latest.summary,'$.invalidatedByShiftCorrection'))='true'
                   OR JSON_UNQUOTE(JSON_EXTRACT(latest.summary,'$.invalidatedByFirstShiftBackdate'))='true'
                   OR JSON_UNQUOTE(JSON_EXTRACT(latest.summary,'$.invalidatedByOnboardingReset'))='true'
-                  OR JSON_UNQUOTE(JSON_EXTRACT(latest.summary,'$.invalidatedByAttendanceCorrection'))='true')
+                  OR JSON_UNQUOTE(JSON_EXTRACT(latest.summary,'$.invalidatedByAttendanceCorrection'))='true'
+                  OR JSON_UNQUOTE(JSON_EXTRACT(latest.summary,'$.invalidatedByClassificationReversal'))='true')
               ORDER BY latest.business_date DESC`,
             [site.id, today]
           )

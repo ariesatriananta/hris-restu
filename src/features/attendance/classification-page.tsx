@@ -88,15 +88,17 @@ import {
   useReverseAttendanceClassification,
 } from './data/queries'
 import { dateOnlyFromInput, dateOnlyToInput } from './date-only'
-import type {
-  AttendanceClassification,
-  AttendanceBulkReviewResult,
-  AttendanceClassificationApprovalStatus,
-  AttendanceClassificationEmployee,
-  AttendanceClassificationDetailOutcome,
-  AttendanceClassificationType,
-  AttendanceEmployeeType,
-  AttendanceSiteCode,
+import {
+  attendanceClassificationReverseReasonError,
+  canReverseAttendanceClassification,
+  type AttendanceBulkReviewResult,
+  type AttendanceClassification,
+  type AttendanceClassificationApprovalStatus,
+  type AttendanceClassificationDetailOutcome,
+  type AttendanceClassificationEmployee,
+  type AttendanceClassificationType,
+  type AttendanceEmployeeType,
+  type AttendanceSiteCode,
 } from './domain'
 import {
   attendanceEmployeeTypeOptions,
@@ -1198,7 +1200,11 @@ function ClassificationDetailDialog({
                 <Detail label='Site' value={item.site} />
                 <Detail
                   label='Hasil'
-                  value={`${item.appliedCount} diterapkan · ${item.skippedCount} dilewati`}
+                  value={
+                    item.reversedCount > 0
+                      ? `${item.reversedCount} dibatalkan · ${item.skippedCount} dilewati`
+                      : `${item.appliedCount} diterapkan · ${item.skippedCount} dilewati`
+                  }
                 />
               </div>
               <div className='rounded-lg border p-3 text-sm'>
@@ -1308,7 +1314,10 @@ function ClassificationDetailDialog({
                   </Button>
                 </div>
               )}
-              {canApprove && item.approvalStatus === 'APPROVED' && (
+              {canReverseAttendanceClassification(
+                item.approvalStatus,
+                canApprove
+              ) && (
                 <div className='flex justify-start border-t pt-4'>
                   <Button
                     variant='outline'
@@ -1336,9 +1345,10 @@ function ClassificationDetailDialog({
           <DialogHeader>
             <DialogTitle>Batalkan klasifikasi attendance?</DialogTitle>
             <DialogDescription>
-              Tanggal yang sudah diterapkan akan dikembalikan menjadi attendance
-              tanpa klasifikasi dan perlu difinalisasi ulang. Riwayat pengajuan
-              tetap tersimpan untuk audit.
+              Tanggal kerja yang sudah diterapkan akan dikembalikan menjadi
+              Alpha dan perlu difinalisasi ulang. Hari nonkerja yang sebelumnya
+              dilewati tidak berubah, dan riwayat pengajuan tetap tersimpan
+              untuk audit.
             </DialogDescription>
           </DialogHeader>
           <div className='grid gap-2'>
@@ -1349,7 +1359,7 @@ function ClassificationDetailDialog({
               id='classification-reverse-reason'
               value={reverseReason}
               minLength={10}
-              maxLength={1000}
+              maxLength={500}
               rows={4}
               autoFocus
               disabled={reverse.isPending}
@@ -1357,7 +1367,7 @@ function ClassificationDetailDialog({
               onChange={(event) => setReverseReason(event.target.value)}
             />
             <p className='text-xs text-muted-foreground'>
-              Minimal 10 karakter · {reverseReason.trim().length}/1000
+              Minimal 10 karakter · {reverseReason.trim().length}/500
             </p>
           </div>
           <DialogFooter className='gap-2 sm:gap-0'>
@@ -1370,12 +1380,19 @@ function ClassificationDetailDialog({
             </Button>
             <Button
               variant='destructive'
-              disabled={reverse.isPending || reverseReason.trim().length < 10}
+              disabled={
+                reverse.isPending ||
+                Boolean(
+                  attendanceClassificationReverseReasonError(reverseReason)
+                )
+              }
               onClick={() => {
                 if (!uid) return
                 const reason = reverseReason.trim()
-                if (reason.length < 10) {
-                  toast.error('Alasan pembatalan minimal 10 karakter.')
+                const reasonError =
+                  attendanceClassificationReverseReasonError(reason)
+                if (reasonError) {
+                  toast.error(reasonError)
                   return
                 }
                 reverse.mutate(

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Router } from 'express'
 import type { RowDataPacket } from 'mysql2'
+import type { PoolConnection } from 'mysql2/promise'
 import { z } from 'zod'
 import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
@@ -13,6 +14,9 @@ import {
   csvValues,
   pageParams,
   productionAssignmentInput,
+  productionAssignmentCorrectionInput,
+  productionActiveRateCorrectionInput,
+  productionRateExceptionInput,
   productionAssignmentReadinessIssue,
   productionEligibleEmployeeType,
   productionJobInput,
@@ -79,6 +83,148 @@ async function resolveJobReferences(
     positionId = Number(positions[0].id)
   }
   return { unitId: Number(units[0].id), positionId }
+}
+
+async function assignmentCorrectionProposal(
+  connection: PoolConnection,
+  uid: string,
+  input: z.infer<typeof productionAssignmentCorrectionInput>,
+  lock: boolean
+) {
+  const [rows] = await connection.query<RowDataPacket[]>(
+    `SELECT a.id,a.employee_id employeeId,a.production_job_id jobId,a.site_id siteId,
+            a.is_primary isPrimary,a.status,s.code site,e.uid employeeUid,
+            j.uid jobUid,j.code jobCode,j.name jobName,
+            DATE_FORMAT(a.effective_from,'%Y-%m-%d') effectiveFrom,
+            DATE_FORMAT(a.effective_to,'%Y-%m-%d') effectiveTo
+       FROM employee_job_assignments a JOIN sites s ON s.id=a.site_id
+       JOIN employees e ON e.id=a.employee_id JOIN production_jobs j ON j.id=a.production_job_id
+      WHERE a.uid=? ${lock ? 'FOR UPDATE' : ''}`,
+    [uid]
+  )
+  const current = rows[0]
+  if (!current) throw new ApiError(404, 'Penugasan tidak ditemukan.')
+  if (current.status !== 'ACTIVE') throw new ApiError(409, 'Penugasan yang dibatalkan tidak dapat dikoreksi.')
+  const [jobs] = await connection.query<RowDataPacket[]>(
+    'SELECT id,uid,code,name FROM production_jobs WHERE uid=? AND is_active=1',
+    [input.jobUid]
+  )
+  const job = jobs[0]
+  if (!job) throw new ApiError(422, 'Pekerjaan pengganti tidak valid atau tidak aktif.')
+  const [histories] = await connection.query<RowDataPacket[]>(
+    `SELECT eh.id FROM employee_employment_histories eh
+      JOIN employee_statuses es ON es.id=eh.employee_status_id AND es.allows_production=1
+      JOIN employee_types et ON et.id=eh.employee_type_id AND et.payroll_basis='PIECE_RATE'
+     WHERE eh.employee_id=? AND eh.site_id=? AND eh.effective_from<=?
+       AND (eh.effective_to IS NULL OR eh.effective_to>=?)
+       AND ((? IS NULL AND eh.effective_to IS NULL) OR (? IS NOT NULL AND (eh.effective_to IS NULL OR eh.effective_to>=?)))`,
+    [current.employeeId,current.siteId,input.effectiveFrom,input.effectiveFrom,input.effectiveTo??null,input.effectiveTo??null,input.effectiveTo??null]
+  )
+  if (histories.length !== 1) throw new ApiError(422, 'Periode koreksi harus berada dalam satu histori kerja Produksi eligible.')
+  const periodEnd = input.effectiveTo ?? '9999-12-31'
+  const [overlaps] = await connection.query<RowDataPacket[]>(
+    `SELECT id FROM employee_job_assignments WHERE employee_id=? AND site_id=?
+       AND production_job_id=? AND status='ACTIVE' AND id<>?
+       AND effective_from<=? AND (effective_to IS NULL OR effective_to>=?) LIMIT 1 ${lock ? 'FOR UPDATE' : ''}`,
+    [current.employeeId,current.siteId,job.id,current.id,periodEnd,input.effectiveFrom]
+  )
+  if (overlaps[0]) throw new ApiError(409, 'Penugasan pekerjaan pengganti bertumpang-tindih.')
+  if (input.isPrimary) {
+    const [primary] = await connection.query<RowDataPacket[]>(
+      `SELECT id FROM employee_job_assignments WHERE employee_id=? AND site_id=?
+        AND is_primary=1 AND status='ACTIVE' AND id<>? AND effective_from<=?
+        AND (effective_to IS NULL OR effective_to>=?) LIMIT 1 ${lock ? 'FOR UPDATE' : ''}`,
+      [current.employeeId,current.siteId,current.id,periodEnd,input.effectiveFrom]
+    )
+    if (primary[0]) throw new ApiError(409, 'Pekerjaan utama pengganti bertumpang-tindih.')
+  }
+  const [lockedPeriods] = await connection.query<RowDataPacket[]>(
+    `SELECT pp.id
+       FROM payroll_periods pp
+      WHERE pp.site_id=? AND pp.payroll_basis='PIECE_RATE'
+        AND (
+          pp.status IN ('CALCULATED','APPROVED','CLOSED')
+          OR EXISTS(SELECT 1 FROM payroll_runs pr
+            WHERE pr.payroll_period_id=pp.id AND pr.status='PROCESSING')
+        )
+        AND (
+          (pp.period_start<=COALESCE(?,'9999-12-31') AND pp.period_end>=?)
+          OR
+          (pp.period_start<=? AND pp.period_end>=?)
+        )
+      LIMIT 1 ${lock ? 'FOR UPDATE' : ''}`,
+    [
+      current.siteId,
+      current.effectiveTo ?? null,
+      current.effectiveFrom,
+      periodEnd,
+      input.effectiveFrom,
+    ]
+  )
+  if (lockedPeriods[0]) {
+    throw new ApiError(
+      409,
+      'Periode penugasan sudah masuk proses atau hasil Payroll dan tidak dapat dikoreksi.'
+    )
+  }
+  const [transactions] = await connection.query<RowDataPacket[]>(
+    `SELECT pt.id,DATE_FORMAT(pt.business_date,'%Y-%m-%d') businessDate,
+            pt.payroll_locked_at payrollLockedAt,
+            EXISTS(SELECT 1 FROM payroll_production_details ppd WHERE ppd.production_transaction_id=pt.id) snapshotted,
+            EXISTS(SELECT 1 FROM payroll_periods pp WHERE pp.site_id=pt.site_id
+              AND pp.payroll_basis='PIECE_RATE'
+              AND pp.period_start<=pt.business_date AND pp.period_end>=pt.business_date
+              AND (pp.status IN ('CALCULATED','APPROVED','CLOSED')
+                OR EXISTS(SELECT 1 FROM payroll_runs pr
+                  WHERE pr.payroll_period_id=pp.id AND pr.status='PROCESSING'))) lockedPeriod
+       FROM production_transactions pt WHERE pt.employee_id=? AND pt.site_id=?
+        AND pt.production_job_id=? AND pt.status='POSTED'
+        AND pt.business_date>=? AND (? IS NULL OR pt.business_date<=?) ${lock ? 'FOR UPDATE' : ''}`,
+    [current.employeeId,current.siteId,current.jobId,current.effectiveFrom,current.effectiveTo??null,current.effectiveTo??null]
+  )
+  if (transactions.some((row) => row.payrollLockedAt || Number(row.snapshotted)===1 || Number(row.lockedPeriod)===1)) {
+    throw new ApiError(409, 'Penugasan tidak dapat dikoreksi karena transaksinya sudah dikunci Payroll.')
+  }
+  if (Number(current.jobId)!==Number(job.id) && transactions.length) {
+    throw new ApiError(409, 'Pekerjaan penugasan tidak dapat diganti karena sudah digunakan transaksi POSTED. Void/koreksi transaksi lebih dahulu.')
+  }
+  if (transactions.some((row) => String(row.businessDate)<input.effectiveFrom || (input.effectiveTo && String(row.businessDate)>input.effectiveTo))) {
+    throw new ApiError(409, 'Periode koreksi tidak mencakup seluruh transaksi POSTED yang menggunakan penugasan ini.')
+  }
+  return { current, job, proposed:{ job:{uid:job.uid,code:job.code,name:job.name},effectiveFrom:input.effectiveFrom,effectiveTo:input.effectiveTo??null,isPrimary:input.isPrimary },transactionCount:transactions.length }
+}
+
+async function activeRateContext(connection: PoolConnection, uid: string, lock: boolean) {
+  const [rows] = await connection.query<RowDataPacket[]>(
+    `SELECT r.id,r.uid,r.status,r.site_id siteId,r.production_job_id jobId,
+            DATE_FORMAT(r.effective_from,'%Y-%m-%d') effectiveFrom,
+            DATE_FORMAT(r.effective_to,'%Y-%m-%d') effectiveTo,
+            CAST(r.rate_amount AS CHAR) rateAmount,r.reference_number referenceNumber,r.notes,
+            s.code site,j.uid jobUid,j.code jobCode,j.name jobName
+       FROM production_job_rates r JOIN sites s ON s.id=r.site_id
+       JOIN production_jobs j ON j.id=r.production_job_id
+      WHERE r.uid=? ${lock ? 'FOR UPDATE' : ''}`,
+    [uid]
+  )
+  const rate = rows[0]
+  if (!rate) throw new ApiError(404, 'Tarif tidak ditemukan.')
+  if (rate.status !== 'ACTIVE') {
+    throw new ApiError(
+      409,
+      'Hanya tarif Aktif yang dapat dikoreksi atau dibatalkan.'
+    )
+  }
+  const [usage] = await connection.query<RowDataPacket[]>(
+    `SELECT id FROM production_transactions WHERE job_rate_id=? LIMIT 1 ${lock ? 'FOR UPDATE' : ''}`,
+    [rate.id]
+  )
+  if (usage[0]) {
+    throw new ApiError(
+      409,
+      'Tarif sudah digunakan transaksi Produksi. Nilai snapshot tidak boleh direprice; gunakan adjustment Payroll.'
+    )
+  }
+  return rate
 }
 
 export const productionFoundationRouter = Router()
@@ -377,6 +523,7 @@ productionFoundationRouter.patch(
         const [assignments] = await connection.query<RowDataPacket[]>(
           `SELECT id FROM employee_job_assignments
             WHERE production_job_id=?
+              AND status='ACTIVE'
               AND (effective_to IS NULL OR effective_to>=?) LIMIT 1`,
           [current.id, businessDate()]
         )
@@ -774,6 +921,266 @@ productionFoundationRouter.post(
   }
 )
 
+productionFoundationRouter.post(
+  '/rates/:uid/cancellation-preview',
+  requirePermission('production.manage_master'),
+  async (req, res, next) => {
+    const connection = await pool.getConnection()
+    try {
+      z.object({}).strict().parse(req.body ?? {})
+      const auth = res.locals.auth as AuthContext
+      const rate = await activeRateContext(connection, routeParam(req.params.uid), false)
+      enforceSite(auth, String(rate.site))
+      res.json({ source: rate, proposed: { status: 'INACTIVE' }, canApply: true })
+    } catch (error) { next(error) } finally { connection.release() }
+  }
+)
+
+productionFoundationRouter.post(
+  '/rates/:uid/cancel',
+  requirePermission('production.manage_master'),
+  async (req, res, next) => {
+    const connection = await pool.getConnection()
+    try {
+      const input = productionRateExceptionInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const rateUid = routeParam(req.params.uid)
+      await connection.beginTransaction()
+      const [replay] = await connection.query<RowDataPacket[]>(
+        `SELECT uid,production_job_rate_id rateId,revision_type revisionType,reason
+           FROM production_job_rate_revisions
+          WHERE idempotency_key=? FOR UPDATE`,
+        [input.idempotencyKey]
+      )
+      if (replay[0]) {
+        const [rates] = await connection.query<RowDataPacket[]>(
+          'SELECT id FROM production_job_rates WHERE uid=?',
+          [rateUid]
+        )
+        if (
+          !rates[0] ||
+          Number(rates[0].id) !== Number(replay[0].rateId) ||
+          replay[0].revisionType !== 'CANCELLATION' ||
+          String(replay[0].reason) !== input.reason
+        ) {
+          throw new ApiError(
+            409,
+            'Idempotency key sudah dipakai untuk perubahan tarif lain.'
+          )
+        }
+        await connection.commit()
+        return res.json({ duplicate: true, revisionUid: replay[0].uid })
+      }
+      const rate = await activeRateContext(connection, rateUid, true)
+      enforceSite(auth, String(rate.site))
+      const after = { status: 'INACTIVE' }
+      await connection.execute(
+        "UPDATE production_job_rates SET status='INACTIVE',updated_by=? WHERE id=?",
+        [auth.id, rate.id]
+      )
+      const revisionUid = randomUUID()
+      await connection.execute(
+        `INSERT INTO production_job_rate_revisions(
+           uid,production_job_rate_id,revision_type,idempotency_key,
+           before_data,after_data,reason,revised_by
+         ) VALUES(?,?,'CANCELLATION',?,?,?,?,?)`,
+        [
+          revisionUid,
+          rate.id,
+          input.idempotencyKey,
+          JSON.stringify(rate),
+          JSON.stringify(after),
+          input.reason,
+          auth.id,
+        ]
+      )
+      await writeAudit(
+        {
+          auth,
+          request: req,
+          module: 'PRODUCTION',
+          siteId: Number(rate.siteId),
+          action: 'UPDATE',
+          table: 'production_job_rates',
+          recordId: Number(rate.id),
+          recordUid: rateUid,
+          description: 'Membatalkan tarif aktif yang belum digunakan.',
+          reason: input.reason,
+          beforeData: rate,
+          afterData: after,
+        },
+        connection
+      )
+      await connection.commit()
+      res.json({ duplicate: false, revisionUid })
+    } catch (error) {
+      await connection.rollback()
+      next(error)
+    } finally {
+      connection.release()
+    }
+  }
+)
+
+productionFoundationRouter.post(
+  '/rates/:uid/correction-preview',
+  requirePermission('production.manage_master'),
+  async (req, res, next) => {
+    const connection = await pool.getConnection()
+    try {
+      const input = productionActiveRateCorrectionInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const rate = await activeRateContext(connection, routeParam(req.params.uid), false)
+      enforceSite(auth, String(rate.site))
+      if (input.effectiveTo && input.effectiveTo < rate.effectiveFrom) {
+        throw new ApiError(422, 'Tanggal selesai mendahului tanggal mulai tarif.')
+      }
+      res.json({
+        source: rate,
+        proposed: {
+          rateAmount: normalizeRate(input.rateAmount),
+          effectiveTo: input.effectiveTo ?? null,
+          referenceNumber: input.referenceNumber ?? null,
+          notes: input.notes ?? null,
+        },
+        canApply: true,
+      })
+    } catch (error) {
+      next(error)
+    } finally {
+      connection.release()
+    }
+  }
+)
+
+productionFoundationRouter.post(
+  '/rates/:uid/correct',
+  requirePermission('production.manage_master'),
+  async (req, res, next) => {
+    const connection = await pool.getConnection()
+    try {
+      const input = productionActiveRateCorrectionInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const rateUid = routeParam(req.params.uid)
+      const after = {
+        rateAmount: normalizeRate(input.rateAmount),
+        effectiveTo: input.effectiveTo ?? null,
+        referenceNumber: input.referenceNumber ?? null,
+        notes: input.notes ?? null,
+      }
+      await connection.beginTransaction()
+      const [replay] = await connection.query<RowDataPacket[]>(
+        `SELECT uid,production_job_rate_id rateId,revision_type revisionType,
+                reason,after_data afterData
+           FROM production_job_rate_revisions
+          WHERE idempotency_key=? FOR UPDATE`,
+        [input.idempotencyKey]
+      )
+      if (replay[0]) {
+        const [rates] = await connection.query<RowDataPacket[]>(
+          'SELECT id FROM production_job_rates WHERE uid=?',
+          [rateUid]
+        )
+        const replayAfter =
+          typeof replay[0].afterData === 'string'
+            ? JSON.parse(replay[0].afterData)
+            : replay[0].afterData
+        if (
+          !rates[0] ||
+          Number(rates[0].id) !== Number(replay[0].rateId) ||
+          replay[0].revisionType !== 'CORRECTION' ||
+          String(replay[0].reason) !== input.reason ||
+          JSON.stringify(replayAfter) !== JSON.stringify(after)
+        ) {
+          throw new ApiError(
+            409,
+            'Idempotency key sudah dipakai untuk perubahan tarif lain.'
+          )
+        }
+        await connection.commit()
+        return res.json({ duplicate: true, revisionUid: replay[0].uid })
+      }
+      const rate = await activeRateContext(connection, rateUid, true)
+      enforceSite(auth, String(rate.site))
+      if (input.effectiveTo && input.effectiveTo < rate.effectiveFrom) {
+        throw new ApiError(422, 'Tanggal selesai mendahului tanggal mulai tarif.')
+      }
+      const [overlap] = await connection.query<RowDataPacket[]>(
+        `SELECT id FROM production_job_rates
+          WHERE site_id=? AND production_job_id=? AND id<>? AND status='ACTIVE'
+            AND effective_from<=? AND (effective_to IS NULL OR effective_to>=?)
+          LIMIT 1 FOR UPDATE`,
+        [
+          rate.siteId,
+          rate.jobId,
+          rate.id,
+          input.effectiveTo ?? '9999-12-31',
+          rate.effectiveFrom,
+        ]
+      )
+      if (overlap[0]) {
+        throw new ApiError(
+          409,
+          'Periode koreksi tarif bertumpang-tindih tarif aktif lain.'
+        )
+      }
+      await connection.execute(
+        `UPDATE production_job_rates
+            SET rate_amount=?,effective_to=?,reference_number=?,notes=?,updated_by=?
+          WHERE id=?`,
+        [
+          after.rateAmount,
+          after.effectiveTo,
+          after.referenceNumber,
+          after.notes,
+          auth.id,
+          rate.id,
+        ]
+      )
+      const revisionUid = randomUUID()
+      await connection.execute(
+        `INSERT INTO production_job_rate_revisions(
+           uid,production_job_rate_id,revision_type,idempotency_key,
+           before_data,after_data,reason,revised_by
+         ) VALUES(?,?,'CORRECTION',?,?,?,?,?)`,
+        [
+          revisionUid,
+          rate.id,
+          input.idempotencyKey,
+          JSON.stringify(rate),
+          JSON.stringify(after),
+          input.reason,
+          auth.id,
+        ]
+      )
+      await writeAudit(
+        {
+          auth,
+          request: req,
+          module: 'PRODUCTION',
+          siteId: Number(rate.siteId),
+          action: 'UPDATE',
+          table: 'production_job_rates',
+          recordId: Number(rate.id),
+          recordUid: rateUid,
+          description: 'Mengoreksi tarif aktif yang belum digunakan.',
+          reason: input.reason,
+          beforeData: rate,
+          afterData: after,
+        },
+        connection
+      )
+      await connection.commit()
+      res.json({ duplicate: false, revisionUid })
+    } catch (error) {
+      await connection.rollback()
+      next(error)
+    } finally {
+      connection.release()
+    }
+  }
+)
+
 productionFoundationRouter.get(
   '/assignment-readiness',
   requirePermission('production.view'),
@@ -875,6 +1282,7 @@ productionFoundationRouter.get(
         LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
         LEFT JOIN employee_job_assignments a
           ON a.employee_id=eh.employee_id AND a.site_id=eh.site_id
+         AND a.status='ACTIVE'
          AND a.effective_from<=?
          AND (a.effective_to IS NULL OR a.effective_to>=?)
         LEFT JOIN production_jobs j ON j.id=a.production_job_id
@@ -995,6 +1403,115 @@ productionFoundationRouter.get(
 )
 
 productionFoundationRouter.get(
+  '/eligible-employees',
+  requirePermission('production.view'),
+  async (req, res, next) => {
+    try {
+      const auth = res.locals.auth as AuthContext
+      const { page, pageSize } = pageParams(req.query.page, req.query.pageSize)
+      const asOf = req.query.asOf ? z.string().date().parse(req.query.asOf) : businessDate()
+      const site = productionSiteCode.parse(String(req.query.site ?? ''))
+      enforceSite(auth, site)
+      const query = String(req.query.query ?? '').trim()
+      const values: unknown[] = [site, asOf, asOf, asOf, asOf]
+      const search = query ? 'AND (e.employee_number LIKE ? OR e.full_name LIKE ?)' : ''
+      if (query) values.push(`%${query}%`, `%${query}%`)
+      const from = `FROM employee_employment_histories eh
+        JOIN employees e ON e.id=eh.employee_id
+        JOIN sites s ON s.id=eh.site_id
+        JOIN employee_statuses es ON es.id=eh.employee_status_id AND es.allows_production=1
+        JOIN employee_types et ON et.id=eh.employee_type_id AND et.payroll_basis='PIECE_RATE'
+        LEFT JOIN production_module_sections pms ON pms.id=eh.production_module_section_id
+        LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
+       WHERE s.code=? AND eh.effective_from<=? AND (eh.effective_to IS NULL OR eh.effective_to>=?)
+         AND (SELECT COUNT(*) FROM employee_employment_histories active_history
+               WHERE active_history.employee_id=e.id AND active_history.effective_from<=?
+                 AND (active_history.effective_to IS NULL OR active_history.effective_to>=?))=1 ${search}`
+      const [counts] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) total ${from}`, values)
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT e.id employeeId,e.uid,e.employee_number employeeNumber,e.full_name fullName,s.code site,
+                et.code employeeType,ps.uid productionSectionUid,ps.code productionSectionCode,
+                ps.name productionSectionName,
+                (SELECT COUNT(*) FROM employee_job_assignments a
+                  WHERE a.employee_id=e.id AND a.site_id=eh.site_id AND a.status='ACTIVE'
+                    AND a.effective_from<=? AND (a.effective_to IS NULL OR a.effective_to>=?)) assignmentCount,
+                EXISTS(SELECT 1 FROM employee_job_assignments a
+                  WHERE a.employee_id=e.id AND a.site_id=eh.site_id AND a.status='ACTIVE'
+                    AND a.is_primary=1 AND a.effective_from<=? AND (a.effective_to IS NULL OR a.effective_to>=?)) hasPrimary
+           ${from} ORDER BY e.full_name,e.employee_number LIMIT ? OFFSET ?`,
+        [asOf,asOf,asOf,asOf,...values,pageSize,(page-1)*pageSize]
+      )
+
+      const assignmentsByEmployee = new Map<number, Array<{
+        uid: string
+        jobUid: string
+        jobCode: string
+        jobName: string
+        isPrimary: boolean
+        unit: { uid: string; code: string; name: string; decimalPrecision: number }
+        rate: { uid: string; amount: string; currency: string }
+      }>>()
+      const employeeIds = rows.map((row) => Number(row.employeeId))
+      if (employeeIds.length > 0) {
+        const employeePlaceholders = employeeIds.map(() => '?').join(',')
+        const [assignmentRows] = await pool.query<RowDataPacket[]>(
+          `SELECT a.employee_id employeeId,a.uid,j.uid jobUid,j.code jobCode,j.name jobName,
+                  a.is_primary=1 isPrimary,u.uid unitUid,u.code unitCode,u.name unitName,
+                  u.decimal_precision decimalPrecision,r.uid rateUid,
+                  CAST(r.rate_amount AS CHAR) rateAmount,r.currency
+             FROM employee_job_assignments a
+             JOIN sites s ON s.id=a.site_id AND s.code=?
+             JOIN production_jobs j ON j.id=a.production_job_id AND j.is_active=1
+             JOIN work_units u ON u.id=j.default_unit_id AND u.is_active=1
+             JOIN production_job_rates r ON r.site_id=a.site_id
+              AND r.production_job_id=a.production_job_id AND r.status='ACTIVE'
+              AND r.effective_from<=? AND (r.effective_to IS NULL OR r.effective_to>=?)
+            WHERE a.employee_id IN (${employeePlaceholders}) AND a.status='ACTIVE'
+              AND a.effective_from<=? AND (a.effective_to IS NULL OR a.effective_to>=?)
+              AND (SELECT COUNT(*) FROM production_job_rates active_rate
+                    WHERE active_rate.site_id=a.site_id
+                      AND active_rate.production_job_id=a.production_job_id
+                      AND active_rate.status='ACTIVE' AND active_rate.effective_from<=?
+                      AND (active_rate.effective_to IS NULL OR active_rate.effective_to>=?))=1
+            ORDER BY a.employee_id,a.is_primary DESC,j.name,j.code`,
+          [site,asOf,asOf,...employeeIds,asOf,asOf,asOf,asOf]
+        )
+        for (const assignment of assignmentRows) {
+          const employeeId = Number(assignment.employeeId)
+          const existing = assignmentsByEmployee.get(employeeId) ?? []
+          existing.push({
+            uid: assignment.uid,
+            jobUid: assignment.jobUid,
+            jobCode: assignment.jobCode,
+            jobName: assignment.jobName,
+            isPrimary: Number(assignment.isPrimary) === 1,
+            unit: {
+              uid: assignment.unitUid,
+              code: assignment.unitCode,
+              name: assignment.unitName,
+              decimalPrecision: Number(assignment.decimalPrecision),
+            },
+            rate: {
+              uid: assignment.rateUid,
+              amount: String(assignment.rateAmount),
+              currency: assignment.currency,
+            },
+          })
+          assignmentsByEmployee.set(employeeId, existing)
+        }
+      }
+
+      res.json({ items: rows.map((row) => ({
+        uid:row.uid,employeeNumber:row.employeeNumber,fullName:row.fullName,site:row.site,employeeType:row.employeeType,
+        productionSection:row.productionSectionUid?{uid:row.productionSectionUid,code:row.productionSectionCode,name:row.productionSectionName}:null,
+        assignments: assignmentsByEmployee.get(Number(row.employeeId)) ?? [],
+        assignmentCount:Number(row.assignmentCount),hasPrimary:Number(row.hasPrimary)===1,
+      })),total:Number(counts[0]?.total??0),page,pageSize,asOf })
+    } catch (error) { next(error) }
+  }
+)
+
+productionFoundationRouter.get(
   '/assignments',
   requirePermission('production.view'),
   async (req, res, next) => {
@@ -1019,7 +1536,7 @@ productionFoundationRouter.get(
         values.push(`%${query}%`, `%${query}%`, `%${query}%`)
       }
       const statuses = csvValues(req.query.status).filter((value) =>
-        ['ACTIVE', 'UPCOMING', 'ENDED'].includes(value)
+        ['ACTIVE', 'UPCOMING', 'ENDED', 'CANCELLED'].includes(value)
       )
       const statusExpression = assignmentStatusSql('a')
       if (statuses.length) {
@@ -1159,7 +1676,7 @@ productionFoundationRouter.post(
       const periodEnd = input.effectiveTo ?? '9999-12-31'
       const [overlaps] = await connection.query<RowDataPacket[]>(
         `SELECT id FROM employee_job_assignments
-          WHERE employee_id=? AND production_job_id=? AND site_id=?
+          WHERE employee_id=? AND production_job_id=? AND site_id=? AND status='ACTIVE'
             AND effective_from<=?
             AND (effective_to IS NULL OR effective_to>=?)
           LIMIT 1 FOR UPDATE`,
@@ -1171,7 +1688,7 @@ productionFoundationRouter.post(
       if (input.isPrimary) {
         const [primary] = await connection.query<RowDataPacket[]>(
           `SELECT id FROM employee_job_assignments
-            WHERE employee_id=? AND site_id=? AND is_primary=1
+            WHERE employee_id=? AND site_id=? AND is_primary=1 AND status='ACTIVE'
               AND effective_from<=?
               AND (effective_to IS NULL OR effective_to>=?)
             LIMIT 1 FOR UPDATE`,
@@ -1237,7 +1754,7 @@ productionFoundationRouter.post(
       await connection.beginTransaction()
       const [rows] = await connection.query<RowDataPacket[]>(
         `SELECT a.id,a.employee_id employeeId,a.production_job_id jobId,
-                a.site_id siteId,s.code site,
+                a.site_id siteId,a.status,s.code site,
                 DATE_FORMAT(a.effective_from,'%Y-%m-%d') effectiveFrom,
                 DATE_FORMAT(a.effective_to,'%Y-%m-%d') effectiveTo
            FROM employee_job_assignments a
@@ -1248,6 +1765,9 @@ productionFoundationRouter.post(
       const assignment = rows[0]
       if (!assignment) throw new ApiError(404, 'Penugasan tidak ditemukan.')
       enforceSite(auth, assignment.site)
+      if (assignment.status !== 'ACTIVE') {
+        throw new ApiError(409, 'Penugasan yang dibatalkan tidak dapat ditutup.')
+      }
       if (assignment.effectiveTo) {
         throw new ApiError(409, 'Penugasan ini sudah memiliki tanggal selesai.')
       }
@@ -1268,6 +1788,24 @@ productionFoundationRouter.post(
         throw new ApiError(
           409,
           'Penugasan masih dipakai transaksi Produksi setelah tanggal selesai tersebut.'
+        )
+      }
+      const [lockedPeriods] = await connection.query<RowDataPacket[]>(
+        `SELECT pp.id FROM payroll_periods pp
+          WHERE pp.site_id=? AND pp.payroll_basis='PIECE_RATE'
+            AND pp.period_end>?
+            AND (
+              pp.status IN ('CALCULATED','APPROVED','CLOSED')
+              OR EXISTS(SELECT 1 FROM payroll_runs pr
+                WHERE pr.payroll_period_id=pp.id AND pr.status='PROCESSING')
+            )
+          LIMIT 1 FOR UPDATE`,
+        [assignment.siteId, input.effectiveTo]
+      )
+      if (lockedPeriods[0]) {
+        throw new ApiError(
+          409,
+          'Penugasan tidak dapat ditutup karena periode setelah tanggal tersebut sudah diproses Payroll.'
         )
       }
       await connection.execute(
@@ -1294,6 +1832,156 @@ productionFoundationRouter.post(
       )
       await connection.commit()
       res.status(204).end()
+    } catch (error) {
+      await connection.rollback()
+      next(error)
+    } finally {
+      connection.release()
+    }
+  }
+)
+
+productionFoundationRouter.post(
+  '/assignments/:uid/correction-preview',
+  requirePermission('production.manage_master'),
+  async (req, res, next) => {
+    const connection = await pool.getConnection()
+    try {
+      const input = productionAssignmentCorrectionInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const proposal = await assignmentCorrectionProposal(
+        connection,
+        routeParam(req.params.uid),
+        input,
+        false
+      )
+      enforceSite(auth, String(proposal.current.site))
+      res.json({
+        source: proposal.current,
+        proposed: proposal.proposed,
+        impact: { postedTransactions: proposal.transactionCount },
+        canApply: true,
+      })
+    } catch (error) {
+      next(error)
+    } finally {
+      connection.release()
+    }
+  }
+)
+
+productionFoundationRouter.post(
+  '/assignments/:uid/correct',
+  requirePermission('production.manage_master'),
+  async (req, res, next) => {
+    const connection = await pool.getConnection()
+    try {
+      const input = productionAssignmentCorrectionInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const assignmentUid = routeParam(req.params.uid)
+      await connection.beginTransaction()
+      const [replays] = await connection.query<RowDataPacket[]>(
+        `SELECT revision.uid,revision.employee_job_assignment_id assignmentId,
+                revision.after_data afterData,revision.reason
+           FROM employee_job_assignment_revisions revision WHERE revision.idempotency_key=? FOR UPDATE`,
+        [input.idempotencyKey]
+      )
+      if (replays[0]) {
+        const [assignmentRows] = await connection.query<RowDataPacket[]>(
+          'SELECT id FROM employee_job_assignments WHERE uid=?',
+          [assignmentUid]
+        )
+        const replayAfter =
+          typeof replays[0].afterData === 'string'
+            ? JSON.parse(replays[0].afterData)
+            : replays[0].afterData
+        const requestedAfter = {
+          jobUid: input.jobUid,
+          effectiveFrom: input.effectiveFrom,
+          effectiveTo: input.effectiveTo ?? null,
+          isPrimary: input.isPrimary,
+        }
+        if (
+          !assignmentRows[0] ||
+          Number(assignmentRows[0].id) !== Number(replays[0].assignmentId) ||
+          String(replays[0].reason) !== input.reason ||
+          JSON.stringify(replayAfter) !== JSON.stringify(requestedAfter)
+        ) {
+          throw new ApiError(
+            409,
+            'Idempotency key sudah dipakai untuk koreksi lain.'
+          )
+        }
+        await connection.commit()
+        return res.json({ duplicate: true, revisionUid: replays[0].uid })
+      }
+      const proposal = await assignmentCorrectionProposal(
+        connection,
+        assignmentUid,
+        input,
+        true
+      )
+      enforceSite(auth, String(proposal.current.site))
+      const before = {
+        jobUid: proposal.current.jobUid,
+        effectiveFrom: proposal.current.effectiveFrom,
+        effectiveTo: proposal.current.effectiveTo ?? null,
+        isPrimary: Number(proposal.current.isPrimary) === 1,
+      }
+      const after = {
+        jobUid: input.jobUid,
+        effectiveFrom: input.effectiveFrom,
+        effectiveTo: input.effectiveTo ?? null,
+        isPrimary: input.isPrimary,
+      }
+      await connection.execute(
+        `UPDATE employee_job_assignments
+            SET production_job_id=?,effective_from=?,effective_to=?,is_primary=?,updated_by=?
+          WHERE id=?`,
+        [
+          proposal.job.id,
+          input.effectiveFrom,
+          input.effectiveTo ?? null,
+          input.isPrimary ? 1 : 0,
+          auth.id,
+          proposal.current.id,
+        ]
+      )
+      const revisionUid = randomUUID()
+      await connection.execute(
+        `INSERT INTO employee_job_assignment_revisions(
+           uid,employee_job_assignment_id,idempotency_key,before_data,
+           after_data,reason,revised_by
+         ) VALUES(?,?,?,?,?,?,?)`,
+        [
+          revisionUid,
+          proposal.current.id,
+          input.idempotencyKey,
+          JSON.stringify(before),
+          JSON.stringify(after),
+          input.reason,
+          auth.id,
+        ]
+      )
+      await writeAudit(
+        {
+          auth,
+          request: req,
+          module: 'PRODUCTION',
+          siteId: Number(proposal.current.siteId),
+          action: 'UPDATE',
+          table: 'employee_job_assignments',
+          recordId: Number(proposal.current.id),
+          recordUid: assignmentUid,
+          description: 'Mengoreksi histori penugasan pekerjaan Produksi.',
+          reason: input.reason,
+          beforeData: before,
+          afterData: after,
+        },
+        connection
+      )
+      await connection.commit()
+      res.json({ duplicate: false, revisionUid })
     } catch (error) {
       await connection.rollback()
       next(error)
@@ -1335,18 +2023,18 @@ productionFoundationRouter.get(
              COUNT(*) eligibleEmployees,
              SUM(NOT EXISTS(
                SELECT 1 FROM employee_job_assignments a
-                WHERE a.employee_id=eligible.employeeId AND a.site_id=?
+                WHERE a.employee_id=eligible.employeeId AND a.site_id=? AND a.status='ACTIVE'
                   AND a.effective_from<=?
                   AND (a.effective_to IS NULL OR a.effective_to>=?)
              )) employeesWithoutAssignment,
              SUM(NOT EXISTS(
                SELECT 1 FROM employee_job_assignments a
-                WHERE a.employee_id=eligible.employeeId AND a.site_id=?
+                WHERE a.employee_id=eligible.employeeId AND a.site_id=? AND a.status='ACTIVE'
                   AND a.is_primary=1 AND a.effective_from<=?
                   AND (a.effective_to IS NULL OR a.effective_to>=?)
              )) employeesWithoutPrimaryAssignment,
              SUM((SELECT COUNT(*) FROM employee_job_assignments a
-                   WHERE a.employee_id=eligible.employeeId AND a.site_id=?
+                   WHERE a.employee_id=eligible.employeeId AND a.site_id=? AND a.status='ACTIVE'
                      AND a.is_primary=1 AND a.effective_from<=?
                      AND (a.effective_to IS NULL OR a.effective_to>=?))>1)
                employeesWithAmbiguousPrimary
@@ -1388,22 +2076,32 @@ productionFoundationRouter.get(
           `SELECT
              COUNT(*) assignedJobs,
              SUM(rateCount=0) assignedJobsWithoutActiveRate,
-             SUM(rateCount>1) assignedJobsWithAmbiguousRate
+             SUM(rateCount>1) assignedJobsWithAmbiguousRate,
+             SUM(jobActive=0) inactiveAssignedJobs,
+             SUM(unitActive=0) inactiveAssignedUnits
            FROM (
-             SELECT a.production_job_id,
+             SELECT a.production_job_id,j.is_active jobActive,u.is_active unitActive,
                     (SELECT COUNT(*) FROM production_job_rates r
                       WHERE r.site_id=a.site_id
                         AND r.production_job_id=a.production_job_id
                         AND r.status='ACTIVE' AND r.effective_from<=?
                         AND (r.effective_to IS NULL OR r.effective_to>=?)) rateCount
                FROM employee_job_assignments a
-              WHERE a.site_id=? AND a.effective_from<=?
+               JOIN production_jobs j ON j.id=a.production_job_id
+               JOIN work_units u ON u.id=j.default_unit_id
+              WHERE a.site_id=? AND a.status='ACTIVE' AND a.effective_from<=?
                 AND (a.effective_to IS NULL OR a.effective_to>=?)
-              GROUP BY a.production_job_id,a.site_id
+              GROUP BY a.production_job_id,a.site_id,j.is_active,u.is_active
            ) assigned`,
           [asOf, asOf, site.id, asOf, asOf]
         )
         const jobMetrics = jobMetricsRows[0] ?? {}
+        const [deviceRows] = await pool.query<RowDataPacket[]>(
+          `SELECT COUNT(*) readyProductionDevices FROM scan_devices
+            WHERE site_id=? AND is_active=1 AND device_type IN ('USB_SCANNER','TERMINAL')
+              AND production_activated_at IS NOT NULL AND production_token_hash IS NOT NULL`,
+          [site.id]
+        )
         const [adminRows] = await pool.query<RowDataPacket[]>(
           `SELECT COUNT(DISTINCT u.id) activeProductionAdmins
              FROM users u
@@ -1431,6 +2129,9 @@ productionFoundationRouter.get(
           assignedJobsWithAmbiguousRate: Number(
             jobMetrics.assignedJobsWithAmbiguousRate ?? 0
           ),
+          inactiveAssignedJobs: Number(jobMetrics.inactiveAssignedJobs ?? 0),
+          inactiveAssignedUnits: Number(jobMetrics.inactiveAssignedUnits ?? 0),
+          readyProductionDevices: Number(deviceRows[0]?.readyProductionDevices ?? 0),
           activeProductionAdmins: Number(adminRows[0]?.activeProductionAdmins ?? 0),
         }
         const blockers = [
@@ -1473,6 +2174,15 @@ productionFoundationRouter.get(
                 message: 'Pekerjaan memiliki tarif aktif yang bertumpang-tindih.',
                 actionUrl: '/produksi/tarif-site',
               }
+            : null,
+          metrics.inactiveAssignedJobs > 0
+            ? { code:'ASSIGNED_JOB_INACTIVE',count:metrics.inactiveAssignedJobs,message:'Penugasan memakai pekerjaan yang sudah nonaktif.',actionUrl:'/produksi/master-pekerjaan' }
+            : null,
+          metrics.inactiveAssignedUnits > 0
+            ? { code:'ASSIGNED_UNIT_INACTIVE',count:metrics.inactiveAssignedUnits,message:'Penugasan memakai satuan yang sudah nonaktif.',actionUrl:'/produksi/master-pekerjaan' }
+            : null,
+          metrics.readyProductionDevices === 0
+            ? { code:'PRODUCTION_DEVICE_MISSING',count:1,message:'Belum ada Terminal Produksi aktif untuk site ini.',actionUrl:'/produksi/terminal' }
             : null,
           metrics.activeProductionAdmins === 0
             ? {

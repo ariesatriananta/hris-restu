@@ -11,7 +11,9 @@ export const Route = createFileRoute(
     tab: z.enum(['jobs', 'units', 'assignments']).optional(),
     filter: z.string().optional(),
     site: z.array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])).optional(),
-    status: z.array(z.enum(['ACTIVE', 'UPCOMING', 'ENDED'])).optional(),
+    status: z
+      .array(z.enum(['ACTIVE', 'UPCOMING', 'ENDED', 'CANCELLED']))
+      .optional(),
     issue: z
       .enum([
         'ALL',

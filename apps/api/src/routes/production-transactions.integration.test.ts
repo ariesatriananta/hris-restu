@@ -393,6 +393,7 @@ describe('Production transactions API', () => {
       .mockResolvedValueOnce([[
         { rateId: 16, rateUid: 'rate', rateAmount: '1175.0000', currency: 'IDR', unitId: 17, unitUid: 'unit', unitCode: 'PCS', unitName: 'Pcs', decimalPrecision: 0 },
       ]])
+      .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([[transactionRow()]])
     mocks.execute.mockImplementation(async (sql: unknown) =>
       String(sql).includes('INSERT INTO production_transactions')
@@ -425,7 +426,16 @@ describe('Production transactions API', () => {
   it('membatasi list ke site user dan menghitung KPI hanya dari POSTED', async () => {
     mocks.query
       .mockResolvedValueOnce([[
-        { transactionCount: 1, employeeCount: 1, totalQuantity: '3.0000', totalGrossAmount: '3525.00' },
+        { transactionCount: 1, employeeCount: 1, totalGrossAmount: '3525.00' },
+      ]])
+      .mockResolvedValueOnce([[
+        {
+          uid: '55555555-5555-4555-8555-555555555555',
+          code: 'PCS',
+          name: 'Pcs',
+          decimalPrecision: 0,
+          quantity: '3.0000',
+        },
       ]])
       .mockResolvedValueOnce([[transactionRow()]])
 
@@ -434,14 +444,58 @@ describe('Production transactions API', () => {
     )
     expect(response.status).toBe(200)
     const body = (await response.json()) as {
-      summary: { totalGrossAmount: string }
+      summary: {
+        totalGrossAmount: string
+        totalQuantity: string | null
+        quantityTotals: Array<{ quantity: string; unit: { code: string } }>
+      }
       pageSize: number
     }
     expect(body.summary.totalGrossAmount).toBe('3525.00')
+    expect(body.summary.totalQuantity).toBe('3.0000')
+    expect(body.summary.quantityTotals).toEqual([
+      expect.objectContaining({
+        quantity: '3.0000',
+        unit: expect.objectContaining({ code: 'PCS' }),
+      }),
+    ])
     expect(body.pageSize).toBe(500)
     const summarySql = String(mocks.query.mock.calls[0]?.[0])
-    expect(summarySql).toContain("CASE WHEN pt.status='POSTED' THEN pt.quantity")
+    expect(summarySql).toContain("CASE WHEN pt.status='POSTED' THEN pt.gross_amount")
     expect(summarySql).toContain('s.code IN (?)')
+    expect(String(mocks.query.mock.calls[1]?.[0])).toContain("pt.status='POSTED'")
+  })
+
+  it('tidak menghasilkan total kuantitas palsu ketika satuannya bercampur', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[
+        { transactionCount: 2, employeeCount: 1, totalGrossAmount: '5000.00' },
+      ]])
+      .mockResolvedValueOnce([[
+        {
+          uid: '55555555-5555-4555-8555-555555555555',
+          code: 'PCS',
+          name: 'Pcs',
+          decimalPrecision: 0,
+          quantity: '3.0000',
+        },
+        {
+          uid: '88888888-8888-4888-8888-888888888888',
+          code: 'KG',
+          name: 'Kilogram',
+          decimalPrecision: 2,
+          quantity: '1.5000',
+        },
+      ]])
+      .mockResolvedValueOnce([[]])
+
+    const response = await request('/transactions')
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      summary: { totalQuantity: string | null; quantityTotals: unknown[] }
+    }
+    expect(body.summary.totalQuantity).toBeNull()
+    expect(body.summary.quantityTotals).toHaveLength(2)
   })
 
   it('mewajibkan production.correct tetapi SUPER_ADMIN selalu dapat melewati permission', async () => {

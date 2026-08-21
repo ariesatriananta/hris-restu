@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   canUseProductionTerminalSite,
+  formatProductionDecimalInput,
   formatProductionQuantityInput,
+  normalizeProductionDecimalInput,
   normalizeProductionQuantity,
   validateProductionQuantity,
 } from './production-terminal-policy'
@@ -35,6 +37,13 @@ describe('validateProductionQuantity', () => {
   it('menampilkan nilai awal sesuai presisi satuan tanpa nol desimal semu', () => {
     expect(formatProductionQuantityInput('34.0000', 0)).toBe('34')
     expect(formatProductionQuantityInput('34.5000', 2)).toBe('34.5')
+  })
+
+  it('menampilkan nominal ringkas dan tetap menerima pecahan', () => {
+    expect(formatProductionDecimalInput('1400.0000')).toBe('1400')
+    expect(formatProductionDecimalInput('1400.2500')).toBe('1400.25')
+    expect(formatProductionDecimalInput('1400,2500')).toBe('1400.25')
+    expect(normalizeProductionDecimalInput(' 1400,25 ')).toBe('1400.25')
   })
 
   it('tidak membulatkan pecahan yang melampaui presisi satuan', () => {

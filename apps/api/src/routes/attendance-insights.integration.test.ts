@@ -153,6 +153,11 @@ describe('Attendance insights API', () => {
       finalizationRerunCount: 2,
       pendingFollowUpCount: 9,
     })
+    expect(
+      mocks.query.mock.calls.some(([sql]) =>
+        String(sql).includes('invalidatedByClassificationReversal')
+      )
+    ).toBe(true)
   })
 
   it('menolak timeline record milik site lain', async () => {

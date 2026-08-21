@@ -11,6 +11,7 @@ import { internalRouter } from './routes/internal.js'
 import { productionStructureRouter } from './routes/production-structure.js'
 import { productionFoundationRouter } from './routes/production-foundation.js'
 import { productionTransactionsRouter } from './routes/production-transactions.js'
+import { productionRecapsRouter } from './routes/production-recaps.js'
 import { systemRouter } from './routes/system.js'
 import { attendanceRouter } from './routes/attendance.js'
 import { registerProductionFrontend } from './lib/production-frontend.js'
@@ -27,6 +28,7 @@ app.use('/api/internal', internalRouter)
 app.use('/api/production-structure', productionFoundationRouter)
 app.use('/api/production-structure', productionStructureRouter)
 app.use('/api/production', productionTransactionsRouter)
+app.use('/api/production', productionRecapsRouter)
 app.use('/api/system', systemRouter)
 app.use('/api/attendance', attendanceRouter)
 app.use('/api', (_req, res) => res.status(404).json({ message: 'Endpoint API tidak ditemukan.' }))

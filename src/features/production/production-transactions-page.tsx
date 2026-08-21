@@ -9,6 +9,7 @@ import {
   Banknote,
   Ban,
   Boxes,
+  CalendarPlus,
   Eye,
   FileClock,
   History,
@@ -85,7 +86,9 @@ import {
 } from '@/features/attendance/date-only'
 import { hasPermission } from '@/features/auth/permissions'
 import {
+  useCreateHistoricalProduction,
   useCorrectProductionTransaction,
+  usePreviewHistoricalProduction,
   usePreviewProductionCorrection,
   usePreviewProductionVoid,
   useProductionCorrectionContext,
@@ -96,12 +99,15 @@ import {
 } from './data/queries'
 import {
   canOfferProductionRevision,
+  productionEntrySourceLabel,
   type ProductionCorrectionPreview,
+  type ProductionEligibleEmployee,
   type ProductionSite,
   type ProductionTransaction,
   type ProductionTransactionRevision,
   type ProductionTransactionResult,
 } from './domain'
+import { ProductionEmployeePicker } from './production-employee-picker'
 import {
   formatProductionQuantityInput,
   normalizeProductionQuantity,
@@ -132,6 +138,7 @@ export function ProductionTransactionsPage({
   })
   const jobs = useProductionJobs()
   const [detailUid, setDetailUid] = useState<string>()
+  const canCorrect = hasPermission(session, 'production.correct')
   const hasGlobalSiteAccess =
     session?.user.role === 'SUPER_ADMIN' || session?.user.role === 'DIRECTOR'
   const accessibleSites = hasGlobalSiteAccess
@@ -166,17 +173,20 @@ export function ProductionTransactionsPage({
             tarif, dan nilai brutonya.
           </p>
         </div>
-        <div className='grid gap-2 sm:grid-cols-2'>
-          <DateControl
-            label='Dari tanggal'
-            value={dateFrom}
-            onChange={(value) => setDate('dateFrom', value)}
-          />
-          <DateControl
-            label='Sampai tanggal'
-            value={dateTo}
-            onChange={(value) => setDate('dateTo', value)}
-          />
+        <div className='flex flex-col gap-2 sm:flex-row sm:items-end'>
+          <div className='grid gap-2 sm:grid-cols-2'>
+            <DateControl
+              label='Dari tanggal'
+              value={dateFrom}
+              onChange={(value) => setDate('dateFrom', value)}
+            />
+            <DateControl
+              label='Sampai tanggal'
+              value={dateTo}
+              onChange={(value) => setDate('dateTo', value)}
+            />
+          </div>
+          {canCorrect && <HistoricalProductionDialog sites={accessibleSites} />}
         </div>
       </div>
 
@@ -210,7 +220,267 @@ export function ProductionTransactionsPage({
   )
 }
 
+function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
+  const [open, setOpen] = useState(false)
+  const [site, setSite] = useState<ProductionSite>(sites[0] ?? 'JEPARA')
+  const [businessDate, setBusinessDate] = useState(today())
+  const [employee, setEmployee] = useState<ProductionEligibleEmployee>()
+  const [jobUid, setJobUid] = useState('')
+  const [quantity, setQuantity] = useState('')
+  const [reason, setReason] = useState('')
+  const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey)
+  const preview = usePreviewHistoricalProduction()
+  const create = useCreateHistoricalProduction()
+  const selectedAssignment = employee?.assignments.find(
+    (assignment) => assignment.jobUid === jobUid
+  )
+  const quantityError = selectedAssignment
+    ? validateProductionQuantity(
+        quantity,
+        selectedAssignment.unit.decimalPrecision
+      )
+    : 'Pilih pekerjaan terlebih dahulu.'
+  const canPreview = Boolean(
+    employee && jobUid && businessDate && quantity && !quantityError
+  )
+  const canSubmit = preview.data?.canApply === true && reason.trim().length >= 5
+
+  const resetProposal = () => {
+    preview.reset()
+    setIdempotencyKey(createIdempotencyKey())
+  }
+  const resetEmployee = () => {
+    setEmployee(undefined)
+    setJobUid('')
+    resetProposal()
+  }
+  const handleOpen = (next: boolean) => {
+    setOpen(next)
+    if (!next) return
+    setSite(sites[0] ?? 'JEPARA')
+    setBusinessDate(today())
+    setEmployee(undefined)
+    setJobUid('')
+    setQuantity('')
+    setReason('')
+    setIdempotencyKey(createIdempotencyKey())
+    preview.reset()
+  }
+  const proposal = {
+    employeeUid: employee?.uid ?? '',
+    site,
+    businessDate,
+    jobUid,
+    quantity: normalizeProductionQuantity(quantity),
+  }
+  const submit = async () => {
+    if (!canSubmit) return
+    try {
+      const output = await create.mutateAsync({
+        ...proposal,
+        reason: reason.trim(),
+        idempotencyKey,
+      })
+      toast.success(output.message || 'Setoran susulan berhasil dicatat.')
+      setOpen(false)
+    } catch (error) {
+      toast.error(apiMessage(error, 'Setoran susulan gagal dicatat.'))
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogTrigger asChild>
+        <Button className='h-9 whitespace-nowrap'>
+          <CalendarPlus /> Setoran Susulan
+        </Button>
+      </DialogTrigger>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-2xl'>
+        <DialogHeader>
+          <DialogTitle>Catat Setoran Susulan</DialogTitle>
+          <DialogDescription>
+            Gunakan hanya untuk hasil kerja yang terlewat dicatat. Sistem tetap
+            memeriksa Attendance, penugasan, tarif, dan kunci Payroll pada
+            tanggal tersebut.
+          </DialogDescription>
+        </DialogHeader>
+        <div className='grid gap-4 sm:grid-cols-2'>
+          <label className='grid gap-1.5 text-sm'>
+            <span className='font-medium'>Site</span>
+            <Select
+              value={site}
+              onValueChange={(value: ProductionSite) => {
+                setSite(value)
+                resetEmployee()
+              }}
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {sites.map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {siteLabel(item)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+          <label className='grid gap-1.5 text-sm'>
+            <span className='font-medium'>Tanggal hasil kerja</span>
+            <DatePicker
+              selected={dateOnlyFromInput(businessDate)}
+              onSelect={(date) => {
+                setBusinessDate(dateOnlyToInput(date))
+                resetEmployee()
+              }}
+              placeholder='Pilih tanggal'
+              fromYear={2020}
+              toYear={new Date().getFullYear()}
+              triggerClassName='w-full'
+            />
+          </label>
+          <label className='grid gap-1.5 text-sm sm:col-span-2'>
+            <span className='font-medium'>Karyawan</span>
+            <ProductionEmployeePicker
+              site={site}
+              asOf={businessDate}
+              value={employee?.uid ?? ''}
+              selected={employee}
+              onChange={(item) => {
+                setEmployee(item)
+                const primary = item.assignments.find(
+                  (assignment) => assignment.isPrimary
+                )
+                setJobUid(primary?.jobUid ?? item.assignments[0]?.jobUid ?? '')
+                resetProposal()
+              }}
+            />
+          </label>
+          <label className='grid gap-1.5 text-sm'>
+            <span className='font-medium'>Pekerjaan</span>
+            <Select
+              value={jobUid}
+              onValueChange={(value) => {
+                setJobUid(value)
+                resetProposal()
+              }}
+              disabled={!employee}
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue placeholder='Pilih pekerjaan' />
+              </SelectTrigger>
+              <SelectContent>
+                {(employee?.assignments ?? []).map((assignment) => (
+                  <SelectItem key={assignment.uid} value={assignment.jobUid}>
+                    {assignment.jobName} ({assignment.jobCode})
+                    {assignment.isPrimary ? ' · Utama' : ' · Tambahan'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+          <label className='grid gap-1.5 text-sm'>
+            <span className='font-medium'>Kuantitas hasil</span>
+            <Input
+              inputMode='decimal'
+              value={quantity}
+              onChange={(event) => {
+                setQuantity(event.target.value)
+                resetProposal()
+              }}
+              placeholder='Contoh: 25'
+              aria-invalid={Boolean(quantity && quantityError)}
+            />
+            {quantity && quantityError && (
+              <span className='text-xs text-destructive'>{quantityError}</span>
+            )}
+          </label>
+        </div>
+        <Button
+          type='button'
+          variant='secondary'
+          className='w-fit'
+          disabled={!canPreview || preview.isPending}
+          onClick={() =>
+            preview.mutate(proposal, {
+              onError: (error) =>
+                toast.error(apiMessage(error, 'Preview setoran gagal dibuat.')),
+            })
+          }
+        >
+          {preview.isPending && <Loader2 className='animate-spin' />}
+          Preview setoran
+        </Button>
+        {preview.data && (
+          <section className='rounded-lg border bg-muted/30 p-3 text-sm'>
+            <div className='mb-3 flex items-center justify-between gap-2'>
+              <div>
+                <p className='font-semibold'>Hasil verifikasi</p>
+                <p className='text-xs text-muted-foreground'>
+                  {preview.data.employee.fullName} ·{' '}
+                  {formatLongDate(preview.data.businessDate)}
+                </p>
+              </div>
+              <Badge
+                variant={preview.data.canApply ? 'secondary' : 'destructive'}
+              >
+                {preview.data.canApply ? 'Siap dicatat' : 'Tidak dapat dicatat'}
+              </Badge>
+            </div>
+            <div className='grid gap-2 sm:grid-cols-3'>
+              <PreviewMetric
+                label='Pekerjaan'
+                value={preview.data.proposed.job.name}
+              />
+              <PreviewMetric
+                label='Kuantitas'
+                value={`${formatNumber(preview.data.proposed.quantity, preview.data.proposed.unit.decimalPrecision)} ${preview.data.proposed.unit.code}`}
+              />
+              <PreviewMetric
+                label='Estimasi bruto'
+                value={formatCurrency(preview.data.proposed.grossAmount)}
+              />
+            </div>
+            {preview.data.payrollLock.locked && (
+              <div className='mt-3'>
+                <LockedPanel reasons={preview.data.payrollLock.reasons} />
+              </div>
+            )}
+          </section>
+        )}
+        <label className='grid gap-1.5 text-sm'>
+          <span className='font-medium'>Alasan setoran susulan</span>
+          <Textarea
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder='Jelaskan mengapa setoran tidak tercatat melalui terminal.'
+            maxLength={500}
+            disabled={!preview.data?.canApply}
+          />
+          <span className='text-xs text-muted-foreground'>
+            Minimal 5 karakter untuk histori audit.
+          </span>
+        </label>
+        <DialogFooter>
+          <Button variant='outline' onClick={() => setOpen(false)}>
+            Batal
+          </Button>
+          <Button
+            disabled={!canSubmit || create.isPending}
+            onClick={() => void submit()}
+          >
+            {create.isPending && <Loader2 className='animate-spin' />}
+            Catat Setoran
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function TransactionSummary({ data }: { data?: ProductionTransactionResult }) {
+  const quantityTotals = data?.summary.quantityTotals ?? []
   const items = [
     {
       label: 'Transaksi',
@@ -227,11 +497,18 @@ function TransactionSummary({ data }: { data?: ProductionTransactionResult }) {
       tone: 'border-sky-500/20 bg-sky-500/[0.05]',
     },
     {
-      label: 'Total Kuantitas',
-      value: formatNumber(data?.summary.totalQuantity ?? 0, 4),
+      label: 'Hasil per Satuan',
+      value: quantityTotals.length
+        ? quantityTotals
+            .map(
+              (item) =>
+                `${formatNumber(item.quantity, item.unit.decimalPrecision)} ${item.unit.code}`
+            )
+            .join(' · ')
+        : '-',
       icon: Boxes,
       description:
-        'Akumulasi kuantitas. Gunakan bersama filter pekerjaan karena satuannya dapat berbeda.',
+        'Akumulasi hasil dipisahkan per satuan agar PCS, KG, BOX, dan satuan lain tidak tercampur.',
       tone: 'border-emerald-500/20 bg-emerald-500/[0.05]',
     },
     {
@@ -378,6 +655,12 @@ function TransactionTable({
             <p className='text-xs text-muted-foreground'>
               {formatTime(row.original.transactionAt)}
             </p>
+            {row.original.entrySource &&
+              row.original.entrySource !== 'TERMINAL' && (
+                <p className='text-[11px] font-medium text-primary'>
+                  {productionEntrySourceLabel(row.original.entrySource)}
+                </p>
+              )}
           </div>
         ),
         size: 105,
@@ -545,7 +828,14 @@ function MobileTransaction({
             {siteLabel(item.site)} · {item.employee.employeeNumber}
           </p>
         </div>
-        <TransactionStatus value={item.status} />
+        <div className='flex flex-col items-end gap-1'>
+          <TransactionStatus value={item.status} />
+          {item.entrySource && item.entrySource !== 'TERMINAL' && (
+            <span className='text-[11px] font-medium text-primary'>
+              {productionEntrySourceLabel(item.entrySource)}
+            </span>
+          )}
+        </div>
       </div>
       <div className='grid grid-cols-2 gap-3 text-sm'>
         <div className='min-w-0'>
@@ -698,11 +988,15 @@ function TransactionDetailSheet({
                 rows={[
                   ['Tanggal kerja', formatLongDate(item.businessDate)],
                   ['Waktu transaksi', formatDateTime(item.transactionAt)],
+                  ['Sumber', productionEntrySourceLabel(item.entrySource)],
                   [
                     'Perangkat',
                     item.device
                       ? `${item.device.name} (${item.device.code})`
-                      : 'Tidak tersedia',
+                      : item.entrySource === 'HISTORICAL' ||
+                          item.entrySource === 'CORRECTION'
+                        ? 'Tidak menggunakan terminal'
+                        : 'Tidak tersedia',
                   ],
                 ]}
               />
@@ -838,6 +1132,7 @@ function CorrectionDialog({
   children: ReactNode
 }) {
   const [open, setOpen] = useState(false)
+  const [employee, setEmployee] = useState<ProductionEligibleEmployee>()
   const [jobUid, setJobUid] = useState(transaction.job.uid)
   const [quantity, setQuantity] = useState(() =>
     formatProductionQuantityInput(
@@ -851,21 +1146,43 @@ function CorrectionDialog({
   const preview = usePreviewProductionCorrection(transaction.uid)
   const correction = useCorrectProductionTransaction(transaction.uid)
 
-  const effectiveJobUid = context.data?.jobs.some((job) => job.uid === jobUid)
+  const employeeChanged = Boolean(
+    employee && employee.uid !== transaction.employee.uid
+  )
+  const targetAssignments = employeeChanged ? (employee?.assignments ?? []) : []
+  const availableJobUids = employeeChanged
+    ? targetAssignments.map((assignment) => assignment.jobUid)
+    : (context.data?.jobs.map((job) => job.uid) ?? [])
+  const effectiveJobUid = availableJobUids.includes(jobUid)
     ? jobUid
-    : (context.data?.jobs[0]?.uid ?? jobUid)
+    : (availableJobUids[0] ?? jobUid)
   const selectedJob = context.data?.jobs.find(
     (job) => job.uid === effectiveJobUid
   )
-  const quantityError = selectedJob
-    ? validateProductionQuantity(quantity, selectedJob.unit.decimalPrecision)
-    : 'Pilih pekerjaan terlebih dahulu.'
+  const selectedTargetAssignment = targetAssignments.find(
+    (assignment) => assignment.jobUid === effectiveJobUid
+  )
+  const quantityPrecision =
+    selectedJob?.unit.decimalPrecision ??
+    selectedTargetAssignment?.unit.decimalPrecision
+  const quantityError =
+    effectiveJobUid && quantityPrecision !== undefined
+      ? validateProductionQuantity(quantity, quantityPrecision)
+      : 'Pilih pekerjaan terlebih dahulu.'
   const normalizedQuantity = normalizeProductionQuantity(quantity)
 
   const setDialogOpen = (next: boolean) => {
     setOpen(next)
     if (!next) return
     setJobUid(transaction.job.uid)
+    setEmployee({
+      uid: transaction.employee.uid,
+      employeeNumber: transaction.employee.employeeNumber,
+      fullName: transaction.employee.fullName,
+      site: transaction.site,
+      employeeType: '',
+      assignments: [],
+    })
     setQuantity(
       formatProductionQuantityInput(
         transaction.quantity,
@@ -885,6 +1202,7 @@ function CorrectionDialog({
     if (!canSubmit) return
     try {
       const output = await correction.mutateAsync({
+        employeeUid: employee?.uid,
         jobUid: effectiveJobUid,
         quantity: normalizedQuantity,
         reason: reason.trim(),
@@ -920,6 +1238,30 @@ function CorrectionDialog({
             {context.data.payrollLock.locked && (
               <LockedPanel reasons={context.data.payrollLock.reasons} />
             )}
+            <label className='grid gap-1.5 text-sm'>
+              <span className='font-medium'>Karyawan pengganti</span>
+              <ProductionEmployeePicker
+                site={transaction.site}
+                asOf={transaction.businessDate}
+                value={employee?.uid ?? transaction.employee.uid}
+                selected={employee}
+                onChange={(item) => {
+                  setEmployee(item)
+                  const primary = item.assignments.find(
+                    (assignment) => assignment.isPrimary
+                  )
+                  setJobUid(
+                    primary?.jobUid ?? item.assignments[0]?.jobUid ?? ''
+                  )
+                  setIdempotencyKey(createIdempotencyKey())
+                  resetPreview()
+                }}
+              />
+              <span className='text-xs text-muted-foreground'>
+                Biarkan tetap sama jika kesalahan hanya pada pekerjaan atau
+                kuantitas.
+              </span>
+            </label>
             <div className='grid gap-4 sm:grid-cols-2'>
               <label className='grid gap-1.5 text-sm'>
                 <span className='font-medium'>Pekerjaan pengganti</span>
@@ -936,11 +1278,22 @@ function CorrectionDialog({
                     <SelectValue placeholder='Pilih pekerjaan' />
                   </SelectTrigger>
                   <SelectContent>
-                    {context.data.jobs.map((job) => (
-                      <SelectItem key={job.uid} value={job.uid}>
-                        {job.name} ({job.code}){job.isPrimary ? ' · Utama' : ''}
-                      </SelectItem>
-                    ))}
+                    {employeeChanged
+                      ? targetAssignments.map((assignment) => (
+                          <SelectItem
+                            key={assignment.uid}
+                            value={assignment.jobUid}
+                          >
+                            {assignment.jobName} ({assignment.jobCode})
+                            {assignment.isPrimary ? ' · Utama' : ' · Tambahan'}
+                          </SelectItem>
+                        ))
+                      : context.data.jobs.map((job) => (
+                          <SelectItem key={job.uid} value={job.uid}>
+                            {job.name} ({job.code})
+                            {job.isPrimary ? ' · Utama' : ' · Tambahan'}
+                          </SelectItem>
+                        ))}
                   </SelectContent>
                 </Select>
               </label>
@@ -973,7 +1326,11 @@ function CorrectionDialog({
               }
               onClick={() =>
                 preview.mutate(
-                  { jobUid: effectiveJobUid, quantity: normalizedQuantity },
+                  {
+                    employeeUid: employee?.uid,
+                    jobUid: effectiveJobUid,
+                    quantity: normalizedQuantity,
+                  },
                   {
                     onError: (error) =>
                       toast.error(
@@ -1039,6 +1396,7 @@ function CorrectionPreviewPanel({
       <div className='grid gap-2 sm:grid-cols-2'>
         <PreviewColumn
           label='Sebelum'
+          employee={preview.source.employee.fullName}
           job={preview.source.job.name}
           quantity={`${formatNumber(preview.source.quantity, preview.source.unit.decimalPrecision)} ${preview.source.unit.code}`}
           rate={formatCurrency(preview.source.rateSnapshot)}
@@ -1046,6 +1404,9 @@ function CorrectionPreviewPanel({
         />
         <PreviewColumn
           label='Sesudah'
+          employee={
+            preview.targetEmployee?.fullName ?? preview.source.employee.fullName
+          }
           job={preview.proposed.job.name}
           quantity={`${formatNumber(preview.proposed.quantity, precision)} ${preview.proposed.unit.code}`}
           rate={formatCurrency(preview.proposed.rateSnapshot)}
@@ -1077,12 +1438,14 @@ function CorrectionPreviewPanel({
 
 function PreviewColumn({
   label,
+  employee,
   job,
   quantity,
   rate,
   gross,
 }: {
   label: string
+  employee?: string
   job: string
   quantity: string
   rate: string
@@ -1093,6 +1456,9 @@ function PreviewColumn({
       <p className='mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase'>
         {label}
       </p>
+      {employee && (
+        <p className='mb-1 text-xs text-muted-foreground'>{employee}</p>
+      )}
       <p className='font-medium'>{job}</p>
       <p>{quantity}</p>
       <p className='text-xs text-muted-foreground'>{rate} / satuan</p>
@@ -1294,6 +1660,15 @@ function DetailGroup({
         ))}
       </dl>
     </section>
+  )
+}
+
+function PreviewMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className='rounded-md border bg-background px-3 py-2'>
+      <p className='text-xs text-muted-foreground'>{label}</p>
+      <p className='mt-0.5 font-medium break-words'>{value}</p>
+    </div>
   )
 }
 

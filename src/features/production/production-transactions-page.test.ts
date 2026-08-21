@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { AuthSession } from '@/features/auth/domain'
 import { hasPermission } from '@/features/auth/permissions'
-import { canOfferProductionRevision } from './domain'
+import {
+  canOfferProductionRevision,
+  productionEntrySourceLabel,
+} from './domain'
 
 function session(
   role: AuthSession['user']['role'],
@@ -67,5 +70,15 @@ describe('canOfferProductionRevision', () => {
     const posted = { status: 'POSTED' as const, payrollLocked: false }
     expect(canOfferProductionRevision(posted, false, true)).toBe(false)
     expect(canOfferProductionRevision(posted, true, false)).toBe(false)
+  })
+})
+
+describe('sumber pencatatan transaksi Produksi', () => {
+  it('membedakan terminal, setoran susulan, dan hasil koreksi', () => {
+    expect(productionEntrySourceLabel('TERMINAL')).toBe('Terminal Produksi')
+    expect(productionEntrySourceLabel('HISTORICAL')).toBe(
+      'Setoran susulan oleh HR'
+    )
+    expect(productionEntrySourceLabel('CORRECTION')).toBe('Hasil koreksi HR')
   })
 })

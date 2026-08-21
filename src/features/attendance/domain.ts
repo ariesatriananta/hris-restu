@@ -911,6 +911,7 @@ export interface AttendanceClassification {
   detailCount: number
   appliedCount: number
   skippedCount: number
+  reversedCount: number
   attachment?: AttendanceClassificationAttachment | null
 }
 
@@ -969,4 +970,18 @@ export interface AttendanceClassificationReverseResult {
   uid: string
   approvalStatus: 'CANCELLED'
   reversedCount: number
+}
+
+export function canReverseAttendanceClassification(
+  approvalStatus: AttendanceClassificationApprovalStatus,
+  canApprove: boolean
+) {
+  return canApprove && approvalStatus === 'APPROVED'
+}
+
+export function attendanceClassificationReverseReasonError(reason: string) {
+  const length = reason.trim().length
+  if (length < 10) return 'Alasan pembatalan minimal 10 karakter.'
+  if (length > 500) return 'Alasan pembatalan maksimal 500 karakter.'
+  return null
 }

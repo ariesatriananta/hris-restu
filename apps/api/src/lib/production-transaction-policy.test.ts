@@ -4,6 +4,7 @@ import {
   normalizeQuantity,
   normalizeStoredDecimal,
   productionCorrectionInput,
+  productionHistoricalPostInput,
   subtractDecimal,
 } from './production-transaction-policy.js'
 
@@ -35,5 +36,19 @@ describe('production transaction policy', () => {
     expect(calculateGrossAmount('3.0000', '1175.0000')).toBe('3525.00')
     expect(calculateGrossAmount('1.2345', '2.3456')).toBe('2.90')
     expect(normalizeStoredDecimal('001.2')).toBe('1.2000')
+  })
+
+  it('memvalidasi setoran susulan dengan alasan dan idempotency', () => {
+    const parsed = productionHistoricalPostInput.parse({
+      employeeUid: '11111111-1111-4111-8111-111111111111',
+      site: 'JEPARA',
+      businessDate: '2026-08-21',
+      jobUid: '22222222-2222-4222-8222-222222222222',
+      quantity: '10',
+      reason: 'Terminal sempat tidak tersedia.',
+      idempotencyKey: '66666666-6666-4666-8666-666666666666',
+    })
+    expect(parsed.businessDate).toBe('2026-08-21')
+    expect(() => productionHistoricalPostInput.parse({ ...parsed, reason: 'x' })).toThrow()
   })
 })

@@ -46,9 +46,29 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   snapshot Payroll, berada pada periode `CALCULATED`, `APPROVED`, atau `CLOSED`,
   maupun ketika run Payroll terkait sedang berjalan. Payroll `CLOSED` tidak
   dapat dibuka dari modul Produksi.
+- Rekap Produksi bersifat live dan read-only sampai transaksi disnapshot ke
+  Payroll. Rekap hanya menghitung transaksi `POSTED`; transaksi `VOID` tidak
+  dihitung dan transaksi pengganti hasil koreksi dihitung sebagai fakta baru.
+  Kuantitas wajib diagregasi per satuan dan tidak boleh menjumlahkan `PCS`,
+  `KG`, `BOX`, atau satuan berbeda menjadi satu total. Nilai bruto boleh
+  dijumlahkan lintas pekerjaan karena seluruh transaksi memakai mata uang IDR.
+- Baris utama Rekap Produksi dibentuk per karyawan dan site. Identitas
+  penempatan dibaca dari histori employment efektif pada tanggal transaksi,
+  sedangkan kelompok kerja mengikuti snapshot `production_transactions`.
+  Status Payroll pada rekap berarti belum, sebagian, atau seluruh transaksi
+  sudah disnapshot; status tersebut tidak menyatakan gaji sudah dibayar.
 - Payroll draft/simulasi dapat dihitung ulang. Payroll yang sudah closing bersifat immutable.
 - Koreksi setelah payroll closing tidak termasuk scope saat ini.
 - Semua aksi penting dan koreksi harus dapat ditelusuri melalui audit trail.
+- Exception Produksi wajib memakai preview lalu apply, alasan, idempotency,
+  audit trail, pembatasan site, dan guard Payroll.
+- Setoran susulan tidak boleh bertanggal masa depan dan tetap wajib mempunyai
+  Attendance Hadir serta scan Masuk sukses pada tanggal tersebut.
+- Snapshot Produksi tidak pernah di-reprice. Koreksi membuat transaksi
+  pengganti; perubahan nilai setelah snapshot ditangani sebagai adjustment
+  Payroll.
+- Assignment pekerjaan mengikuti timeline employment. Perubahan employment
+  menutup atau membatalkan assignment yang tidak lagi eligible.
 - Identitas global perusahaan bersumber dari pengaturan `company.profile`. Nama
   dan alamat pada pengaturan Kontrak mengikuti profil tersebut, sedangkan nama
   serta jabatan direktur tetap menjadi konfigurasi pihak penandatangan PKWT.

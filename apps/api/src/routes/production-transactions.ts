@@ -18,6 +18,8 @@ import {
   normalizeStoredDecimal,
   productionCorrectionInput,
   productionCorrectionPreviewInput,
+  productionHistoricalPostInput,
+  productionHistoricalPreviewInput,
   productionTerminalLookupInput,
   productionTerminalPostInput,
   productionVoidInput,
@@ -93,24 +95,38 @@ async function getDevice(
 ) {
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT d.id,d.uid,d.code,d.name,d.device_type deviceType,
-            d.site_id siteId,d.is_active isActive,d.activated_at activatedAt,
+            d.site_id siteId,d.is_active isActive,
+            d.production_activated_at activatedAt,
             s.code site,s.name siteName
        FROM scan_devices d
        JOIN sites s ON s.id=d.site_id
-      WHERE d.device_token_hash=?
+      WHERE d.production_token_hash=?
         AND d.device_type IN ('USB_SCANNER','TERMINAL')
       ${lock ? 'FOR UPDATE' : ''}`,
     [hashDeviceSecret(token)]
   )
   const device = rows[0]
   if (
-    !device ||
-    Number(device.isActive) !== 1 ||
-    device.activatedAt === null
+    !device || Number(device.isActive) !== 1 || device.activatedAt === null
   ) {
     throw new ApiError(401, 'Perangkat Produksi tidak aktif atau belum terdaftar.')
   }
   return device
+}
+
+async function employeeContextByUid(
+  conn: PoolConnection,
+  employeeUid: string,
+  date: string,
+  deviceSiteId: number,
+  lock: boolean
+) {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    'SELECT barcode FROM employees WHERE uid=?',
+    [employeeUid]
+  )
+  if (!rows[0]?.barcode) throw new ApiError(422, 'Karyawan tidak memiliki barcode aktif.')
+  return employeeContext(conn, String(rows[0].barcode), date, deviceSiteId, lock)
 }
 
 async function currentServerTime(conn: PoolConnection) {
@@ -245,6 +261,7 @@ async function availableJobs(
         AND (r.effective_to IS NULL OR r.effective_to>=?)
        LEFT JOIN work_units u ON u.id=r.unit_id AND u.is_active=1
       WHERE a.employee_id=? AND a.site_id=?
+        AND a.status='ACTIVE'
         AND a.effective_from<=?
         AND (a.effective_to IS NULL OR a.effective_to>=?)
       ORDER BY a.is_primary DESC,j.name,r.effective_from DESC,r.id DESC
@@ -321,13 +338,65 @@ async function availableJobs(
   return { jobs, defaultJobUid: primary[0].uid }
 }
 
+async function historicalProposal(
+  conn: PoolConnection,
+  input: { employeeUid: string; site: string; businessDate: string; jobUid: string; quantity: string },
+  lock = false
+) {
+  const [sites] = await conn.query<RowDataPacket[]>(
+    'SELECT id,name FROM sites WHERE code=? AND is_active=1',
+    [input.site]
+  )
+  const site = sites[0]
+  if (!site) throw new ApiError(422, 'Site Produksi tidak valid atau tidak aktif.')
+  const { employee, history } = await employeeContextByUid(
+    conn, input.employeeUid, input.businessDate, Number(site.id), lock
+  )
+  const attendance = await attendanceContext(
+    conn, Number(employee.id), Number(site.id), input.businessDate, lock
+  )
+  const { jobs, defaultJobUid } = await availableJobs(
+    conn, Number(employee.id), Number(site.id), input.businessDate, lock
+  )
+  const job = jobs.find((candidate) => candidate.uid === input.jobUid)
+  if (!job) throw new ApiError(422, 'Pekerjaan tidak ditugaskan atau belum memiliki tarif pada tanggal tersebut.')
+  const unit = job.unit as { uid: string; code: string; name: string; decimalPrecision: number }
+  const rate = job.rate as { uid: string; amount: string; currency: string }
+  const quantity = normalizeQuantity(input.quantity, unit.decimalPrecision)
+  const [targets] = await conn.query<RowDataPacket[]>(
+    `SELECT a.production_job_id jobId,r.id rateId,r.unit_id unitId
+       FROM employee_job_assignments a
+       JOIN production_jobs j ON j.id=a.production_job_id AND j.uid=? AND j.is_active=1
+       JOIN production_job_rates r ON r.site_id=a.site_id
+        AND r.production_job_id=a.production_job_id AND r.status='ACTIVE'
+        AND r.effective_from<=? AND (r.effective_to IS NULL OR r.effective_to>=?)
+       JOIN work_units u ON u.id=r.unit_id AND u.is_active=1
+      WHERE a.employee_id=? AND a.site_id=? AND a.status='ACTIVE'
+        AND a.effective_from<=? AND (a.effective_to IS NULL OR a.effective_to>=?)
+      ${lock ? 'FOR UPDATE' : ''}`,
+    [input.jobUid,input.businessDate,input.businessDate,employee.id,site.id,input.businessDate,input.businessDate]
+  )
+  if (targets.length !== 1) throw new ApiError(422, 'Penugasan atau tarif historis tidak lagi tunggal.')
+  return {
+    employee, history, attendance, site,
+    jobs, defaultJobUid,
+    targetIds: { jobId: Number(targets[0].jobId), rateId: Number(targets[0].rateId), unitId: Number(targets[0].unitId) },
+    proposed: {
+      job: { uid: job.uid, code: job.code, name: job.name },
+      unit, rate, quantity,
+      rateSnapshot: rate.amount,
+      grossAmount: calculateGrossAmount(quantity, rate.amount),
+    },
+  }
+}
+
 async function transactionResponse(conn: PoolConnection | Pool, transactionId: number) {
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT pt.id,pt.uid,pt.transaction_number transactionNumber,
             DATE_FORMAT(pt.business_date,'%Y-%m-%d') businessDate,
             DATE_FORMAT(pt.transaction_at,'%Y-%m-%dT%H:%i:%s+07:00') transactionAt,
             pt.quantity,pt.rate_snapshot rateSnapshot,pt.gross_amount grossAmount,
-            pt.status,pt.notes,
+            pt.status,pt.entry_source entrySource,pt.notes,
             DATE_FORMAT(pt.payroll_locked_at,'%Y-%m-%dT%H:%i:%s+07:00') payrollLockedAt,
             DATE_FORMAT(pt.voided_at,'%Y-%m-%dT%H:%i:%s+07:00') voidedAt,
             pt.void_reason voidReason,vu.uid voidedByUid,vu.full_name voidedByName,
@@ -355,6 +424,7 @@ async function transactionResponse(conn: PoolConnection | Pool, transactionId: n
     businessDate: row.businessDate,
     transactionAt: row.transactionAt,
     status: row.status,
+    entrySource: row.entrySource,
     quantity: normalizeStoredDecimal(row.quantity),
     rateSnapshot: normalizeStoredDecimal(row.rateSnapshot),
     grossAmount: normalizeStoredDecimal(row.grossAmount, 2),
@@ -429,22 +499,13 @@ async function managedTransaction(
 
 type PayrollLock = { locked: boolean; reasons: string[] }
 
-async function payrollLockContext(
+async function payrollDateLockContext(
   conn: SqlExecutor,
-  transaction: RowDataPacket,
+  siteId: number,
+  date: string,
   lock = false
 ): Promise<PayrollLock> {
   const reasons: string[] = []
-  if (transaction.payroll_locked_at) {
-    reasons.push('Transaksi telah dikunci oleh proses Payroll.')
-  }
-  const [snapshots] = await conn.query<RowDataPacket[]>(
-    `SELECT id FROM payroll_production_details
-      WHERE production_transaction_id=? LIMIT 1 ${lock ? 'FOR UPDATE' : ''}`,
-    [transaction.id]
-  )
-  if (snapshots[0]) reasons.push('Transaksi telah masuk snapshot Payroll.')
-
   const [periods] = await conn.query<RowDataPacket[]>(
     `SELECT pp.status,
             EXISTS(
@@ -456,7 +517,7 @@ async function payrollLockContext(
         AND pp.period_start<=? AND pp.period_end>=?
         AND pp.status<>'CANCELLED'
       ${lock ? 'FOR UPDATE' : ''}`,
-    [transaction.site_id, transaction.businessDateKey, transaction.businessDateKey]
+    [siteId, date, date]
   )
   if (periods.some((period) => Number(period.processingRun) === 1)) {
     reasons.push('Perhitungan Payroll untuk periode ini sedang berjalan.')
@@ -474,6 +535,32 @@ async function payrollLockContext(
   return { locked: reasons.length > 0, reasons }
 }
 
+async function payrollLockContext(
+  conn: SqlExecutor,
+  transaction: RowDataPacket,
+  lock = false
+): Promise<PayrollLock> {
+  const reasons: string[] = []
+  if (transaction.payroll_locked_at) {
+    reasons.push('Transaksi telah dikunci oleh proses Payroll.')
+  }
+  const [snapshots] = await conn.query<RowDataPacket[]>(
+    `SELECT id FROM payroll_production_details
+      WHERE production_transaction_id=? LIMIT 1 ${lock ? 'FOR UPDATE' : ''}`,
+    [transaction.id]
+  )
+  if (snapshots[0]) reasons.push('Transaksi telah masuk snapshot Payroll.')
+
+  const periodLock = await payrollDateLockContext(
+    conn,
+    Number(transaction.site_id),
+    String(transaction.businessDateKey),
+    lock
+  )
+  reasons.unshift(...periodLock.reasons)
+  return { locked: reasons.length > 0, reasons }
+}
+
 function assertPostedAndUnlocked(transaction: RowDataPacket, payrollLock: PayrollLock) {
   if (transaction.status !== 'POSTED') {
     throw new ApiError(409, 'Hanya transaksi POSTED yang dapat dikoreksi atau di-void.')
@@ -488,9 +575,10 @@ async function correctionProposal(
   transaction: RowDataPacket,
   jobUid: string,
   inputQuantity: string,
-  lock = false
+  lock = false,
+  forceActiveValidation = false
 ) {
-  if (String(transaction.jobUid) === jobUid) {
+  if (!forceActiveValidation && String(transaction.jobUid) === jobUid) {
     const quantity = normalizeQuantity(
       inputQuantity,
       Number(transaction.decimalPrecision)
@@ -563,6 +651,7 @@ async function correctionProposal(
         AND (r.effective_to IS NULL OR r.effective_to>=?)
        JOIN work_units u ON u.id=r.unit_id AND u.is_active=1
       WHERE a.employee_id=? AND a.site_id=?
+        AND a.status='ACTIVE'
         AND a.effective_from<=?
         AND (a.effective_to IS NULL OR a.effective_to>=?)
       ${lock ? 'FOR UPDATE' : ''}`,
@@ -594,6 +683,35 @@ async function correctionProposal(
       rateSnapshot: rate.amount,
       grossAmount,
     },
+  }
+}
+
+async function correctionTarget(
+  conn: PoolConnection,
+  source: RowDataPacket,
+  employeeUid: string | undefined,
+  lock: boolean
+) {
+  if (!employeeUid || employeeUid === String(source.employeeUid)) {
+    return { transaction: source, employeeChanged: false }
+  }
+  const { employee, history } = await employeeContextByUid(
+    conn, employeeUid, String(source.businessDateKey), Number(source.site_id), lock
+  )
+  const attendance = await attendanceContext(
+    conn, Number(employee.id), Number(source.site_id), String(source.businessDateKey), lock
+  )
+  return {
+    employeeChanged: true,
+    transaction: {
+      ...source,
+      employee_id: employee.id,
+      employeeUid: employee.uid,
+      employeeNumber: employee.employeeNumber,
+      fullName: employee.fullName,
+      work_group_id: history.workGroupId ?? null,
+      attendance_record_id: attendance.id,
+    } as RowDataPacket,
   }
 }
 
@@ -809,9 +927,9 @@ productionTransactionsRouter.post(
       const token = generateDeviceToken()
       await conn.execute(
         `UPDATE scan_devices
-            SET device_token_hash=?,activation_code_hash=NULL,
-                activation_code_expires_at=NULL,activated_at=NOW(3),
-                activated_by=?,last_seen_at=NOW(3),updated_by=?
+            SET production_token_hash=?,activation_code_hash=NULL,
+                activation_code_expires_at=NULL,production_activated_at=NOW(3),
+                production_activated_by=?,last_seen_at=NOW(3),updated_by=?
           WHERE id=?`,
         [hashDeviceSecret(token), auth.id, auth.id, device.id]
       )
@@ -863,6 +981,7 @@ productionTransactionsRouter.post(
       const device = await getDevice(conn, deviceToken(req), true)
       enforceSite(auth, String(device.site))
       const time = await currentServerTime(conn)
+
       const { employee, history } = await employeeContext(
         conn,
         input.barcode,
@@ -999,6 +1118,7 @@ productionTransactionsRouter.post(
            FROM employee_job_assignments a
            JOIN production_jobs j ON j.id=a.production_job_id
           WHERE a.employee_id=? AND a.site_id=?
+            AND a.status='ACTIVE'
             AND a.effective_from<=?
             AND (a.effective_to IS NULL OR a.effective_to>=?)
           FOR UPDATE`,
@@ -1057,6 +1177,13 @@ productionTransactionsRouter.post(
       const quantity = normalizeQuantity(input.quantity, Number(rate.decimalPrecision))
       const rateSnapshot = normalizeStoredDecimal(rate.rateAmount)
       const grossAmount = calculateGrossAmount(quantity, rateSnapshot)
+      const datePayrollLock = await payrollDateLockContext(
+        conn,
+        Number(device.siteId),
+        String(time.businessDate),
+        true
+      )
+      if (datePayrollLock.locked) throw new ApiError(409, datePayrollLock.reasons[0])
       const uid = randomUUID()
       const transactionNumber = `PRD-${String(time.businessDate).replaceAll('-', '')}-${device.site}-${randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`
       const [insertResult] = await conn.execute(
@@ -1132,6 +1259,100 @@ productionTransactionsRouter.post(
   }
 )
 
+productionTransactionsRouter.post(
+  '/transactions/historical-preview',
+  requirePermission('production.correct'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      const input = productionHistoricalPreviewInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      enforceSite(auth, input.site)
+      const time = await currentServerTime(conn)
+      if (input.businessDate > String(time.businessDate)) {
+        throw new ApiError(422, 'Tanggal setoran susulan tidak boleh berada di masa depan.')
+      }
+      const [siteRows] = await conn.query<RowDataPacket[]>('SELECT id FROM sites WHERE code=?', [input.site])
+      const payrollLock = siteRows[0]
+        ? await payrollDateLockContext(conn, Number(siteRows[0].id), input.businessDate)
+        : { locked: false, reasons: [] }
+      if (payrollLock.locked) throw new ApiError(409, payrollLock.reasons[0])
+      const proposal = await historicalProposal(conn, input)
+      res.json({
+        employee: { uid: proposal.employee.uid, employeeNumber: proposal.employee.employeeNumber, fullName: proposal.employee.fullName },
+        site: input.site,
+        businessDate: input.businessDate,
+        attendance: { uid: proposal.attendance.uid, clockInAt: proposal.attendance.clockInAt },
+        jobs: proposal.jobs,
+        defaultJobUid: proposal.defaultJobUid,
+        proposed: proposal.proposed,
+        payrollLock,
+        canApply: true,
+      })
+    } catch (error) { next(error) } finally { conn.release() }
+  }
+)
+
+productionTransactionsRouter.post(
+  '/transactions/historical',
+  requirePermission('production.correct'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      const input = productionHistoricalPostInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      enforceSite(auth, input.site)
+      await conn.beginTransaction()
+      const time = await currentServerTime(conn)
+      if (input.businessDate > String(time.businessDate)) throw new ApiError(422, 'Tanggal setoran susulan tidak boleh berada di masa depan.')
+      const [existingRows] = await conn.query<RowDataPacket[]>(
+        `SELECT pt.id,e.uid employeeUid,s.code site,j.uid jobUid,
+                DATE_FORMAT(pt.business_date,'%Y-%m-%d') businessDate,
+                pt.quantity,pt.entry_source entrySource,pt.notes
+           FROM production_transactions pt
+           JOIN employees e ON e.id=pt.employee_id
+           JOIN sites s ON s.id=pt.site_id
+           JOIN production_jobs j ON j.id=pt.production_job_id
+          WHERE pt.idempotency_key=? FOR UPDATE`,
+        [input.idempotencyKey]
+      )
+      const existing = existingRows[0]
+      if (existing) {
+        if (existing.entrySource !== 'HISTORICAL' || String(existing.employeeUid) !== input.employeeUid ||
+            String(existing.site) !== input.site || String(existing.jobUid) !== input.jobUid ||
+            String(existing.businessDate) !== input.businessDate ||
+            normalizeStoredDecimal(existing.quantity) !== normalizeQuantity(input.quantity, 4) ||
+            String(existing.notes ?? '') !== `Setoran susulan: ${input.reason}`) {
+          throw new ApiError(409, 'Idempotency key sudah dipakai untuk setoran lain.')
+        }
+        await conn.commit()
+        return res.json({ duplicate: true, message: 'Setoran susulan sebelumnya dikembalikan.', transaction: await transactionResponse(conn, Number(existing.id)) })
+      }
+      const proposal = await historicalProposal(conn, input, true)
+      const payrollLock = await payrollDateLockContext(conn, Number(proposal.site.id), input.businessDate, true)
+      if (payrollLock.locked) throw new ApiError(409, payrollLock.reasons[0])
+      const uid = randomUUID()
+      const transactionNumber = `PRD-MAN-${input.businessDate.replaceAll('-','')}-${input.site}-${randomUUID().replaceAll('-','').slice(0,8).toUpperCase()}`
+      const [insertResult] = await conn.execute(
+        `INSERT INTO production_transactions(
+           uid,transaction_number,employee_id,site_id,work_group_id,production_job_id,
+           unit_id,job_rate_id,attendance_record_id,scan_device_id,business_date,
+           transaction_at,quantity,rate_snapshot,gross_amount,status,entry_source,
+           idempotency_key,notes,created_by,updated_by
+         ) VALUES(?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,'POSTED','HISTORICAL',?,?,?,?)`,
+        [uid,transactionNumber,proposal.employee.id,proposal.site.id,proposal.history.workGroupId ?? null,
+         proposal.targetIds.jobId,proposal.targetIds.unitId,proposal.targetIds.rateId,proposal.attendance.id,
+         input.businessDate,time.transactionTimestamp,proposal.proposed.quantity,proposal.proposed.rateSnapshot,
+         proposal.proposed.grossAmount,input.idempotencyKey,`Setoran susulan: ${input.reason}`,auth.id,auth.id]
+      )
+      const transactionId = Number((insertResult as { insertId?: number }).insertId ?? 0)
+      await writeAudit({ auth,request:req,module:'PRODUCTION',siteId:Number(proposal.site.id),action:'CREATE',table:'production_transactions',recordId:transactionId,recordUid:uid,description:`Mencatat setoran susulan ${transactionNumber}.`,reason:input.reason,afterData:{...input,quantity:proposal.proposed.quantity,rateSnapshot:proposal.proposed.rateSnapshot,grossAmount:proposal.proposed.grossAmount} },conn)
+      await conn.commit()
+      res.status(201).json({ duplicate:false,message:'Setoran susulan berhasil dicatat.',transaction:await transactionResponse(conn,transactionId) })
+    } catch (error) { await conn.rollback(); next(error) } finally { conn.release() }
+  }
+)
+
 productionTransactionsRouter.get(
   '/transactions/:uid/correction-context',
   requirePermission('production.correct'),
@@ -1176,14 +1397,22 @@ productionTransactionsRouter.post(
       const source = await managedTransaction(conn, uid, auth)
       const payrollLock = await payrollLockContext(conn, source, false)
       assertPostedAndUnlocked(source, payrollLock)
+      const target = await correctionTarget(conn, source, input.employeeUid, false)
       const { proposed } = await correctionProposal(
         conn,
-        source,
+        target.transaction,
         input.jobUid,
-        input.quantity
+        input.quantity,
+        false,
+        target.employeeChanged
       )
       res.json({
         source: await transactionResponse(conn, Number(source.id)),
+        targetEmployee: {
+          uid: target.transaction.employeeUid,
+          employeeNumber: target.transaction.employeeNumber,
+          fullName: target.transaction.fullName,
+        },
         proposed,
         delta: {
           quantity: subtractDecimal(
@@ -1255,6 +1484,7 @@ productionTransactionsRouter.post(
       await conn.beginTransaction()
       const source = await managedTransaction(conn, uid, auth, true)
       const replayPayload = {
+        employeeUid: input.employeeUid ?? String(source.employeeUid),
         jobUid: input.jobUid,
         quantity: normalizeQuantity(input.quantity, 4),
         reason: input.reason,
@@ -1284,12 +1514,14 @@ productionTransactionsRouter.post(
       }
       const payrollLock = await payrollLockContext(conn, source, true)
       assertPostedAndUnlocked(source, payrollLock)
+      const target = await correctionTarget(conn, source, input.employeeUid, true)
       const { proposed, targetIds } = await correctionProposal(
         conn,
-        source,
+        target.transaction,
         input.jobUid,
         input.quantity,
-        true
+        true,
+        target.employeeChanged
       )
       const replacementUid = randomUUID()
       const replacementNumber = `PRD-COR-${String(source.businessDateKey).replaceAll('-', '')}-${String(source.site)}-${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`
@@ -1298,18 +1530,18 @@ productionTransactionsRouter.post(
            uid,transaction_number,employee_id,site_id,work_group_id,
            production_job_id,unit_id,job_rate_id,attendance_record_id,
            scan_device_id,business_date,transaction_at,quantity,rate_snapshot,
-           gross_amount,status,notes,created_by,updated_by
-         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'POSTED',?,?,?)`,
+           gross_amount,status,entry_source,notes,created_by,updated_by
+         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'POSTED','CORRECTION',?,?,?)`,
         [
           replacementUid,
           replacementNumber,
-          source.employee_id,
+          target.transaction.employee_id,
           source.site_id,
-          source.work_group_id ?? null,
+          target.transaction.work_group_id ?? null,
           targetIds.jobId,
           targetIds.unitId,
           targetIds.rateId,
-          source.attendance_record_id,
+          target.transaction.attendance_record_id,
           source.scan_device_id ?? null,
           source.businessDateKey,
           source.transactionTimestamp,
@@ -1329,6 +1561,12 @@ productionTransactionsRouter.post(
         ...before,
         uid: replacementUid,
         transactionNumber: replacementNumber,
+        employeeUid: String(target.transaction.employeeUid),
+        employee: {
+          uid: String(target.transaction.employeeUid),
+          employeeNumber: String(target.transaction.employeeNumber),
+          fullName: String(target.transaction.fullName),
+        },
         jobUid: proposed.job.uid,
         job: proposed.job,
         unitUid: proposed.unit.uid,
@@ -1597,12 +1835,28 @@ productionTransactionsRouter.get(
         LEFT JOIN scan_devices d ON d.id=pt.scan_device_id`
       const [summaryRows] = await pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) transactionCount,COUNT(DISTINCT pt.employee_id) employeeCount,
-                COALESCE(SUM(CASE WHEN pt.status='POSTED' THEN pt.quantity ELSE 0 END),0) totalQuantity,
                 COALESCE(SUM(CASE WHEN pt.status='POSTED' THEN pt.gross_amount ELSE 0 END),0) totalGrossAmount
            ${from} WHERE ${clause}`,
         values
       )
       const summary = summaryRows[0] ?? {}
+      const [quantityRows] = await pool.query<RowDataPacket[]>(
+        `SELECT u.uid,u.code,u.name,u.decimal_precision decimalPrecision,
+                COALESCE(SUM(pt.quantity),0) quantity
+           ${from} WHERE ${clause} AND pt.status='POSTED'
+          GROUP BY u.id,u.uid,u.code,u.name,u.decimal_precision
+          ORDER BY u.code`,
+        values
+      )
+      const quantityTotals = quantityRows.map((row) => ({
+        unit: {
+          uid: row.uid,
+          code: row.code,
+          name: row.name,
+          decimalPrecision: Number(row.decimalPrecision),
+        },
+        quantity: normalizeStoredDecimal(row.quantity),
+      }))
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT pt.uid,pt.transaction_number transactionNumber,
                 DATE_FORMAT(pt.business_date,'%Y-%m-%d') businessDate,
@@ -1652,7 +1906,13 @@ productionTransactionsRouter.get(
         summary: {
           transactionCount: Number(summary.transactionCount ?? 0),
           employeeCount: Number(summary.employeeCount ?? 0),
-          totalQuantity: normalizeStoredDecimal(summary.totalQuantity),
+          // Deprecated compatibility field. A mixed-unit total is deliberately
+          // null so PCS/KG/BOX are never presented as one misleading number.
+          totalQuantity:
+            quantityTotals.length <= 1
+              ? quantityTotals[0]?.quantity ?? '0'
+              : null,
+          quantityTotals,
           totalGrossAmount: normalizeStoredDecimal(summary.totalGrossAmount, 2),
         },
       })
