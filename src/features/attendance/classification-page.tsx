@@ -85,6 +85,7 @@ import {
   useBulkReviewAttendanceClassifications,
   useCreateAttendanceClassification,
   useReviewAttendanceClassification,
+  useReverseAttendanceClassification,
 } from './data/queries'
 import { dateOnlyFromInput, dateOnlyToInput } from './date-only'
 import type {
@@ -92,6 +93,7 @@ import type {
   AttendanceBulkReviewResult,
   AttendanceClassificationApprovalStatus,
   AttendanceClassificationEmployee,
+  AttendanceClassificationDetailOutcome,
   AttendanceClassificationType,
   AttendanceEmployeeType,
   AttendanceSiteCode,
@@ -1131,8 +1133,11 @@ function ClassificationDetailDialog({
   const detail = useAttendanceClassification(uid)
   const review = useReviewAttendanceClassification()
   const cancel = useCancelAttendanceClassification()
+  const reverse = useReverseAttendanceClassification()
   const [notes, setNotes] = useState('')
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
+  const [reverseOpen, setReverseOpen] = useState(false)
+  const [reverseReason, setReverseReason] = useState('')
   const item = detail.data
   const submit = (decision: 'APPROVED' | 'REJECTED') => {
     if (!uid) return
@@ -1303,8 +1308,103 @@ function ClassificationDetailDialog({
                   </Button>
                 </div>
               )}
+              {canApprove && item.approvalStatus === 'APPROVED' && (
+                <div className='flex justify-start border-t pt-4'>
+                  <Button
+                    variant='outline'
+                    className='text-destructive hover:text-destructive'
+                    disabled={reverse.isPending}
+                    onClick={() => setReverseOpen(true)}
+                  >
+                    <RefreshCcw /> Batalkan klasifikasi
+                  </Button>
+                </div>
+              )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={reverseOpen}
+        onOpenChange={(nextOpen) => {
+          if (reverse.isPending) return
+          setReverseOpen(nextOpen)
+          if (!nextOpen) setReverseReason('')
+        }}
+      >
+        <DialogContent className='sm:max-w-lg'>
+          <DialogHeader>
+            <DialogTitle>Batalkan klasifikasi attendance?</DialogTitle>
+            <DialogDescription>
+              Tanggal yang sudah diterapkan akan dikembalikan menjadi attendance
+              tanpa klasifikasi dan perlu difinalisasi ulang. Riwayat pengajuan
+              tetap tersimpan untuk audit.
+            </DialogDescription>
+          </DialogHeader>
+          <div className='grid gap-2'>
+            <Label htmlFor='classification-reverse-reason'>
+              Alasan pembatalan
+            </Label>
+            <Textarea
+              id='classification-reverse-reason'
+              value={reverseReason}
+              minLength={10}
+              maxLength={1000}
+              rows={4}
+              autoFocus
+              disabled={reverse.isPending}
+              placeholder='Contoh: Karyawan ternyata hadir dan pengajuan cuti salah input.'
+              onChange={(event) => setReverseReason(event.target.value)}
+            />
+            <p className='text-xs text-muted-foreground'>
+              Minimal 10 karakter · {reverseReason.trim().length}/1000
+            </p>
+          </div>
+          <DialogFooter className='gap-2 sm:gap-0'>
+            <Button
+              variant='outline'
+              disabled={reverse.isPending}
+              onClick={() => setReverseOpen(false)}
+            >
+              Kembali
+            </Button>
+            <Button
+              variant='destructive'
+              disabled={reverse.isPending || reverseReason.trim().length < 10}
+              onClick={() => {
+                if (!uid) return
+                const reason = reverseReason.trim()
+                if (reason.length < 10) {
+                  toast.error('Alasan pembatalan minimal 10 karakter.')
+                  return
+                }
+                reverse.mutate(
+                  { uid, input: { reason } },
+                  {
+                    onSuccess: (result) => {
+                      toast.success(
+                        `Klasifikasi dibatalkan. ${result.reversedCount} tanggal dikembalikan.`
+                      )
+                      setReverseOpen(false)
+                      setReverseReason('')
+                      onOpenChange(false)
+                    },
+                    onError: (error) =>
+                      toast.error(
+                        apiError(error, 'Klasifikasi gagal dibatalkan.')
+                      ),
+                  }
+                )
+              }}
+            >
+              {reverse.isPending ? (
+                <LoaderCircle className='animate-spin' />
+              ) : (
+                <RefreshCcw />
+              )}
+              Batalkan klasifikasi
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <ConfirmDialog
@@ -1362,25 +1462,29 @@ function ApprovalBadge({
 function OutcomeBadge({
   value,
 }: {
-  value: 'PENDING' | 'APPLIED' | 'SKIPPED_NON_WORKDAY' | 'SKIPPED_HOLIDAY'
+  value: AttendanceClassificationDetailOutcome
 }) {
   return (
     <Badge
       variant={
         value === 'APPLIED'
           ? 'default'
-          : value === 'PENDING'
-            ? 'outline'
-            : 'secondary'
+          : value === 'REVERSED'
+            ? 'secondary'
+            : value === 'PENDING'
+              ? 'outline'
+              : 'secondary'
       }
     >
       {value === 'APPLIED'
         ? 'Diterapkan'
-        : value === 'PENDING'
-          ? 'Menunggu'
-          : value === 'SKIPPED_HOLIDAY'
-            ? 'Dilewati · hari libur'
-            : 'Dilewati · tidak ada jadwal'}
+        : value === 'REVERSED'
+          ? 'Dibatalkan'
+          : value === 'PENDING'
+            ? 'Menunggu'
+            : value === 'SKIPPED_HOLIDAY'
+              ? 'Dilewati · hari libur'
+              : 'Dilewati · tidak ada jadwal'}
     </Badge>
   )
 }

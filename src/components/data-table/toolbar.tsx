@@ -11,6 +11,9 @@ type DataTableToolbarProps<TData> = {
   searchPlaceholder?: string
   searchKey?: string
   searchDebounceMs?: number
+  additionalFilters?: React.ReactNode
+  hasAdditionalFilters?: boolean
+  onResetAdditionalFilters?: () => void
   filters?: {
     columnId: string
     title: string
@@ -27,10 +30,15 @@ export function DataTableToolbar<TData>({
   searchPlaceholder = 'Filter...',
   searchKey,
   searchDebounceMs = 0,
+  additionalFilters,
+  hasAdditionalFilters = false,
+  onResetAdditionalFilters,
   filters = [],
 }: DataTableToolbarProps<TData>) {
   const isFiltered =
-    table.getState().columnFilters.length > 0 || table.getState().globalFilter
+    table.getState().columnFilters.length > 0 ||
+    table.getState().globalFilter ||
+    hasAdditionalFilters
   const tableGlobalFilter = (table.getState().globalFilter as string) ?? ''
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined
@@ -78,6 +86,7 @@ export function DataTableToolbar<TData>({
           />
         )}
         <div className='flex max-w-full flex-wrap gap-2'>
+          {additionalFilters}
           {filters.map((filter) => {
             const column = table.getColumn(filter.columnId)
             if (!column) return null
@@ -97,6 +106,7 @@ export function DataTableToolbar<TData>({
             onClick={() => {
               table.resetColumnFilters()
               updateGlobalFilter('', false)
+              onResetAdditionalFilters?.()
             }}
             className='h-8 px-2 lg:px-3'
           >

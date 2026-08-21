@@ -5,7 +5,8 @@
 Backup database terlebih dahulu. Jalankan berurutan:
 
 1. `db/migrations/20260821_production_foundation.sql`
-2. `db/seeds/20260821_production_foundation_demo.sql`
+2. `db/migrations/20260821_production_transaction_revisions.sql`
+3. `db/seeds/20260821_production_foundation_demo.sql`
 
 Seed sengaja berhenti bila sudah ada transaksi Produksi atau snapshot Produksi pada Payroll. Jangan menghapus guard tersebut untuk memaksa seed.
 
@@ -149,8 +150,60 @@ pnpm --dir apps/api exec vitest run src/lib/production-transaction-policy.test.t
 pnpm exec tsc -p apps/api/tsconfig.json --pretty false
 ```
 
-## 7. Batas Fase 2A
+## 7. Uji Koreksi dan Void Fase 2B
 
-Koreksi/void, Rekap Produksi, dan Payroll Produksi belum termasuk Fase 2A.
-Jangan mengubah row `production_transactions` langsung lewat SQL. Koreksi nanti
-harus memakai endpoint Fase 2B agar histori revisi dan audit tetap utuh.
+Gunakan transaksi `POSTED` yang belum masuk Payroll:
+
+1. Buka detail transaksi sebagai `PRODUCTION_ADMIN` dengan permission
+   `production.correct`. Tombol **Koreksi** dan **Batalkan** harus tampil.
+2. Buka Koreksi, ubah pekerjaan atau kuantitas, lalu buat preview. Pastikan
+   snapshot lama, usulan baru, dan delta bruto tampil sebelum konfirmasi.
+3. Terapkan koreksi. Transaksi sumber harus menjadi `VOID`, transaksi pengganti
+   menjadi `POSTED`, dan keduanya saling terhubung pada detail.
+4. Buka timeline revision. Alasan, pelaku, waktu, serta snapshot before/after
+   harus tersedia.
+5. Pada transaksi `POSTED` lain, gunakan **Batalkan**, isi alasan minimal lima
+   karakter, lihat preview dampak, lalu konfirmasi. Tidak boleh terbentuk
+   transaksi pengganti.
+6. Ulangi request koreksi/void menggunakan idempotency key dan payload sama.
+   Row transaksi/revision tidak boleh bertambah. Key sama dengan payload berbeda
+   harus menghasilkan `409`.
+7. Coba koreksi tanpa perubahan pekerjaan maupun kuantitas. API harus menolak.
+8. Login sebagai user tanpa `production.correct`. Tombol tidak tampil dan API
+   mutasi harus `403`. `SUPER_ADMIN` tetap dapat melakukan seluruh aksi.
+9. Isi `payroll_locked_at`, buat snapshot `payroll_production_details`, atau
+   gunakan periode `CALCULATED/APPROVED/CLOSED`. Koreksi dan void harus terkunci.
+10. Saat `payroll_runs.status='PROCESSING'` pada periode yang sama, preview dan
+    mutasi juga harus ditolak.
+
+Verifikasi rantai koreksi:
+
+```sql
+SELECT
+  source.transaction_number source_number,
+  source.status source_status,
+  revision.revision_type,
+  revision.reason,
+  replacement.transaction_number replacement_number,
+  replacement.status replacement_status
+FROM production_transaction_revisions revision
+JOIN production_transactions source
+  ON source.id=revision.production_transaction_id
+LEFT JOIN production_transactions replacement
+  ON replacement.id=revision.replacement_transaction_id
+WHERE source.uid='<UID_TRANSAKSI_SUMBER>';
+```
+
+Automated checks Fase 2A dan 2B:
+
+```powershell
+pnpm --dir apps/api exec vitest run src/lib/production-transaction-policy.test.ts src/routes/production-transactions.integration.test.ts
+pnpm exec vitest run --browser.headless src/features/production/production-transactions-page.test.ts src/features/production/production-terminal-page.test.ts
+pnpm exec tsc -b --pretty false
+```
+
+## 8. Batas Fase 2B
+
+Rekap resmi dan proses perhitungan Payroll Produksi belum termasuk Fase 2B.
+Jangan mengubah row `production_transactions` langsung lewat SQL; seluruh
+koreksi dan void wajib melalui endpoint agar revision dan audit tetap utuh.

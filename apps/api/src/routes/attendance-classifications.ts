@@ -8,6 +8,7 @@ import { pool } from '../db.js'
 import {
   attendanceClassificationApprovalStatuses,
   attendanceClassificationRequestInput,
+  attendanceClassificationReversalInput,
   attendanceClassificationReviewInput,
   attendanceClassificationTypes,
   enumerateDates,
@@ -26,6 +27,7 @@ import {
 } from '../lib/attendance-employee-filter.js'
 import { ApiError } from '../lib/errors.js'
 import { resolveAttendanceCalendarDay } from '../lib/attendance-calendar.js'
+import { attendanceFinalizationLockName } from '../lib/attendance-finalization.js'
 import {
   requirePermission,
   type AuthContext,
@@ -132,6 +134,7 @@ function mapClassification(row: RowDataPacket) {
     detailCount: Number(row.detailCount ?? 0),
     appliedCount: Number(row.appliedCount ?? 0),
     skippedCount: Number(row.skippedCount ?? 0),
+    reversedCount: Number(row.reversedCount ?? 0),
     attachment: attachmentUid
       ? {
           uid: attachmentUid,
@@ -164,6 +167,8 @@ const classificationSelect = `SELECT acr.uid,e.uid employeeUid,
     WHERE detail.request_id=acr.id AND detail.outcome='APPLIED') appliedCount,
   (SELECT COUNT(*) FROM attendance_classification_details detail
     WHERE detail.request_id=acr.id AND detail.outcome IN ('SKIPPED_NON_WORKDAY','SKIPPED_HOLIDAY')) skippedCount,
+  (SELECT COUNT(*) FROM attendance_classification_details detail
+    WHERE detail.request_id=acr.id AND detail.outcome='REVERSED') reversedCount,
   f.uid attachmentUid,f.original_name attachmentName,
   f.mime_type attachmentMimeType,f.size_bytes attachmentSizeBytes,
   f.extension attachmentExtension,f.storage_path attachmentPath`

@@ -21,6 +21,7 @@ export type AttendanceClassificationApprovalStatus =
 export type AttendanceClassificationDetailOutcome =
   | 'PENDING'
   | 'APPLIED'
+  | 'REVERSED'
   | 'SKIPPED_NON_WORKDAY'
   | 'SKIPPED_HOLIDAY'
 
@@ -170,6 +171,10 @@ export interface AttendanceRepository {
     input: AttendanceBulkReviewInput
   ): Promise<AttendanceBulkReviewResult>
   cancelClassification(uid: string): Promise<void>
+  reverseClassification(
+    uid: string,
+    input: AttendanceClassificationReverseInput
+  ): Promise<AttendanceClassificationReverseResult>
   uploadClassificationAttachment(
     file: File
   ): Promise<AttendanceClassificationAttachment>
@@ -469,6 +474,7 @@ export interface AttendanceMonitoringRecord {
   position?: string | null
   productionModule?: string | null
   productionSection?: string | null
+  hasAppliedClassification: boolean
   pendingCorrectionUid?: string | null
   pendingCorrectionType?: AttendanceCorrectionType | null
   site: AttendanceSiteCode
@@ -953,4 +959,14 @@ export interface AttendanceClassificationReviewResult {
   approvalStatus: 'APPROVED' | 'REJECTED'
   appliedCount: number
   skippedCount: number
+}
+
+export interface AttendanceClassificationReverseInput {
+  reason: string
+}
+
+export interface AttendanceClassificationReverseResult {
+  uid: string
+  approvalStatus: 'CANCELLED'
+  reversedCount: number
 }

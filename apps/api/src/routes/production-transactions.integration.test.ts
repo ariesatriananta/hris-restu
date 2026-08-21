@@ -150,9 +150,47 @@ function transactionRow() {
     unitCode: 'PCS',
     unitName: 'Pcs / Batang',
     decimalPrecision: 0,
+    rateUid: '66666666-6666-4666-8666-666666666666',
+    rateCurrency: 'IDR',
     deviceUid: deviceRow().uid,
     deviceCode: 'PROD-01',
     deviceName: 'Scanner Produksi',
+  }
+}
+
+function managedTransactionRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 21,
+    uid: transactionUid,
+    transaction_number: 'PRD-20260821-JEPARA-ABC',
+    employee_id: 11,
+    site_id: 1,
+    work_group_id: 4,
+    production_job_id: 15,
+    unit_id: 17,
+    job_rate_id: 16,
+    attendance_record_id: 13,
+    scan_device_id: 9,
+    businessDateKey: '2026-08-21',
+    transactionTimestamp: '2026-08-21 09:00:00.000000',
+    quantity: '3.0000',
+    rate_snapshot: '1175.0000',
+    gross_amount: '3525.00',
+    status: 'POSTED',
+    payroll_locked_at: null,
+    site: 'JEPARA',
+    siteName: 'Site Jepara',
+    jobUid,
+    jobCode: 'BORONGAN-LINTING',
+    jobName: 'Linting',
+    unitUid: '55555555-5555-4555-8555-555555555555',
+    unitCode: 'PCS',
+    unitName: 'Pcs',
+    decimalPrecision: 0,
+    employeeUid,
+    employeeNumber: 'J2608-001',
+    fullName: 'Ariel Peterpan',
+    ...overrides,
   }
 }
 
@@ -404,5 +442,315 @@ describe('Production transactions API', () => {
     const summarySql = String(mocks.query.mock.calls[0]?.[0])
     expect(summarySql).toContain("CASE WHEN pt.status='POSTED' THEN pt.quantity")
     expect(summarySql).toContain('s.code IN (?)')
+  })
+
+  it('mewajibkan production.correct tetapi SUPER_ADMIN selalu dapat melewati permission', async () => {
+    const denied = await request(`/transactions/${transactionUid}/void-preview`, {
+      method: 'POST',
+      body: {},
+      auth: auth({ permissions: ['production.view'] }),
+    })
+    expect(denied.status).toBe(403)
+    expect(mocks.query).not.toHaveBeenCalled()
+
+    mocks.query
+      .mockResolvedValueOnce([[managedTransactionRow()]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[transactionRow()]])
+    const superAdmin = {
+      ...auth({ permissions: [] }),
+      roles: ['SUPER_ADMIN'],
+      siteAccess: [],
+    }
+    const allowed = await request(`/transactions/${transactionUid}/void-preview`, {
+      method: 'POST',
+      body: {},
+      auth: superAdmin,
+    })
+    expect(allowed.status).toBe(200)
+  })
+
+  it('memblokir revisi ketika payroll_locked_at sudah terisi', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[
+        managedTransactionRow({ payroll_locked_at: '2026-08-21 12:00:00' }),
+      ]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+
+    const response = await request(`/transactions/${transactionUid}/void`, {
+      method: 'POST',
+      body: {
+        reason: 'Setoran salah dicatat.',
+        idempotencyKey: '67666666-6666-4666-8666-666666666666',
+      },
+      auth: auth({ permissions: ['production.correct'] }),
+    })
+    expect(response.status).toBe(409)
+    expect(((await response.json()) as { message: string }).message).toContain(
+      'dikunci'
+    )
+    expect(
+      mocks.execute.mock.calls.some((call) =>
+        String(call[0]).includes('production_transaction_revisions')
+      )
+    ).toBe(false)
+  })
+
+  it.each([
+    {
+      label: 'snapshot Payroll',
+      snapshots: [{ id: 90 }],
+      periods: [],
+      expected: 'snapshot',
+    },
+    {
+      label: 'periode CALCULATED',
+      snapshots: [],
+      periods: [{ status: 'CALCULATED', processingRun: 0 }],
+      expected: 'CALCULATED',
+    },
+    {
+      label: 'run PROCESSING',
+      snapshots: [],
+      periods: [{ status: 'DRAFT', processingRun: 1 }],
+      expected: 'sedang berjalan',
+    },
+  ])('memblokir preview untuk $label', async ({ snapshots, periods, expected }) => {
+    mocks.query
+      .mockResolvedValueOnce([[managedTransactionRow()]])
+      .mockResolvedValueOnce([snapshots])
+      .mockResolvedValueOnce([periods])
+    const response = await request(`/transactions/${transactionUid}/void-preview`, {
+      method: 'POST',
+      body: {},
+      auth: auth({ permissions: ['production.correct'] }),
+    })
+    expect(response.status).toBe(409)
+    expect(((await response.json()) as { message: string }).message).toContain(
+      expected
+    )
+  })
+
+  it('membuat koreksi atomik: original VOID, replacement POSTED, dan revision append-only', async () => {
+    const replacement = {
+      ...transactionRow(),
+      id: 22,
+      uid: '77777777-7777-4777-8777-777777777777',
+      transactionNumber: 'PRD-COR-20260821-JEPARA-ABC',
+      quantity: '4.0000',
+      grossAmount: '4700.00',
+    }
+    const voidedSource = { ...transactionRow(), status: 'VOID' }
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const statement = String(sql)
+      if (statement.includes('SELECT pt.*')) return [[managedTransactionRow()]]
+      if (statement.includes('WHERE pr.idempotency_key')) return [[]]
+      if (statement.includes('FROM payroll_production_details')) return [[]]
+      if (statement.includes('FROM payroll_periods pp')) return [[]]
+      if (statement.includes('SELECT a.id assignmentId')) {
+        return [[{
+          assignmentId: 14,
+          isPrimary: 1,
+          jobId: 15,
+          jobUid,
+          jobCode: 'BORONGAN-LINTING',
+          jobName: 'Linting',
+          rateId: 16,
+          rateUid: 'rate',
+          rateAmount: '1175.0000',
+          currency: 'IDR',
+          unitId: 17,
+          unitUid: '55555555-5555-4555-8555-555555555555',
+          unitCode: 'PCS',
+          unitName: 'Pcs',
+          decimalPrecision: 0,
+        }]]
+      }
+      if (statement.includes('SELECT j.id jobId')) {
+        return [[{ jobId: 15, rateId: 16, unitId: 17 }]]
+      }
+      if (statement.includes('MAX(revision_number)')) {
+        return [[{ revisionNumber: 1 }]]
+      }
+      if (statement.includes('SELECT pt.id,pt.uid')) {
+        const transactionId = Number((mocks.query.mock.calls.at(-1)?.[1] as unknown[])[0])
+        return [[transactionId === 22 ? replacement : voidedSource]]
+      }
+      return [[]]
+    })
+    mocks.execute.mockImplementation(async (sql: unknown) => {
+      const statement = String(sql)
+      if (statement.includes('INSERT INTO production_transactions')) {
+        return [{ affectedRows: 1, insertId: 22 }]
+      }
+      return [{ affectedRows: 1 }]
+    })
+
+    const response = await request(`/transactions/${transactionUid}/correct`, {
+      method: 'POST',
+      body: {
+        jobUid,
+        quantity: '4',
+        reason: 'Kuantitas setoran salah dicatat.',
+        idempotencyKey: '68666666-6666-4666-8666-666666666666',
+      },
+      auth: auth({ permissions: ['production.correct'] }),
+    })
+    expect(response.status).toBe(201)
+    const body = (await response.json()) as {
+      sourceTransaction: { status: string }
+      transaction: { status: string; quantity: string }
+    }
+    expect(body.sourceTransaction.status).toBe('VOID')
+    expect(body.transaction).toMatchObject({ status: 'POSTED', quantity: '4.0000' })
+    expect(
+      mocks.execute.mock.calls.some((call) =>
+        String(call[0]).includes('INSERT INTO production_transaction_revisions')
+      )
+    ).toBe(true)
+    const revisionInsert = mocks.execute.mock.calls.find((call) =>
+      String(call[0]).includes('INSERT INTO production_transaction_revisions')
+    )
+    const beforeSnapshot = JSON.parse(
+      String((revisionInsert?.[1] as unknown[] | undefined)?.[5])
+    ) as { job: { name: string }; unit: { code: string } }
+    const afterSnapshot = JSON.parse(
+      String((revisionInsert?.[1] as unknown[] | undefined)?.[6])
+    ) as { job: { name: string }; unit: { code: string } }
+    expect(beforeSnapshot.job.name).toBe('Linting')
+    expect(beforeSnapshot.unit.code).toBe('PCS')
+    expect(afterSnapshot.job.name).toBe('Linting')
+    expect(afterSnapshot.unit.code).toBe('PCS')
+    expect(mocks.commit).toHaveBeenCalledTimes(1)
+    expect(mocks.audit).toHaveBeenCalledTimes(1)
+  })
+
+  it('mengembalikan hasil void lama untuk idempotency yang sama saat source sudah VOID', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[managedTransactionRow({ status: 'VOID' })]])
+      .mockResolvedValueOnce([[
+        {
+          id: 41,
+          uid: '88888888-8888-4888-8888-888888888888',
+          sourceId: 21,
+          replacementId: null,
+          revisionNumber: 1,
+          revisionType: 'VOID',
+          reason: 'Setoran duplikat.',
+          afterData: { request: { reason: 'Setoran duplikat.' } },
+          revisedAt: '2026-08-21T10:00:00+07:00',
+        },
+      ]])
+      .mockResolvedValueOnce([[{ ...transactionRow(), status: 'VOID' }]])
+
+    const response = await request(`/transactions/${transactionUid}/void`, {
+      method: 'POST',
+      body: {
+        reason: 'Setoran duplikat.',
+        idempotencyKey: '69666666-6666-4666-8666-666666666666',
+      },
+      auth: auth({ permissions: ['production.correct'] }),
+    })
+    expect(response.status).toBe(200)
+    expect((await response.json()) as object).toMatchObject({ duplicate: true })
+    expect(mocks.commit).toHaveBeenCalledTimes(1)
+  })
+
+  it('menolak replay revision bila idempotency key dipakai untuk payload berbeda', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[managedTransactionRow({ status: 'VOID' })]])
+      .mockResolvedValueOnce([[
+        {
+          id: 41,
+          uid: '88888888-8888-4888-8888-888888888888',
+          sourceId: 21,
+          replacementId: null,
+          revisionNumber: 1,
+          revisionType: 'VOID',
+          reason: 'Alasan lama.',
+          afterData: { request: { reason: 'Alasan lama.' } },
+        },
+      ]])
+    const response = await request(`/transactions/${transactionUid}/void`, {
+      method: 'POST',
+      body: {
+        reason: 'Alasan baru yang berbeda.',
+        idempotencyKey: '71666666-6666-4666-8666-666666666666',
+      },
+      auth: auth({ permissions: ['production.correct'] }),
+    })
+    expect(response.status).toBe(409)
+    expect(((await response.json()) as { message: string }).message).toContain(
+      'Idempotency key'
+    )
+  })
+
+  it('menolak koreksi bila pekerjaan target tidak ditugaskan atau tidak punya tarif aktif', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[managedTransactionRow()]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[
+        {
+          assignmentId: 14,
+          isPrimary: 1,
+          jobUid,
+          jobCode: 'BORONGAN-LINTING',
+          jobName: 'Linting',
+          rateId: null,
+          unitId: null,
+        },
+      ]])
+    const response = await request(`/transactions/${transactionUid}/correction-preview`, {
+      method: 'POST',
+      body: {
+        jobUid: '99999999-9999-4999-8999-999999999999',
+        quantity: '4',
+      },
+      auth: auth({ permissions: ['production.correct'] }),
+    })
+    expect(response.status).toBe(422)
+    expect(((await response.json()) as { message: string }).message).toContain(
+      'tarif aktif'
+    )
+  })
+
+  it('menolak koreksi no-op pada pekerjaan dan kuantitas yang sama', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[managedTransactionRow()]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+    const response = await request(`/transactions/${transactionUid}/correction-preview`, {
+      method: 'POST',
+      body: { jobUid, quantity: '3' },
+      auth: auth({ permissions: ['production.correct'] }),
+    })
+    expect(response.status).toBe(422)
+    expect(((await response.json()) as { message: string }).message).toContain(
+      'tidak memiliki perubahan'
+    )
+  })
+
+  it('menolak aksi baru pada transaksi VOID untuk melindungi state saat request bersamaan', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[managedTransactionRow({ status: 'VOID' })]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+    const response = await request(`/transactions/${transactionUid}/void`, {
+      method: 'POST',
+      body: {
+        reason: 'Permintaan void kedua.',
+        idempotencyKey: '70666666-6666-4666-8666-666666666666',
+      },
+      auth: auth({ permissions: ['production.correct'] }),
+    })
+    expect(response.status).toBe(409)
+    expect(((await response.json()) as { message: string }).message).toContain(
+      'POSTED'
+    )
   })
 })

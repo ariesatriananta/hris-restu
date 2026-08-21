@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   attendanceClassificationRequestInput,
+  attendanceClassificationReversalInput,
   attendanceClassificationReviewInput,
   enumerateDates,
   isScheduledWorkday,
@@ -53,6 +54,18 @@ describe('attendance classification policy', () => {
         decision: 'APPROVED',
       }).success
     ).toBe(true)
+  })
+
+  it('requires a meaningful reason when reversing an approved classification', () => {
+    expect(
+      attendanceClassificationReversalInput.safeParse({ reason: 'Salah' })
+        .success
+    ).toBe(false)
+    expect(
+      attendanceClassificationReversalInput.parse({
+        reason: 'Karyawan ternyata masuk kerja.',
+      })
+    ).toEqual({ reason: 'Karyawan ternyata masuk kerja.' })
   })
 
   it('validates supported attachment signatures', () => {

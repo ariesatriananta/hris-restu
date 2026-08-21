@@ -46,7 +46,7 @@ type FakeConnection = {
 }
 
 type TestState = {
-  attendanceStatus: 'ABSENT' | 'PRESENT'
+  attendanceStatus: 'ABSENT' | 'PRESENT' | 'LEAVE' | 'SICK' | 'PERMISSION'
   clockInAt: string | null
   clockOutAt: string | null
   correctionUid: string | null
@@ -56,6 +56,7 @@ type TestState = {
   lockedPayroll?: boolean
   payrollSnapshot?: boolean
   finalized?: boolean
+  hasAppliedClassification?: boolean
 }
 
 const attendanceUid = '11111111-1111-4111-8111-111111111111'
@@ -88,6 +89,9 @@ function connection(state: TestState): FakeConnection {
       return [[{ acquired: state.finalizationLockAcquired === false ? 0 : 1 }]]
     }
     if (sql.includes('RELEASE_LOCK')) return [[{ released: 1 }]]
+    if (sql.includes('FROM attendance_classification_details')) {
+      return [state.hasAppliedClassification ? [{ id: 101 }] : []]
+    }
     if (sql.includes('WHERE ar.uid=?')) {
       return [[{
         id: 88,
@@ -282,6 +286,59 @@ describe('Attendance correction API integration', () => {
     expect(await response.json()).toEqual({
       message:
         'Finalisasi site dan tanggal ini sedang berjalan. Coba lagi setelah proses selesai.',
+    })
+    expect(conn.rollback).toHaveBeenCalledOnce()
+  })
+
+  it('menolak pengajuan koreksi untuk klasifikasi yang sudah diterapkan', async () => {
+    const conn = connection({
+      attendanceStatus: 'SICK',
+      clockInAt: null,
+      clockOutAt: null,
+      correctionUid: null,
+      correctionStatus: null,
+      correctionNewStatus: null,
+      hasAppliedClassification: true,
+    })
+    mocks.getConnection.mockResolvedValue(conn)
+
+    const response = await post('/corrections', {
+      attendanceUid,
+      correctionType: 'STATUS',
+      newStatus: 'PRESENT',
+      reason: 'Klasifikasi hendak diubah melalui koreksi.',
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      message:
+        'Attendance dengan klasifikasi Cuti, Sakit, atau Izin yang sudah diterapkan tidak dapat dikoreksi.',
+    })
+    expect(conn.execute).not.toHaveBeenCalled()
+    expect(conn.rollback).toHaveBeenCalledOnce()
+  })
+
+  it('menolak approval jika klasifikasi diterapkan setelah koreksi diajukan', async () => {
+    const uid = '22222222-2222-4222-8222-222222222222'
+    const conn = connection({
+      attendanceStatus: 'ABSENT',
+      clockInAt: null,
+      clockOutAt: null,
+      correctionUid: uid,
+      correctionStatus: 'PENDING',
+      correctionNewStatus: 'PRESENT',
+      hasAppliedClassification: true,
+    })
+    mocks.getConnection.mockResolvedValue(conn)
+
+    const response = await post(`/corrections/${uid}/review`, {
+      decision: 'APPROVED',
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      message:
+        'Attendance dengan klasifikasi Cuti, Sakit, atau Izin yang sudah diterapkan tidak dapat dikoreksi.',
     })
     expect(conn.rollback).toHaveBeenCalledOnce()
   })

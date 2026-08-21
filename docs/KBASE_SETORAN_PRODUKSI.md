@@ -1,6 +1,8 @@
 # Knowledge Base — Produksi Borongan
 
-> Status: Fase 1 Fondasi & Readiness dan Fase 2A Terminal Setoran & Transaksi Harian sudah tersedia. Koreksi/void, rekap, dan integrasi Payroll dikerjakan pada fase berikutnya.
+> Status: Fase 1 Fondasi & Readiness, Fase 2A Terminal Setoran & Transaksi Harian,
+> dan Fase 2B Koreksi/Void sudah tersedia. Rekap dan proses perhitungan Payroll
+> Produksi dikerjakan pada fase berikutnya.
 
 ## Cakupan Fase 1
 
@@ -136,9 +138,48 @@ Endpoint Fase 2A:
 - `GET /api/production/transactions`
 - `GET /api/production/transactions/:uid`
 
-## Fase berikutnya
+## Fase 2B — Koreksi, void, histori revisi, dan Payroll lock
 
-Fase 2B mengerjakan koreksi/void append-only. Transaksi `POSTED` tidak diedit
-langsung: transaksi lama menjadi `VOID`, revisi menyimpan before/after, dan
-koreksi membuat transaksi pengganti. Rekap serta integrasi Payroll tetap belum
-aktif sampai alur koreksi/void selesai diuji.
+Pengguna dengan permission `production.correct` dapat menerapkan koreksi atau
+void langsung tanpa workflow persetujuan. `SUPER_ADMIN` selalu dapat mengakses
+aksi tersebut. Pengguna non-global tetap dibatasi ke site yang tercantum pada
+akses user.
+
+Transaksi `POSTED` tidak diedit atau dihapus langsung:
+
+- koreksi hanya dapat mengubah pekerjaan dan kuantitas;
+- karyawan, site, tanggal bisnis, waktu transaksi, Attendance, perangkat, dan
+  kelompok kerja tetap mengikuti transaksi sumber;
+- koreksi mengubah transaksi sumber menjadi `VOID`, membuat transaksi pengganti
+  `POSTED`, lalu menyimpan snapshot before/after pada revision secara atomik;
+- void tanpa koreksi mengubah transaksi sumber menjadi `VOID` tanpa membuat
+  transaksi pengganti;
+- koreksi dan void wajib memiliki alasan minimal lima karakter;
+- setiap mutasi memakai idempotency key. Replay key dengan payload sama
+  mengembalikan hasil sebelumnya, sedangkan key yang dipakai payload lain
+  ditolak;
+- preview bersifat read-only. Endpoint penerapan selalu mengunci row dan
+  memvalidasi ulang status, site, pekerjaan, tarif, serta Payroll lock.
+
+Koreksi dan void diblokir bila transaksi sudah memiliki `payroll_locked_at`,
+telah masuk `payroll_production_details`, berada dalam periode Payroll
+`CALCULATED`, `APPROVED`, atau `CLOSED`, maupun ketika run Payroll terkait sedang
+`PROCESSING`. Payroll `CLOSED` immutable dan tidak dapat dibuka dari modul
+Produksi.
+
+Migration Fase 2B menambah relasi eksplisit transaksi pengganti dan idempotensi
+revision:
+
+- `db/migrations/20260821_production_transaction_revisions.sql`
+
+Endpoint Fase 2B:
+
+- `GET /api/production/transactions/:uid/correction-context`
+- `POST /api/production/transactions/:uid/correction-preview`
+- `POST /api/production/transactions/:uid/correct`
+- `POST /api/production/transactions/:uid/void-preview`
+- `POST /api/production/transactions/:uid/void`
+
+Detail transaksi menampilkan status Payroll lock, metadata void, transaksi
+sumber/pengganti, dan timeline revision. Rekap serta perhitungan Payroll
+Produksi tetap menjadi fase berikutnya.

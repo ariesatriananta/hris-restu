@@ -140,6 +140,25 @@ async function releaseFinalizationLock(
   state.name = undefined
 }
 
+async function assertAttendanceHasNoAppliedClassification(
+  conn: PoolConnection,
+  attendanceRecordId: number
+) {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT id
+       FROM attendance_classification_details
+      WHERE attendance_record_id=? AND outcome='APPLIED'
+      LIMIT 1 FOR UPDATE`,
+    [attendanceRecordId]
+  )
+  if (rows[0]) {
+    throw new ApiError(
+      409,
+      'Attendance dengan klasifikasi Cuti, Sakit, atau Izin yang sudah diterapkan tidak dapat dikoreksi.'
+    )
+  }
+}
+
 async function approveCorrection(
   conn: PoolConnection,
   input: {
@@ -182,6 +201,11 @@ async function approveCorrection(
   if (correction.approvalStatus !== 'PENDING') {
     throw new ApiError(409, 'Koreksi Attendance ini sudah ditinjau.')
   }
+
+  await assertAttendanceHasNoAppliedClassification(
+    conn,
+    Number(correction.attendanceRecordId)
+  )
 
   await acquireFinalizationLock(
     conn,
@@ -450,6 +474,12 @@ attendanceCorrectionsRouter.get(
                 et.code employeeType,p.name position,
                 pm.name productionModule,ps.uid productionSectionUid,
                 ps.name productionSection,
+                EXISTS(
+                  SELECT 1
+                    FROM attendance_classification_details applied_classification
+                   WHERE applied_classification.attendance_record_id=ar.id
+                     AND applied_classification.outcome='APPLIED'
+                ) hasAppliedClassification,
                 pending_correction.uid pendingCorrectionUid,
                 pending_correction.correction_type pendingCorrectionType,
                 s.code site,sh.uid shiftUid,sh.name shiftName,
@@ -487,6 +517,7 @@ attendanceCorrectionsRouter.get(
           earlyLeaveMinutes: Number(row.earlyLeaveMinutes ?? 0),
           workedMinutes:
             row.workedMinutes === null ? null : Number(row.workedMinutes),
+          hasAppliedClassification: Boolean(row.hasAppliedClassification),
           ...deriveAttendanceQuality({
             attendanceStatus: String(row.attendanceStatus),
             clockInAt: row.clockInAt,
@@ -685,6 +716,10 @@ attendanceCorrectionsRouter.post(
       const attendance = rows[0]
       if (!attendance) throw new ApiError(404, 'Attendance tidak ditemukan.')
       enforceSite(auth, attendance.site)
+      await assertAttendanceHasNoAppliedClassification(
+        conn,
+        Number(attendance.id)
+      )
       const [pending] = await conn.query<RowDataPacket[]>(
         `SELECT id FROM attendance_corrections
           WHERE attendance_record_id=? AND approval_status='PENDING'

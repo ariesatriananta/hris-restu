@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -7,17 +7,50 @@ import {
 } from '@tanstack/react-table'
 import {
   Banknote,
+  Ban,
   Boxes,
   Eye,
   FileClock,
+  History,
+  Loader2,
+  LockKeyhole,
   PackageCheck,
+  PencilLine,
   RefreshCcw,
   Users,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Sheet,
   SheetContent,
@@ -33,6 +66,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Tooltip,
   TooltipContent,
@@ -49,22 +83,32 @@ import {
   dateOnlyFromInput,
   dateOnlyToInput,
 } from '@/features/attendance/date-only'
+import { hasPermission } from '@/features/auth/permissions'
 import {
+  useCorrectProductionTransaction,
+  usePreviewProductionCorrection,
+  usePreviewProductionVoid,
+  useProductionCorrectionContext,
   useProductionJobs,
   useProductionTransaction,
   useProductionTransactions,
+  useVoidProductionTransaction,
 } from './data/queries'
-import type {
-  ProductionSite,
-  ProductionTransaction,
-  ProductionTransactionResult,
+import {
+  canOfferProductionRevision,
+  type ProductionCorrectionPreview,
+  type ProductionSite,
+  type ProductionTransaction,
+  type ProductionTransactionRevision,
+  type ProductionTransactionResult,
 } from './domain'
+import {
+  formatProductionQuantityInput,
+  normalizeProductionQuantity,
+  validateProductionQuantity,
+} from './production-terminal-policy'
 
-const allProductionSites: ProductionSite[] = [
-  'JEPARA',
-  'SEMARANG',
-  'KLATEN',
-]
+const allProductionSites: ProductionSite[] = ['JEPARA', 'SEMARANG', 'KLATEN']
 
 export function ProductionTransactionsPage({
   search,
@@ -160,6 +204,7 @@ export function ProductionTransactionsPage({
         uid={detailUid}
         open={Boolean(detailUid)}
         onOpenChange={(open) => !open && setDetailUid(undefined)}
+        onOpenTransaction={setDetailUid}
       />
     </Main>
   )
@@ -537,13 +582,23 @@ function TransactionDetailSheet({
   uid,
   open,
   onOpenChange,
+  onOpenTransaction,
 }: {
   uid?: string
   open: boolean
   onOpenChange: (open: boolean) => void
+  onOpenTransaction: (uid: string) => void
 }) {
   const result = useProductionTransaction(uid)
+  const session = useAuthStore((state) => state.session)
   const item = result.data
+  const mayRevise = hasPermission(session, 'production.correct')
+  const canCorrect = item
+    ? canOfferProductionRevision(item, mayRevise, item.canCorrect !== false)
+    : false
+  const canVoid = item
+    ? canOfferProductionRevision(item, mayRevise, item.canVoid !== false)
+    : false
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className='w-full overflow-y-auto sm:max-w-lg'>
@@ -583,6 +638,41 @@ function TransactionDetailSheet({
                   <TransactionStatus value={item.status} />
                 </div>
               </div>
+              {item.payrollLocked && (
+                <div className='flex gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm'>
+                  <LockKeyhole className='mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400' />
+                  <div>
+                    <p className='font-semibold'>Terkunci oleh Payroll</p>
+                    <p className='mt-0.5 text-muted-foreground'>
+                      Transaksi tidak dapat dikoreksi atau dibatalkan sebelum
+                      proses Payroll terkait dibatalkan.
+                    </p>
+                    {!!item.payrollLockReasons?.length && (
+                      <ul className='mt-2 list-inside list-disc text-xs text-muted-foreground'>
+                        {item.payrollLockReasons.map((reason) => (
+                          <li key={reason}>{reason}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
+              {item.status === 'VOID' && (
+                <div className='rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm'>
+                  <p className='font-semibold text-destructive'>
+                    Transaksi telah dibatalkan
+                  </p>
+                  <p className='mt-1 text-muted-foreground'>
+                    {item.voidReason || 'Alasan pembatalan tidak tersedia.'}
+                  </p>
+                  {item.voidedAt && (
+                    <p className='mt-2 text-xs text-muted-foreground'>
+                      {formatDateTime(item.voidedAt)}
+                      {item.voidedBy?.name ? ` · ${item.voidedBy.name}` : ''}
+                    </p>
+                  )}
+                </div>
+              )}
               <DetailGroup
                 title='Karyawan'
                 rows={[
@@ -616,11 +706,569 @@ function TransactionDetailSheet({
                   ],
                 ]}
               />
+              {(item.replacedTransaction || item.replacementTransaction) && (
+                <section>
+                  <h3 className='mb-2 text-sm font-semibold'>
+                    Hubungan Transaksi
+                  </h3>
+                  <div className='space-y-2 rounded-lg border p-3 text-sm'>
+                    {item.replacedTransaction && (
+                      <TransactionLink
+                        label='Mengoreksi transaksi'
+                        transaction={item.replacedTransaction}
+                        onOpen={onOpenTransaction}
+                      />
+                    )}
+                    {item.replacementTransaction && (
+                      <TransactionLink
+                        label='Digantikan oleh'
+                        transaction={item.replacementTransaction}
+                        onOpen={onOpenTransaction}
+                      />
+                    )}
+                  </div>
+                </section>
+              )}
+              <RevisionTimeline revisions={item.revisions ?? []} />
+              {(canCorrect || canVoid) && (
+                <div className='sticky bottom-0 grid gap-2 border-t bg-background/95 py-3 backdrop-blur sm:grid-cols-2'>
+                  {canCorrect && (
+                    <CorrectionDialog transaction={item}>
+                      <Button variant='outline' className='w-full'>
+                        <PencilLine /> Koreksi
+                      </Button>
+                    </CorrectionDialog>
+                  )}
+                  {canVoid && (
+                    <VoidDialog transaction={item}>
+                      <Button variant='destructive' className='w-full'>
+                        <Ban /> Batalkan
+                      </Button>
+                    </VoidDialog>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+function TransactionLink({
+  label,
+  transaction,
+  onOpen,
+}: {
+  label: string
+  transaction: { uid: string; transactionNumber: string; status?: string }
+  onOpen: (uid: string) => void
+}) {
+  return (
+    <div className='flex items-center justify-between gap-3'>
+      <div className='min-w-0'>
+        <p className='text-xs text-muted-foreground'>{label}</p>
+        <p className='truncate font-medium'>{transaction.transactionNumber}</p>
+      </div>
+      <Button size='sm' variant='ghost' onClick={() => onOpen(transaction.uid)}>
+        Lihat
+      </Button>
+    </div>
+  )
+}
+
+function RevisionTimeline({
+  revisions,
+}: {
+  revisions: ProductionTransactionRevision[]
+}) {
+  if (!revisions.length) return null
+  return (
+    <section>
+      <h3 className='mb-2 flex items-center gap-2 text-sm font-semibold'>
+        <History className='size-4' /> Histori Revisi
+      </h3>
+      <ol className='space-y-3 rounded-lg border p-3'>
+        {revisions.map((revision) => (
+          <li key={revision.uid} className='relative ps-5 text-sm'>
+            <span className='absolute top-1.5 left-0 size-2 rounded-full bg-primary' />
+            <div className='flex flex-wrap items-center justify-between gap-2'>
+              <p className='font-medium'>
+                {revisionLabel(revision.type)}
+                {revision.revisionNumber
+                  ? ` · Revisi ${revision.revisionNumber}`
+                  : ''}
+              </p>
+              {revision.revisedAt && (
+                <time className='text-xs text-muted-foreground'>
+                  {formatDateTime(revision.revisedAt)}
+                </time>
+              )}
+            </div>
+            <p className='mt-1 text-muted-foreground'>{revision.reason}</p>
+            {revision.revisedBy?.name && (
+              <p className='mt-1 text-xs text-muted-foreground'>
+                Oleh {revision.revisedBy.name}
+              </p>
+            )}
+            {revision.after && (
+              <p className='mt-2 rounded bg-muted px-2 py-1.5 text-xs'>
+                {revision.after.status ?? 'Perubahan tersimpan'}
+                {revision.after.quantity
+                  ? ` · ${formatNumber(revision.after.quantity, 4)} ${revision.after.unit?.code ?? 'hasil'}`
+                  : ''}
+                {revision.after.grossAmount
+                  ? ` · ${formatCurrency(revision.after.grossAmount)}`
+                  : ''}
+              </p>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
+function CorrectionDialog({
+  transaction,
+  children,
+}: {
+  transaction: ProductionTransaction
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  const [jobUid, setJobUid] = useState(transaction.job.uid)
+  const [quantity, setQuantity] = useState(() =>
+    formatProductionQuantityInput(
+      transaction.quantity,
+      transaction.unit.decimalPrecision
+    )
+  )
+  const [reason, setReason] = useState('')
+  const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey)
+  const context = useProductionCorrectionContext(transaction.uid, open)
+  const preview = usePreviewProductionCorrection(transaction.uid)
+  const correction = useCorrectProductionTransaction(transaction.uid)
+
+  const effectiveJobUid = context.data?.jobs.some((job) => job.uid === jobUid)
+    ? jobUid
+    : (context.data?.jobs[0]?.uid ?? jobUid)
+  const selectedJob = context.data?.jobs.find(
+    (job) => job.uid === effectiveJobUid
+  )
+  const quantityError = selectedJob
+    ? validateProductionQuantity(quantity, selectedJob.unit.decimalPrecision)
+    : 'Pilih pekerjaan terlebih dahulu.'
+  const normalizedQuantity = normalizeProductionQuantity(quantity)
+
+  const setDialogOpen = (next: boolean) => {
+    setOpen(next)
+    if (!next) return
+    setJobUid(transaction.job.uid)
+    setQuantity(
+      formatProductionQuantityInput(
+        transaction.quantity,
+        transaction.unit.decimalPrecision
+      )
+    )
+    setReason('')
+    setIdempotencyKey(createIdempotencyKey())
+    preview.reset()
+  }
+
+  const resetPreview = () => preview.reset()
+  const validInput = Boolean(effectiveJobUid) && !quantityError
+  const canSubmit = preview.data?.canApply === true && reason.trim().length >= 5
+
+  const submitCorrection = async () => {
+    if (!canSubmit) return
+    try {
+      const output = await correction.mutateAsync({
+        jobUid: effectiveJobUid,
+        quantity: normalizedQuantity,
+        reason: reason.trim(),
+        idempotencyKey,
+      })
+      toast.success(output.message || 'Koreksi transaksi berhasil diterapkan.')
+      setOpen(false)
+    } catch (error) {
+      toast.error(apiMessage(error, 'Koreksi transaksi gagal diterapkan.'))
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setDialogOpen}>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-2xl'>
+        <DialogHeader>
+          <DialogTitle>Koreksi Transaksi Produksi</DialogTitle>
+          <DialogDescription>
+            Transaksi asli akan dibatalkan dan digantikan transaksi baru. Waktu
+            transaksi tetap mengikuti pencatatan awal.
+          </DialogDescription>
+        </DialogHeader>
+        {context.isPending ? (
+          <div className='h-44 animate-pulse rounded-lg bg-muted' />
+        ) : context.isError || !context.data ? (
+          <ErrorPanel
+            message='Konteks koreksi gagal dimuat.'
+            onRetry={() => void context.refetch()}
+          />
+        ) : (
+          <div className='space-y-4'>
+            {context.data.payrollLock.locked && (
+              <LockedPanel reasons={context.data.payrollLock.reasons} />
+            )}
+            <div className='grid gap-4 sm:grid-cols-2'>
+              <label className='grid gap-1.5 text-sm'>
+                <span className='font-medium'>Pekerjaan pengganti</span>
+                <Select
+                  value={effectiveJobUid}
+                  onValueChange={(value) => {
+                    setJobUid(value)
+                    setIdempotencyKey(createIdempotencyKey())
+                    resetPreview()
+                  }}
+                  disabled={!context.data.canCorrect}
+                >
+                  <SelectTrigger className='w-full'>
+                    <SelectValue placeholder='Pilih pekerjaan' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {context.data.jobs.map((job) => (
+                      <SelectItem key={job.uid} value={job.uid}>
+                        {job.name} ({job.code}){job.isPrimary ? ' · Utama' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </label>
+              <label className='grid gap-1.5 text-sm'>
+                <span className='font-medium'>Kuantitas hasil</span>
+                <Input
+                  value={quantity}
+                  onChange={(event) => {
+                    setQuantity(event.target.value)
+                    setIdempotencyKey(createIdempotencyKey())
+                    resetPreview()
+                  }}
+                  inputMode='decimal'
+                  placeholder='Contoh: 25'
+                  disabled={!context.data.canCorrect}
+                  aria-invalid={Boolean(quantity && quantityError)}
+                />
+                {quantity && quantityError && (
+                  <span className='text-xs text-destructive'>
+                    {quantityError}
+                  </span>
+                )}
+              </label>
+            </div>
+            <Button
+              type='button'
+              variant='secondary'
+              disabled={
+                !validInput || !context.data.canCorrect || preview.isPending
+              }
+              onClick={() =>
+                preview.mutate(
+                  { jobUid: effectiveJobUid, quantity: normalizedQuantity },
+                  {
+                    onError: (error) =>
+                      toast.error(
+                        apiMessage(error, 'Pratinjau koreksi gagal dibuat.')
+                      ),
+                  }
+                )
+              }
+            >
+              {preview.isPending && <Loader2 className='animate-spin' />}
+              Preview perubahan
+            </Button>
+            {preview.data && <CorrectionPreviewPanel preview={preview.data} />}
+            <label className='grid gap-1.5 text-sm'>
+              <span className='font-medium'>Alasan koreksi</span>
+              <Textarea
+                value={reason}
+                onChange={(event) => {
+                  setReason(event.target.value)
+                  setIdempotencyKey(createIdempotencyKey())
+                }}
+                placeholder='Jelaskan kesalahan dan alasan koreksi.'
+                maxLength={500}
+                disabled={!preview.data?.canApply}
+              />
+              <span className='text-xs text-muted-foreground'>
+                Minimal 5 karakter agar alasan audit cukup jelas.
+              </span>
+            </label>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant='outline' onClick={() => setOpen(false)}>
+            Batal
+          </Button>
+          <Button
+            onClick={() => void submitCorrection()}
+            disabled={!canSubmit || correction.isPending}
+          >
+            {correction.isPending && <Loader2 className='animate-spin' />}
+            Terapkan koreksi
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function CorrectionPreviewPanel({
+  preview,
+}: {
+  preview: ProductionCorrectionPreview
+}) {
+  const precision = preview.proposed.unit.decimalPrecision
+  return (
+    <section className='rounded-lg border bg-muted/30 p-3'>
+      <div className='mb-3 flex items-center justify-between gap-2'>
+        <h3 className='text-sm font-semibold'>Preview perubahan</h3>
+        <Badge variant={preview.canApply ? 'secondary' : 'destructive'}>
+          {preview.canApply ? 'Siap diterapkan' : 'Tidak dapat diterapkan'}
+        </Badge>
+      </div>
+      <div className='grid gap-2 sm:grid-cols-2'>
+        <PreviewColumn
+          label='Sebelum'
+          job={preview.source.job.name}
+          quantity={`${formatNumber(preview.source.quantity, preview.source.unit.decimalPrecision)} ${preview.source.unit.code}`}
+          rate={formatCurrency(preview.source.rateSnapshot)}
+          gross={formatCurrency(preview.source.grossAmount)}
+        />
+        <PreviewColumn
+          label='Sesudah'
+          job={preview.proposed.job.name}
+          quantity={`${formatNumber(preview.proposed.quantity, precision)} ${preview.proposed.unit.code}`}
+          rate={formatCurrency(preview.proposed.rateSnapshot)}
+          gross={formatCurrency(preview.proposed.grossAmount)}
+        />
+      </div>
+      <div className='mt-2 grid grid-cols-2 gap-2 rounded-md border bg-background p-2 text-sm'>
+        <div>
+          <p className='text-xs text-muted-foreground'>Selisih kuantitas</p>
+          <p className='font-semibold'>
+            {formatSignedNumber(preview.delta.quantity, precision)}
+          </p>
+        </div>
+        <div>
+          <p className='text-xs text-muted-foreground'>Selisih bruto</p>
+          <p className='font-semibold'>
+            {formatSignedCurrency(preview.delta.grossAmount)}
+          </p>
+        </div>
+      </div>
+      {preview.payrollLock.locked && (
+        <div className='mt-3'>
+          <LockedPanel reasons={preview.payrollLock.reasons} />
+        </div>
+      )}
+    </section>
+  )
+}
+
+function PreviewColumn({
+  label,
+  job,
+  quantity,
+  rate,
+  gross,
+}: {
+  label: string
+  job: string
+  quantity: string
+  rate: string
+  gross: string
+}) {
+  return (
+    <div className='rounded-md border bg-background p-3 text-sm'>
+      <p className='mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase'>
+        {label}
+      </p>
+      <p className='font-medium'>{job}</p>
+      <p>{quantity}</p>
+      <p className='text-xs text-muted-foreground'>{rate} / satuan</p>
+      <p className='mt-1 font-semibold'>{gross}</p>
+    </div>
+  )
+}
+
+function VoidDialog({
+  transaction,
+  children,
+}: {
+  transaction: ProductionTransaction
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey)
+  const preview = usePreviewProductionVoid(transaction.uid)
+  const voidTransaction = useVoidProductionTransaction(transaction.uid)
+
+  const setDialogOpen = (next: boolean) => {
+    setOpen(next)
+    if (!next) return
+    setReason('')
+    setIdempotencyKey(createIdempotencyKey())
+    preview.reset()
+    preview.mutate(
+      {},
+      {
+        onError: (error) =>
+          toast.error(apiMessage(error, 'Pratinjau pembatalan gagal dibuat.')),
+      }
+    )
+  }
+
+  const submitVoid = async () => {
+    if (!preview.data?.canApply || reason.trim().length < 5) return
+    try {
+      const output = await voidTransaction.mutateAsync({
+        reason: reason.trim(),
+        idempotencyKey,
+      })
+      toast.success(output.message || 'Transaksi berhasil dibatalkan.')
+      setOpen(false)
+    } catch (error) {
+      toast.error(apiMessage(error, 'Transaksi gagal dibatalkan.'))
+    }
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={setDialogOpen}>
+      <AlertDialogTrigger asChild>{children}</AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Batalkan transaksi Produksi?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {transaction.transactionNumber} akan menjadi VOID dan tidak lagi
+            dihitung sebagai hasil Produksi. Tindakan ini tetap tersimpan dalam
+            histori audit.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {preview.isPending ? (
+          <div className='flex items-center gap-2 rounded-lg border p-3 text-sm text-muted-foreground'>
+            <Loader2 className='size-4 animate-spin' /> Memeriksa transaksi...
+          </div>
+        ) : preview.isError || !preview.data ? (
+          <ErrorPanel
+            message='Pratinjau pembatalan gagal dimuat.'
+            onRetry={() => preview.mutate({})}
+          />
+        ) : (
+          <div className='space-y-3'>
+            {preview.data.payrollLock.locked && (
+              <LockedPanel reasons={preview.data.payrollLock.reasons} />
+            )}
+            <div className='rounded-lg border bg-muted/30 p-3 text-sm'>
+              <p className='font-medium'>{preview.data.source.job.name}</p>
+              <p className='text-muted-foreground'>
+                {formatNumber(
+                  preview.data.source.quantity,
+                  preview.data.source.unit.decimalPrecision
+                )}{' '}
+                {preview.data.source.unit.code} ·{' '}
+                {formatCurrency(preview.data.source.grossAmount)}
+              </p>
+              <div className='mt-2 grid grid-cols-2 gap-2 border-t pt-2 text-xs'>
+                <div>
+                  <p className='text-muted-foreground'>Dampak kuantitas</p>
+                  <p className='font-semibold text-destructive'>
+                    {formatSignedNumber(
+                      preview.data.impact.quantity,
+                      preview.data.source.unit.decimalPrecision
+                    )}
+                  </p>
+                </div>
+                <div>
+                  <p className='text-muted-foreground'>Dampak bruto</p>
+                  <p className='font-semibold text-destructive'>
+                    {formatSignedCurrency(preview.data.impact.grossAmount)}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <label className='grid gap-1.5 text-sm'>
+              <span className='font-medium'>Alasan pembatalan</span>
+              <Textarea
+                value={reason}
+                onChange={(event) => {
+                  setReason(event.target.value)
+                  setIdempotencyKey(createIdempotencyKey())
+                }}
+                placeholder='Jelaskan alasan transaksi harus dibatalkan.'
+                maxLength={500}
+                disabled={!preview.data.canApply}
+              />
+              <span className='text-xs text-muted-foreground'>
+                Minimal 5 karakter. Pembatalan tidak dapat dipulihkan langsung.
+              </span>
+            </label>
+          </div>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={voidTransaction.isPending}>
+            Kembali
+          </AlertDialogCancel>
+          <Button
+            variant='destructive'
+            disabled={
+              !preview.data?.canApply ||
+              reason.trim().length < 5 ||
+              voidTransaction.isPending
+            }
+            onClick={() => void submitVoid()}
+          >
+            {voidTransaction.isPending && <Loader2 className='animate-spin' />}
+            Ya, batalkan transaksi
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function LockedPanel({ reasons }: { reasons: string[] }) {
+  return (
+    <div className='flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm'>
+      <LockKeyhole className='mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400' />
+      <div>
+        <p className='font-medium'>Transaksi terkunci oleh Payroll.</p>
+        {!!reasons.length && (
+          <ul className='mt-1 list-inside list-disc text-xs text-muted-foreground'>
+            {reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ErrorPanel({
+  message,
+  onRetry,
+}: {
+  message: string
+  onRetry: () => void
+}) {
+  return (
+    <div className='rounded-lg border p-4 text-center text-sm'>
+      <p className='text-muted-foreground'>{message}</p>
+      <Button size='sm' variant='outline' className='mt-2' onClick={onRetry}>
+        <RefreshCcw /> Coba lagi
+      </Button>
+    </div>
   )
 }
 
@@ -720,6 +1368,61 @@ function formatCurrency(value: string | number) {
     currency: 'IDR',
     maximumFractionDigits: 0,
   }).format(Number(value))
+}
+
+function formatSignedNumber(value: string | number, maximumFractionDigits = 0) {
+  const numeric = Number(value)
+  const formatted = formatNumber(Math.abs(numeric), maximumFractionDigits)
+  return numeric > 0
+    ? `+${formatted}`
+    : numeric < 0
+      ? `-${formatted}`
+      : formatted
+}
+
+function formatSignedCurrency(value: string | number) {
+  const numeric = Number(value)
+  const formatted = formatCurrency(Math.abs(numeric))
+  return numeric > 0
+    ? `+${formatted}`
+    : numeric < 0
+      ? `-${formatted}`
+      : formatted
+}
+
+function revisionLabel(action: string) {
+  if (action === 'CORRECTION') return 'Transaksi dikoreksi'
+  if (action === 'VOID') return 'Transaksi dibatalkan'
+  return action
+}
+
+function createIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (value) => {
+    const random = Math.floor(Math.random() * 16)
+    const nibble = value === 'x' ? random : (random & 0x3) | 0x8
+    return nibble.toString(16)
+  })
+}
+
+function apiMessage(error: unknown, fallback: string) {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'response' in error &&
+    error.response &&
+    typeof error.response === 'object' &&
+    'data' in error.response &&
+    error.response.data &&
+    typeof error.response.data === 'object' &&
+    'message' in error.response.data &&
+    typeof error.response.data.message === 'string'
+  ) {
+    return error.response.data.message
+  }
+  return fallback
 }
 
 function formatTime(value: string) {

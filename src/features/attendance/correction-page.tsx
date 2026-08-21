@@ -112,14 +112,8 @@ export function AttendanceCorrectionPage({
   const PageContainer = embedded ? 'div' : Main
   return (
     <PageContainer>
-      <div
-        className={
-          embedded
-            ? 'mb-4 flex justify-end'
-            : 'mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'
-        }
-      >
-        {!embedded && (
+      {!embedded && (
+        <div className='mb-5'>
           <div>
             <p className='text-sm font-medium text-primary'>Attendance</p>
             <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
@@ -130,24 +124,8 @@ export function AttendanceCorrectionPage({
               histori.
             </p>
           </div>
-        )}
-        <label className='grid gap-1 text-sm sm:w-48'>
-          <span className='font-medium'>Tanggal kerja</span>
-          <DatePicker
-            selected={dateOnlyFromInput(businessDate)}
-            placeholder='Semua tanggal'
-            onSelect={(date) =>
-              navigate({
-                search: (previous) => ({
-                  ...previous,
-                  businessDate: dateOnlyToInput(date) || undefined,
-                  page: undefined,
-                }),
-              })
-            }
-          />
-        </label>
-      </div>
+        </div>
+      )}
       <CorrectionTable
         result={result}
         search={search}
@@ -188,6 +166,8 @@ function CorrectionTable({
   bulkSite?: AttendanceSiteCode
   onOpen: (item: AttendanceCorrection) => void
 }) {
+  const businessDate =
+    typeof search.businessDate === 'string' ? search.businessDate : undefined
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [bulkOpen, setBulkOpen] = useState(false)
   const pageItemKey = (result.data?.items ?? [])
@@ -384,6 +364,32 @@ function CorrectionTable({
         table={table}
         searchPlaceholder='Cari karyawan atau pengaju...'
         searchDebounceMs={500}
+        additionalFilters={
+          <DatePicker
+            selected={dateOnlyFromInput(businessDate)}
+            placeholder='Tanggal kerja'
+            triggerClassName='h-8 w-full sm:w-auto sm:min-w-40'
+            onSelect={(date) =>
+              navigate({
+                search: (previous) => ({
+                  ...previous,
+                  businessDate: dateOnlyToInput(date) || undefined,
+                  page: undefined,
+                }),
+              })
+            }
+          />
+        }
+        hasAdditionalFilters={Boolean(businessDate)}
+        onResetAdditionalFilters={() =>
+          navigate({
+            search: (previous) => ({
+              ...previous,
+              businessDate: undefined,
+              page: undefined,
+            }),
+          })
+        }
         filters={[
           { columnId: 'site', title: 'Site', options: siteOptions },
           {

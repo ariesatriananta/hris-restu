@@ -11,6 +11,8 @@ import type {
   ProductionAssignment,
   ProductionAssignmentReadinessParams,
   ProductionAssignmentReadinessResult,
+  ProductionCorrectionContext,
+  ProductionCorrectionPreview,
   ProductionJob,
   ProductionListParams,
   ProductionRate,
@@ -19,6 +21,8 @@ import type {
   ProductionTerminalLookup,
   ProductionTransactionListParams,
   ProductionTransactionResult,
+  ProductionRevisionResult,
+  ProductionVoidPreview,
   WorkUnit,
 } from '../domain'
 
@@ -39,6 +43,8 @@ const keys = {
   transactions: (input: ProductionTransactionListParams) =>
     [...keys.all, 'transactions', input] as const,
   transaction: (uid: string) => [...keys.all, 'transaction', uid] as const,
+  correctionContext: (uid: string) =>
+    [...keys.all, 'transaction', uid, 'correction-context'] as const,
 }
 
 function params(value: Record<string, unknown> | undefined) {
@@ -238,4 +244,81 @@ export function useProductionTransaction(uid?: string) {
       ).data.transaction,
     enabled: Boolean(uid),
   })
+}
+
+export function useProductionCorrectionContext(uid?: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.correctionContext(uid ?? ''),
+    queryFn: async () =>
+      (
+        await apiClient.get<ProductionCorrectionContext>(
+          `/production/transactions/${uid}/correction-context`
+        )
+      ).data,
+    enabled: Boolean(uid) && enabled,
+  })
+}
+
+function useProductionRevisionMutation<TInput extends object, TResult>(
+  uid: string | undefined,
+  suffix: string,
+  invalidateAfterSuccess = false
+) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: TInput) =>
+      (
+        await apiClient.post<TResult>(
+          `/production/transactions/${uid}/${suffix}`,
+          input
+        )
+      ).data,
+    onSuccess: async () => {
+      if (!invalidateAfterSuccess) return
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: [...keys.all, 'transactions'],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: keys.transaction(uid ?? ''),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: keys.correctionContext(uid ?? ''),
+        }),
+      ])
+    },
+  })
+}
+
+export function usePreviewProductionCorrection(uid?: string) {
+  return useProductionRevisionMutation<
+    { jobUid: string; quantity: string },
+    ProductionCorrectionPreview
+  >(uid, 'correction-preview')
+}
+
+export function useCorrectProductionTransaction(uid?: string) {
+  return useProductionRevisionMutation<
+    {
+      jobUid: string
+      quantity: string
+      reason: string
+      idempotencyKey: string
+    },
+    ProductionRevisionResult
+  >(uid, 'correct', true)
+}
+
+export function usePreviewProductionVoid(uid?: string) {
+  return useProductionRevisionMutation<
+    Record<string, never>,
+    ProductionVoidPreview
+  >(uid, 'void-preview')
+}
+
+export function useVoidProductionTransaction(uid?: string) {
+  return useProductionRevisionMutation<
+    { reason: string; idempotencyKey: string },
+    ProductionRevisionResult
+  >(uid, 'void', true)
 }

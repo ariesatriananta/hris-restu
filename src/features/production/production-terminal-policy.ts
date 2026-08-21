@@ -13,6 +13,26 @@ export function normalizeProductionQuantity(value: string) {
   return value.trim().replace(',', '.')
 }
 
+export function formatProductionQuantityInput(
+  value: string,
+  decimalPrecision: number
+) {
+  const normalized = normalizeProductionQuantity(value)
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(normalized)
+  if (!match) return normalized
+
+  const precision = Math.max(0, Math.trunc(decimalPrecision))
+  const fraction = match[2] ?? ''
+  const discardedFraction = fraction.slice(precision)
+
+  // Jangan membulatkan atau membuang nilai pecahan yang bermakna. Biarkan
+  // validator menandainya bila data melebihi presisi satuan.
+  if (/[1-9]/.test(discardedFraction)) return normalized
+
+  const visibleFraction = fraction.slice(0, precision).replace(/0+$/, '')
+  return visibleFraction ? `${match[1]}.${visibleFraction}` : match[1]
+}
+
 export function canUseProductionTerminalSite(
   role: string | undefined,
   siteAccess: string[] | undefined,

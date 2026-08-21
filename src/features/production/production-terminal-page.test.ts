@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   canUseProductionTerminalSite,
+  formatProductionQuantityInput,
   normalizeProductionQuantity,
   validateProductionQuantity,
 } from './production-terminal-policy'
@@ -29,6 +30,15 @@ describe('validateProductionQuantity', () => {
   it('menolak pecahan yang melampaui presisi satuan', () => {
     expect(validateProductionQuantity('1.5', 0)).toContain('0 angka')
     expect(validateProductionQuantity('1.234', 2)).toContain('2 angka')
+  })
+
+  it('menampilkan nilai awal sesuai presisi satuan tanpa nol desimal semu', () => {
+    expect(formatProductionQuantityInput('34.0000', 0)).toBe('34')
+    expect(formatProductionQuantityInput('34.5000', 2)).toBe('34.5')
+  })
+
+  it('tidak membulatkan pecahan yang melampaui presisi satuan', () => {
+    expect(formatProductionQuantityInput('34.1250', 2)).toBe('34.1250')
   })
 
   it('mengizinkan Super Admin lintas site tanpa user_site_access', () => {

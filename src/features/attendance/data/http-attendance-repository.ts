@@ -317,6 +317,15 @@ export const httpAttendanceRepository: AttendanceRepository = {
   async cancelClassification(uid) {
     await apiClient.post(`/attendance/classifications/${uid}/cancel`)
   },
+  async reverseClassification(uid, input) {
+    return (
+      await apiClient.post<{
+        uid: string
+        approvalStatus: 'CANCELLED'
+        reversedCount: number
+      }>(`/attendance/classifications/${uid}/reverse`, input)
+    ).data
+  },
   async uploadClassificationAttachment(file) {
     const body = new FormData()
     body.append('file', file)

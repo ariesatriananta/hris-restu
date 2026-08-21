@@ -1312,8 +1312,10 @@ CREATE TABLE production_transaction_revisions (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   uid CHAR(36) NOT NULL,
   production_transaction_id BIGINT UNSIGNED NOT NULL,
+  replacement_transaction_id BIGINT UNSIGNED NULL,
   revision_number INT UNSIGNED NOT NULL,
   revision_type VARCHAR(20) NOT NULL,
+  idempotency_key VARCHAR(100) NULL,
   before_data JSON NOT NULL,
   after_data JSON NULL,
   reason VARCHAR(500) NOT NULL,
@@ -1326,8 +1328,11 @@ CREATE TABLE production_transaction_revisions (
   PRIMARY KEY (id),
   UNIQUE KEY uq_production_revisions_uid (uid),
   UNIQUE KEY uq_production_revisions_number (production_transaction_id, revision_number),
+  UNIQUE KEY uq_production_revisions_replacement (replacement_transaction_id),
+  UNIQUE KEY uq_production_revisions_idempotency (idempotency_key),
   CONSTRAINT chk_production_revision_type CHECK (revision_type IN ('CORRECTION', 'VOID')),
-  CONSTRAINT fk_production_revision_transaction FOREIGN KEY (production_transaction_id) REFERENCES production_transactions (id) ON UPDATE CASCADE ON DELETE RESTRICT
+  CONSTRAINT fk_production_revision_transaction FOREIGN KEY (production_transaction_id) REFERENCES production_transactions (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_production_revision_replacement FOREIGN KEY (replacement_transaction_id) REFERENCES production_transactions (id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================================

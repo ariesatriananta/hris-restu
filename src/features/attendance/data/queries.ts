@@ -25,6 +25,7 @@ import type {
   AttendanceClassificationListParams,
   AttendanceClassificationInput,
   AttendanceClassificationReviewInput,
+  AttendanceClassificationReverseInput,
   AttendanceRecapDayListParams,
   AttendanceRecapExportInput,
   AttendanceRecapListParams,
@@ -334,6 +335,17 @@ export const useBulkReviewAttendanceClassifications = () =>
 export const useCancelAttendanceClassification = () =>
   useAttendanceMutation((uid: string) =>
     httpAttendanceRepository.cancelClassification(uid)
+  )
+
+export const useReverseAttendanceClassification = () =>
+  useAttendanceMutation(
+    ({
+      uid,
+      input,
+    }: {
+      uid: string
+      input: AttendanceClassificationReverseInput
+    }) => httpAttendanceRepository.reverseClassification(uid, input)
   )
 
 export const uploadAttendanceClassificationAttachment = (file: File) =>

@@ -16,8 +16,13 @@ import {
   calculateGrossAmount,
   normalizeQuantity,
   normalizeStoredDecimal,
+  productionCorrectionInput,
+  productionCorrectionPreviewInput,
   productionTerminalLookupInput,
   productionTerminalPostInput,
+  productionVoidInput,
+  productionVoidPreviewInput,
+  subtractDecimal,
 } from '../lib/production-transaction-policy.js'
 import {
   authenticate,
@@ -223,7 +228,8 @@ async function availableJobs(
   conn: PoolConnection,
   employeeId: number,
   siteId: number,
-  date: string
+  date: string,
+  lock = false
 ) {
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT a.id assignmentId,a.is_primary isPrimary,
@@ -241,7 +247,8 @@ async function availableJobs(
       WHERE a.employee_id=? AND a.site_id=?
         AND a.effective_from<=?
         AND (a.effective_to IS NULL OR a.effective_to>=?)
-      ORDER BY a.is_primary DESC,j.name,r.effective_from DESC,r.id DESC`,
+      ORDER BY a.is_primary DESC,j.name,r.effective_from DESC,r.id DESC
+      ${lock ? 'FOR UPDATE' : ''}`,
     [date, date, employeeId, siteId, date, date]
   )
   if (!rows.length) {
@@ -321,6 +328,9 @@ async function transactionResponse(conn: PoolConnection | Pool, transactionId: n
             DATE_FORMAT(pt.transaction_at,'%Y-%m-%dT%H:%i:%s+07:00') transactionAt,
             pt.quantity,pt.rate_snapshot rateSnapshot,pt.gross_amount grossAmount,
             pt.status,pt.notes,
+            DATE_FORMAT(pt.payroll_locked_at,'%Y-%m-%dT%H:%i:%s+07:00') payrollLockedAt,
+            DATE_FORMAT(pt.voided_at,'%Y-%m-%dT%H:%i:%s+07:00') voidedAt,
+            pt.void_reason voidReason,vu.uid voidedByUid,vu.full_name voidedByName,
             e.uid employeeUid,e.employee_number employeeNumber,e.full_name fullName,
             s.code site,s.name siteName,
             j.uid jobUid,j.code jobCode,j.name jobName,
@@ -333,6 +343,7 @@ async function transactionResponse(conn: PoolConnection | Pool, transactionId: n
        JOIN production_jobs j ON j.id=pt.production_job_id
        JOIN work_units u ON u.id=pt.unit_id
        LEFT JOIN scan_devices d ON d.id=pt.scan_device_id
+       LEFT JOIN users vu ON vu.id=pt.voided_by
       WHERE pt.id=?`,
     [transactionId]
   )
@@ -348,6 +359,12 @@ async function transactionResponse(conn: PoolConnection | Pool, transactionId: n
     rateSnapshot: normalizeStoredDecimal(row.rateSnapshot),
     grossAmount: normalizeStoredDecimal(row.grossAmount, 2),
     notes: row.notes ?? null,
+    payrollLockedAt: row.payrollLockedAt ?? null,
+    voidedAt: row.voidedAt ?? null,
+    voidReason: row.voidReason ?? null,
+    voidedBy: row.voidedByUid
+      ? { uid: row.voidedByUid, name: row.voidedByName }
+      : null,
     employee: {
       uid: row.employeeUid,
       employeeNumber: row.employeeNumber,
@@ -364,6 +381,393 @@ async function transactionResponse(conn: PoolConnection | Pool, transactionId: n
     },
     device: row.deviceUid
       ? { uid: row.deviceUid, code: row.deviceCode, name: row.deviceName }
+      : null,
+  }
+}
+
+type SqlExecutor = PoolConnection | Pool
+
+function parseJson(value: unknown) {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'object') return value as Record<string, unknown>
+  try {
+    return JSON.parse(String(value)) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+async function managedTransaction(
+  conn: SqlExecutor,
+  uid: string,
+  auth: AuthContext,
+  lock = false
+) {
+  const scope = scopeWhere(auth)
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT pt.*,
+            DATE_FORMAT(pt.business_date,'%Y-%m-%d') businessDateKey,
+            DATE_FORMAT(pt.transaction_at,'%Y-%m-%d %H:%i:%s.%f') transactionTimestamp,
+            s.code site,s.name siteName,j.uid jobUid,j.code jobCode,
+            j.name jobName,u.uid unitUid,u.code unitCode,u.name unitName,
+            u.decimal_precision decimalPrecision,sr.uid rateUid,
+            sr.currency rateCurrency,e.uid employeeUid,
+            e.employee_number employeeNumber,e.full_name fullName
+       FROM production_transactions pt
+       JOIN sites s ON s.id=pt.site_id
+       JOIN production_jobs j ON j.id=pt.production_job_id
+       JOIN work_units u ON u.id=pt.unit_id
+       JOIN production_job_rates sr ON sr.id=pt.job_rate_id
+       JOIN employees e ON e.id=pt.employee_id
+      WHERE pt.uid=? AND ${scope.sql}
+      ${lock ? 'FOR UPDATE' : ''}`,
+    [uid, ...scope.params]
+  )
+  if (!rows[0]) throw new ApiError(404, 'Transaksi Produksi tidak ditemukan.')
+  return rows[0]
+}
+
+type PayrollLock = { locked: boolean; reasons: string[] }
+
+async function payrollLockContext(
+  conn: SqlExecutor,
+  transaction: RowDataPacket,
+  lock = false
+): Promise<PayrollLock> {
+  const reasons: string[] = []
+  if (transaction.payroll_locked_at) {
+    reasons.push('Transaksi telah dikunci oleh proses Payroll.')
+  }
+  const [snapshots] = await conn.query<RowDataPacket[]>(
+    `SELECT id FROM payroll_production_details
+      WHERE production_transaction_id=? LIMIT 1 ${lock ? 'FOR UPDATE' : ''}`,
+    [transaction.id]
+  )
+  if (snapshots[0]) reasons.push('Transaksi telah masuk snapshot Payroll.')
+
+  const [periods] = await conn.query<RowDataPacket[]>(
+    `SELECT pp.status,
+            EXISTS(
+              SELECT 1 FROM payroll_runs pr
+               WHERE pr.payroll_period_id=pp.id AND pr.status='PROCESSING'
+            ) processingRun
+       FROM payroll_periods pp
+      WHERE pp.site_id=? AND pp.payroll_basis='PIECE_RATE'
+        AND pp.period_start<=? AND pp.period_end>=?
+        AND pp.status<>'CANCELLED'
+      ${lock ? 'FOR UPDATE' : ''}`,
+    [transaction.site_id, transaction.businessDateKey, transaction.businessDateKey]
+  )
+  if (periods.some((period) => Number(period.processingRun) === 1)) {
+    reasons.push('Perhitungan Payroll untuk periode ini sedang berjalan.')
+  }
+  const lockedPeriod = periods.find((period) =>
+    ['CALCULATED', 'APPROVED', 'CLOSED'].includes(String(period.status))
+  )
+  if (lockedPeriod) {
+    reasons.unshift(
+      lockedPeriod.status === 'CLOSED'
+        ? 'Periode Payroll sudah ditutup dan bersifat immutable.'
+        : `Periode Payroll sudah berstatus ${lockedPeriod.status}.`
+    )
+  }
+  return { locked: reasons.length > 0, reasons }
+}
+
+function assertPostedAndUnlocked(transaction: RowDataPacket, payrollLock: PayrollLock) {
+  if (transaction.status !== 'POSTED') {
+    throw new ApiError(409, 'Hanya transaksi POSTED yang dapat dikoreksi atau di-void.')
+  }
+  if (payrollLock.locked) {
+    throw new ApiError(409, payrollLock.reasons[0] ?? 'Transaksi dikunci Payroll.')
+  }
+}
+
+async function correctionProposal(
+  conn: PoolConnection,
+  transaction: RowDataPacket,
+  jobUid: string,
+  inputQuantity: string,
+  lock = false
+) {
+  if (String(transaction.jobUid) === jobUid) {
+    const quantity = normalizeQuantity(
+      inputQuantity,
+      Number(transaction.decimalPrecision)
+    )
+    const sourceQuantity = normalizeStoredDecimal(transaction.quantity)
+    if (quantity === sourceQuantity) {
+      throw new ApiError(422, 'Koreksi tidak memiliki perubahan pekerjaan atau kuantitas.')
+    }
+    const rateSnapshot = normalizeStoredDecimal(transaction.rate_snapshot)
+    return {
+      jobs: [sourceJobOption(transaction)],
+      targetIds: {
+        jobId: Number(transaction.production_job_id),
+        rateId: Number(transaction.job_rate_id),
+        unitId: Number(transaction.unit_id),
+      },
+      proposed: {
+        job: {
+          uid: transaction.jobUid,
+          code: transaction.jobCode,
+          name: transaction.jobName,
+        },
+        unit: {
+          uid: transaction.unitUid,
+          code: transaction.unitCode,
+          name: transaction.unitName,
+          decimalPrecision: Number(transaction.decimalPrecision),
+        },
+        rate: {
+          uid: transaction.rateUid,
+          amount: rateSnapshot,
+          currency: transaction.rateCurrency,
+        },
+        quantity,
+        rateSnapshot,
+        grossAmount: calculateGrossAmount(quantity, rateSnapshot),
+      },
+    }
+  }
+  const { jobs } = await availableJobs(
+    conn,
+    Number(transaction.employee_id),
+    Number(transaction.site_id),
+    String(transaction.businessDateKey),
+    lock
+  )
+  const job = jobs.find((item) => item.uid === jobUid)
+  if (!job) {
+    throw new ApiError(
+      422,
+      'Pekerjaan tidak aktif, tidak ditugaskan, atau belum memiliki tarif pada tanggal transaksi.'
+    )
+  }
+  const unit = job.unit as {
+    uid: string
+    code: string
+    name: string
+    decimalPrecision: number
+  }
+  const rate = job.rate as { uid: string; amount: string; currency: string }
+  const quantity = normalizeQuantity(inputQuantity, unit.decimalPrecision)
+  const grossAmount = calculateGrossAmount(quantity, rate.amount)
+  const [targets] = await conn.query<RowDataPacket[]>(
+    `SELECT j.id jobId,r.id rateId,u.id unitId
+       FROM employee_job_assignments a
+       JOIN production_jobs j ON j.id=a.production_job_id AND j.uid=?
+       JOIN production_job_rates r
+         ON r.site_id=a.site_id AND r.production_job_id=a.production_job_id
+        AND r.status='ACTIVE' AND r.effective_from<=?
+        AND (r.effective_to IS NULL OR r.effective_to>=?)
+       JOIN work_units u ON u.id=r.unit_id AND u.is_active=1
+      WHERE a.employee_id=? AND a.site_id=?
+        AND a.effective_from<=?
+        AND (a.effective_to IS NULL OR a.effective_to>=?)
+      ${lock ? 'FOR UPDATE' : ''}`,
+    [
+      jobUid,
+      transaction.businessDateKey,
+      transaction.businessDateKey,
+      transaction.employee_id,
+      transaction.site_id,
+      transaction.businessDateKey,
+      transaction.businessDateKey,
+    ]
+  )
+  if (targets.length !== 1) {
+    throw new ApiError(422, 'Pekerjaan atau tarif koreksi tidak lagi tunggal.')
+  }
+  return {
+    jobs,
+    targetIds: {
+      jobId: Number(targets[0].jobId),
+      rateId: Number(targets[0].rateId),
+      unitId: Number(targets[0].unitId),
+    },
+    proposed: {
+      job: { uid: job.uid, code: job.code, name: job.name },
+      unit,
+      rate,
+      quantity,
+      rateSnapshot: rate.amount,
+      grossAmount,
+    },
+  }
+}
+
+function sourceJobOption(transaction: RowDataPacket) {
+  return {
+    uid: transaction.jobUid,
+    code: transaction.jobCode,
+    name: transaction.jobName,
+    isPrimary: false,
+    isCurrent: true,
+    unit: {
+      uid: transaction.unitUid,
+      code: transaction.unitCode,
+      name: transaction.unitName,
+      decimalPrecision: Number(transaction.decimalPrecision),
+    },
+    rate: {
+      uid: transaction.rateUid,
+      amount: normalizeStoredDecimal(transaction.rate_snapshot),
+      currency: transaction.rateCurrency,
+    },
+  }
+}
+
+async function correctionJobOptions(
+  conn: PoolConnection,
+  transaction: RowDataPacket
+) {
+  let jobs: Array<Record<string, unknown>> = []
+  try {
+    jobs = (
+      await availableJobs(
+        conn,
+        Number(transaction.employee_id),
+        Number(transaction.site_id),
+        String(transaction.businessDateKey)
+      )
+    ).jobs
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error
+  }
+  const current = sourceJobOption(transaction)
+  return [
+    current,
+    ...jobs.filter((job) => String(job.uid) !== String(transaction.jobUid)),
+  ]
+}
+
+function transactionSnapshot(row: RowDataPacket) {
+  return {
+    uid: String(row.uid),
+    transactionNumber: String(row.transaction_number),
+    employeeUid: String(row.employeeUid),
+    site: String(row.site),
+    businessDate: String(row.businessDateKey),
+    transactionAt: String(row.transactionTimestamp),
+    jobUid: String(row.jobUid),
+    job: {
+      uid: String(row.jobUid),
+      code: String(row.jobCode),
+      name: String(row.jobName),
+    },
+    unitUid: String(row.unitUid),
+    unit: {
+      uid: String(row.unitUid),
+      code: String(row.unitCode),
+      name: String(row.unitName),
+    },
+    quantity: normalizeStoredDecimal(row.quantity),
+    rateSnapshot: normalizeStoredDecimal(row.rate_snapshot),
+    grossAmount: normalizeStoredDecimal(row.gross_amount, 2),
+    status: String(row.status),
+  }
+}
+
+async function revisionReplay(
+  conn: PoolConnection,
+  source: RowDataPacket,
+  action: 'CORRECTION' | 'VOID',
+  idempotencyKey: string,
+  requestPayload: Record<string, string>
+) {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT pr.id,pr.uid,pr.production_transaction_id sourceId,
+            pr.replacement_transaction_id replacementId,
+            pr.revision_number revisionNumber,pr.revision_type revisionType,
+            pr.reason,pr.after_data afterData,
+            DATE_FORMAT(pr.revised_at,'%Y-%m-%dT%H:%i:%s+07:00') revisedAt
+       FROM production_transaction_revisions pr
+      WHERE pr.idempotency_key=? FOR UPDATE`,
+    [idempotencyKey]
+  )
+  const revision = rows[0]
+  if (!revision) return null
+  const afterData = parseJson(revision.afterData)
+  const storedRequest = (afterData?.request ?? null) as Record<string, unknown> | null
+  const matches =
+    Number(revision.sourceId) === Number(source.id) &&
+    revision.revisionType === action &&
+    storedRequest !== null &&
+    Object.entries(requestPayload).every(
+      ([key, value]) => String(storedRequest[key] ?? '') === value
+    )
+  if (!matches) {
+    throw new ApiError(409, 'Idempotency key sudah dipakai untuk revisi lain.')
+  }
+  return revision
+}
+
+function publicRevision(row: RowDataPacket) {
+  return {
+    uid: row.uid,
+    revisionNumber: Number(row.revisionNumber),
+    type: row.revisionType,
+    reason: row.reason,
+    revisedAt: row.revisedAt,
+    replacementTransactionUid: row.replacementUid ?? null,
+    revisedBy: row.revisedByUid
+      ? { uid: row.revisedByUid, name: row.revisedByName }
+      : null,
+    before: parseJson(row.beforeData),
+    after: parseJson(row.afterData),
+  }
+}
+
+async function transactionLifecycle(
+  conn: SqlExecutor,
+  transaction: RowDataPacket
+) {
+  const payrollLock = await payrollLockContext(conn, transaction, false)
+  const [revisions] = await conn.query<RowDataPacket[]>(
+    `SELECT pr.uid,pr.revision_number revisionNumber,
+            pr.revision_type revisionType,pr.reason,
+            pr.before_data beforeData,pr.after_data afterData,
+            DATE_FORMAT(pr.revised_at,'%Y-%m-%dT%H:%i:%s+07:00') revisedAt,
+            replacement.uid replacementUid,ru.uid revisedByUid,
+            ru.full_name revisedByName
+       FROM production_transaction_revisions pr
+       LEFT JOIN production_transactions replacement
+         ON replacement.id=pr.replacement_transaction_id
+       LEFT JOIN users ru ON ru.id=pr.revised_by
+      WHERE pr.production_transaction_id=?
+      ORDER BY pr.revision_number,pr.id`,
+    [transaction.id]
+  )
+  const [links] = await conn.query<RowDataPacket[]>(
+    `SELECT source.uid sourceUid,source.transaction_number sourceNumber,
+            replacement.uid replacementUid,
+            replacement.transaction_number replacementNumber
+       FROM production_transaction_revisions pr
+       JOIN production_transactions source ON source.id=pr.production_transaction_id
+       LEFT JOIN production_transactions replacement
+         ON replacement.id=pr.replacement_transaction_id
+      WHERE pr.production_transaction_id=? OR pr.replacement_transaction_id=?
+      ORDER BY pr.id DESC`,
+    [transaction.id, transaction.id]
+  )
+  const outgoing = links.find(
+    (row) => String(row.sourceUid) === String(transaction.uid) && row.replacementUid
+  )
+  const incoming = links.find(
+    (row) => String(row.replacementUid) === String(transaction.uid)
+  )
+  return {
+    payrollLocked: payrollLock.locked,
+    payrollLockReasons: payrollLock.reasons,
+    canCorrect: transaction.status === 'POSTED' && !payrollLock.locked,
+    canVoid: transaction.status === 'POSTED' && !payrollLock.locked,
+    revisions: revisions.map(publicRevision),
+    replacementTransaction: outgoing
+      ? { uid: outgoing.replacementUid, transactionNumber: outgoing.replacementNumber }
+      : null,
+    replacedTransaction: incoming
+      ? { uid: incoming.sourceUid, transactionNumber: incoming.sourceNumber }
       : null,
   }
 }
@@ -729,6 +1133,412 @@ productionTransactionsRouter.post(
 )
 
 productionTransactionsRouter.get(
+  '/transactions/:uid/correction-context',
+  requirePermission('production.correct'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      const uid = routeParam(req.params.uid)
+      if (!z.string().uuid().safeParse(uid).success) {
+        throw new ApiError(404, 'Transaksi Produksi tidak ditemukan.')
+      }
+      const auth = res.locals.auth as AuthContext
+      const source = await managedTransaction(conn, uid, auth)
+      const payrollLock = await payrollLockContext(conn, source, false)
+      const jobs = await correctionJobOptions(conn, source)
+      res.json({
+        transaction: await transactionResponse(conn, Number(source.id)),
+        jobs,
+        payrollLock,
+        canCorrect: source.status === 'POSTED' && !payrollLock.locked,
+        canVoid: source.status === 'POSTED' && !payrollLock.locked,
+      })
+    } catch (error) {
+      next(error)
+    } finally {
+      conn.release()
+    }
+  }
+)
+
+productionTransactionsRouter.post(
+  '/transactions/:uid/correction-preview',
+  requirePermission('production.correct'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      const uid = routeParam(req.params.uid)
+      if (!z.string().uuid().safeParse(uid).success) {
+        throw new ApiError(404, 'Transaksi Produksi tidak ditemukan.')
+      }
+      const input = productionCorrectionPreviewInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const source = await managedTransaction(conn, uid, auth)
+      const payrollLock = await payrollLockContext(conn, source, false)
+      assertPostedAndUnlocked(source, payrollLock)
+      const { proposed } = await correctionProposal(
+        conn,
+        source,
+        input.jobUid,
+        input.quantity
+      )
+      res.json({
+        source: await transactionResponse(conn, Number(source.id)),
+        proposed,
+        delta: {
+          quantity: subtractDecimal(
+            proposed.quantity,
+            normalizeStoredDecimal(source.quantity),
+            4
+          ),
+          grossAmount: subtractDecimal(
+            proposed.grossAmount,
+            normalizeStoredDecimal(source.gross_amount, 2),
+            2
+          ),
+        },
+        payrollLock,
+        canApply: true,
+      })
+    } catch (error) {
+      next(error)
+    } finally {
+      conn.release()
+    }
+  }
+)
+
+productionTransactionsRouter.post(
+  '/transactions/:uid/void-preview',
+  requirePermission('production.correct'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      productionVoidPreviewInput.parse(req.body ?? {})
+      const uid = routeParam(req.params.uid)
+      if (!z.string().uuid().safeParse(uid).success) {
+        throw new ApiError(404, 'Transaksi Produksi tidak ditemukan.')
+      }
+      const auth = res.locals.auth as AuthContext
+      const source = await managedTransaction(conn, uid, auth)
+      const payrollLock = await payrollLockContext(conn, source, false)
+      assertPostedAndUnlocked(source, payrollLock)
+      res.json({
+        source: await transactionResponse(conn, Number(source.id)),
+        impact: {
+          quantity: `-${normalizeStoredDecimal(source.quantity)}`,
+          grossAmount: `-${normalizeStoredDecimal(source.gross_amount, 2)}`,
+        },
+        payrollLock,
+        canApply: true,
+      })
+    } catch (error) {
+      next(error)
+    } finally {
+      conn.release()
+    }
+  }
+)
+
+productionTransactionsRouter.post(
+  '/transactions/:uid/correct',
+  requirePermission('production.correct'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      const uid = routeParam(req.params.uid)
+      if (!z.string().uuid().safeParse(uid).success) {
+        throw new ApiError(404, 'Transaksi Produksi tidak ditemukan.')
+      }
+      const input = productionCorrectionInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      await conn.beginTransaction()
+      const source = await managedTransaction(conn, uid, auth, true)
+      const replayPayload = {
+        jobUid: input.jobUid,
+        quantity: normalizeQuantity(input.quantity, 4),
+        reason: input.reason,
+      }
+      const replay = await revisionReplay(
+        conn,
+        source,
+        'CORRECTION',
+        input.idempotencyKey,
+        replayPayload
+      )
+      if (replay) {
+        await conn.commit()
+        return res.json({
+          duplicate: true,
+          message: 'Koreksi sebelumnya dikembalikan tanpa membuat revisi baru.',
+          sourceTransaction: await transactionResponse(conn, Number(source.id)),
+          transaction: await transactionResponse(conn, Number(replay.replacementId)),
+          revision: {
+            uid: replay.uid,
+            revisionNumber: Number(replay.revisionNumber),
+            type: replay.revisionType,
+            reason: replay.reason,
+            revisedAt: replay.revisedAt,
+          },
+        })
+      }
+      const payrollLock = await payrollLockContext(conn, source, true)
+      assertPostedAndUnlocked(source, payrollLock)
+      const { proposed, targetIds } = await correctionProposal(
+        conn,
+        source,
+        input.jobUid,
+        input.quantity,
+        true
+      )
+      const replacementUid = randomUUID()
+      const replacementNumber = `PRD-COR-${String(source.businessDateKey).replaceAll('-', '')}-${String(source.site)}-${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`
+      const [insertResult] = await conn.execute(
+        `INSERT INTO production_transactions(
+           uid,transaction_number,employee_id,site_id,work_group_id,
+           production_job_id,unit_id,job_rate_id,attendance_record_id,
+           scan_device_id,business_date,transaction_at,quantity,rate_snapshot,
+           gross_amount,status,notes,created_by,updated_by
+         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'POSTED',?,?,?)`,
+        [
+          replacementUid,
+          replacementNumber,
+          source.employee_id,
+          source.site_id,
+          source.work_group_id ?? null,
+          targetIds.jobId,
+          targetIds.unitId,
+          targetIds.rateId,
+          source.attendance_record_id,
+          source.scan_device_id ?? null,
+          source.businessDateKey,
+          source.transactionTimestamp,
+          proposed.quantity,
+          proposed.rateSnapshot,
+          proposed.grossAmount,
+          `Koreksi dari ${source.transaction_number}: ${input.reason}`,
+          auth.id,
+          auth.id,
+        ]
+      )
+      const replacementId = Number(
+        (insertResult as { insertId?: number }).insertId ?? 0
+      )
+      const before = transactionSnapshot(source)
+      const after = {
+        ...before,
+        uid: replacementUid,
+        transactionNumber: replacementNumber,
+        jobUid: proposed.job.uid,
+        job: proposed.job,
+        unitUid: proposed.unit.uid,
+        unit: {
+          uid: proposed.unit.uid,
+          code: proposed.unit.code,
+          name: proposed.unit.name,
+        },
+        quantity: proposed.quantity,
+        rateSnapshot: proposed.rateSnapshot,
+        grossAmount: proposed.grossAmount,
+        status: 'POSTED',
+        request: replayPayload,
+      }
+      const [revisionRows] = await conn.query<RowDataPacket[]>(
+        `SELECT COALESCE(MAX(revision_number),0)+1 revisionNumber
+           FROM production_transaction_revisions
+          WHERE production_transaction_id=? FOR UPDATE`,
+        [source.id]
+      )
+      const revisionNumber = Number(revisionRows[0]?.revisionNumber ?? 1)
+      const revisionUid = randomUUID()
+      await conn.execute(
+        `INSERT INTO production_transaction_revisions(
+           uid,production_transaction_id,replacement_transaction_id,
+           revision_number,revision_type,idempotency_key,before_data,after_data,
+           reason,revised_by,created_by,updated_by
+         ) VALUES(?,?,?,?,'CORRECTION',?,?,?,?,?,?,?)`,
+        [
+          revisionUid,
+          source.id,
+          replacementId,
+          revisionNumber,
+          input.idempotencyKey,
+          JSON.stringify(before),
+          JSON.stringify(after),
+          input.reason,
+          auth.id,
+          auth.id,
+          auth.id,
+        ]
+      )
+      const [updateResult] = await conn.execute(
+        `UPDATE production_transactions
+            SET status='VOID',voided_at=NOW(3),voided_by=?,void_reason=?,updated_by=?
+          WHERE id=? AND status='POSTED'`,
+        [auth.id, input.reason, auth.id, source.id]
+      )
+      if (Number((updateResult as { affectedRows?: number }).affectedRows) !== 1) {
+        throw new ApiError(409, 'Status transaksi berubah saat koreksi diproses.')
+      }
+      await writeAudit(
+        {
+          auth,
+          request: req,
+          module: 'PRODUCTION',
+          siteId: Number(source.site_id),
+          action: 'UPDATE',
+          table: 'production_transactions',
+          recordId: Number(source.id),
+          recordUid: String(source.uid),
+          description: `Mengoreksi setoran Produksi ${source.transaction_number}.`,
+          reason: input.reason,
+          beforeData: before,
+          afterData: after,
+        },
+        conn
+      )
+      await conn.commit()
+      res.status(201).json({
+        duplicate: false,
+        message: 'Koreksi setoran Produksi berhasil diterapkan.',
+        sourceTransaction: await transactionResponse(conn, Number(source.id)),
+        transaction: await transactionResponse(conn, replacementId),
+        revision: {
+          uid: revisionUid,
+          revisionNumber,
+          type: 'CORRECTION',
+          reason: input.reason,
+        },
+      })
+    } catch (error) {
+      await conn.rollback()
+      next(error)
+    } finally {
+      conn.release()
+    }
+  }
+)
+
+productionTransactionsRouter.post(
+  '/transactions/:uid/void',
+  requirePermission('production.correct'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      const uid = routeParam(req.params.uid)
+      if (!z.string().uuid().safeParse(uid).success) {
+        throw new ApiError(404, 'Transaksi Produksi tidak ditemukan.')
+      }
+      const input = productionVoidInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      await conn.beginTransaction()
+      const source = await managedTransaction(conn, uid, auth, true)
+      const replayPayload = { reason: input.reason }
+      const replay = await revisionReplay(
+        conn,
+        source,
+        'VOID',
+        input.idempotencyKey,
+        replayPayload
+      )
+      if (replay) {
+        await conn.commit()
+        return res.json({
+          duplicate: true,
+          message: 'Void sebelumnya dikembalikan tanpa membuat revisi baru.',
+          transaction: await transactionResponse(conn, Number(source.id)),
+          revision: {
+            uid: replay.uid,
+            revisionNumber: Number(replay.revisionNumber),
+            type: replay.revisionType,
+            reason: replay.reason,
+            revisedAt: replay.revisedAt,
+          },
+        })
+      }
+      const payrollLock = await payrollLockContext(conn, source, true)
+      assertPostedAndUnlocked(source, payrollLock)
+      const before = transactionSnapshot(source)
+      const after = {
+        ...before,
+        status: 'VOID',
+        request: replayPayload,
+      }
+      const [revisionRows] = await conn.query<RowDataPacket[]>(
+        `SELECT COALESCE(MAX(revision_number),0)+1 revisionNumber
+           FROM production_transaction_revisions
+          WHERE production_transaction_id=? FOR UPDATE`,
+        [source.id]
+      )
+      const revisionNumber = Number(revisionRows[0]?.revisionNumber ?? 1)
+      const revisionUid = randomUUID()
+      await conn.execute(
+        `INSERT INTO production_transaction_revisions(
+           uid,production_transaction_id,replacement_transaction_id,
+           revision_number,revision_type,idempotency_key,before_data,after_data,
+           reason,revised_by,created_by,updated_by
+         ) VALUES(?,?,NULL,?,'VOID',?,?,?,?,?,?,?)`,
+        [
+          revisionUid,
+          source.id,
+          revisionNumber,
+          input.idempotencyKey,
+          JSON.stringify(before),
+          JSON.stringify(after),
+          input.reason,
+          auth.id,
+          auth.id,
+          auth.id,
+        ]
+      )
+      const [updateResult] = await conn.execute(
+        `UPDATE production_transactions
+            SET status='VOID',voided_at=NOW(3),voided_by=?,void_reason=?,updated_by=?
+          WHERE id=? AND status='POSTED'`,
+        [auth.id, input.reason, auth.id, source.id]
+      )
+      if (Number((updateResult as { affectedRows?: number }).affectedRows) !== 1) {
+        throw new ApiError(409, 'Status transaksi berubah saat void diproses.')
+      }
+      await writeAudit(
+        {
+          auth,
+          request: req,
+          module: 'PRODUCTION',
+          siteId: Number(source.site_id),
+          action: 'UPDATE',
+          table: 'production_transactions',
+          recordId: Number(source.id),
+          recordUid: String(source.uid),
+          description: `Membatalkan setoran Produksi ${source.transaction_number}.`,
+          reason: input.reason,
+          beforeData: before,
+          afterData: after,
+        },
+        conn
+      )
+      await conn.commit()
+      res.json({
+        duplicate: false,
+        message: 'Setoran Produksi berhasil di-void.',
+        transaction: await transactionResponse(conn, Number(source.id)),
+        revision: {
+          uid: revisionUid,
+          revisionNumber,
+          type: 'VOID',
+          reason: input.reason,
+        },
+      })
+    } catch (error) {
+      await conn.rollback()
+      next(error)
+    } finally {
+      conn.release()
+    }
+  }
+)
+
+productionTransactionsRouter.get(
   '/transactions',
   requirePermission('production.view'),
   async (req, res, next) => {
@@ -862,15 +1672,14 @@ productionTransactionsRouter.get(
       if (!z.string().uuid().safeParse(uid).success) {
         throw new ApiError(404, 'Transaksi Produksi tidak ditemukan.')
       }
-      const scope = scopeWhere(auth)
-      const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT pt.id FROM production_transactions pt
-           JOIN sites s ON s.id=pt.site_id
-          WHERE pt.uid=? AND ${scope.sql}`,
-        [uid, ...scope.params]
-      )
-      if (!rows[0]) throw new ApiError(404, 'Transaksi Produksi tidak ditemukan.')
-      res.json({ transaction: await transactionResponse(pool, Number(rows[0].id)) })
+      const row = await managedTransaction(pool, uid, auth)
+      const transaction = await transactionResponse(pool, Number(row.id))
+      res.json({
+        transaction: {
+          ...transaction,
+          ...(await transactionLifecycle(pool, row)),
+        },
+      })
     } catch (error) {
       next(error)
     }

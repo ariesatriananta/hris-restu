@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import {
   flexRender,
   getCoreRowModel,
@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
+import { currentListReturnTo } from '@/lib/list-return-to'
 import { cn } from '@/lib/utils'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
@@ -563,6 +564,7 @@ function MonitoringTable({
   onReviewCorrection: (record: AttendanceMonitoringRecord) => void
   onClassify: (record: AttendanceMonitoringRecord) => void
 }) {
+  const returnTo = currentListReturnTo()
   const columns = useMemo<ColumnDef<AttendanceMonitoringRecord>[]>(
     () => [
       {
@@ -572,12 +574,17 @@ function MonitoringTable({
         ),
         cell: ({ row }) => (
           <div className='min-w-0'>
-            <p
-              className='truncate font-medium'
+            <Link
+              className='block truncate font-medium hover:underline'
               title={row.original.employeeName}
+              to='/karyawan/data-karyawan/$employeeUid'
+              params={{ employeeUid: row.original.employeeUid }}
+              search={{ returnTo }}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
             >
               {row.original.employeeName}
-            </p>
+            </Link>
             <p className='text-xs text-muted-foreground'>
               {monitoringSiteLabel(row.original.site)} -{' '}
               {row.original.employeeNumber}
@@ -717,7 +724,9 @@ function MonitoringTable({
                 <ClipboardCheck />
               </DataTableActionButton>
             )}
-            {canCorrect && !row.original.pendingCorrectionUid && (
+            {canCorrect &&
+              !row.original.pendingCorrectionUid &&
+              !row.original.hasAppliedClassification && (
               <DataTableActionButton
                 label='Ajukan koreksi'
                 onClick={() => onCorrect(row.original)}
@@ -746,6 +755,7 @@ function MonitoringTable({
       onCorrect,
       onOpenDetail,
       onReviewCorrection,
+      returnTo,
     ]
   )
   const url = useTableUrlState({
@@ -934,6 +944,7 @@ function MonitoringTable({
                 onCorrect={onCorrect}
                 onReviewCorrection={onReviewCorrection}
                 onClassify={onClassify}
+                returnTo={returnTo}
               />
             ))}
           </div>
@@ -956,6 +967,7 @@ function MobileRecord({
   onCorrect,
   onReviewCorrection,
   onClassify,
+  returnTo,
 }: {
   item: AttendanceMonitoringRecord
   canCorrect: boolean
@@ -965,12 +977,20 @@ function MobileRecord({
   onCorrect: (item: AttendanceMonitoringRecord) => void
   onReviewCorrection: (item: AttendanceMonitoringRecord) => void
   onClassify: (item: AttendanceMonitoringRecord) => void
+  returnTo?: string
 }) {
   return (
     <div className='space-y-3 rounded-lg border p-3'>
       <div className='flex items-start justify-between gap-2'>
         <div>
-          <p className='font-medium'>{item.employeeName}</p>
+          <Link
+            className='font-medium hover:underline'
+            to='/karyawan/data-karyawan/$employeeUid'
+            params={{ employeeUid: item.employeeUid }}
+            search={{ returnTo }}
+          >
+            {item.employeeName}
+          </Link>
           <p className='text-xs text-muted-foreground'>
             {monitoringSiteLabel(item.site)} - {item.employeeNumber}
           </p>
@@ -1016,7 +1036,9 @@ function MobileRecord({
           <ClipboardCheck /> Review koreksi menunggu
         </Button>
       )}
-      {canCorrect && !item.pendingCorrectionUid && (
+      {canCorrect &&
+        !item.pendingCorrectionUid &&
+        !item.hasAppliedClassification && (
         <Button
           variant='outline'
           className='w-full'

@@ -16,9 +16,16 @@ export const attendanceClassificationApprovalStatuses = [
 export const attendanceClassificationOutcomes = [
   'PENDING',
   'APPLIED',
+  'REVERSED',
   'SKIPPED_NON_WORKDAY',
   'SKIPPED_HOLIDAY',
 ] as const
+
+export const attendanceClassificationReversalInput = z
+  .object({
+    reason: z.string().trim().min(10).max(500),
+  })
+  .strict()
 
 export const attendanceClassificationRequestInput = z
   .object({

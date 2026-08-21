@@ -23,6 +23,7 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Aktivasi kontrak membuat status karyawan `ACTIVE` efektif sejak tanggal mulai kontrak, termasuk ketika HR terlambat menjalankan aktivasi. Aktivasi ditolak bila penyelarasan mundur akan melewati histori employment yang lebih baru.
 - Penugasan Shift pertama boleh dimundurkan paling awal ke tanggal terbesar antara go-live Attendance dan awal histori employment `ACTIVE` yang eligible pada site Shift. Karyawan yang pernah memiliki assignment hanya dapat memakai form penugasan biasa mulai hari ini atau masa depan.
 - Kesalahan assignment Shift yang sudah berlaku diperbaiki melalui Koreksi Penugasan Shift historis, bukan dengan menimpa atau menghapus histori. Koreksi diterapkan langsung oleh pengguna berizin `attendance.manage_shift`, wajib memiliki alasan dan preview dampak, menyusun ulang timeline tanpa overlap, merekonsiliasi snapshot Attendance tanpa mengubah scan mentah, serta menginvalidasi finalisasi terdampak. Koreksi diblokir untuk setoran produksi `POSTED`, payroll yang sudah dihitung/disetujui/ditutup, atau finalisasi yang sedang berjalan.
+- Klasifikasi Attendance `APPROVED` yang salah dibatalkan melalui reversal oleh pengguna berizin `attendance.approve`, bukan melalui Koreksi Attendance. Reversal wajib memiliki alasan, mempertahankan histori detail sebagai `REVERSED`, mengembalikan hari yang pernah diterapkan menjadi `ABSENT`, dan menginvalidasi finalisasi terkait. Reversal ditolak bila fakta Attendance sudah berubah, memiliki scan sukses atau setoran produksi `POSTED`, maupun sudah masuk perhitungan atau snapshot Payroll.
 - Attendance merupakan syarat setoran produksi pada business date yang sama.
 - Pekerja borongan dibayar berdasarkan hasil produksi, bukan durasi kerja.
 - Satu karyawan dapat melakukan setoran produksi lebih dari satu kali dalam sehari.
@@ -34,6 +35,17 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   ditimpa. Satu pekerja maksimal memiliki satu pekerjaan utama efektif pada
   tanggal yang sama.
 - Transaksi produksi menyimpan snapshot tarif agar histori tidak berubah saat tarif diperbarui.
+- Koreksi transaksi Produksi bersifat append-only dan dapat diterapkan langsung
+  oleh pengguna dengan permission `production.correct` atau `SUPER_ADMIN`, tanpa
+  approval. Koreksi hanya mengganti pekerjaan dan kuantitas: transaksi sumber
+  menjadi `VOID`, transaksi pengganti mempertahankan karyawan, site, tanggal,
+  waktu transaksi, Attendance, perangkat, dan kelompok kerja sumber, sedangkan
+  revision menyimpan snapshot before/after serta alasan. Void tanpa pengganti
+  juga wajib dicatat sebagai revision.
+- Koreksi dan void Produksi diblokir ketika transaksi sudah dikunci atau masuk
+  snapshot Payroll, berada pada periode `CALCULATED`, `APPROVED`, atau `CLOSED`,
+  maupun ketika run Payroll terkait sedang berjalan. Payroll `CLOSED` tidak
+  dapat dibuka dari modul Produksi.
 - Payroll draft/simulasi dapat dihitung ulang. Payroll yang sudah closing bersifat immutable.
 - Koreksi setelah payroll closing tidak termasuk scope saat ini.
 - Semua aksi penting dan koreksi harus dapat ditelusuri melalui audit trail.

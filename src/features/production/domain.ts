@@ -234,6 +234,122 @@ export type ProductionTransaction = {
     code: string
     name: string
   } | null
+  payrollLocked?: boolean
+  payrollLockedAt?: string | null
+  payrollLockReasons?: string[]
+  canCorrect?: boolean
+  canVoid?: boolean
+  voidedAt?: string | null
+  voidReason?: string | null
+  voidedBy?: ProductionTransactionActor | null
+  replacementTransaction?: ProductionTransactionLink | null
+  replacedTransaction?: ProductionTransactionLink | null
+  revisions?: ProductionTransactionRevision[]
+}
+
+export type ProductionTransactionActor = {
+  uid?: string
+  name: string
+}
+
+export type ProductionTransactionLink = {
+  uid: string
+  transactionNumber: string
+  status?: ProductionTransactionStatus
+}
+
+export type ProductionTransactionRevision = {
+  uid: string
+  revisionNumber?: number
+  type: 'CORRECTION' | 'VOID' | string
+  reason: string
+  revisedAt?: string
+  revisedBy?: ProductionTransactionActor | null
+  replacementTransactionUid?: string | null
+  before?: ProductionRevisionSnapshot | null
+  after?: ProductionRevisionSnapshot | null
+}
+
+export type ProductionRevisionSnapshot = {
+  uid?: string
+  transactionNumber?: string
+  businessDate?: string
+  transactionAt?: string
+  jobUid?: string
+  unitUid?: string
+  job?: { uid?: string; code?: string; name?: string } | null
+  unit?: { uid?: string; code?: string; name?: string } | null
+  quantity?: string | null
+  rateSnapshot?: string | null
+  grossAmount?: string | null
+  status?: ProductionTransactionStatus | null
+}
+
+export type ProductionCorrectionJob = {
+  uid: string
+  code: string
+  name: string
+  isPrimary: boolean
+  unit: {
+    uid: string
+    code: string
+    name: string
+    decimalPrecision: number
+  }
+  rate: {
+    uid: string
+    amount: string
+    currency: 'IDR'
+  }
+}
+
+export type ProductionPayrollLock = {
+  locked: boolean
+  reasons: string[]
+}
+
+export type ProductionCorrectionContext = {
+  transaction: ProductionTransaction
+  jobs: ProductionCorrectionJob[]
+  payrollLock: ProductionPayrollLock
+  canCorrect: boolean
+  canVoid: boolean
+}
+
+export type ProductionCorrectionPreview = {
+  source: ProductionTransaction
+  proposed: {
+    job: { uid: string; code: string; name: string }
+    unit: ProductionCorrectionJob['unit']
+    rate: ProductionCorrectionJob['rate']
+    quantity: string
+    rateSnapshot: string
+    grossAmount: string
+  }
+  delta: {
+    quantity: string
+    grossAmount: string
+  }
+  payrollLock: ProductionPayrollLock
+  canApply: boolean
+}
+
+export type ProductionVoidPreview = {
+  source: ProductionTransaction
+  impact: {
+    quantity: string
+    grossAmount: string
+  }
+  payrollLock: ProductionPayrollLock
+  canApply: boolean
+}
+
+export type ProductionRevisionResult = {
+  duplicate: boolean
+  message: string
+  transaction: ProductionTransaction
+  sourceTransaction?: ProductionTransaction
+  revision: ProductionTransactionRevision
 }
 
 export type ProductionPostResult = {
@@ -262,3 +378,16 @@ export type ProductionTransactionResult =
       totalGrossAmount: string
     }
   }
+
+export function canOfferProductionRevision(
+  transaction: Pick<ProductionTransaction, 'status' | 'payrollLocked'>,
+  hasCorrectPermission: boolean,
+  apiAllowsAction = true
+) {
+  return (
+    hasCorrectPermission &&
+    transaction.status === 'POSTED' &&
+    transaction.payrollLocked !== true &&
+    apiAllowsAction
+  )
+}

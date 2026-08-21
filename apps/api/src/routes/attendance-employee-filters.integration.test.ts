@@ -96,6 +96,8 @@ describe('Attendance historical employee filters API', () => {
       expect(params).toEqual(expect.arrayContaining(['BORONGAN', sectionUid, 'JEPARA']))
     }
     const listSql = String(mocks.query.mock.calls[1]?.[0])
+    expect(listSql).toContain("applied_classification.outcome='APPLIED'")
+    expect(listSql).toContain('hasAppliedClassification')
     expect(listSql).toContain('pending_correction.uid pendingCorrectionUid')
     expect(listSql).toContain("candidate.approval_status='PENDING'")
   })

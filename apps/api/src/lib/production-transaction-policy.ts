@@ -21,6 +21,29 @@ export const productionTerminalPostInput = z
   })
   .strict()
 
+export const productionCorrectionPreviewInput = z
+  .object({
+    jobUid: z.string().uuid(),
+    quantity: decimalInput,
+  })
+  .strict()
+
+export const productionCorrectionInput = productionCorrectionPreviewInput
+  .extend({
+    reason: z.string().trim().min(5).max(500),
+    idempotencyKey: z.string().uuid(),
+  })
+  .strict()
+
+export const productionVoidPreviewInput = z.object({}).strict()
+
+export const productionVoidInput = z
+  .object({
+    reason: z.string().trim().min(5).max(500),
+    idempotencyKey: z.string().uuid(),
+  })
+  .strict()
+
 export function normalizeQuantity(value: string, precision: number) {
   const match = /^(\d+)(?:\.(\d{1,4}))?$/.exec(value)
   if (!match) throw new ApiError(422, 'Kuantitas tidak valid.')
@@ -67,4 +90,12 @@ export function normalizeStoredDecimal(value: unknown, scale = 4) {
   return `${match[1].replace(/^0+(?=\d)/, '') || '0'}.${(match[2] ?? '')
     .padEnd(scale, '0')
     .slice(0, scale)}`
+}
+
+export function subtractDecimal(left: string, right: string, scale: number) {
+  const difference = decimalToScaled(left, scale) - decimalToScaled(right, scale)
+  const sign = difference < 0n ? '-' : ''
+  const absolute = difference < 0n ? -difference : difference
+  const divisor = 10n ** BigInt(scale)
+  return `${sign}${absolute / divisor}.${String(absolute % divisor).padStart(scale, '0')}`
 }
