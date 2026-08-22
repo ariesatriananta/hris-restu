@@ -351,4 +351,4 @@ Gunakan tindakan ini jika browser diganti, local storage terhapus, perangkat dip
 - Kembali ke [Indeks Attendance](../../KBASE_ATTENDANCE.md).
 - Lanjut ke [Operasional Harian Attendance](./KBASE_OPERASIONAL_HARIAN_ATTENDANCE.md).
 - Buka [Rekap Attendance](./KBASE_REKAP_ATTENDANCE.md) untuk hasil periode.
-- Lihat [KBase Kontrak Karyawan](../karyawan/KBASE_KONTRAK.md) jika eligibility terganggu oleh status atau histori kerja.
+- Lihat [Pengelolaan Kontrak](../karyawan/KBASE_PENGELOLAAN_KONTRAK.md) jika keikutsertaan attendance terganggu oleh status atau riwayat kerja.

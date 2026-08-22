@@ -1,5 +1,7 @@
 export const knowledgeArticleValues = [
-  'kontrak-karyawan',
+  'karyawan-master',
+  'karyawan-kontrak',
+  'karyawan-mutasi',
   'attendance-ringkasan',
   'attendance-pengaturan',
   'attendance-operasional',
@@ -21,10 +23,13 @@ export const legacyAttendanceArticleValues = [
 
 export const legacyProductionArticleValues = ['produksi-setoran'] as const
 
+export const legacyEmployeeArticleValues = ['kontrak-karyawan'] as const
+
 export const knowledgeArticleSearchValues = [
   ...knowledgeArticleValues,
   ...legacyAttendanceArticleValues,
   ...legacyProductionArticleValues,
+  ...legacyEmployeeArticleValues,
 ] as const
 
 export type KnowledgeArticleSearch =
@@ -36,9 +41,11 @@ export function normalizeKnowledgeArticle(
   if (!article) return undefined
   const legacyMap: Record<
     | (typeof legacyAttendanceArticleValues)[number]
-    | (typeof legacyProductionArticleValues)[number],
+    | (typeof legacyProductionArticleValues)[number]
+    | (typeof legacyEmployeeArticleValues)[number],
     KnowledgeArticle
   > = {
+    'kontrak-karyawan': 'karyawan-kontrak',
     ringkasan: 'attendance-ringkasan',
     pengaturan: 'attendance-pengaturan',
     operasional: 'attendance-operasional',

@@ -18,3 +18,21 @@ describe('artikel Knowledge Base Produksi', () => {
     )
   })
 })
+
+describe('artikel Knowledge Base Karyawan', () => {
+  it('menyediakan tiga panduan Karyawan yang terpisah', () => {
+    expect(knowledgeArticleValues).toEqual(
+      expect.arrayContaining([
+        'karyawan-master',
+        'karyawan-kontrak',
+        'karyawan-mutasi',
+      ])
+    )
+  })
+
+  it('mengarahkan tautan Kontrak Karyawan lama ke panduan baru', () => {
+    expect(normalizeKnowledgeArticle('kontrak-karyawan')).toBe(
+      'karyawan-kontrak'
+    )
+  })
+})

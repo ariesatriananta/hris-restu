@@ -20,6 +20,7 @@
     "build:api": "tsc -p apps/api/tsconfig.production.json",
     "test:api": "pnpm --filter @hris-restu/api test",
     "build": "node scripts/prepare-esbuild-binaries.mjs && tsc -b && vite build && tsc -p apps/api/tsconfig.production.json && node scripts/verify-production-build.mjs",
+    "postinstall": "npm run build",
     "start": "node server.js",
     "lint": "eslint .",
     "preview": "vite preview",

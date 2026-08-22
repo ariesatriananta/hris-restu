@@ -7,6 +7,7 @@ import {
   Factory,
   FileCog,
   FileText,
+  GitBranchPlus,
   Landmark,
   LayoutGrid,
   UsersRound,
@@ -22,7 +23,9 @@ import payrollOverview from '../../../docs/KBASE_PAYROLL.md?raw'
 import attendanceOperations from '../../../docs/kbase/attendance/KBASE_OPERASIONAL_HARIAN_ATTENDANCE.md?raw'
 import attendanceSettings from '../../../docs/kbase/attendance/KBASE_PENGATURAN_ATTENDANCE.md?raw'
 import attendanceRecap from '../../../docs/kbase/attendance/KBASE_REKAP_ATTENDANCE.md?raw'
-import employeeContracts from '../../../docs/kbase/karyawan/KBASE_KONTRAK.md?raw'
+import employeeMaster from '../../../docs/kbase/karyawan/KBASE_MASTER_KARYAWAN.md?raw'
+import employeeContracts from '../../../docs/kbase/karyawan/KBASE_PENGELOLAAN_KONTRAK.md?raw'
+import employeeMutations from '../../../docs/kbase/karyawan/KBASE_PENGELOLAAN_MUTASI.md?raw'
 import productionMaster from '../../../docs/kbase/production/KBASE_MASTER_PRODUKSI.md?raw'
 import productionRecap from '../../../docs/kbase/production/KBASE_REKAP_PRODUKSI.md?raw'
 import productionTransactions from '../../../docs/kbase/production/KBASE_TRANSAKSI_SETORAN_PRODUKSI.md?raw'
@@ -41,14 +44,34 @@ type ArticleDefinition = {
 
 const articles: ArticleDefinition[] = [
   {
-    value: 'kontrak-karyawan',
+    value: 'karyawan-master',
     group: 'Karyawan',
-    label: 'Kontrak Karyawan',
+    label: 'Master Karyawan',
+    description: 'Tambah, periksa, ubah, impor, dokumen, ID Card, dan barcode',
+    icon: UsersRound,
+    sourceName: 'KBASE_MASTER_KARYAWAN.md',
+    content: employeeMaster,
+    status: 'Aktif',
+  },
+  {
+    value: 'karyawan-kontrak',
+    group: 'Karyawan',
+    label: 'Pengelolaan Kontrak',
     description:
-      'Pembuatan, status, lifecycle, dokumen, dan pencetakan kontrak',
+      'Pembuatan, masa berlaku, aktivasi, perpanjangan, dokumen, dan cetak kontrak',
     icon: BriefcaseBusiness,
-    sourceName: 'KBASE_KONTRAK.md',
+    sourceName: 'KBASE_PENGELOLAAN_KONTRAK.md',
     content: employeeContracts,
+    status: 'Aktif',
+  },
+  {
+    value: 'karyawan-mutasi',
+    group: 'Karyawan',
+    label: 'Pengelolaan Mutasi',
+    description: 'Perubahan site, jabatan, jenis, dan penempatan produksi',
+    icon: GitBranchPlus,
+    sourceName: 'KBASE_PENGELOLAAN_MUTASI.md',
+    content: employeeMutations,
     status: 'Aktif',
   },
   {

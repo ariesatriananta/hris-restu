@@ -27,10 +27,12 @@ dieksekusi.
 
 Jangan memakai `vite preview` sebagai server production. Frontend dilayani
 Express dari `dist`. Entry panel harus `server.js` karena Hostinger memvalidasi
-entry sebelum build. Frontend dibuat di `dist`, lalu backend dikompilasi ke
-`dist/api` agar seluruh artefak berada dalam output standar yang dibawa ke
-runtime Hostinger. Bootstrap hanya memuat `dist/api/server.js`; runtime tidak
-menjalankan TypeScript, tsx, atau binary esbuild.
+entry sebelum build. Seperti deployment Logisya yang berjalan pada platform
+yang sama, lifecycle `postinstall` menjalankan build frontend dan backend saat
+instalasi dependency. Dengan begitu `dist` dan `dist-server` sudah tersedia saat
+Hostinger membentuk runtime snapshot. Bootstrap hanya memuat JavaScript hasil
+kompilasi `dist-server/server.js`; runtime tidak menjalankan TypeScript, tsx,
+atau binary esbuild.
 
 ## Environment variables
 
@@ -112,10 +114,12 @@ entry `server.js`, lalu deploy ulang dari commit terbaru. Bersihkan cache build
 bila log masih membaca konfigurasi lama. Instalasi yang benar
 membaca `package-lock.json` dan memakai `@zxing/library@0.21.3`, bukan 0.23.0.
 
-Jika runtime log menyebut `dist-server`, `tsx`, atau binary esbuild, deployment
-masih memakai bootstrap lama. Pastikan commit terbaru sudah menghasilkan
-`dist/api/server.js`, bersihkan cache, lalu redeploy. Tidak perlu mengulang
-migration database untuk error entry tersebut.
+Jika runtime log menyebut binary esbuild dari paket `tsx`, deployment masih
+memakai bootstrap lama yang mentranspilasi TypeScript saat runtime. Jika
+`dist-server/server.js` tidak ditemukan, periksa log instalasi: sebelum baris
+`added ... packages` selesai harus ada lifecycle `postinstall` yang menjalankan
+`npm run build` dan verifikasi kedua artefak. Bersihkan cache lalu redeploy;
+tidak perlu mengulang migration database untuk error entry tersebut.
 
 Jika esbuild gagal dengan `spawnSync ... EACCES`, pastikan commit memuat
 `scripts/prepare-esbuild-binaries.mjs`. Bila helper sudah berjalan tetapi Vite

@@ -5,7 +5,7 @@ process.env.NODE_ENV = 'production'
 process.env.TRUST_PROXY = '1'
 process.env.FRONTEND_ORIGIN = 'http://127.0.0.1'
 
-const { app } = await import('../dist/api/app.js')
+const { app } = await import('../dist-server/app.js')
 const server = app.listen(0, '127.0.0.1')
 
 try {
