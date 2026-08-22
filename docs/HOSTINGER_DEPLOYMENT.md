@@ -118,6 +118,11 @@ Jika runtime log menyebut `server.js` gagal menemukan
 Pastikan commit terbaru sudah memuat bootstrap `tsx/esm/api`, bersihkan cache,
 lalu redeploy. Tidak perlu mengulang migration database untuk error tersebut.
 
+Entry tidak boleh memakai top-level `await`. LiteSpeed memuat `server.js`
+melalui `require()`, sehingga bootstrap memakai dynamic `import()` dan menangani
+error lewat Runtime Log. Error `ERR_REQUIRE_ASYNC_MODULE` menandakan deployment
+masih memakai entry versi lama yang memiliki top-level `await`.
+
 Jika esbuild gagal dengan `spawnSync ... EACCES`, pastikan commit memuat
 `scripts/prepare-esbuild-binaries.mjs`. Bila helper sudah berjalan tetapi Vite
 tetap EACCES, minta Hostinger membersihkan dependency cache atau memeriksa mount
