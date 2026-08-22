@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DatePicker } from '@/components/date-picker'
@@ -40,6 +41,7 @@ import type {
   Shift,
   ShiftAssignment,
 } from './domain'
+import { availableHistoricalAssignmentShifts } from './shift-assignment-options'
 
 const weekdays = [
   { value: 1, label: 'Sen' },
@@ -76,6 +78,7 @@ export function ShiftAssignmentHistoryDialog({
       ? assignment.effectiveTo
       : today
   )
+  const [isOpenEnded, setIsOpenEnded] = useState(!assignment.effectiveTo)
   const [workDays, setWorkDays] = useState([...assignment.workDays])
   const [reason, setReason] = useState('')
   const [previewedSignature, setPreviewedSignature] = useState('')
@@ -86,7 +89,7 @@ export function ShiftAssignmentHistoryDialog({
     employeeUid: assignment.employeeUid,
     shiftUid,
     effectiveFrom,
-    effectiveTo,
+    effectiveTo: isOpenEnded ? null : effectiveTo,
     workDays: [...workDays].sort((a, b) => a - b),
   }
   const signature = JSON.stringify(input)
@@ -94,17 +97,15 @@ export function ShiftAssignmentHistoryDialog({
     previewedSignature === signature && Boolean(preview.data)
   const validRange =
     effectiveFrom >= goLiveDate &&
-    effectiveFrom <= effectiveTo &&
-    effectiveTo <= today
+    effectiveFrom <= today &&
+    (isOpenEnded || (effectiveFrom <= effectiveTo && effectiveTo <= today))
   const canPreview = Boolean(shiftUid && workDays.length && validRange)
   const canApply =
     previewIsCurrent &&
     preview.data?.canApply === true &&
     reason.trim().length >= 10 &&
     reason.trim().length <= 500
-  const availableShifts = shifts.filter(
-    (shift) => shift.site === assignment.site && shift.isActive
-  )
+  const availableShifts = availableHistoricalAssignmentShifts(shifts)
 
   const runPreview = () => {
     if (!canPreview) return
@@ -167,8 +168,8 @@ export function ShiftAssignmentHistoryDialog({
                 <SelectContent>
                   {availableShifts.map((shift) => (
                     <SelectItem key={shift.uid} value={shift.uid}>
-                      {shift.name} ({shift.startTime.slice(0, 5)}–
-                      {shift.endTime.slice(0, 5)})
+                      {shift.siteName} · {shift.name} (
+                      {shift.startTime.slice(0, 5)}–{shift.endTime.slice(0, 5)})
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -182,24 +183,56 @@ export function ShiftAssignmentHistoryDialog({
                   const next = dateOnlyToInput(date)
                   if (!next) return
                   setEffectiveFrom(next)
-                  if (effectiveTo < next) setEffectiveTo(next)
+                  if (!isOpenEnded && effectiveTo < next) setEffectiveTo(next)
                 }}
                 disabledDates={(date) => outsideRange(date, goLiveDate, today)}
               />
             </div>
             <div className='grid gap-1.5 text-sm'>
               <Label>Sampai tanggal</Label>
-              <DatePicker
-                selected={dateOnlyFromInput(effectiveTo)}
-                onSelect={(date) => {
-                  const next = dateOnlyToInput(date)
-                  if (next) setEffectiveTo(next)
-                }}
-                disabledDates={(date) =>
-                  outsideRange(date, effectiveFrom, today)
-                }
-              />
+              {isOpenEnded ? (
+                <div className='flex h-9 items-center rounded-md border bg-muted/40 px-3 font-medium text-muted-foreground'>
+                  Berlaku seterusnya
+                </div>
+              ) : (
+                <DatePicker
+                  selected={dateOnlyFromInput(effectiveTo)}
+                  onSelect={(date) => {
+                    const next = dateOnlyToInput(date)
+                    if (next) setEffectiveTo(next)
+                  }}
+                  disabledDates={(date) =>
+                    outsideRange(date, effectiveFrom, today)
+                  }
+                />
+              )}
             </div>
+          </div>
+
+          <div className='flex items-center justify-between gap-4 rounded-lg border bg-muted/20 p-3'>
+            <div className='space-y-0.5'>
+              <Label htmlFor='historical-assignment-open-ended'>
+                Berlaku seterusnya
+              </Label>
+              <p
+                id='historical-assignment-open-ended-help'
+                className='text-xs text-muted-foreground'
+              >
+                Penugasan tetap aktif sampai ada pergantian shift atau perubahan
+                status kerja berikutnya.
+              </p>
+            </div>
+            <Switch
+              id='historical-assignment-open-ended'
+              checked={isOpenEnded}
+              onCheckedChange={(checked) => {
+                setIsOpenEnded(checked)
+                if (!checked && effectiveTo < effectiveFrom) {
+                  setEffectiveTo(effectiveFrom)
+                }
+              }}
+              aria-describedby='historical-assignment-open-ended-help'
+            />
           </div>
 
           <div className='grid gap-1.5 text-sm'>
@@ -228,8 +261,9 @@ export function ShiftAssignmentHistoryDialog({
 
           {!validRange && (
             <p role='alert' className='text-sm text-destructive'>
-              Rentang koreksi harus berada antara {dateLabel(goLiveDate)} dan{' '}
-              {dateLabel(today)}.
+              {isOpenEnded
+                ? `Tanggal mulai koreksi harus berada antara ${dateLabel(goLiveDate)} dan ${dateLabel(today)}.`
+                : `Rentang koreksi harus berada antara ${dateLabel(goLiveDate)} dan ${dateLabel(today)}.`}
             </p>
           )}
 
@@ -293,7 +327,7 @@ export function ShiftAssignmentHistoryDialog({
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title='Terapkan koreksi penugasan?'
-        desc={`Timeline shift ${assignment.employeeName} pada ${dateLabel(effectiveFrom)}–${dateLabel(effectiveTo)} akan disusun ulang. Attendance terkait direkonsiliasi dan finalisasi terdampak harus dijalankan ulang.`}
+        desc={`Timeline shift ${assignment.employeeName} mulai ${dateLabel(effectiveFrom)} sampai ${isOpenEnded ? 'seterusnya' : dateLabel(effectiveTo)} akan disusun ulang. Attendance terkait direkonsiliasi dan finalisasi terdampak harus dijalankan ulang.`}
         confirmText='Ya, terapkan koreksi'
         isLoading={apply.isPending}
         handleConfirm={submit}
@@ -311,6 +345,12 @@ function HistoryPreview({ data }: { data: HistoricalShiftAssignmentPreview }) {
           <p className='text-xs text-muted-foreground'>
             Periksa timeline dan dampaknya sebelum diterapkan.
           </p>
+          {data.replacement.effectiveTo === null && (
+            <p className='text-xs text-muted-foreground'>
+              Dampak Attendance pada pratinjau dihitung sampai{' '}
+              {dateLabel(data.impactThroughDate)}.
+            </p>
+          )}
         </div>
         <Badge variant={data.canApply ? 'default' : 'destructive'}>
           {data.canApply ? (
@@ -444,6 +484,7 @@ function impactLabel(value: string) {
       approvedCorrectionCount: 'Koreksi disetujui',
       postedProductionCount: 'Produksi sudah diposting',
       lockedPayrollPeriodCount: 'Periode payroll terkunci',
+      payrollAttendanceSnapshotCount: 'Snapshot payroll terkait',
       runningFinalizationCount: 'Finalisasi sedang berjalan',
       finalizationToInvalidateCount: 'Finalisasi perlu diulang',
     }[value] ?? value

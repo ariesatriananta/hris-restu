@@ -680,6 +680,7 @@ attendanceRouter.get(
       const from = `FROM employee_shift_assignments esa
         JOIN employees e ON e.id=esa.employee_id
         JOIN employee_types et ON et.id=e.employee_type_id
+        JOIN employee_statuses es ON es.id=e.employee_status_id
         JOIN shifts sh ON sh.id=esa.shift_id
         JOIN sites s ON s.id=sh.site_id
         LEFT JOIN positions p ON p.id=e.current_position_id
@@ -692,7 +693,8 @@ attendanceRouter.get(
       )
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT esa.uid,e.uid employeeUid,e.employee_number employeeNumber,
-                e.full_name employeeName,et.code employeeType,p.name position,
+                e.full_name employeeName,et.code employeeType,
+                es.code employeeStatus,p.name position,
                 s.code site,
                 pm.uid productionModuleUid,pm.name productionModule,
                 ps.uid productionSectionUid,ps.name productionSection,

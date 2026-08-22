@@ -15,8 +15,8 @@ import {
   RefreshCcw,
   Trash2,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { currentListReturnTo } from '@/lib/list-return-to'
+import { cn } from '@/lib/utils'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -39,6 +39,7 @@ import type {
   PaginatedAttendanceResult,
   Shift,
   ShiftAssignment,
+  ShiftAssignmentEmployeeStatus,
 } from './domain'
 
 const fallbackSites = ['JEPARA', 'SEMARANG', 'KLATEN'].map((value) => ({
@@ -302,7 +303,7 @@ export function ShiftAssignmentTable({
         ),
         meta: {
           label: 'Karyawan',
-          className: 'w-[15%] px-2',
+          className: 'w-[14%] px-2',
           tdClassName: 'whitespace-normal',
         },
       },
@@ -314,7 +315,7 @@ export function ShiftAssignmentTable({
         cell: ({ row }) => <span>{titleCase(row.original.site)}</span>,
         filterFn: (row, id, value: string[]) =>
           value.includes(row.getValue(id)),
-        meta: { label: 'Penempatan', className: 'w-[8%] px-2' },
+        meta: { label: 'Penempatan', className: 'w-[7%] px-2' },
       },
       {
         accessorKey: 'employeeType',
@@ -338,7 +339,7 @@ export function ShiftAssignmentTable({
           value.includes(row.getValue(id)),
         meta: {
           label: 'Jenis & Jabatan',
-          className: 'w-[13%] px-2',
+          className: 'w-[12%] px-2',
           tdClassName: 'whitespace-normal',
         },
       },
@@ -365,7 +366,7 @@ export function ShiftAssignmentTable({
         ),
         meta: {
           label: 'Bagian Produksi',
-          className: 'w-[14%] px-2',
+          className: 'w-[13%] px-2',
           tdClassName: 'whitespace-normal',
         },
       },
@@ -401,7 +402,7 @@ export function ShiftAssignmentTable({
           value.includes(row.getValue(id)),
         meta: {
           label: 'Shift',
-          className: 'w-[14%] px-2',
+          className: 'w-[13%] px-2',
           tdClassName: 'whitespace-normal',
         },
       },
@@ -425,19 +426,41 @@ export function ShiftAssignmentTable({
         ),
         meta: {
           label: 'Periode & Hari',
-          className: 'w-[19%] px-2',
+          className: 'w-[17%] px-2',
           tdClassName: 'whitespace-normal leading-4',
+        },
+      },
+      {
+        accessorKey: 'employeeStatus',
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            column={column}
+            title={'Status\nKaryawan'}
+            className='[&_button]:px-0 [&_span]:text-left [&_span]:leading-4 [&_span]:whitespace-pre-line'
+          />
+        ),
+        cell: ({ row }) => (
+          <EmployeeStatus value={row.original.employeeStatus} />
+        ),
+        meta: {
+          label: 'Status Karyawan',
+          className: 'w-[8%] px-2',
+          tdClassName: 'whitespace-normal',
         },
       },
       {
         accessorKey: 'status',
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title='Status' />
+          <DataTableColumnHeader
+            column={column}
+            title={'Status\nPenugasan'}
+            className='[&_button]:px-0 [&_span]:text-left [&_span]:leading-4 [&_span]:whitespace-pre-line'
+          />
         ),
         cell: ({ row }) => <AssignmentStatus value={row.original.status} />,
         filterFn: (row, id, value: string[]) =>
           value.includes(row.getValue(id)),
-        meta: { label: 'Status', className: 'w-[9%] px-2' },
+        meta: { label: 'Status Penugasan', className: 'w-[8%] px-2' },
       },
       {
         id: 'actions',
@@ -535,7 +558,10 @@ export function ShiftAssignmentTable({
                   {assignment.employeeNumber} · {titleCase(assignment.site)}
                 </p>
               </div>
-              <AssignmentStatus value={assignment.status} />
+              <div className='flex flex-wrap justify-end gap-1'>
+                <EmployeeStatus value={assignment.employeeStatus} />
+                <AssignmentStatus value={assignment.status} />
+              </div>
             </div>
             <div className='text-sm'>
               <div className='mb-2 grid grid-cols-2 gap-3 text-xs'>
@@ -773,6 +799,33 @@ function AssignmentStatus({ value }: { value: ShiftAssignment['status'] }) {
           : value === 'UPCOMING'
             ? 'outline'
             : 'secondary'
+      }
+    >
+      {copy}
+    </Badge>
+  )
+}
+
+function EmployeeStatus({ value }: { value: ShiftAssignmentEmployeeStatus }) {
+  const copy = {
+    ACTIVE: 'Aktif',
+    LEAVE: 'Cuti',
+    RESIGNED: 'Resign',
+    INACTIVE: 'Nonaktif',
+  }[value]
+  return (
+    <Badge
+      variant={
+        value === 'RESIGNED'
+          ? 'destructive'
+          : value === 'LEAVE'
+            ? 'secondary'
+            : 'default'
+      }
+      className={
+        value === 'INACTIVE'
+          ? 'border-transparent bg-amber-500 text-white dark:bg-amber-600'
+          : undefined
       }
     >
       {copy}

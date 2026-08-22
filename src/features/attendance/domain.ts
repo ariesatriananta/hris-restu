@@ -230,6 +230,11 @@ export interface ShiftListParams {
 }
 
 export type ShiftAssignmentStatus = 'CURRENT' | 'UPCOMING' | 'ENDED'
+export type ShiftAssignmentEmployeeStatus =
+  | 'ACTIVE'
+  | 'LEAVE'
+  | 'RESIGNED'
+  | 'INACTIVE'
 
 export interface ShiftAssignment {
   uid: string
@@ -237,6 +242,7 @@ export interface ShiftAssignment {
   employeeNumber: string
   employeeName: string
   employeeType: AttendanceEmployeeType
+  employeeStatus: ShiftAssignmentEmployeeStatus
   position?: string
   site: AttendanceSiteCode
   productionModule?: string
@@ -305,7 +311,7 @@ export interface HistoricalShiftAssignmentInput {
   employeeUid: string
   shiftUid: string
   effectiveFrom: string
-  effectiveTo: string
+  effectiveTo: string | null
   workDays: number[]
 }
 
@@ -336,9 +342,10 @@ export interface HistoricalShiftAssignmentPreview {
     shiftName: string
     site: AttendanceSiteCode
     effectiveFrom: string
-    effectiveTo: string
+    effectiveTo: string | null
     workDays: number[]
   }
+  impactThroughDate: string
   timeline: HistoricalShiftAssignmentTimelineItem[]
   impact: {
     affectedAssignmentCount: number
@@ -348,6 +355,7 @@ export interface HistoricalShiftAssignmentPreview {
     approvedCorrectionCount: number
     postedProductionCount: number
     lockedPayrollPeriodCount: number
+    payrollAttendanceSnapshotCount: number
     runningFinalizationCount: number
     finalizationToInvalidateCount: number
   }

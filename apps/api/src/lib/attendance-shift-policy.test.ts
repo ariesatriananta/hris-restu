@@ -208,4 +208,40 @@ describe('historical shift assignment policy', () => {
       })
     ).toThrow()
   })
+
+  it('menerima koreksi seterusnya dan menyimpan effectiveTo sebagai null', () => {
+    const parsed = historicalShiftAssignmentApplyInput.parse({
+      employeeUid: '11111111-1111-4111-8111-111111111111',
+      shiftUid: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      effectiveFrom: '2026-08-03',
+      effectiveTo: null,
+      workDays: [5, 1, 3],
+      reason: 'Mengaktifkan kembali penugasan Shift paling akhir.',
+    })
+
+    expect(parsed.effectiveTo).toBeNull()
+    expect(parsed.workDays).toEqual([1, 3, 5])
+  })
+
+  it('mengganti ujung timeline menjadi assignment seterusnya tanpa segmen setelahnya', () => {
+    const result = planHistoricalShiftTimeline({
+      existing: [assignment({ effectiveTo: '2026-08-07' })],
+      replacement: { ...replacement, effectiveTo: null },
+    })
+
+    expect(result.affectedIds).toEqual([1])
+    expect(result.segments).toEqual([
+      expect.objectContaining({
+        shiftId: 10,
+        effectiveFrom: '2026-08-01',
+        effectiveTo: '2026-08-02',
+      }),
+      expect.objectContaining({
+        shiftId: 20,
+        effectiveFrom: '2026-08-03',
+        effectiveTo: null,
+        change: 'REPLACEMENT',
+      }),
+    ])
+  })
 })

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Router, type Request } from 'express'
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { Pool, PoolConnection } from 'mysql2/promise'
+import { ZodError } from 'zod'
 import { env } from '../config.js'
 import { pool } from '../db.js'
 import { resolveAttendanceCalendarDay } from '../lib/attendance-calendar.js'
@@ -26,7 +27,7 @@ type HistoryInput = {
   employeeUid: string
   shiftUid: string
   effectiveFrom: string
-  effectiveTo: string
+  effectiveTo: string | null
   workDays: number[]
 }
 
@@ -37,8 +38,57 @@ type HistoryContext = {
   timeline: ShiftAssignmentTimelineSegment[]
   affectedIds: number[]
   impact: Record<string, number>
+  affectedSiteIds: number[]
+  reconciliationTo: string
   blockers: string[]
   warnings: string[]
+}
+
+type ApplyStage =
+  | 'memeriksa data terbaru'
+  | 'menyusun ulang periode penugasan'
+  | 'menyesuaikan data Attendance'
+  | 'menandai finalisasi untuk diulang'
+  | 'mencatat histori perubahan'
+  | 'menyimpan perubahan'
+
+function historicalCorrectionError(error: unknown, stage: ApplyStage) {
+  if (error instanceof ApiError || error instanceof ZodError) return error
+
+  const databaseError = error as {
+    code?: string
+    errno?: number
+    sqlState?: string
+  }
+  process.stderr.write(`${JSON.stringify({
+    scope: 'attendance-shift-history',
+    message: 'Koreksi gagal.',
+    stage,
+    code: databaseError.code ?? 'UNKNOWN',
+    errno: databaseError.errno ?? null,
+    sqlState: databaseError.sqlState ?? null,
+  })}\n`)
+
+  if (
+    databaseError.code === 'ER_LOCK_DEADLOCK' ||
+    databaseError.code === 'ER_LOCK_WAIT_TIMEOUT'
+  ) {
+    return new ApiError(
+      409,
+      'Data Attendance sedang diproses oleh layanan lain. Tidak ada perubahan yang disimpan; tunggu sebentar lalu coba lagi.'
+    )
+  }
+  if (databaseError.code?.startsWith('ER_ROW_IS_REFERENCED')) {
+    return new ApiError(
+      409,
+      'Penugasan lama masih digunakan data Attendance terkait sehingga belum dapat diganti. Tidak ada perubahan yang disimpan.'
+    )
+  }
+
+  return new ApiError(
+    500,
+    `Koreksi shift gagal saat ${stage}. Tidak ada perubahan yang disimpan. Silakan coba lagi atau hubungi Administrator jika berulang.`
+  )
 }
 
 function enforceSite(auth: AuthContext, site: string) {
@@ -94,10 +144,11 @@ async function loadHistoryContext(
   const blockers: string[] = []
   const warnings: string[] = []
   const today = jakartaBusinessDate()
+  const reconciliationTo = input.effectiveTo ?? today
   if (input.effectiveFrom < env.ATTENDANCE_GO_LIVE_DATE) {
     blockers.push(`Tanggal mulai paling awal ${env.ATTENDANCE_GO_LIVE_DATE}.`)
   }
-  if (input.effectiveTo > today) {
+  if (input.effectiveFrom > today || (input.effectiveTo && input.effectiveTo > today)) {
     blockers.push('Koreksi historis tidak boleh melewati hari ini.')
   }
   if (Number(shift.isActive) !== 1) blockers.push('Shift tujuan sudah nonaktif.')
@@ -112,9 +163,9 @@ async function loadHistoryContext(
       WHERE eh.employee_id=? AND eh.effective_from<=?
         AND (eh.effective_to IS NULL OR eh.effective_to>=?)
       ORDER BY eh.effective_from,eh.id${lockSql}`,
-    [employee.id, input.effectiveTo, input.effectiveFrom]
+    [employee.id, reconciliationTo, input.effectiveFrom]
   )
-  for (const date of enumerateDates(input.effectiveFrom, input.effectiveTo)) {
+  for (const date of enumerateDates(input.effectiveFrom, reconciliationTo)) {
     const matches = employmentRows.filter(
       (row) =>
         String(row.effectiveFrom) <= date &&
@@ -127,10 +178,25 @@ async function loadHistoryContext(
       Number(matches[0].siteId) !== Number(shift.siteId)
     ) {
       blockers.push(
-        'Seluruh rentang wajib memiliki tepat satu histori kerja ACTIVE/eligible pada site Shift.'
+        'Pada sebagian tanggal yang dipilih, karyawan tidak tercatat aktif di site shift ini. Sesuaikan rentang tanggal atau pilih shift dari site yang sesuai.'
       )
       break
     }
+  }
+  if (
+    input.effectiveTo === null &&
+    !employmentRows.some(
+      (row) =>
+        !row.effectiveTo &&
+        String(row.effectiveFrom) <= today &&
+        row.status === 'ACTIVE' &&
+        Number(row.allowsAttendance) === 1 &&
+        Number(row.siteId) === Number(shift.siteId)
+    )
+  ) {
+    blockers.push(
+      'Penugasan tidak bisa berlaku seterusnya karena masa kerja karyawan di site shift ini memiliki tanggal akhir. Batasi tanggal penugasan atau pilih shift dari site karyawan saat ini.'
+    )
   }
 
   const [assignmentRows] = await executor.query<RowDataPacket[]>(
@@ -154,6 +220,39 @@ async function loadHistoryContext(
     effectiveTo: row.effectiveTo ? String(row.effectiveTo) : null,
     workDays: parseWorkDays(row.workDays),
   }))
+  if (
+    input.effectiveTo === null &&
+    existing.some((item) => item.effectiveFrom > input.effectiveFrom)
+  ) {
+    blockers.push(
+      'Penugasan hanya dapat dibuat seterusnya pada periode paling akhir. Masih ada penugasan Shift setelah tanggal mulai koreksi.'
+    )
+  }
+
+  if (input.effectiveTo === null) {
+    const [scheduledMutationRows] = await executor.query<RowDataPacket[]>(
+      `SELECT id FROM scheduled_employee_mutations
+        WHERE employee_id=? AND status IN ('SCHEDULED','FAILED')
+        ORDER BY effective_from,id LIMIT 1${lockSql}`,
+      [employee.id]
+    )
+    if (scheduledMutationRows[0]) {
+      blockers.push(
+        'Penugasan belum dapat dibuat seterusnya karena karyawan masih memiliki mutasi terjadwal yang belum diselesaikan.'
+      )
+    }
+    const [scheduledStatusRows] = await executor.query<RowDataPacket[]>(
+      `SELECT id FROM scheduled_employee_status_changes
+        WHERE employee_id=? AND status IN ('SCHEDULED','FAILED')
+        ORDER BY effective_date,id LIMIT 1${lockSql}`,
+      [employee.id]
+    )
+    if (scheduledStatusRows[0]) {
+      blockers.push(
+        'Penugasan belum dapat dibuat seterusnya karena karyawan masih memiliki perubahan status kerja terjadwal yang belum diselesaikan.'
+      )
+    }
+  }
   const plan = planHistoricalShiftTimeline({
     existing,
     replacement: {
@@ -171,6 +270,22 @@ async function loadHistoryContext(
       break
     }
   }
+
+  const [attendanceSiteRows] = await executor.query<RowDataPacket[]>(
+    `SELECT ar.id,ar.site_id siteId,s.code site
+       FROM attendance_records ar
+       JOIN sites s ON s.id=ar.site_id
+      WHERE ar.employee_id=? AND ar.business_date BETWEEN ? AND ?${lockSql}`,
+    [employee.id, input.effectiveFrom, reconciliationTo]
+  )
+  for (const row of attendanceSiteRows) enforceSite(auth, String(row.site))
+  const affectedSiteIds = [
+    ...new Set([
+      Number(shift.siteId),
+      ...attendanceSiteRows.map((row) => Number(row.siteId)),
+    ]),
+  ]
+  const affectedSitePlaceholders = affectedSiteIds.map(() => '?').join(',')
 
   const [impactRows] = await executor.query<RowDataPacket[]>(
     `SELECT
@@ -191,23 +306,33 @@ async function loadHistoryContext(
          WHERE pt.employee_id=? AND pt.business_date BETWEEN ? AND ?
            AND pt.status='POSTED') postedProduction,
        (SELECT COUNT(*) FROM payroll_periods pp
-         WHERE pp.site_id=? AND pp.period_start<=? AND pp.period_end>=?
+         WHERE pp.site_id IN (${affectedSitePlaceholders})
+           AND pp.period_start<=? AND pp.period_end>=?
            AND pp.status IN ('CALCULATED','APPROVED','CLOSED')) lockedPayrollPeriods,
+       (SELECT COUNT(*) FROM payroll_attendance_summaries pas
+         JOIN payroll_employee_results per ON per.id=pas.payroll_employee_result_id
+         JOIN payroll_periods pp ON pp.id=per.payroll_period_id
+        WHERE per.employee_id=?
+          AND pp.site_id IN (${affectedSitePlaceholders})
+          AND pp.period_start<=? AND pp.period_end>=?) payrollAttendanceSnapshots,
        (SELECT COUNT(*) FROM attendance_daily_finalization_runs afr
-         WHERE afr.site_id=? AND afr.business_date BETWEEN ? AND ?
+         WHERE afr.site_id IN (${affectedSitePlaceholders})
+           AND afr.business_date BETWEEN ? AND ?
            AND afr.status='RUNNING') runningFinalizations,
-       (SELECT COUNT(DISTINCT afr.business_date)
+       (SELECT COUNT(DISTINCT afr.site_id,afr.business_date)
           FROM attendance_daily_finalization_runs afr
-         WHERE afr.site_id=? AND afr.business_date BETWEEN ? AND ?) finalizationsToInvalidate`,
+         WHERE afr.site_id IN (${affectedSitePlaceholders})
+           AND afr.business_date BETWEEN ? AND ?) finalizationsToInvalidate`,
     [
-      employee.id, input.effectiveFrom, input.effectiveTo,
-      employee.id, input.effectiveFrom, input.effectiveTo,
-      employee.id, input.effectiveFrom, input.effectiveTo,
-      employee.id, input.effectiveFrom, input.effectiveTo,
-      employee.id, input.effectiveFrom, input.effectiveTo,
-      shift.siteId, input.effectiveTo, input.effectiveFrom,
-      shift.siteId, input.effectiveFrom, input.effectiveTo,
-      shift.siteId, input.effectiveFrom, input.effectiveTo,
+      employee.id, input.effectiveFrom, reconciliationTo,
+      employee.id, input.effectiveFrom, reconciliationTo,
+      employee.id, input.effectiveFrom, reconciliationTo,
+      employee.id, input.effectiveFrom, reconciliationTo,
+      employee.id, input.effectiveFrom, reconciliationTo,
+      ...affectedSiteIds, reconciliationTo, input.effectiveFrom,
+      employee.id, ...affectedSiteIds, reconciliationTo, input.effectiveFrom,
+      ...affectedSiteIds, input.effectiveFrom, reconciliationTo,
+      ...affectedSiteIds, input.effectiveFrom, reconciliationTo,
     ]
   )
   const rawImpact = impactRows[0]
@@ -219,21 +344,35 @@ async function loadHistoryContext(
       `SELECT id FROM production_transactions
         WHERE employee_id=? AND business_date BETWEEN ? AND ?
           AND status='POSTED' FOR UPDATE`,
-      [employee.id, input.effectiveFrom, input.effectiveTo]
+      [employee.id, input.effectiveFrom, reconciliationTo]
     )
     const [payrollLocks] = await executor.query<RowDataPacket[]>(
       `SELECT id FROM payroll_periods
-        WHERE site_id=? AND period_start<=? AND period_end>=?
+        WHERE site_id IN (${affectedSitePlaceholders})
+          AND period_start<=? AND period_end>=?
           AND status IN ('CALCULATED','APPROVED','CLOSED') FOR UPDATE`,
-      [shift.siteId, input.effectiveTo, input.effectiveFrom]
+      [...affectedSiteIds, reconciliationTo, input.effectiveFrom]
+    )
+    const [payrollSnapshotLocks] = await executor.query<RowDataPacket[]>(
+      `SELECT pas.id
+         FROM payroll_attendance_summaries pas
+         JOIN payroll_employee_results per ON per.id=pas.payroll_employee_result_id
+         JOIN payroll_periods pp ON pp.id=per.payroll_period_id
+        WHERE per.employee_id=?
+          AND pp.site_id IN (${affectedSitePlaceholders})
+          AND pp.period_start<=? AND pp.period_end>=?
+        FOR UPDATE`,
+      [employee.id, ...affectedSiteIds, reconciliationTo, input.effectiveFrom]
     )
     const [finalizationLocks] = await executor.query<RowDataPacket[]>(
       `SELECT id,status FROM attendance_daily_finalization_runs
-        WHERE site_id=? AND business_date BETWEEN ? AND ? FOR UPDATE`,
-      [shift.siteId, input.effectiveFrom, input.effectiveTo]
+        WHERE site_id IN (${affectedSitePlaceholders})
+          AND business_date BETWEEN ? AND ? FOR UPDATE`,
+      [...affectedSiteIds, input.effectiveFrom, reconciliationTo]
     )
     impact.postedProduction = productionLocks.length
     impact.lockedPayrollPeriods = payrollLocks.length
+    impact.payrollAttendanceSnapshots = payrollSnapshotLocks.length
     impact.runningFinalizations = finalizationLocks.filter(
       (row) => row.status === 'RUNNING'
     ).length
@@ -243,6 +382,9 @@ async function loadHistoryContext(
   }
   if (impact.lockedPayrollPeriods > 0) {
     blockers.push('Rentang menyentuh payroll yang sudah dihitung, disetujui, atau ditutup.')
+  }
+  if (impact.payrollAttendanceSnapshots > 0) {
+    blockers.push('Attendance sudah tersimpan dalam snapshot payroll dan tidak dapat dikoreksi.')
   }
   if (impact.runningFinalizations > 0) {
     blockers.push('Finalisasi Attendance sedang berjalan pada rentang ini.')
@@ -261,6 +403,8 @@ async function loadHistoryContext(
     timeline: plan.segments,
     affectedIds: plan.affectedIds,
     impact,
+    affectedSiteIds,
+    reconciliationTo,
     blockers: [...new Set(blockers)],
     warnings,
   }
@@ -291,9 +435,11 @@ function responseForContext(context: HistoryContext, input: HistoryInput) {
       approvedCorrectionCount: context.impact.approvedCorrections,
       postedProductionCount: context.impact.postedProduction,
       lockedPayrollPeriodCount: context.impact.lockedPayrollPeriods,
+      payrollAttendanceSnapshotCount: context.impact.payrollAttendanceSnapshots,
       runningFinalizationCount: context.impact.runningFinalizations,
       finalizationToInvalidateCount: context.impact.finalizationsToInvalidate,
     },
+    impactThroughDate: context.reconciliationTo,
     blockers: context.blockers,
     warnings: context.warnings,
     canApply: context.blockers.length === 0,
@@ -321,7 +467,7 @@ async function reconcileAttendance(
        FROM attendance_records ar
       WHERE ar.employee_id=? AND ar.business_date BETWEEN ? AND ?
       FOR UPDATE`,
-    [context.employee.id, input.effectiveFrom, input.effectiveTo]
+    [context.employee.id, input.effectiveFrom, context.reconciliationTo]
   )
   let reconciled = 0
   let removedSynthetic = 0
@@ -357,12 +503,12 @@ async function reconcileAttendance(
           SET site_id=?,shift_id=?,attendance_status=?,calendar_day_type=?,
               calendar_reason_type=?,calendar_event_id=?,calendar_site_rule_id=?,
               late_minutes=CASE
-                WHEN ?<>'WORKDAY' OR clock_in_at IS NULL THEN 0
+                WHEN ?=0 OR clock_in_at IS NULL THEN 0
                 WHEN TIMESTAMPDIFF(MINUTE,TIMESTAMP(business_date,?),clock_in_at)>?
                   THEN GREATEST(0,TIMESTAMPDIFF(MINUTE,TIMESTAMP(business_date,?),clock_in_at))
                 ELSE 0 END,
               early_leave_minutes=CASE
-                WHEN ?<>'WORKDAY' OR clock_out_at IS NULL THEN 0
+                WHEN ?=0 OR clock_out_at IS NULL THEN 0
                 WHEN TIMESTAMPDIFF(MINUTE,clock_out_at,
                   ${Number(context.shift.crossesMidnight) === 1 ? 'DATE_ADD(TIMESTAMP(business_date,?),INTERVAL 1 DAY)' : 'TIMESTAMP(business_date,?)'})>?
                   THEN GREATEST(0,TIMESTAMPDIFF(MINUTE,clock_out_at,
@@ -379,11 +525,11 @@ async function reconcileAttendance(
         calendar.reasonType,
         calendar.eventId,
         calendar.siteRuleId,
-        calendar.dayType,
+        calendar.dayType === 'WORKDAY' ? 1 : 0,
         context.shift.startTime,
         context.shift.lateToleranceMinutes,
         context.shift.startTime,
-        calendar.dayType,
+        calendar.dayType === 'WORKDAY' ? 1 : 0,
         context.shift.endTime,
         context.shift.earlyLeaveToleranceMinutes,
         context.shift.endTime,
@@ -399,7 +545,7 @@ async function reconcileAttendance(
         SET acd.shift_assignment_id=?,acd.updated_by=?
       WHERE acd.employee_id=? AND acd.business_date BETWEEN ? AND ?
         AND acr.approval_status='APPROVED'`,
-    [replacementAssignmentId, actorId, context.employee.id, input.effectiveFrom, input.effectiveTo]
+    [replacementAssignmentId, actorId, context.employee.id, input.effectiveFrom, context.reconciliationTo]
   )
   return { reconciled, removedSynthetic }
 }
@@ -429,8 +575,10 @@ attendanceShiftHistoryRouter.post(
   '/shift-assignments/history/apply',
   requirePermission('attendance.manage_shift'),
   async (req, res, next) => {
-    const conn = await pool.getConnection()
+    let conn: PoolConnection | null = null
+    let stage: ApplyStage = 'memeriksa data terbaru'
     try {
+      conn = await pool.getConnection()
       const input = historicalShiftAssignmentApplyInput.parse(req.body)
       const auth = res.locals.auth as AuthContext
       await conn.beginTransaction()
@@ -439,6 +587,7 @@ attendanceShiftHistoryRouter.post(
         throw new ApiError(409, context.blockers[0])
       }
 
+      stage = 'menyusun ulang periode penugasan'
       const affected = new Set(context.affectedIds)
       const insertedSegments: Array<{ id: number; uid: string; segment: ShiftAssignmentTimelineSegment }> = []
       for (const segment of context.timeline) {
@@ -474,6 +623,7 @@ attendanceShiftHistoryRouter.post(
       )
       if (!replacement) throw new Error('Assignment pengganti gagal dibuat.')
 
+      stage = 'menyesuaikan data Attendance'
       const attendance = await reconcileAttendance(
         conn,
         input,
@@ -481,6 +631,7 @@ attendanceShiftHistoryRouter.post(
         replacement.id,
         auth.id
       )
+      stage = 'menandai finalisasi untuk diulang'
       const [invalidated] = await conn.execute<ResultSetHeader>(
         `INSERT INTO attendance_daily_finalization_runs
           (uid,site_id,business_date,trigger_type,status,grace_minutes,reason,
@@ -489,15 +640,16 @@ attendanceShiftHistoryRouter.post(
                 JSON_OBJECT('invalidatedByShiftCorrection',TRUE),JSON_ARRAY(?),?,
                 CURRENT_TIMESTAMP(3),CURRENT_TIMESTAMP(3),?,?
            FROM attendance_daily_finalization_runs latest
-          WHERE latest.site_id=? AND latest.business_date BETWEEN ? AND ?
+           WHERE latest.site_id IN (${context.affectedSiteIds.map(() => '?').join(',')})
+             AND latest.business_date BETWEEN ? AND ?
             AND latest.id=(SELECT MAX(previous.id)
               FROM attendance_daily_finalization_runs previous
              WHERE previous.site_id=latest.site_id
                AND previous.business_date=latest.business_date)
             AND latest.status<>'RUNNING'`,
         [input.reason, 'Finalisasi perlu dijalankan ulang setelah koreksi histori Shift.',
-          auth.id, auth.id, auth.id, context.shift.siteId,
-          input.effectiveFrom, input.effectiveTo]
+          auth.id, auth.id, auth.id, ...context.affectedSiteIds,
+          input.effectiveFrom, context.reconciliationTo]
       )
       const splitAssignmentCount = insertedSegments.filter(
         (item) => item.segment.change === 'SPLIT'
@@ -505,6 +657,7 @@ attendanceShiftHistoryRouter.post(
       const adjustedAssignmentCount = insertedSegments.filter(
         (item) => item.segment.change !== 'REPLACEMENT'
       ).length
+      stage = 'mencatat histori perubahan'
       await writeAudit(
         {
           auth,
@@ -515,7 +668,7 @@ attendanceShiftHistoryRouter.post(
           table: 'employee_shift_assignments',
           recordId: replacement.id,
           recordUid: replacement.uid,
-          description: `Mengoreksi histori Shift ${context.employee.fullName} untuk ${input.effectiveFrom} s.d. ${input.effectiveTo}.`,
+          description: `Mengoreksi histori Shift ${context.employee.fullName} untuk ${input.effectiveFrom} s.d. ${input.effectiveTo ?? 'seterusnya'}.`,
           reason: input.reason,
           beforeData: { assignments: context.existing },
           afterData: {
@@ -527,6 +680,7 @@ attendanceShiftHistoryRouter.post(
         },
         conn
       )
+      stage = 'menyimpan perubahan'
       await conn.commit()
       res.status(201).json({
         assignmentUid: replacement.uid,
@@ -538,10 +692,22 @@ attendanceShiftHistoryRouter.post(
         invalidatedFinalizationCount: invalidated.affectedRows,
       })
     } catch (error) {
-      await conn.rollback()
-      next(error)
+      if (conn) {
+        try {
+          await conn.rollback()
+        } catch (rollbackError) {
+          const databaseError = rollbackError as { code?: string; errno?: number }
+          process.stderr.write(`${JSON.stringify({
+            scope: 'attendance-shift-history',
+            message: 'Rollback koreksi gagal.',
+            code: databaseError.code ?? 'UNKNOWN',
+            errno: databaseError.errno ?? null,
+          })}\n`)
+        }
+      }
+      next(historicalCorrectionError(error, stage))
     } finally {
-      conn.release()
+      conn?.release()
     }
   }
 )

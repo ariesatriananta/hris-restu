@@ -70,14 +70,14 @@ const historicalAssignmentBase = z
     employeeUid: z.string().uuid(),
     shiftUid: z.string().uuid(),
     effectiveFrom: z.string().date(),
-    effectiveTo: z.string().date(),
+    effectiveTo: z.string().date().optional().nullable(),
     workDays: z
       .array(z.number().int().min(1).max(7))
       .min(1, 'Pilih minimal satu hari kerja.'),
   })
   .strict()
   .superRefine((value, context) => {
-    if (value.effectiveTo < value.effectiveFrom) {
+    if (value.effectiveTo && value.effectiveTo < value.effectiveFrom) {
       context.addIssue({
         code: 'custom',
         path: ['effectiveTo'],
@@ -96,6 +96,7 @@ const historicalAssignmentBase = z
 export const historicalShiftAssignmentPreviewInput = historicalAssignmentBase
   .transform((value) => ({
     ...value,
+    effectiveTo: value.effectiveTo ?? null,
     workDays: [...value.workDays].sort((a, b) => a - b),
   }))
 
@@ -105,6 +106,7 @@ export const historicalShiftAssignmentApplyInput = historicalAssignmentBase
   })
   .transform((value) => ({
     ...value,
+    effectiveTo: value.effectiveTo ?? null,
     workDays: [...value.workDays].sort((a, b) => a - b),
   }))
 
