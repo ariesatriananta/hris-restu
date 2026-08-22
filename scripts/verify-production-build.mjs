@@ -1,7 +1,7 @@
 import { access } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-const requiredArtifacts = ['dist/index.html', 'dist-server/server.js']
+const requiredArtifacts = ['dist/index.html', 'dist/api/server.js']
 
 for (const artifact of requiredArtifacts) {
   const absolutePath = resolve(process.cwd(), artifact)

@@ -1,12 +1,3 @@
-// LiteSpeed Hostinger memuat entry melalui require(). Hindari top-level await
-// supaya graph ESM ini tetap dapat di-require, lalu bootstrap API secara async.
-void import('tsx/esm/api')
-  .then(({ register }) => {
-    register()
-    return import('./apps/api/src/server.ts')
-  })
-  .catch((error) => {
-    // Pastikan kegagalan bootstrap muncul jelas pada Runtime Log Hostinger.
-    console.error('Gagal menjalankan HRIS API.', error)
-    process.exitCode = 1
-  })
+// Hostinger memuat entry ini melalui require(). Backend sudah dikompilasi saat
+// build ke output standar dist agar runtime tidak membutuhkan tsx/esbuild.
+import './dist/api/server.js'

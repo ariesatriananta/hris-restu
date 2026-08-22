@@ -27,11 +27,10 @@ dieksekusi.
 
 Jangan memakai `vite preview` sebagai server production. Frontend dilayani
 Express dari `dist`. Entry panel harus `server.js` karena Hostinger memvalidasi
-entry sebelum build dan hanya menjamin file entry yang sudah ada di source ikut
-runtime. Bootstrap tersebut mendaftarkan loader TypeScript production lalu
-menjalankan source API di `apps/api/src/server.ts`. Build tetap melakukan
-type-check dan menghasilkan `dist-server` sebagai verifikasi bahwa backend dapat
-dikompilasi, tetapi runtime tidak bergantung pada folder build tambahan itu.
+entry sebelum build. Frontend dibuat di `dist`, lalu backend dikompilasi ke
+`dist/api` agar seluruh artefak berada dalam output standar yang dibawa ke
+runtime Hostinger. Bootstrap hanya memuat `dist/api/server.js`; runtime tidak
+menjalankan TypeScript, tsx, atau binary esbuild.
 
 ## Environment variables
 
@@ -113,15 +112,10 @@ entry `server.js`, lalu deploy ulang dari commit terbaru. Bersihkan cache build
 bila log masih membaca konfigurasi lama. Instalasi yang benar
 membaca `package-lock.json` dan memakai `@zxing/library@0.21.3`, bukan 0.23.0.
 
-Jika runtime log menyebut `server.js` gagal menemukan
-`nodejs/dist-server/server.js`, berarti deployment masih memakai wrapper lama.
-Pastikan commit terbaru sudah memuat bootstrap `tsx/esm/api`, bersihkan cache,
-lalu redeploy. Tidak perlu mengulang migration database untuk error tersebut.
-
-Entry tidak boleh memakai top-level `await`. LiteSpeed memuat `server.js`
-melalui `require()`, sehingga bootstrap memakai dynamic `import()` dan menangani
-error lewat Runtime Log. Error `ERR_REQUIRE_ASYNC_MODULE` menandakan deployment
-masih memakai entry versi lama yang memiliki top-level `await`.
+Jika runtime log menyebut `dist-server`, `tsx`, atau binary esbuild, deployment
+masih memakai bootstrap lama. Pastikan commit terbaru sudah menghasilkan
+`dist/api/server.js`, bersihkan cache, lalu redeploy. Tidak perlu mengulang
+migration database untuk error entry tersebut.
 
 Jika esbuild gagal dengan `spawnSync ... EACCES`, pastikan commit memuat
 `scripts/prepare-esbuild-binaries.mjs`. Bila helper sudah berjalan tetapi Vite
