@@ -4,7 +4,9 @@ export const knowledgeArticleValues = [
   'attendance-pengaturan',
   'attendance-operasional',
   'attendance-rekap',
-  'produksi-setoran',
+  'produksi-master',
+  'produksi-transaksi',
+  'produksi-rekap',
   'payroll',
 ] as const
 
@@ -17,9 +19,12 @@ export const legacyAttendanceArticleValues = [
   'rekap',
 ] as const
 
+export const legacyProductionArticleValues = ['produksi-setoran'] as const
+
 export const knowledgeArticleSearchValues = [
   ...knowledgeArticleValues,
   ...legacyAttendanceArticleValues,
+  ...legacyProductionArticleValues,
 ] as const
 
 export type KnowledgeArticleSearch =
@@ -30,13 +35,15 @@ export function normalizeKnowledgeArticle(
 ): KnowledgeArticle | undefined {
   if (!article) return undefined
   const legacyMap: Record<
-    (typeof legacyAttendanceArticleValues)[number],
+    | (typeof legacyAttendanceArticleValues)[number]
+    | (typeof legacyProductionArticleValues)[number],
     KnowledgeArticle
   > = {
     ringkasan: 'attendance-ringkasan',
     pengaturan: 'attendance-pengaturan',
     operasional: 'attendance-operasional',
     rekap: 'attendance-rekap',
+    'produksi-setoran': 'produksi-transaksi',
   }
   return article in legacyMap
     ? legacyMap[article as keyof typeof legacyMap]

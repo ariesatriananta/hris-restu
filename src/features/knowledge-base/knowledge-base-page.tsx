@@ -19,11 +19,13 @@ import { Separator } from '@/components/ui/separator'
 import { Main } from '@/components/layout/main'
 import attendanceOverview from '../../../docs/KBASE_ATTENDANCE.md?raw'
 import payrollOverview from '../../../docs/KBASE_PAYROLL.md?raw'
-import productionOverview from '../../../docs/KBASE_SETORAN_PRODUKSI.md?raw'
 import attendanceOperations from '../../../docs/kbase/attendance/KBASE_OPERASIONAL_HARIAN_ATTENDANCE.md?raw'
 import attendanceSettings from '../../../docs/kbase/attendance/KBASE_PENGATURAN_ATTENDANCE.md?raw'
 import attendanceRecap from '../../../docs/kbase/attendance/KBASE_REKAP_ATTENDANCE.md?raw'
 import employeeContracts from '../../../docs/kbase/karyawan/KBASE_KONTRAK.md?raw'
+import productionMaster from '../../../docs/kbase/production/KBASE_MASTER_PRODUKSI.md?raw'
+import productionRecap from '../../../docs/kbase/production/KBASE_REKAP_PRODUKSI.md?raw'
+import productionTransactions from '../../../docs/kbase/production/KBASE_TRANSAKSI_SETORAN_PRODUKSI.md?raw'
 import type { KnowledgeArticle } from './domain'
 
 type ArticleDefinition = {
@@ -90,14 +92,34 @@ const articles: ArticleDefinition[] = [
     status: 'Aktif',
   },
   {
-    value: 'produksi-setoran',
+    value: 'produksi-master',
     group: 'Produksi Borongan',
-    label: 'Setoran Produksi',
-    description: 'Ruang lingkup dan status dokumentasi Setoran Produksi',
+    label: 'Master Produksi',
+    description: 'Pekerjaan, satuan, tarif per site, dan penugasan pekerja',
+    icon: FileCog,
+    sourceName: 'KBASE_MASTER_PRODUKSI.md',
+    content: productionMaster,
+    status: 'Aktif',
+  },
+  {
+    value: 'produksi-transaksi',
+    group: 'Produksi Borongan',
+    label: 'Transaksi Setoran',
+    description: 'Terminal setoran, transaksi, koreksi, dan setoran susulan',
     icon: Factory,
-    sourceName: 'KBASE_SETORAN_PRODUKSI.md',
-    content: productionOverview,
-    status: 'Kerangka',
+    sourceName: 'KBASE_TRANSAKSI_SETORAN_PRODUKSI.md',
+    content: productionTransactions,
+    status: 'Aktif',
+  },
+  {
+    value: 'produksi-rekap',
+    group: 'Produksi Borongan',
+    label: 'Rekap Produksi',
+    description: 'Membaca hasil produksi, nilai bruto, detail, dan ekspor',
+    icon: ClipboardList,
+    sourceName: 'KBASE_REKAP_PRODUKSI.md',
+    content: productionRecap,
+    status: 'Aktif',
   },
   {
     value: 'payroll',
