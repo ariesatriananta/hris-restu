@@ -5,7 +5,9 @@ process.env.NODE_ENV = 'production'
 process.env.TRUST_PROXY = '1'
 process.env.FRONTEND_ORIGIN = 'http://127.0.0.1'
 
-const { app } = await import('../dist-server/app.js')
+const { register } = await import('tsx/esm/api')
+register()
+const { app } = await import('../apps/api/src/app.ts')
 const server = app.listen(0, '127.0.0.1')
 
 try {

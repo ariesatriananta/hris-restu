@@ -26,11 +26,12 @@ helper yang kompatibel dengan npm dan pnpm untuk memastikan binary esbuild dapat
 dieksekusi.
 
 Jangan memakai `vite preview` sebagai server production. Frontend dilayani
-Express dari `dist`. Backend dibangun ke `dist-server/server.js`; jangan arahkan
-entry ke `apps/api/dist/server.js`. Entry panel tetap `server.js`, yaitu file
-tipis yang memuat artefak backend tersebut. Tahap akhir build memverifikasi
-`dist/index.html` dan `dist-server/server.js` agar kegagalan terdeteksi saat
-build, bukan baru menjadi 503 ketika startup.
+Express dari `dist`. Entry panel harus `server.js` karena Hostinger memvalidasi
+entry sebelum build dan hanya menjamin file entry yang sudah ada di source ikut
+runtime. Bootstrap tersebut mendaftarkan loader TypeScript production lalu
+menjalankan source API di `apps/api/src/server.ts`. Build tetap melakukan
+type-check dan menghasilkan `dist-server` sebagai verifikasi bahwa backend dapat
+dikompilasi, tetapi runtime tidak bergantung pada folder build tambahan itu.
 
 ## Environment variables
 
@@ -109,8 +110,13 @@ deployment normal.
 
 Ubah package manager hPanel menjadi npm, pastikan root `./`, Node.js `22.x`, dan
 entry `server.js`, lalu deploy ulang dari commit terbaru. Bersihkan cache build
-bila log masih membaca konfigurasi lama. Instalasi yang benar membaca
-`package-lock.json` dan memakai `@zxing/library@0.21.3`, bukan 0.23.0.
+bila log masih membaca konfigurasi lama. Instalasi yang benar
+membaca `package-lock.json` dan memakai `@zxing/library@0.21.3`, bukan 0.23.0.
+
+Jika runtime log menyebut `server.js` gagal menemukan
+`nodejs/dist-server/server.js`, berarti deployment masih memakai wrapper lama.
+Pastikan commit terbaru sudah memuat bootstrap `tsx/esm/api`, bersihkan cache,
+lalu redeploy. Tidak perlu mengulang migration database untuk error tersebut.
 
 Jika esbuild gagal dengan `spawnSync ... EACCES`, pastikan commit memuat
 `scripts/prepare-esbuild-binaries.mjs`. Bila helper sudah berjalan tetapi Vite

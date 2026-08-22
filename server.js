@@ -1,3 +1,7 @@
-// Fallback entry untuk platform yang masih menunjuk server.js.
-// Build produksi utama berada di root dist-server agar ikut runtime bundle.
-import './dist-server/server.js'
+// Entry runtime Hostinger harus berupa file yang sudah ada sebelum build.
+// Register tsx secara programatis supaya source API workspace yang ikut paket
+// deployment dapat dijalankan tanpa bergantung pada folder build tambahan.
+import { register } from 'tsx/esm/api'
+
+register()
+await import('./apps/api/src/server.ts')
