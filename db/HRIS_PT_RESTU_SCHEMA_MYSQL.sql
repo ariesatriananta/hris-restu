@@ -1450,6 +1450,9 @@ CREATE TABLE payroll_periods (
   approved_by BIGINT UNSIGNED NULL,
   closed_at DATETIME(3) NULL,
   closed_by BIGINT UNSIGNED NULL,
+  cancelled_at DATETIME(3) NULL,
+  cancelled_by BIGINT UNSIGNED NULL,
+  cancellation_reason VARCHAR(500) NULL,
   notes VARCHAR(500) NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   created_by BIGINT UNSIGNED NULL,
@@ -1460,10 +1463,13 @@ CREATE TABLE payroll_periods (
   UNIQUE KEY uq_payroll_periods_site_code (site_id, period_code),
   KEY idx_payroll_periods_site_dates (site_id, period_start, period_end),
   KEY idx_payroll_periods_status (status),
+  KEY idx_payroll_periods_cancelled_by (cancelled_by),
   CONSTRAINT chk_payroll_period_dates CHECK (period_end >= period_start),
   CONSTRAINT chk_payroll_period_basis CHECK (payroll_basis IN ('PIECE_RATE', 'MONTHLY')),
   CONSTRAINT chk_payroll_period_status CHECK (status IN ('DRAFT', 'CALCULATED', 'APPROVED', 'CLOSED', 'CANCELLED')),
-  CONSTRAINT fk_payroll_period_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT
+  CONSTRAINT chk_payroll_period_cancellation CHECK ((status='CANCELLED' AND cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL AND CHAR_LENGTH(TRIM(cancellation_reason))>=5) OR (status<>'CANCELLED' AND cancelled_at IS NULL AND cancelled_by IS NULL AND cancellation_reason IS NULL)),
+  CONSTRAINT fk_payroll_period_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_payroll_period_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users (id) ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE payroll_runs (

@@ -62,6 +62,33 @@ lulus test dan exit criteria sebelum milestone berikutnya dimulai.
   Produksi, rekening karyawan, dan komponen yang belum siap.
 - Belum menghitung nominal Payroll.
 
+Keputusan implementasi:
+
+- Readiness dihitung live dengan status `READY`, `ATTENTION`, atau `BLOCKED`;
+  tidak membuat run maupun snapshot.
+- Periode boleh dibuat untuk masa depan, tetapi belum siap sampai tanggal
+  akhirnya sudah lewat.
+- Rekening tidak lengkap menjadi perhatian pada Milestone 1 dan baru menjadi
+  blocker approval/closing pada Milestone 3.
+- Periode `DRAFT` tidak diedit. Kesalahan diperbaiki dengan membatalkan periode
+  disertai alasan, lalu membuat periode baru.
+- Kode periode dibuat server dan nama periode dapat diisi opsional.
+- Tanggal pembayaran opsional dan tidak boleh sebelum akhir periode.
+- Populasi mengambil transaksi Produksi `POSTED` historis dan komponen efektif,
+  sehingga karyawan yang kini resign/nonaktif tetap dapat dibayar.
+- Komponen manual per periode baru dibuka bersama Milestone 2.
+
+### Exit criteria Milestone 1
+
+- Pembuatan periode aman terhadap request paralel dan menolak overlap pada site
+  yang sama.
+- Pembatalan hanya berlaku pada `DRAFT`, beralasan, dan tercatat dalam audit.
+- Readiness mengikuti site/rentang periode dan tidak mengunci sumber data.
+- Permission dan site scope ditegakkan API, bukan hanya disembunyikan di UI.
+- Halaman desktop/mobile memiliki loading, error, empty state, filter URL, detail
+  kesiapan, serta aksi sesuai permission.
+- Test, typecheck, lint, dan production build lulus.
+
 ## Milestone 2 - Simulasi `PIECE_RATE`
 
 - Jalankan kalkulasi transactional dan idempotent.
