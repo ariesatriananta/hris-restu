@@ -27,6 +27,7 @@ import {
 } from '../lib/attendance-employee-filter.js'
 import { ApiError } from '../lib/errors.js'
 import { resolveAttendanceCalendarDay } from '../lib/attendance-calendar.js'
+import { assertAttendancePayrollUnlocked } from '../lib/attendance-payroll-lock.js'
 import { attendanceFinalizationLockName } from '../lib/attendance-finalization.js'
 import {
   requirePermission,
@@ -311,16 +312,12 @@ async function approveClassification(
   if (workdays.length) {
     const placeholders = workdays.map(() => '?').join(',')
     const workDates = workdays.map((item) => item.date)
-    const [closedPayroll] = await conn.query<RowDataPacket[]>(
-      `SELECT pp.id,pp.period_code periodCode FROM payroll_periods pp
-        WHERE pp.site_id=? AND pp.status='CLOSED'
-          AND (${workDates.map(() => '? BETWEEN pp.period_start AND pp.period_end').join(' OR ')})
-        LIMIT 1 FOR UPDATE`,
-      [classification.site_id, ...workDates]
-    )
-    if (closedPayroll[0]) {
-      throw new ApiError(409, 'Klasifikasi menyentuh periode payroll yang sudah closing.')
-    }
+    await assertAttendancePayrollUnlocked(conn, {
+      siteId: Number(classification.site_id),
+      employeeId: Number(classification.employee_id),
+      dateFrom: workDates[0],
+      dateTo: workDates[workDates.length - 1],
+    })
     const [otherApplied] = await conn.query<RowDataPacket[]>(
       `SELECT acd.business_date FROM attendance_classification_details acd
         JOIN attendance_classification_requests other ON other.id=acd.request_id
@@ -913,42 +910,12 @@ attendanceClassificationsRouter.post(
           )
         }
 
-        const datePredicates = businessDates
-          .map(() => '? BETWEEN period_start AND period_end')
-          .join(' OR ')
-        const [lockedPayroll] = await conn.query<RowDataPacket[]>(
-          `SELECT id FROM payroll_periods
-            WHERE site_id=? AND status IN ('CALCULATED','APPROVED','CLOSED')
-              AND (${datePredicates})
-            LIMIT 1 FOR UPDATE`,
-          [classification.site_id, ...businessDates]
-        )
-        if (lockedPayroll[0]) {
-          throw new ApiError(
-            409,
-            'Klasifikasi menyentuh periode payroll yang sudah dihitung, disetujui, atau ditutup.'
-          )
-        }
-
-        const [payrollSnapshots] = await conn.query<RowDataPacket[]>(
-          `SELECT pas.id
-             FROM payroll_attendance_summaries pas
-             JOIN payroll_employee_results per
-               ON per.id=pas.payroll_employee_result_id
-             JOIN payroll_periods pp ON pp.id=per.payroll_period_id
-            WHERE per.employee_id=? AND pp.site_id=?
-              AND (${businessDates
-                .map(() => '? BETWEEN pp.period_start AND pp.period_end')
-                .join(' OR ')})
-            LIMIT 1 FOR UPDATE`,
-          [classification.employee_id, classification.site_id, ...businessDates]
-        )
-        if (payrollSnapshots[0]) {
-          throw new ApiError(
-            409,
-            'Klasifikasi sudah tersimpan dalam snapshot payroll dan tidak dapat dibatalkan.'
-          )
-        }
+        await assertAttendancePayrollUnlocked(conn, {
+          siteId: Number(classification.site_id),
+          employeeId: Number(classification.employee_id),
+          dateFrom: businessDates[0],
+          dateTo: businessDates[businessDates.length - 1],
+        })
 
         for (const detail of appliedDetails) {
           await conn.execute(

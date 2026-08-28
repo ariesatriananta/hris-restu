@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   BriefcaseBusiness,
   CheckCircle2,
+  ChevronDown,
   CircleDollarSign,
   LoaderCircle,
   PencilLine,
@@ -12,6 +13,7 @@ import {
   Plus,
   Ruler,
   UsersRound,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
@@ -20,6 +22,11 @@ import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import {
   Dialog,
   DialogContent,
@@ -237,6 +244,7 @@ function ReadinessPanel({
     asOf: string
   ) => void
 }) {
+  const [open, setOpen] = useState(false)
   const query = useProductionReadiness()
   if (query.isLoading)
     return <div className='h-24 animate-pulse rounded-lg bg-muted' />
@@ -255,125 +263,181 @@ function ReadinessPanel({
     PRIMARY_ASSIGNMENT_AMBIGUOUS: 'AMBIGUOUS_PRIMARY',
   }
 
+  const readinessSites = query.data?.sites ?? []
+  const blockedSites = readinessSites.filter(
+    (item) => item.status !== 'READY'
+  ).length
+
   return (
-    <div className='grid gap-2 lg:grid-cols-3'>
-      {(query.data?.sites ?? []).map((item) => (
-        <Card
-          key={item.site}
-          className={
-            item.status === 'READY'
-              ? 'border-emerald-200 bg-gradient-to-br from-emerald-50/70 to-background dark:from-emerald-950/20'
-              : 'border-amber-200 bg-gradient-to-br from-amber-50/70 to-background dark:from-amber-950/20'
-          }
-        >
-          <CardContent className='space-y-2 p-3'>
-            <div className='flex items-center justify-between gap-2'>
-              <div className='font-semibold'>{item.siteName}</div>
-              <Badge
-                variant={item.status === 'READY' ? 'default' : 'secondary'}
-              >
-                {item.status === 'READY' ? <CheckCircle2 /> : <AlertTriangle />}
-                {item.status === 'READY' ? 'Siap' : 'Perlu dilengkapi'}
-              </Badge>
-            </div>
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className='rounded-lg border bg-card'
+    >
+      <div className='flex flex-wrap items-center gap-3 p-3'>
+        <div className='flex min-w-0 items-start gap-2'>
+          {blockedSites === 0 ? (
+            <CheckCircle2 className='mt-0.5 size-4 shrink-0 text-positive' />
+          ) : (
+            <AlertTriangle className='mt-0.5 size-4 shrink-0 text-warning-foreground' />
+          )}
+          <div className='min-w-0'>
+            <h2 className='text-sm font-semibold'>
+              Kesiapan Produksi per Site
+            </h2>
             <p className='text-xs text-muted-foreground'>
-              {item.metrics.eligibleEmployees} pekerja eligible ·{' '}
-              {item.metrics.assignedJobs} pekerjaan dipakai ·{' '}
-              {item.metrics.readyProductionDevices ?? 0} terminal siap
+              {blockedSites === 0
+                ? `${readinessSites.length} site siap digunakan.`
+                : `${blockedSites} dari ${readinessSites.length} site perlu dilengkapi.`}
             </p>
-            {item.blockers.length > 0 && (
-              <div className='space-y-1'>
-                {item.blockers.map((blocker) => {
-                  const assignmentIssue = assignmentIssueByBlocker[blocker.code]
-                  const content = (
-                    <>
-                      <span className='flex min-w-0 items-start gap-1.5 text-left'>
-                        <AlertTriangle className='mt-0.5 size-3.5 shrink-0' />
-                        <span>{blocker.message}</span>
-                      </span>
-                      <Badge
-                        variant='outline'
-                        className='shrink-0 border-amber-300 bg-background/70'
-                      >
-                        {blocker.count}
-                      </Badge>
-                    </>
-                  )
+          </div>
+        </div>
+        <Badge
+          variant={blockedSites === 0 ? 'default' : 'outline'}
+          className='max-sm:order-3'
+        >
+          {blockedSites === 0
+            ? 'Semua siap'
+            : `${blockedSites} perlu perhatian`}
+        </Badge>
+        <CollapsibleTrigger asChild>
+          <Button size='sm' variant='ghost' className='group ml-auto'>
+            {open ? 'Ringkas' : 'Lihat detail'}
+            <ChevronDown className='transition-transform group-data-[state=open]:rotate-180' />
+          </Button>
+        </CollapsibleTrigger>
+      </div>
+      <CollapsibleContent className='border-t p-3'>
+        <div className='grid gap-2 lg:grid-cols-3'>
+          {readinessSites.map((item) => (
+            <Card
+              key={item.site}
+              className={
+                item.status === 'READY'
+                  ? 'border-emerald-200 bg-gradient-to-br from-emerald-50/70 to-background dark:from-emerald-950/20'
+                  : 'border-amber-200 bg-gradient-to-br from-amber-50/70 to-background dark:from-amber-950/20'
+              }
+            >
+              <CardContent className='space-y-2 p-3'>
+                <div className='flex items-center justify-between gap-2'>
+                  <div className='font-semibold'>{item.siteName}</div>
+                  <Badge
+                    variant={item.status === 'READY' ? 'default' : 'secondary'}
+                  >
+                    {item.status === 'READY' ? (
+                      <CheckCircle2 />
+                    ) : (
+                      <AlertTriangle />
+                    )}
+                    {item.status === 'READY' ? 'Siap' : 'Perlu dilengkapi'}
+                  </Badge>
+                </div>
+                <p className='text-xs text-muted-foreground'>
+                  {item.metrics.eligibleEmployees} pekerja eligible ·{' '}
+                  {item.metrics.assignedJobs} pekerjaan dipakai ·{' '}
+                  {item.metrics.readyProductionDevices ?? 0} terminal siap
+                </p>
+                {item.blockers.length > 0 && (
+                  <div className='space-y-1'>
+                    {item.blockers.map((blocker) => {
+                      const assignmentIssue =
+                        assignmentIssueByBlocker[blocker.code]
+                      const content = (
+                        <>
+                          <span className='flex min-w-0 items-start gap-1.5 text-left'>
+                            <AlertTriangle className='mt-0.5 size-3.5 shrink-0' />
+                            <span>{blocker.message}</span>
+                          </span>
+                          <Badge
+                            variant='outline'
+                            className='shrink-0 border-amber-300 bg-background/70'
+                          >
+                            {blocker.count}
+                          </Badge>
+                        </>
+                      )
 
-                  if (assignmentIssue) {
-                    return (
-                      <Button
-                        key={blocker.code}
-                        type='button'
-                        variant='ghost'
-                        className='h-auto w-full justify-between gap-2 px-2 py-1.5 text-xs whitespace-normal text-amber-800 hover:bg-amber-100/70 hover:text-amber-900 dark:text-amber-300 dark:hover:bg-amber-950/40 dark:hover:text-amber-200'
-                        onClick={() =>
-                          onOpenAssignments(
-                            item.site,
-                            assignmentIssue,
-                            query.data?.asOf ?? ''
-                          )
-                        }
-                      >
-                        {content}
-                      </Button>
-                    )
-                  }
+                      if (assignmentIssue) {
+                        return (
+                          <Button
+                            key={blocker.code}
+                            type='button'
+                            variant='ghost'
+                            className='h-auto w-full justify-between gap-2 px-2 py-1.5 text-xs whitespace-normal text-amber-800 hover:bg-amber-100/70 hover:text-amber-900 dark:text-amber-300 dark:hover:bg-amber-950/40 dark:hover:text-amber-200'
+                            onClick={() =>
+                              onOpenAssignments(
+                                item.site,
+                                assignmentIssue,
+                                query.data?.asOf ?? ''
+                              )
+                            }
+                          >
+                            {content}
+                          </Button>
+                        )
+                      }
 
-                  if (
-                    blocker.code === 'ACTIVE_RATE_MISSING' ||
-                    blocker.code === 'ACTIVE_RATE_AMBIGUOUS'
-                  ) {
-                    return (
-                      <Button
-                        key={blocker.code}
-                        asChild
-                        variant='ghost'
-                        className='h-auto w-full justify-between gap-2 px-2 py-1.5 text-xs whitespace-normal text-amber-800 hover:bg-amber-100/70 hover:text-amber-900 dark:text-amber-300 dark:hover:bg-amber-950/40 dark:hover:text-amber-200'
-                      >
-                        <Link
-                          to='/produksi/tarif-site'
-                          search={{ site: [item.site] }}
+                      if (
+                        blocker.code === 'ACTIVE_RATE_MISSING' ||
+                        blocker.code === 'ACTIVE_RATE_AMBIGUOUS'
+                      ) {
+                        return (
+                          <Button
+                            key={blocker.code}
+                            asChild
+                            variant='ghost'
+                            className='h-auto w-full justify-between gap-2 px-2 py-1.5 text-xs whitespace-normal text-amber-800 hover:bg-amber-100/70 hover:text-amber-900 dark:text-amber-300 dark:hover:bg-amber-950/40 dark:hover:text-amber-200'
+                          >
+                            <Link
+                              to='/produksi/tarif-site'
+                              search={{ site: [item.site] }}
+                            >
+                              {content}
+                            </Link>
+                          </Button>
+                        )
+                      }
+
+                      return (
+                        <div
+                          key={blocker.code}
+                          className='flex items-start justify-between gap-2 px-2 py-1.5 text-xs text-amber-800 dark:text-amber-300'
                         >
                           {content}
-                        </Link>
-                      </Button>
-                    )
-                  }
-
-                  return (
-                    <div
-                      key={blocker.code}
-                      className='flex items-start justify-between gap-2 px-2 py-1.5 text-xs text-amber-800 dark:text-amber-300'
-                    >
-                      {content}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-            <div className='pt-0.5'>
-              <Button
-                type='button'
-                size='sm'
-                variant='ghost'
-                className='h-8 w-full'
-                onClick={() =>
-                  onOpenAssignments(item.site, 'ALL', query.data?.asOf ?? '')
-                }
-              >
-                <UsersRound className='size-3.5' /> Lihat semua pekerja eligible
-              </Button>
-            </div>
-            {item.metrics.activeProductionAdmins === 0 && (
-              <p className='text-[11px] text-muted-foreground'>
-                Pengelolaan Admin Produksi belum tersedia dari halaman ini.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      ))}
-    </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                <div className='pt-0.5'>
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='ghost'
+                    className='h-8 w-full'
+                    onClick={() =>
+                      onOpenAssignments(
+                        item.site,
+                        'ALL',
+                        query.data?.asOf ?? ''
+                      )
+                    }
+                  >
+                    <UsersRound className='size-3.5' /> Lihat semua pekerja
+                    eligible
+                  </Button>
+                </div>
+                {item.metrics.activeProductionAdmins === 0 && (
+                  <p className='text-[11px] text-muted-foreground'>
+                    Pengelolaan Admin Produksi belum tersedia dari halaman ini.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
@@ -1553,59 +1617,116 @@ function FilterBar({
   site,
   status,
   statuses,
+  searchPlaceholder = 'Cari data...',
+  showSite = true,
+  showStatus = true,
   onChange,
 }: {
   query: string
   site: string
   status: string
   statuses: string[]
+  searchPlaceholder?: string
+  showSite?: boolean
+  showStatus?: boolean
   onChange: (patch: Record<string, unknown>) => void
 }) {
+  const hasFilters = Boolean(
+    query || (showSite && site) || (showStatus && status)
+  )
   return (
-    <div className='flex flex-wrap gap-2'>
+    <div className='flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:w-auto'>
       <Input
         className='w-full sm:w-64'
         value={query}
         onChange={(e) => onChange({ filter: e.target.value, page: 1 })}
-        placeholder='Cari data...'
+        placeholder={searchPlaceholder}
       />
-      <Select
-        value={site || 'ALL'}
-        onValueChange={(value) =>
-          onChange({ site: value === 'ALL' ? undefined : [value], page: 1 })
-        }
-      >
-        <SelectTrigger className='w-full sm:w-40'>
-          <SelectValue placeholder='Semua site' />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value='ALL'>Semua site</SelectItem>
-          {sites.map((item) => (
-            <SelectItem key={item} value={item}>
-              {item}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Select
-        value={status || 'ALL'}
-        onValueChange={(value) =>
-          onChange({ status: value === 'ALL' ? undefined : [value], page: 1 })
-        }
-      >
-        <SelectTrigger className='w-full sm:w-44'>
-          <SelectValue placeholder='Semua status' />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value='ALL'>Semua status</SelectItem>
-          {statuses.map((item) => (
-            <SelectItem key={item} value={item}>
-              {item}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {showSite && (
+        <Select
+          value={site || 'ALL'}
+          onValueChange={(value) =>
+            onChange({ site: value === 'ALL' ? undefined : [value], page: 1 })
+          }
+        >
+          <SelectTrigger className='w-full sm:w-40'>
+            <SelectValue placeholder='Semua site' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='ALL'>Semua site</SelectItem>
+            {sites.map((item) => (
+              <SelectItem key={item} value={item}>
+                {item}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      {showStatus && (
+        <Select
+          value={status || 'ALL'}
+          onValueChange={(value) =>
+            onChange({ status: value === 'ALL' ? undefined : [value], page: 1 })
+          }
+        >
+          <SelectTrigger className='w-full sm:w-44'>
+            <SelectValue placeholder='Semua status' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='ALL'>Semua status</SelectItem>
+            {statuses.map((item) => (
+              <SelectItem key={item} value={item}>
+                {item}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      {hasFilters && (
+        <Button
+          type='button'
+          variant='ghost'
+          className='w-full sm:w-auto'
+          onClick={() =>
+            onChange({
+              filter: undefined,
+              site: undefined,
+              status: undefined,
+              page: 1,
+            })
+          }
+        >
+          Reset <X />
+        </Button>
+      )}
     </div>
+  )
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function filterProductionJobs(jobs: ProductionJob[], query: string) {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return jobs
+  return jobs.filter((job) =>
+    [
+      job.code,
+      job.name,
+      job.defaultUnitCode,
+      job.defaultUnitName,
+      job.positionName,
+      job.category,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(needle))
+  )
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function filterProductionUnits(units: WorkUnit[], query: string) {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return units
+  return units.filter((unit) =>
+    [unit.code, unit.name].some((value) => value.toLowerCase().includes(needle))
   )
 }
 
@@ -1655,6 +1776,11 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
   )
   const setSearch = (patch: Record<string, unknown>) =>
     navigate({ search: (previous) => ({ ...previous, ...patch }) })
+  const visibleJobs = filterProductionJobs(refs.jobs.data?.items ?? [], filter)
+  const visibleUnits = filterProductionUnits(
+    refs.units.data?.items ?? [],
+    filter
+  )
   const openAssignment = (row?: ProductionAssignmentReadinessItem) => {
     setAssignmentPreset(
       row
@@ -1717,15 +1843,27 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
           </TabsTrigger>
         </TabsList>
         <TabsContent value='jobs' className='space-y-3'>
-          <div className='flex justify-end'>
-            {canManage && (
-              <JobDialog
-                units={(refs.units.data?.items ?? []).filter(
-                  (unit) => unit.isActive
-                )}
-                positions={refs.positions.data?.items ?? []}
-              />
-            )}
+          <div className='flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between'>
+            <FilterBar
+              query={filter}
+              site=''
+              status=''
+              statuses={[]}
+              searchPlaceholder='Cari kode atau pekerjaan...'
+              showSite={false}
+              showStatus={false}
+              onChange={setSearch}
+            />
+            <div className='flex justify-end'>
+              {canManage && (
+                <JobDialog
+                  units={(refs.units.data?.items ?? []).filter(
+                    (unit) => unit.isActive
+                  )}
+                  positions={refs.positions.data?.items ?? []}
+                />
+              )}
+            </div>
           </div>
           <div className='rounded-md border'>
             <Table>
@@ -1739,7 +1877,7 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(refs.jobs.data?.items ?? []).map((job) => (
+                {visibleJobs.map((job) => (
                   <TableRow key={job.uid}>
                     <TableCell>
                       <div className='font-medium'>{job.name}</div>
@@ -1761,16 +1899,35 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
                     </TableCell>
                   </TableRow>
                 ))}
-                {!refs.jobs.isLoading && !refs.jobs.data?.items.length && (
-                  <EmptyRows colSpan={5} text='Belum ada pekerjaan Produksi.' />
+                {!refs.jobs.isLoading && !visibleJobs.length && (
+                  <EmptyRows
+                    colSpan={5}
+                    text={
+                      filter
+                        ? 'Belum ada pekerjaan sesuai pencarian.'
+                        : 'Belum ada pekerjaan Produksi.'
+                    }
+                  />
                 )}
               </TableBody>
             </Table>
           </div>
         </TabsContent>
         <TabsContent value='units' className='space-y-3'>
-          <div className='flex justify-end'>
-            {canManage && <WorkUnitDialog />}
+          <div className='flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between'>
+            <FilterBar
+              query={filter}
+              site=''
+              status=''
+              statuses={[]}
+              searchPlaceholder='Cari kode atau satuan...'
+              showSite={false}
+              showStatus={false}
+              onChange={setSearch}
+            />
+            <div className='flex justify-end'>
+              {canManage && <WorkUnitDialog />}
+            </div>
           </div>
           <div className='rounded-md border'>
             <Table>
@@ -1783,7 +1940,7 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(refs.units.data?.items ?? []).map((unit) => (
+                {visibleUnits.map((unit) => (
                   <TableRow key={unit.uid}>
                     <TableCell className='font-medium'>{unit.code}</TableCell>
                     <TableCell>{unit.name}</TableCell>
@@ -1795,8 +1952,15 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
                     </TableCell>
                   </TableRow>
                 ))}
-                {!refs.units.isLoading && !refs.units.data?.items.length && (
-                  <EmptyRows colSpan={4} text='Belum ada satuan Produksi.' />
+                {!refs.units.isLoading && !visibleUnits.length && (
+                  <EmptyRows
+                    colSpan={4}
+                    text={
+                      filter
+                        ? 'Belum ada satuan sesuai pencarian.'
+                        : 'Belum ada satuan Produksi.'
+                    }
+                  />
                 )}
               </TableBody>
             </Table>

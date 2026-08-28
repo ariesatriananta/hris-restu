@@ -27,6 +27,7 @@ import {
 } from '../lib/attendance-employee-filter.js'
 import { ApiError } from '../lib/errors.js'
 import { attendanceFinalizationLockName } from '../lib/attendance-finalization.js'
+import { assertAttendancePayrollUnlocked } from '../lib/attendance-payroll-lock.js'
 import {
   requirePermission,
   type AuthContext,
@@ -176,7 +177,7 @@ async function approveCorrection(
             ac.correction_type correctionType,ac.new_clock_in_at newClockInAt,
             ac.new_clock_out_at newClockOutAt,ac.new_status newStatus,
             ac.reason,ac.approval_status approvalStatus,
-            ar.uid attendanceUid,ar.site_id siteId,
+            ar.uid attendanceUid,ar.employee_id employeeId,ar.site_id siteId,
             DATE_FORMAT(ar.business_date,'%Y-%m-%d') businessDate,
             ar.attendance_status attendanceStatus,ar.clock_in_at clockInAt,
             ar.clock_out_at clockOutAt,ar.shift_id shiftId,s.code site,
@@ -214,34 +215,12 @@ async function approveCorrection(
     input.finalizationLock
   )
 
-  const [lockedPayroll] = await conn.query<RowDataPacket[]>(
-    `SELECT id FROM payroll_periods
-      WHERE site_id=? AND status IN ('CALCULATED','APPROVED','CLOSED')
-        AND ? BETWEEN period_start AND period_end
-      LIMIT 1 FOR UPDATE`,
-    [correction.siteId, correction.businessDate]
-  )
-  if (lockedPayroll[0]) {
-    throw new ApiError(
-      409,
-      'Attendance dalam periode payroll yang sudah dihitung, disetujui, atau ditutup tidak dapat dikoreksi.'
-    )
-  }
-  const [payrollSnapshots] = await conn.query<RowDataPacket[]>(
-    `SELECT pas.id
-       FROM payroll_attendance_summaries pas
-       JOIN payroll_employee_results per ON per.id=pas.payroll_employee_result_id
-       JOIN payroll_periods pp ON pp.id=per.payroll_period_id
-      WHERE pp.site_id=? AND ? BETWEEN pp.period_start AND pp.period_end
-      LIMIT 1 FOR UPDATE`,
-    [correction.siteId, correction.businessDate]
-  )
-  if (payrollSnapshots[0]) {
-    throw new ApiError(
-      409,
-      'Attendance sudah tersimpan dalam snapshot payroll dan tidak dapat dikoreksi.'
-    )
-  }
+  await assertAttendancePayrollUnlocked(conn, {
+    siteId: Number(correction.siteId),
+    employeeId: Number(correction.employeeId),
+    dateFrom: String(correction.businessDate),
+    dateTo: String(correction.businessDate),
+  })
   const proposedClockIn =
     correction.correctionType === 'CLOCK_IN' || correction.correctionType === 'BOTH'
       ? correction.newClockInAt

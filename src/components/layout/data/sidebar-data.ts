@@ -123,12 +123,33 @@ export const sidebarData: SidebarData = {
         {
           title: 'Payroll',
           icon: WalletCards,
+          anyOfPermissions: ['payroll.view'],
           items: [
-            { title: 'Periode Payroll', url: '/payroll/periode' },
-            { title: 'Simulasi Payroll', url: '/payroll/simulasi' },
-            { title: 'Approval & Closing', url: '/payroll/approval-closing' },
-            { title: 'Riwayat Payroll', url: '/payroll/riwayat' },
-            { title: 'Slip Gaji', url: '/payroll/slip-gaji' },
+            {
+              title: 'Periode Payroll',
+              url: '/payroll/periode',
+              anyOfPermissions: ['payroll.view'],
+            },
+            {
+              title: 'Simulasi Payroll',
+              url: '/payroll/simulasi',
+              anyOfPermissions: ['payroll.view'],
+            },
+            {
+              title: 'Approval & Closing',
+              url: '/payroll/approval-closing',
+              anyOfPermissions: ['payroll.view'],
+            },
+            {
+              title: 'Riwayat Payroll',
+              url: '/payroll/riwayat',
+              anyOfPermissions: ['payroll.view'],
+            },
+            {
+              title: 'Slip Gaji',
+              url: '/payroll/slip-gaji',
+              anyOfPermissions: ['payroll.view'],
+            },
           ],
         },
       ],

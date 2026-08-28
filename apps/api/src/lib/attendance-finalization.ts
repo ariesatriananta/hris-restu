@@ -4,6 +4,7 @@ import type { QueryError, ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { Pool, PoolConnection } from 'mysql2/promise'
 import { pool } from '../db.js'
 import { getAttendanceCalendarRules } from './attendance-calendar.js'
+import { assertAttendancePayrollUnlocked } from './attendance-payroll-lock.js'
 import { resolveCalendarDay } from './attendance-calendar-policy.js'
 import {
   attendanceFinalizationGraceMinutes,
@@ -248,6 +249,12 @@ export async function finalizeAttendanceDay(input: {
     )
     runId = createdRun.insertId
     await conn.beginTransaction()
+
+    await assertAttendancePayrollUnlocked(conn, {
+      siteId: Number(site.id),
+      dateFrom: input.businessDate,
+      dateTo: input.businessDate,
+    })
 
     const [rows] = await conn.query<RowDataPacket[]>(
       `SELECT e.id employeeId,e.uid employeeUid,e.full_name employeeName,

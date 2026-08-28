@@ -60,6 +60,41 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   sudah disnapshot; status tersebut tidak menyatakan gaji sudah dibayar.
 - Payroll draft/simulasi dapat dihitung ulang. Payroll yang sudah closing bersifat immutable.
 - Koreksi setelah payroll closing tidak termasuk scope saat ini.
+- Implementasi Payroll pertama hanya untuk basis `PIECE_RATE`. Payroll
+  `MONTHLY` baru dibangun setelah snapshot Attendance harian, formula prorata,
+  pajak, dan BPJS dikunci.
+- Periode Payroll `PIECE_RATE` dibuat fleksibel per site dengan rentang maksimal
+  31 hari dan tidak boleh overlap dengan periode non-cancelled pada site serta
+  basis Payroll yang sama.
+- Nilai produksi Payroll merupakan penjumlahan snapshot
+  `production_transactions.gross_amount` berstatus `POSTED`; Payroll tidak
+  menghitung ulang kuantitas menggunakan tarif master terbaru.
+- Populasi Payroll mengikuti fakta historis dalam periode. Karyawan yang sudah
+  resign tetap dibayar bila memiliki transaksi Produksi eligible, sedangkan
+  karyawan tanpa transaksi hanya disertakan bila mempunyai bonus atau
+  adjustment manual pada periode tersebut.
+- Attendance pada Payroll Borongan berfungsi sebagai readiness dan snapshot
+  informasi, bukan pengali otomatis upah. Alpha, keterlambatan, dan pulang awal
+  hanya memengaruhi nominal melalui komponen potongan eksplisit yang dapat
+  diaudit.
+- Karyawan `BORONGAN` dan `TRAINING` mengikuti Payroll `PIECE_RATE`; pada fase
+  awal tarif Training mengikuti tarif pekerjaan Produksi biasa.
+- Bonus, tunjangan, penalti, pinjaman, dan potongan lain dikelola sebagai
+  komponen eksplisit per periode. Pajak dan BPJS belum dihitung otomatis pada
+  fase awal.
+- Jika total potongan melebihi pendapatan, approval dan closing diblokir sampai
+  komponen diperbaiki; sistem tidak boleh diam-diam membulatkan net pay menjadi
+  nol.
+- Workflow periode adalah `DRAFT -> CALCULATED -> APPROVED -> CLOSED`.
+  `CANCELLED` hanya boleh dari `DRAFT`; hitung ulang hanya boleh pada
+  `CALCULATED` yang belum memiliki approval pending/approved dan menghasilkan
+  run baru tanpa menghapus histori run sebelumnya.
+- Approval wajib menunjuk run perhitungan tertentu. Pembuat run tidak boleh
+  menyetujui run miliknya sendiri, kecuali `SUPER_ADMIN` untuk recovery yang
+  tetap dicatat pada audit trail.
+- Slip resmi hanya bersumber dari Payroll `CLOSED`. Hasil `CALCULATED` hanya
+  boleh dipratinjau dengan penanda Simulasi; status `CLOSED` tidak menyatakan
+  pembayaran atau transfer sudah dilakukan.
 - Semua aksi penting dan koreksi harus dapat ditelusuri melalui audit trail.
 - Exception Produksi wajib memakai preview lalu apply, alasan, idempotency,
   audit trail, pembatasan site, dan guard Payroll.

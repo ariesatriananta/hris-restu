@@ -1,6 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { ModulePlaceholder } from '@/features/placeholders/module-placeholder'
+import { requirePermission } from '@/features/auth/permissions'
+import { PayrollFoundationPage } from '@/features/payroll/payroll-foundation-page'
 
 export const Route = createFileRoute(
   '/_authenticated/payroll/approval-closing'
-)({ component: () => <ModulePlaceholder path='/payroll/approval-closing' /> })
+)({
+  beforeLoad: () => requirePermission('payroll.view'),
+  component: () => <PayrollFoundationPage section='approval' />,
+})

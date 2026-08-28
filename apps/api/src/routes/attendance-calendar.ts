@@ -5,6 +5,7 @@ import type { PoolConnection } from 'mysql2/promise'
 import { z } from 'zod'
 import { pool } from '../db.js'
 import { resolveAttendanceCalendarDay } from '../lib/attendance-calendar.js'
+import { assertAttendancePayrollUnlocked } from '../lib/attendance-payroll-lock.js'
 import {
   attendanceCalendarCancelInput,
   attendanceCalendarSiteRuleInput,
@@ -90,15 +91,11 @@ async function guardRuleHistory(
   if (classification[0]) {
     throw new ApiError(409, 'Aturan kalender sudah dipakai klasifikasi Attendance.')
   }
-  const [payroll] = await conn.query<RowDataPacket[]>(
-    `SELECT id FROM payroll_periods
-      WHERE site_id=? AND status='CLOSED'
-        AND ? BETWEEN period_start AND period_end LIMIT 1 FOR UPDATE`,
-    [siteId, businessDate]
-  )
-  if (payroll[0]) {
-    throw new ApiError(409, 'Aturan kalender menyentuh payroll yang sudah closing.')
-  }
+  await assertAttendancePayrollUnlocked(conn, {
+    siteId,
+    dateFrom: businessDate,
+    dateTo: businessDate,
+  })
 }
 
 async function getSiteRuleForUpdate(conn: PoolConnection, uid: string) {

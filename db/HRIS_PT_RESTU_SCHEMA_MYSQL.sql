@@ -1470,9 +1470,11 @@ CREATE TABLE payroll_runs (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   uid CHAR(36) NOT NULL,
   payroll_period_id BIGINT UNSIGNED NOT NULL,
+  idempotency_key VARCHAR(100) NOT NULL,
   run_number INT UNSIGNED NOT NULL,
   run_type VARCHAR(20) NOT NULL DEFAULT 'SIMULATION',
   status VARCHAR(20) NOT NULL DEFAULT 'PROCESSING',
+  processing_slot TINYINT UNSIGNED NULL COMMENT 'Bernilai 1 hanya saat PROCESSING untuk mencegah run paralel per periode.',
   calculation_version VARCHAR(30) NOT NULL DEFAULT '1.0',
   calculation_started_at DATETIME(3) NOT NULL,
   calculation_finished_at DATETIME(3) NULL,
@@ -1490,10 +1492,14 @@ CREATE TABLE payroll_runs (
   updated_by BIGINT UNSIGNED NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_payroll_runs_uid (uid),
+  UNIQUE KEY uq_payroll_runs_idempotency (idempotency_key),
   UNIQUE KEY uq_payroll_runs_number (payroll_period_id, run_number),
+  UNIQUE KEY uq_payroll_runs_period_id (payroll_period_id, id),
+  UNIQUE KEY uq_payroll_runs_processing_period (payroll_period_id, processing_slot),
   KEY idx_payroll_runs_status (status),
   CONSTRAINT chk_payroll_runs_type CHECK (run_type IN ('SIMULATION', 'FINAL')),
   CONSTRAINT chk_payroll_runs_status CHECK (status IN ('PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED')),
+  CONSTRAINT chk_payroll_runs_processing_slot CHECK ((status='PROCESSING' AND processing_slot=1) OR (status<>'PROCESSING' AND processing_slot IS NULL)),
   CONSTRAINT chk_payroll_runs_totals CHECK (total_piece_rate_amount >= 0 AND total_earnings >= 0 AND total_deductions >= 0 AND total_net_pay >= 0),
   CONSTRAINT fk_payroll_runs_period FOREIGN KEY (payroll_period_id) REFERENCES payroll_periods (id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1629,6 +1635,7 @@ CREATE TABLE payroll_approvals (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   uid CHAR(36) NOT NULL,
   payroll_period_id BIGINT UNSIGNED NOT NULL,
+  payroll_run_id BIGINT UNSIGNED NOT NULL,
   approval_level SMALLINT UNSIGNED NOT NULL DEFAULT 1,
   approval_role VARCHAR(50) NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
@@ -1643,10 +1650,13 @@ CREATE TABLE payroll_approvals (
   updated_by BIGINT UNSIGNED NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_payroll_approvals_uid (uid),
-  UNIQUE KEY uq_payroll_approvals_level (payroll_period_id, approval_level),
+  UNIQUE KEY uq_payroll_approvals_run_level (payroll_run_id, approval_level),
+  KEY idx_payroll_approvals_period_run (payroll_period_id, payroll_run_id),
   KEY idx_payroll_approvals_status (status, requested_at),
   CONSTRAINT chk_payroll_approvals_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED')),
-  CONSTRAINT fk_payroll_approvals_period FOREIGN KEY (payroll_period_id) REFERENCES payroll_periods (id) ON UPDATE CASCADE ON DELETE RESTRICT
+  CONSTRAINT fk_payroll_approvals_period FOREIGN KEY (payroll_period_id) REFERENCES payroll_periods (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_payroll_approvals_run FOREIGN KEY (payroll_run_id) REFERENCES payroll_runs (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_payroll_approvals_period_run FOREIGN KEY (payroll_period_id, payroll_run_id) REFERENCES payroll_runs (payroll_period_id, id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================================
@@ -1876,6 +1886,21 @@ WHERE r.code IN (
   'DIRECTOR',
   'PAYROLL_FINANCE'
 );
+
+-- Matriks akses awal Payroll.
+INSERT INTO role_permissions (uid, role_id, permission_id)
+SELECT UUID(), r.id, p.id
+FROM roles r
+JOIN permissions p
+  ON p.code IN ('payroll.view', 'payroll.calculate', 'payroll.close')
+WHERE r.code = 'PAYROLL_FINANCE';
+
+INSERT INTO role_permissions (uid, role_id, permission_id)
+SELECT UUID(), r.id, p.id
+FROM roles r
+JOIN permissions p
+  ON p.code IN ('payroll.view', 'payroll.approve')
+WHERE r.code = 'DIRECTOR';
 
 -- Pengaturan global awal.
 INSERT INTO system_settings (uid, site_id, setting_key, setting_value, description)

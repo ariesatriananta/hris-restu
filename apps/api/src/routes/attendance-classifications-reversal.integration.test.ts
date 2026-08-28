@@ -245,7 +245,7 @@ describe('Attendance classification reversal API', () => {
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({
       message:
-        'Klasifikasi menyentuh periode payroll yang sudah dihitung, disetujui, atau ditutup.',
+        'Attendance menyentuh periode Payroll yang sudah dihitung, disetujui, atau ditutup.',
     })
     expect(conn.rollback).toHaveBeenCalledOnce()
   })

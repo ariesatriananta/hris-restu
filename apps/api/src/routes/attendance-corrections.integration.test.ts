@@ -363,7 +363,7 @@ describe('Attendance correction API integration', () => {
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({
       message:
-        'Attendance dalam periode payroll yang sudah dihitung, disetujui, atau ditutup tidak dapat dikoreksi.',
+        'Attendance menyentuh periode Payroll yang sudah dihitung, disetujui, atau ditutup.',
     })
     expect(conn.rollback).toHaveBeenCalledOnce()
   })
@@ -388,7 +388,7 @@ describe('Attendance correction API integration', () => {
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({
       message:
-        'Attendance sudah tersimpan dalam snapshot payroll dan tidak dapat dikoreksi.',
+        'Attendance sudah tersimpan dalam snapshot Payroll dan tidak dapat diubah.',
     })
     expect(conn.rollback).toHaveBeenCalledOnce()
   })
