@@ -10,6 +10,13 @@ import type {
   PayrollPeriodMeta,
   PayrollPeriodSummary,
   PayrollPeriodsResult,
+  PayrollEmployeeResultDetail,
+  PayrollEmployeeResultSummary,
+  PayrollManualComponent,
+  PayrollManualComponentRevision,
+  PayrollRunDetail,
+  PayrollRunSummary,
+  PayrollSimulationMeta,
 } from '../domain'
 
 const keys = {
@@ -18,6 +25,18 @@ const keys = {
   list: (input: Record<string, unknown>) =>
     [...keys.all, 'list', input] as const,
   detail: (uid: string) => [...keys.all, 'detail', uid] as const,
+  runs: (periodUid: string) => [...keys.all, periodUid, 'runs'] as const,
+  run: (runUid: string) => [...keys.all, 'run', runUid] as const,
+  employees: (runUid: string, input: Record<string, unknown>) =>
+    [...keys.run(runUid), 'employees', input] as const,
+  employee: (runUid: string, employeeUid: string) =>
+    [...keys.run(runUid), 'employee', employeeUid] as const,
+  simulationMeta: (periodUid: string) =>
+    [...keys.all, periodUid, 'simulation-meta'] as const,
+  manualComponents: (periodUid: string) =>
+    [...keys.all, periodUid, 'manual-components'] as const,
+  manualComponentRevisions: (periodUid: string, componentUid: string) =>
+    [...keys.manualComponents(periodUid), componentUid, 'revisions'] as const,
 }
 
 function params(input: Record<string, unknown>) {
@@ -99,6 +118,231 @@ export function useCancelPayrollPeriod() {
         await apiClient.post<{ data: PayrollPeriodSummary }>(
           `/payroll/periods/${uid}/cancel`,
           { reason }
+        )
+      ).data.data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),
+  })
+}
+
+export function usePayrollRuns(periodUid?: string) {
+  return useQuery({
+    queryKey: keys.runs(periodUid ?? ''),
+    queryFn: async () =>
+      (
+        await apiClient.get<{ data: PayrollRunSummary[] }>(
+          `/payroll/periods/${periodUid}/runs`
+        )
+      ).data.data,
+    enabled: Boolean(periodUid),
+    refetchInterval: (query) =>
+      Array.isArray(query.state.data) &&
+      query.state.data.some((run) => run.status === 'PROCESSING')
+        ? 2000
+        : false,
+  })
+}
+
+export function usePayrollRun(runUid?: string) {
+  return useQuery({
+    queryKey: keys.run(runUid ?? ''),
+    queryFn: async () =>
+      (
+        await apiClient.get<{ data: PayrollRunDetail }>(
+          `/payroll/runs/${runUid}`
+        )
+      ).data.data,
+    enabled: Boolean(runUid),
+    refetchInterval: (query) =>
+      query.state.data?.status === 'PROCESSING' ? 2000 : false,
+  })
+}
+
+export function usePayrollRunEmployees(
+  runUid: string | undefined,
+  input: Record<string, unknown>,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: keys.employees(runUid ?? '', input),
+    queryFn: async () =>
+      (
+        await apiClient.get<{
+          data: PayrollEmployeeResultSummary[]
+          meta: {
+            page: number
+            pageSize: number
+            total: number
+            totalPages: number
+          }
+        }>(`/payroll/runs/${runUid}/employees?${params(input)}`)
+      ).data,
+    enabled: Boolean(runUid) && enabled,
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function usePayrollEmployeeResult(
+  runUid?: string,
+  employeeUid?: string,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: keys.employee(runUid ?? '', employeeUid ?? ''),
+    queryFn: async () =>
+      (
+        await apiClient.get<{ data: PayrollEmployeeResultDetail }>(
+          `/payroll/runs/${runUid}/employees/${employeeUid}`
+        )
+      ).data.data,
+    enabled: Boolean(runUid && employeeUid) && enabled,
+  })
+}
+
+export function usePayrollSimulationMeta(periodUid?: string) {
+  return useQuery({
+    queryKey: keys.simulationMeta(periodUid ?? ''),
+    queryFn: async () =>
+      (
+        await apiClient.get<{ data: PayrollSimulationMeta }>(
+          `/payroll/periods/${periodUid}/simulation-meta`
+        )
+      ).data.data,
+    enabled: Boolean(periodUid),
+  })
+}
+
+export function usePayrollManualComponents(periodUid?: string) {
+  return useQuery({
+    queryKey: keys.manualComponents(periodUid ?? ''),
+    queryFn: async () =>
+      (
+        await apiClient.get<{ data: PayrollManualComponent[] }>(
+          `/payroll/periods/${periodUid}/manual-components`
+        )
+      ).data.data,
+    enabled: Boolean(periodUid),
+  })
+}
+
+export function usePayrollManualComponentRevisions(
+  periodUid?: string,
+  componentUid?: string
+) {
+  return useQuery({
+    queryKey: keys.manualComponentRevisions(
+      periodUid ?? '',
+      componentUid ?? ''
+    ),
+    queryFn: async () =>
+      (
+        await apiClient.get<{ data: PayrollManualComponentRevision[] }>(
+          `/payroll/periods/${periodUid}/manual-components/${componentUid}/revisions`
+        )
+      ).data.data,
+    enabled: Boolean(periodUid && componentUid),
+  })
+}
+
+export function useCalculatePayroll() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      periodUid,
+      idempotencyKey,
+    }: {
+      periodUid: string
+      idempotencyKey: string
+    }) =>
+      (
+        await apiClient.post<{ data: PayrollRunSummary }>(
+          `/payroll/periods/${periodUid}/calculate`,
+          { idempotencyKey }
+        )
+      ).data.data,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.all }),
+  })
+}
+
+export function useCreatePayrollManualComponent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      periodUid,
+      ...body
+    }: {
+      periodUid: string
+      employeeUid: string
+      componentTypeUid: string
+      amount: string
+      notes?: string
+      idempotencyKey: string
+    }) =>
+      (
+        await apiClient.post<{ data: PayrollManualComponent }>(
+          `/payroll/periods/${periodUid}/manual-components`,
+          body
+        )
+      ).data.data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),
+  })
+}
+
+export function useCancelPayrollManualComponent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      periodUid,
+      componentUid,
+      reason,
+      idempotencyKey,
+    }: {
+      periodUid: string
+      componentUid: string
+      reason: string
+      idempotencyKey: string
+    }) =>
+      (
+        await apiClient.post<{ data: PayrollManualComponent }>(
+          `/payroll/periods/${periodUid}/manual-components/${componentUid}/cancel`,
+          { reason, idempotencyKey }
+        )
+      ).data.data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),
+  })
+}
+
+export function useUpdatePayrollManualComponent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      periodUid,
+      componentUid,
+      ...body
+    }: {
+      periodUid: string
+      componentUid: string
+      amount: string
+      notes?: string | null
+      reason: string
+      idempotencyKey: string
+    }) =>
+      (
+        await apiClient.patch<{ data: PayrollManualComponent }>(
+          `/payroll/periods/${periodUid}/manual-components/${componentUid}`,
+          body
+        )
+      ).data.data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),
+  })
+}
+
+export function useRecoverStalePayrollRun() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (runUid: string) =>
+      (
+        await apiClient.post<{ data: PayrollRunSummary }>(
+          `/payroll/runs/${runUid}/recover-stale`
         )
       ).data.data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),

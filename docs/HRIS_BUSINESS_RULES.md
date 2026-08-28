@@ -85,6 +85,23 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Jika total potongan melebihi pendapatan, approval dan closing diblokir sampai
   komponen diperbaiki; sistem tidak boleh diam-diam membulatkan net pay menjadi
   nol.
+- Simulasi Payroll tetap menyimpan dan menampilkan nilai neto negatif agar
+  sumber masalah dapat diperiksa. Run simulasi boleh selesai, tetapi hasil
+  tersebut tidak boleh diajukan atau ditutup sebelum komponennya diperbaiki.
+- Komponen Payroll `FIXED` yang efektif pada minimal satu hari dalam periode
+  `PIECE_RATE` diterapkan penuh satu kali tanpa prorata. Penyesuaian khusus
+  dilakukan melalui komponen manual per periode.
+- Dalam satu periode, satu karyawan hanya boleh memiliki satu komponen manual
+  aktif untuk jenis komponen yang sama. Koreksi atau pembatalan wajib beralasan,
+  tercatat dalam audit, dan tidak mengubah snapshot run yang sudah selesai.
+- Simulasi hanya dapat dimulai ketika readiness tidak `BLOCKED`. Status
+  `ATTENTION` tetap dapat dihitung setelah pengguna meninjau peringatannya.
+- Kalkulasi Payroll wajib idempotent dan mempertahankan histori run. Hitung
+  ulang membuat run baru, sedangkan kegagalan tidak boleh meninggalkan snapshot
+  atau lock sumber dan tidak boleh mengganti run sukses sebelumnya.
+- Nominal Payroll disimpan dengan presisi dua desimal. Tampilan tidak perlu
+  menunjukkan pecahan nol, tetapi pecahan yang benar-benar ada tidak boleh
+  dibuang.
 - Workflow periode adalah `DRAFT -> CALCULATED -> APPROVED -> CLOSED`.
   `CANCELLED` hanya boleh dari `DRAFT`; hitung ulang hanya boleh pada
   `CALCULATED` yang belum memiliki approval pending/approved dan menghasilkan

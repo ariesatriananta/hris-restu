@@ -1,7 +1,8 @@
 # Knowledge Base Payroll
 
-> Status dokumen: Periode Payroll dan pemeriksaan kesiapan sudah operasional.
-> Simulasi, persetujuan, closing, riwayat hasil, dan slip gaji dibuka pada tahap berikutnya.
+> Status dokumen: Periode, pemeriksaan kesiapan, dan Simulasi Payroll Borongan
+> sudah operasional. Persetujuan, closing, riwayat lanjutan, dan slip gaji
+> dibuka pada tahap berikutnya.
 
 ## 1. Tujuan menu Payroll
 
@@ -99,15 +100,89 @@ untuk membuat periode baru.
 Pembatalan tidak menghapus histori dan tidak menghapus data Attendance maupun
 Produksi.
 
-## 7. Batas tahap saat ini
+## 7. Menyiapkan komponen manual
 
-Pada tahap Periode dan Kesiapan, sistem belum:
+Komponen manual digunakan untuk bonus, pendapatan lain, penalti, pinjaman, atau
+potongan lain yang hanya berlaku pada periode tertentu.
 
-- menghitung pendapatan, potongan, atau gaji bersih;
-- membuat snapshot transaksi Produksi dan Attendance;
+1. Buka **Payroll > Simulasi Payroll**.
+2. Pilih periode Draft atau Calculated.
+3. Pilih **Komponen manual**.
+4. Pilih karyawan dan jenis komponen.
+5. Isi nominal dan catatan yang cukup jelas.
+6. Simpan komponen, lalu jalankan atau hitung ulang simulasi.
+
+Satu karyawan hanya dapat memiliki satu komponen manual aktif untuk jenis yang
+sama dalam satu periode. Gunakan **Koreksi** untuk memperbaiki nominal atau
+catatan dan gunakan **Batalkan** jika komponennya tidak lagi berlaku. Kedua aksi
+wajib disertai alasan. Perubahan tidak mengubah hasil run lama dan baru masuk
+setelah simulasi dihitung ulang.
+
+Komponen tetap yang tanggal berlakunya mengenai periode dibayarkan penuh satu
+kali. Sistem belum melakukan prorata otomatis.
+
+## 8. Menjalankan simulasi
+
+1. Pilih periode pada halaman **Simulasi Payroll**.
+2. Periksa pesan kesiapan.
+3. Jika statusnya **Belum siap**, selesaikan blocker melalui menu yang
+   ditunjukkan.
+4. Jika statusnya **Siap** atau **Perlu perhatian**, pilih **Hitung**.
+5. Tunggu sampai proses selesai. Halaman akan memperbarui status proses secara
+   otomatis.
+6. Periksa KPI dan daftar hasil per karyawan.
+
+Perhitungan memakai rumus awal berikut:
+
+**Neto = hasil Produksi + komponen pendapatan - komponen potongan**
+
+Nilai hasil Produksi disalin dari transaksi berstatus Tercatat/POSTED. Sistem
+tidak menghitung ulang menggunakan tarif pekerjaan terbaru. Attendance disalin
+sebagai informasi dan tidak otomatis menambah atau memotong nominal.
+
+Jika data sumber atau komponen berubah, pilih **Hitung ulang**. Sistem membuat
+versi run baru dan tidak menghapus versi sebelumnya.
+
+## 9. Membaca hasil simulasi
+
+Ringkasan menampilkan:
+
+- jumlah karyawan yang dihitung;
+- nilai hasil Produksi;
+- tambahan pendapatan;
+- total potongan; dan
+- nilai neto.
+
+Pilih salah satu karyawan untuk melihat rincian transaksi Produksi, ringkasan
+Attendance, komponen pendapatan/potongan, status rekening, dan jejak rumus.
+Informasi rekening mengikuti kewenangan akun dan dapat disamarkan untuk pengguna
+read-only.
+
+Neto negatif tetap ditampilkan agar masalah dapat ditelusuri. Kondisi tersebut
+tidak menggagalkan simulasi, tetapi wajib diperbaiki sebelum tahap persetujuan
+dan closing.
+
+Semua hasil pada halaman ini masih berstatus **SIMULASI** dan belum merupakan
+slip gaji resmi atau bukti pembayaran.
+
+## 10. Jika proses terputus
+
+Sistem mencatat setiap proses hitung sebagai run tersendiri. Jika koneksi browser
+terputus, buka kembali periode yang sama untuk memeriksa status run. Jangan
+menekan Hitung berulang-ulang ketika status masih **Processing**.
+
+Run yang gagal tidak digunakan sebagai hasil aktif dan tidak meninggalkan
+snapshot setengah jadi. Jika run terlihat Processing terlalu lama, pengguna
+berizin dapat menjalankan pemulihan lalu mencoba kembali.
+
+## 11. Batas tahap saat ini
+
+Pada tahap Simulasi, sistem belum:
+
 - mengajukan hasil untuk persetujuan;
 - melakukan closing;
+- menghitung pajak atau BPJS otomatis;
 - menerbitkan slip gaji.
 
-Fungsi tersebut dibuka bertahap setelah pemeriksaan Periode Payroll dinyatakan
-stabil.
+Hasil simulasi belum berarti gaji sudah disetujui, ditutup, ditransfer, atau
+dibayarkan.

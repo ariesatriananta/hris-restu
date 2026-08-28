@@ -97,6 +97,50 @@ Keputusan implementasi:
 - Tampilkan ringkasan periode dan detail per karyawan/transaksi.
 - Hitung ulang menghasilkan run baru; run lama tetap dapat ditelusuri.
 
+Keputusan implementasi:
+
+- Simulasi dapat dijalankan ketika readiness `READY` atau `ATTENTION`; status
+  `BLOCKED` wajib diselesaikan terlebih dahulu.
+- Nominal Produksi memakai `gross_amount` transaksi `POSTED` apa adanya dan
+  tidak dihitung ulang menggunakan tarif master terbaru.
+- Komponen `FIXED` yang efektifnya bersinggungan dengan periode diterapkan penuh
+  satu kali tanpa prorata.
+- Komponen manual dikelola per periode dan karyawan. Satu jenis komponen hanya
+  boleh memiliki satu baris aktif, sedangkan koreksi atau pembatalannya wajib
+  beralasan dan dapat diaudit.
+- Rumus awal adalah bruto Produksi ditambah komponen pendapatan dikurangi
+  komponen potongan. Pajak dan BPJS belum dihitung otomatis.
+- Nilai neto negatif tetap disimpan dan ditampilkan pada simulasi. Kondisi ini
+  baru memblokir pengajuan serta closing dan tidak boleh diubah diam-diam
+  menjadi nol.
+- Kalkulasi memakai run `PROCESSING` yang durable, idempotency key, dan polling.
+  Retry dengan key yang sama tidak membuat run baru; hitung ulang memakai key
+  baru dan mempertahankan seluruh run sebelumnya.
+- Run gagal tidak boleh meninggalkan snapshot atau lock sumber. Run sebelumnya
+  tetap menjadi `current_run_id` sampai run baru selesai dengan sukses.
+- Nominal disimpan dengan presisi dua desimal. UI menyembunyikan pecahan nol dan
+  tetap menampilkan pecahan ketika memang ada nilainya.
+- Detail rekening hanya diberikan kepada pengguna berizin `payroll.calculate`
+  dan `SUPER_ADMIN`; pengguna read-only menerima informasi yang disamarkan.
+
+### Exit criteria Milestone 2
+
+- Snapshot Produksi identik dengan transaksi sumber, transaksi `VOID` tidak
+  ikut, karyawan resign tetap masuk berdasarkan fakta historis, dan tidak ada
+  repricing.
+- Snapshot identitas, rekening, Attendance, serta komponen tidak berubah ketika
+  data master atau sumber diperbarui setelah run selesai.
+- Request paralel hanya menghasilkan satu run `PROCESSING` per periode dan
+  retry idempotent tidak menggandakan hasil.
+- Hitung ulang menghasilkan run baru tanpa menghapus run lama.
+- Kegagalan kalkulasi tidak meninggalkan snapshot, lock, atau status periode
+  setengah jadi.
+- Total run sama dengan agregasi hasil karyawan dan rincian Produksi.
+- Nilai neto negatif tersimpan, terlihat jelas, dan tidak menyebabkan kalkulasi
+  gagal.
+- Permission, pembatasan site, masking rekening, audit, rollback, konkurensi,
+  test, typecheck, lint, dan production build lulus.
+
 ## Milestone 3 - Approval dan closing
 
 - Ajukan run tertentu untuk approval.

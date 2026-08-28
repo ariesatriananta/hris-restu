@@ -33,14 +33,27 @@ vi.mock('../db.js', () => ({
   },
 }))
 vi.mock('../lib/audit.js', () => ({ writeAudit: mocks.audit }))
-vi.mock('../lib/payroll-readiness.js', () => ({ evaluatePayrollReadiness: mocks.readiness }))
+vi.mock('../lib/payroll-readiness.js', () => ({
+  evaluatePayrollReadiness: mocks.readiness,
+}))
 vi.mock('../middleware/authenticate.js', () => ({
-  authenticate: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
+  authenticate: (
+    _req: express.Request,
+    _res: express.Response,
+    next: express.NextFunction
+  ) => next(),
   requirePermission:
     (permission: string) =>
-    (_req: express.Request, res: express.Response, next: express.NextFunction) => {
+    (
+      _req: express.Request,
+      res: express.Response,
+      next: express.NextFunction
+    ) => {
       const context = res.locals.auth as AuthContext
-      if (!context.roles.includes('SUPER_ADMIN') && !context.permissions.includes(permission)) {
+      if (
+        !context.roles.includes('SUPER_ADMIN') &&
+        !context.permissions.includes(permission)
+      ) {
         return res.status(403).json({ message: 'Izin ditolak.' })
       }
       next()
@@ -71,6 +84,7 @@ const readiness = {
     productionGrossAmount: 500000,
     activeComponentCount: 2,
     recurringComponentCount: 2,
+    missingEmploymentHistoryEmployees: 0,
     attendance: { absent: 0, late: 0, earlyLeave: 0 },
   },
 }
@@ -88,10 +102,16 @@ function auth(input: Partial<AuthContext> = {}): AuthContext {
   }
 }
 
-async function request(path: string, options: { method?: string; body?: unknown; auth?: AuthContext } = {}) {
+async function request(
+  path: string,
+  options: { method?: string; body?: unknown; auth?: AuthContext } = {}
+) {
   const app = express()
   app.use(express.json())
-  app.use((_req, res, next) => { res.locals.auth = options.auth ?? auth(); next() })
+  app.use((_req, res, next) => {
+    res.locals.auth = options.auth ?? auth()
+    next()
+  })
   app.use('/api/payroll', payrollPeriodsRouter)
   app.use(errorHandler)
   const server = app.listen(0)
@@ -104,7 +124,9 @@ async function request(path: string, options: { method?: string; body?: unknown;
       body: options.body ? JSON.stringify(options.body) : undefined,
     })
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve()))
+    )
   }
 }
 
@@ -139,7 +161,9 @@ describe('Payroll periods API', () => {
   })
 
   it('membatasi metadata site untuk Payroll Finance', async () => {
-    mocks.query.mockResolvedValueOnce([[{ uid: periodRow.siteUid, code: 'JEPARA', name: 'Jepara' }]])
+    mocks.query.mockResolvedValueOnce([
+      [{ uid: periodRow.siteUid, code: 'JEPARA', name: 'Jepara' }],
+    ])
     const response = await request('/periods/meta')
     expect(response.status).toBe(200)
     expect(String(mocks.query.mock.calls[0]?.[0])).toContain('s.code IN (?)')
@@ -149,28 +173,48 @@ describe('Payroll periods API', () => {
   it('membuat DRAFT PIECE_RATE dengan lock site dan audit', async () => {
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement = String(sql)
-      if (statement.includes('FROM sites WHERE uid=?')) return [[{ id: 2, uid: periodRow.siteUid, code: 'JEPARA', name: 'Jepara' }]]
-      if (statement.includes('FROM payroll_periods') && statement.includes('LIMIT 1 FOR UPDATE')) return [[]]
+      if (statement.includes('FROM sites WHERE uid=?'))
+        return [
+          [{ id: 2, uid: periodRow.siteUid, code: 'JEPARA', name: 'Jepara' }],
+        ]
+      if (
+        statement.includes('FROM payroll_periods') &&
+        statement.includes('LIMIT 1 FOR UPDATE')
+      )
+        return [[]]
       if (statement.includes('WHERE pp.uid=?')) return [[periodRow]]
       return [[]]
     })
     mocks.execute.mockResolvedValueOnce([{ insertId: 15 }])
     const response = await request('/periods', {
       method: 'POST',
-      body: { siteUid: periodRow.siteUid, periodStart: '2026-08-01', periodEnd: '2026-08-07', paymentDate: '2026-08-08' },
+      body: {
+        siteUid: periodRow.siteUid,
+        periodStart: '2026-08-01',
+        periodEnd: '2026-08-07',
+        paymentDate: '2026-08-08',
+      },
     })
     expect(response.status).toBe(201)
     expect(String(mocks.query.mock.calls[0]?.[0])).toContain('FOR UPDATE')
-    expect(String(mocks.execute.mock.calls[0]?.[0])).toContain("'PIECE_RATE','DRAFT'")
+    expect(String(mocks.execute.mock.calls[0]?.[0])).toContain(
+      "'PIECE_RATE','DRAFT'"
+    )
     expect(mocks.audit).toHaveBeenCalledOnce()
     expect(mocks.commit).toHaveBeenCalledOnce()
   })
 
   it('menolak site di luar akses saat membuat periode', async () => {
-    mocks.query.mockResolvedValueOnce([[{ id: 3, uid: periodRow.siteUid, code: 'KLATEN', name: 'Klaten' }]])
+    mocks.query.mockResolvedValueOnce([
+      [{ id: 3, uid: periodRow.siteUid, code: 'KLATEN', name: 'Klaten' }],
+    ])
     const response = await request('/periods', {
       method: 'POST',
-      body: { siteUid: periodRow.siteUid, periodStart: '2026-08-01', periodEnd: '2026-08-07' },
+      body: {
+        siteUid: periodRow.siteUid,
+        periodStart: '2026-08-01',
+        periodEnd: '2026-08-07',
+      },
     })
     expect(response.status).toBe(403)
     expect(mocks.execute).not.toHaveBeenCalled()
@@ -178,7 +222,9 @@ describe('Payroll periods API', () => {
   })
 
   it('hanya mengizinkan pembatalan periode DRAFT', async () => {
-    mocks.query.mockResolvedValueOnce([[{ ...periodRow, status: 'CALCULATED' }]])
+    mocks.query.mockResolvedValueOnce([
+      [{ ...periodRow, status: 'CALCULATED' }],
+    ])
     const response = await request(`/periods/${periodRow.uid}/cancel`, {
       method: 'POST',
       body: { reason: 'Periode salah dibuat.' },
@@ -189,8 +235,12 @@ describe('Payroll periods API', () => {
   })
 
   it('SUPER_ADMIN melewati permission dan akses site', async () => {
-    mocks.query.mockResolvedValueOnce([[{ uid: periodRow.siteUid, code: 'KLATEN', name: 'Klaten' }]])
-    const response = await request('/periods/meta', { auth: auth({ roles: ['SUPER_ADMIN'], permissions: [], siteAccess: [] }) })
+    mocks.query.mockResolvedValueOnce([
+      [{ uid: periodRow.siteUid, code: 'KLATEN', name: 'Klaten' }],
+    ])
+    const response = await request('/periods/meta', {
+      auth: auth({ roles: ['SUPER_ADMIN'], permissions: [], siteAccess: [] }),
+    })
     expect(response.status).toBe(200)
     expect(String(mocks.query.mock.calls[0]?.[0])).not.toContain('s.code IN')
   })

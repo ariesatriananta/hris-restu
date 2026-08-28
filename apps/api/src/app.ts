@@ -3,19 +3,21 @@ import cors from 'cors'
 import express from 'express'
 import { env } from './config.js'
 import { errorHandler } from './lib/errors.js'
-import { healthRouter } from './routes/health.js'
-import { authRouter } from './routes/auth.js'
-import { filesRouter } from './routes/files.js'
-import { employeesRouter } from './routes/employees.js'
-import { internalRouter } from './routes/internal.js'
-import { productionStructureRouter } from './routes/production-structure.js'
-import { productionFoundationRouter } from './routes/production-foundation.js'
-import { productionTransactionsRouter } from './routes/production-transactions.js'
-import { productionRecapsRouter } from './routes/production-recaps.js'
-import { payrollPeriodsRouter } from './routes/payroll-periods.js'
-import { systemRouter } from './routes/system.js'
-import { attendanceRouter } from './routes/attendance.js'
 import { registerProductionFrontend } from './lib/production-frontend.js'
+import { attendanceRouter } from './routes/attendance.js'
+import { authRouter } from './routes/auth.js'
+import { employeesRouter } from './routes/employees.js'
+import { filesRouter } from './routes/files.js'
+import { healthRouter } from './routes/health.js'
+import { internalRouter } from './routes/internal.js'
+import { payrollPeriodsRouter } from './routes/payroll-periods.js'
+import { payrollSimulationsRouter } from './routes/payroll-simulations.js'
+import { productionFoundationRouter } from './routes/production-foundation.js'
+import { productionRecapsRouter } from './routes/production-recaps.js'
+import { productionStructureRouter } from './routes/production-structure.js'
+import { productionTransactionsRouter } from './routes/production-transactions.js'
+import { systemRouter } from './routes/system.js'
+
 export const app = express()
 if (env.NODE_ENV === 'production' && env.TRUST_PROXY) app.set('trust proxy', 1)
 app.use(cors({ origin: env.FRONTEND_ORIGIN, credentials: true }))
@@ -31,8 +33,11 @@ app.use('/api/production-structure', productionStructureRouter)
 app.use('/api/production', productionTransactionsRouter)
 app.use('/api/production', productionRecapsRouter)
 app.use('/api/payroll', payrollPeriodsRouter)
+app.use('/api/payroll', payrollSimulationsRouter)
 app.use('/api/system', systemRouter)
 app.use('/api/attendance', attendanceRouter)
-app.use('/api', (_req, res) => res.status(404).json({ message: 'Endpoint API tidak ditemukan.' }))
+app.use('/api', (_req, res) =>
+  res.status(404).json({ message: 'Endpoint API tidak ditemukan.' })
+)
 if (env.NODE_ENV === 'production') registerProductionFrontend(app)
 app.use(errorHandler)

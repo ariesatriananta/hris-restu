@@ -8,7 +8,13 @@ export type PayrollReadinessIssue = {
   message: string
   count: number
   severity: 'BLOCKER' | 'WARNING'
-  group: 'PERIOD' | 'ATTENDANCE' | 'EMPLOYMENT' | 'PRODUCTION' | 'COMPONENT' | 'PAYMENT'
+  group:
+    | 'PERIOD'
+    | 'ATTENDANCE'
+    | 'EMPLOYMENT'
+    | 'PRODUCTION'
+    | 'COMPONENT'
+    | 'PAYMENT'
   actionUrl: string | null
 }
 
@@ -36,6 +42,7 @@ export type PayrollReadiness = {
     productionGrossAmount: number
     activeComponentCount: number
     recurringComponentCount: number
+    missingEmploymentHistoryEmployees: number
     attendance: { absent: number; late: number; earlyLeave: number }
   }
 }
@@ -88,6 +95,11 @@ export async function evaluatePayrollReadiness(
                AND (eh.effective_to IS NULL OR eh.effective_to>=?)
           )
         GROUP BY epc.employee_id
+       UNION ALL
+       SELECT manual.employee_id,0 has_production
+         FROM payroll_period_manual_components manual
+        WHERE manual.payroll_period_id=? AND manual.status='ACTIVE'
+        GROUP BY manual.employee_id
      ), rolled AS (
        SELECT employee_id,MAX(has_production) has_production
          FROM population GROUP BY employee_id
@@ -115,6 +127,16 @@ export async function evaluatePayrollReadiness(
                        AND component_history.effective_from<=?
                        AND (component_history.effective_to IS NULL OR component_history.effective_to>=?)
                   )) activeComponentCount
+            ,COALESCE(SUM(NOT EXISTS (
+                SELECT 1 FROM employee_employment_histories payroll_history
+                JOIN employee_types payroll_type
+                  ON payroll_type.id=payroll_history.employee_type_id
+                 AND payroll_type.payroll_basis='PIECE_RATE'
+                 WHERE payroll_history.employee_id=rolled.employee_id
+                   AND payroll_history.site_id=?
+                   AND payroll_history.effective_from<=?
+                   AND (payroll_history.effective_to IS NULL OR payroll_history.effective_to>=?)
+              )),0) missingEmploymentHistoryEmployees
        FROM rolled JOIN employees e ON e.id=rolled.employee_id`,
     [
       period.siteId,
@@ -125,12 +147,16 @@ export async function evaluatePayrollReadiness(
       period.siteId,
       period.periodEnd,
       period.periodStart,
+      period.id,
       period.siteId,
       period.periodStart,
       period.periodEnd,
       period.siteId,
       period.periodStart,
       period.periodEnd,
+      period.periodEnd,
+      period.periodStart,
+      period.siteId,
       period.periodEnd,
       period.periodStart,
       period.siteId,
@@ -292,21 +318,40 @@ export async function evaluatePayrollReadiness(
   const expectedAttendanceDays = number(attendance.expectedDays)
   const finalizedAttendanceDays = number(attendance.finalizedDays)
   const pendingAttendanceCorrections = number(integrity.pendingCorrections)
-  const pendingAttendanceClassifications = number(integrity.pendingClassifications)
+  const pendingAttendanceClassifications = number(
+    integrity.pendingClassifications
+  )
   const ambiguousEmploymentEmployees = number(integrity.ambiguousEmployment)
-  const conflictingProductionTransactions = number(integrity.conflictingProduction)
+  const conflictingProductionTransactions = number(
+    integrity.conflictingProduction
+  )
   const unsupportedFormulaComponents = number(integrity.unsupportedFormula)
   const populationCount = number(population.populationCount)
   const productionEmployeeCount = number(population.productionEmployeeCount)
-  const componentOnlyEmployeeCount = number(population.componentOnlyEmployeeCount)
+  const componentOnlyEmployeeCount = number(
+    population.componentOnlyEmployeeCount
+  )
   const missingBankAccounts = number(population.missingBankAccounts)
   const postedTransactionCount = number(population.postedTransactionCount)
   const productionGrossAmount = number(population.productionGrossAmount)
   const activeComponentCount = number(population.activeComponentCount)
+  const missingEmploymentHistoryEmployees = number(
+    population.missingEmploymentHistoryEmployees
+  )
   const blockers: PayrollReadinessIssue[] = []
   const warnings: PayrollReadinessIssue[] = []
 
-  if (!periodFinished) blockers.push(issue('PERIOD_NOT_ENDED', 'Periode Payroll belum selesai.', 1, 'BLOCKER', 'PERIOD', null))
+  if (!periodFinished)
+    blockers.push(
+      issue(
+        'PERIOD_NOT_ENDED',
+        'Periode Payroll belum selesai.',
+        1,
+        'BLOCKER',
+        'PERIOD',
+        null
+      )
+    )
   if (expectedAttendanceDays !== finalizedAttendanceDays) {
     blockers.push(
       issue(
@@ -320,38 +365,146 @@ export async function evaluatePayrollReadiness(
     )
   }
   if (number(attendance.runningDays) > 0) {
-    blockers.push(issue('ATTENDANCE_FINALIZATION_RUNNING', 'Finalisasi Attendance masih berjalan.', number(attendance.runningDays), 'BLOCKER', 'ATTENDANCE', '/attendance/monitoring-harian'))
+    blockers.push(
+      issue(
+        'ATTENDANCE_FINALIZATION_RUNNING',
+        'Finalisasi Attendance masih berjalan.',
+        number(attendance.runningDays),
+        'BLOCKER',
+        'ATTENDANCE',
+        '/attendance/monitoring-harian'
+      )
+    )
   }
   if (pendingAttendanceCorrections > 0) {
-    blockers.push(issue('PENDING_ATTENDANCE_CORRECTION', 'Masih ada koreksi Attendance yang menunggu keputusan.', pendingAttendanceCorrections, 'BLOCKER', 'ATTENDANCE', '/attendance/tindak-lanjut'))
+    blockers.push(
+      issue(
+        'PENDING_ATTENDANCE_CORRECTION',
+        'Masih ada koreksi Attendance yang menunggu keputusan.',
+        pendingAttendanceCorrections,
+        'BLOCKER',
+        'ATTENDANCE',
+        '/attendance/tindak-lanjut'
+      )
+    )
   }
   if (pendingAttendanceClassifications > 0) {
-    blockers.push(issue('PENDING_ATTENDANCE_CLASSIFICATION', 'Masih ada klasifikasi Attendance yang menunggu keputusan.', pendingAttendanceClassifications, 'BLOCKER', 'ATTENDANCE', '/attendance/tindak-lanjut'))
+    blockers.push(
+      issue(
+        'PENDING_ATTENDANCE_CLASSIFICATION',
+        'Masih ada klasifikasi Attendance yang menunggu keputusan.',
+        pendingAttendanceClassifications,
+        'BLOCKER',
+        'ATTENDANCE',
+        '/attendance/tindak-lanjut'
+      )
+    )
   }
   if (ambiguousEmploymentEmployees > 0) {
-    blockers.push(issue('AMBIGUOUS_EMPLOYMENT', 'Ditemukan histori employment yang bertumpang-tindih.', ambiguousEmploymentEmployees, 'BLOCKER', 'EMPLOYMENT', '/karyawan/data-karyawan'))
+    blockers.push(
+      issue(
+        'AMBIGUOUS_EMPLOYMENT',
+        'Ditemukan histori employment yang bertumpang-tindih.',
+        ambiguousEmploymentEmployees,
+        'BLOCKER',
+        'EMPLOYMENT',
+        '/karyawan/data-karyawan'
+      )
+    )
   }
-  if (populationCount === 0) blockers.push(issue('EMPTY_POPULATION', 'Tidak ada karyawan yang masuk populasi Payroll.', 1, 'BLOCKER', 'PERIOD', null))
+  if (missingEmploymentHistoryEmployees > 0) {
+    blockers.push(
+      issue(
+        'EMPLOYMENT_HISTORY_MISSING',
+        'Karyawan dalam populasi Payroll tidak memiliki histori employment valid pada site dan periode.',
+        missingEmploymentHistoryEmployees,
+        'BLOCKER',
+        'EMPLOYMENT',
+        '/karyawan/data-karyawan'
+      )
+    )
+  }
+  if (populationCount === 0)
+    blockers.push(
+      issue(
+        'EMPTY_POPULATION',
+        'Tidak ada karyawan yang masuk populasi Payroll.',
+        1,
+        'BLOCKER',
+        'PERIOD',
+        null
+      )
+    )
   if (conflictingProductionTransactions > 0) {
-    blockers.push(issue('PRODUCTION_SNAPSHOT_CONFLICT', 'Transaksi Produksi sudah digunakan oleh periode Payroll lain.', conflictingProductionTransactions, 'BLOCKER', 'PRODUCTION', '/produksi/transaksi'))
+    blockers.push(
+      issue(
+        'PRODUCTION_SNAPSHOT_CONFLICT',
+        'Transaksi Produksi sudah digunakan oleh periode Payroll lain.',
+        conflictingProductionTransactions,
+        'BLOCKER',
+        'PRODUCTION',
+        '/produksi/transaksi'
+      )
+    )
   }
   if (unsupportedFormulaComponents > 0) {
-    blockers.push(issue('UNSUPPORTED_FORMULA_COMPONENT', 'Ada komponen formula yang belum didukung.', unsupportedFormulaComponents, 'BLOCKER', 'COMPONENT', null))
+    blockers.push(
+      issue(
+        'UNSUPPORTED_FORMULA_COMPONENT',
+        'Ada komponen formula yang belum didukung.',
+        unsupportedFormulaComponents,
+        'BLOCKER',
+        'COMPONENT',
+        null
+      )
+    )
   }
-  if (missingBankAccounts > 0) warnings.push(issue('MISSING_BANK_ACCOUNT', 'Data rekening sebagian karyawan belum lengkap.', missingBankAccounts, 'WARNING', 'PAYMENT', '/karyawan/data-karyawan'))
+  if (missingBankAccounts > 0)
+    warnings.push(
+      issue(
+        'MISSING_BANK_ACCOUNT',
+        'Data rekening sebagian karyawan belum lengkap.',
+        missingBankAccounts,
+        'WARNING',
+        'PAYMENT',
+        '/karyawan/data-karyawan'
+      )
+    )
   if (componentOnlyEmployeeCount > 0) {
-    warnings.push(issue('COMPONENT_ONLY_EMPLOYEE', 'Sebagian karyawan hanya memiliki komponen Payroll tanpa transaksi Produksi.', componentOnlyEmployeeCount, 'WARNING', 'COMPONENT', null))
+    warnings.push(
+      issue(
+        'COMPONENT_ONLY_EMPLOYEE',
+        'Sebagian karyawan hanya memiliki komponen Payroll tanpa transaksi Produksi.',
+        componentOnlyEmployeeCount,
+        'WARNING',
+        'COMPONENT',
+        null
+      )
+    )
   }
 
   const absent = number(integrity.absentCount)
   const late = number(integrity.lateCount)
   const earlyLeave = number(integrity.earlyLeaveCount)
   if (absent + late + earlyLeave > 0) {
-    warnings.push(issue('ATTENDANCE_INFORMATION', 'Terdapat informasi Alpha, terlambat, atau pulang awal. Informasi ini tidak otomatis memotong upah.', absent + late + earlyLeave, 'WARNING', 'ATTENDANCE', '/attendance/rekap'))
+    warnings.push(
+      issue(
+        'ATTENDANCE_INFORMATION',
+        'Terdapat informasi Alpha, terlambat, atau pulang awal. Informasi ini tidak otomatis memotong upah.',
+        absent + late + earlyLeave,
+        'WARNING',
+        'ATTENDANCE',
+        '/attendance/rekap'
+      )
+    )
   }
 
   return {
-    status: blockers.length ? 'BLOCKED' : warnings.length ? 'ATTENTION' : 'READY',
+    status: blockers.length
+      ? 'BLOCKED'
+      : warnings.length
+        ? 'ATTENTION'
+        : 'READY',
     evaluatedAt: new Date().toISOString(),
     populationCount,
     productionEmployeeCount,
@@ -374,6 +527,7 @@ export async function evaluatePayrollReadiness(
       productionGrossAmount,
       activeComponentCount,
       recurringComponentCount: activeComponentCount,
+      missingEmploymentHistoryEmployees,
       attendance: { absent, late, earlyLeave },
     },
   }
