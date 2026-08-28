@@ -54,6 +54,48 @@ function money(value: unknown) {
   return `${integer}.${fraction.padEnd(2, '0').slice(0, 2)}`
 }
 
+function settingObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object') return value as Record<string, unknown>
+  try { return JSON.parse(String(value ?? '{}')) as Record<string, unknown> } catch { return {} }
+}
+
+async function snapshotCompanyAtClosing(
+  conn: PoolConnection,
+  periodId: number,
+  auth: AuthContext
+) {
+  const [existing] = await conn.query<RowDataPacket[]>(
+    `SELECT id FROM payroll_period_company_snapshots WHERE payroll_period_id=? FOR UPDATE`,
+    [periodId]
+  )
+  if (existing[0]) return
+  const [settings] = await conn.query<RowDataPacket[]>(
+    `SELECT setting_value settingValue FROM system_settings
+      WHERE site_id IS NULL AND setting_key='company.profile' LIMIT 1 FOR UPDATE`
+  )
+  const profile = settingObject(settings[0]?.settingValue)
+  const companyName = String(profile.companyName ?? '').trim()
+  const legalAddress = String(profile.legalAddress ?? '').trim()
+  if (!companyName || !legalAddress) {
+    throw new ApiError(
+      409,
+      'Profil perusahaan wajib memiliki nama dan alamat sebelum Payroll ditutup.'
+    )
+  }
+  const optional = (key: string) => {
+    const value = String(profile[key] ?? '').trim()
+    return value || null
+  }
+  await conn.execute(
+    `INSERT INTO payroll_period_company_snapshots(
+       uid,payroll_period_id,company_name,legal_address,phone,email,website,
+       tax_number,logo_file_uid,snapshot_source,snapped_by,created_by,updated_by
+     ) VALUES(?,?,?,?,?,?,?,?,?,'CLOSE',?,?,?)`,
+    [randomUUID(),periodId,companyName,legalAddress,optional('phone'),optional('email'),
+      optional('website'),optional('taxNumber'),optional('logoFileUid'),auth.id,auth.id,auth.id]
+  )
+}
+
 const periodWorkflowProjection = `SELECT
   pp.id periodId,pp.uid periodUid,pp.status periodStatus,pp.current_run_id currentRunId,
   pp.period_code periodCode,pp.period_name periodName,
@@ -694,6 +736,7 @@ payrollApprovalsRouter.post(
         throw new ApiError(409, 'Payroll hanya dapat ditutup setelah disetujui.')
       await assertNoProcessingRun(conn, Number(row.periodId))
       await assertIntegrity(conn, row)
+      await snapshotCompanyAtClosing(conn, Number(row.periodId), auth)
       const [runUpdate] = await conn.execute<ResultSetHeader>(
         `UPDATE payroll_runs SET run_type='FINAL',updated_by=?
           WHERE id=? AND payroll_period_id=? AND status='COMPLETED' AND run_type='SIMULATION'`,

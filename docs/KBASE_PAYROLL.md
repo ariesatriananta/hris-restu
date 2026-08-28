@@ -1,8 +1,7 @@
 # Knowledge Base Payroll
 
-> Status dokumen: Periode, pemeriksaan kesiapan, Simulasi, Persetujuan, dan
-> Closing Payroll Borongan sudah operasional. Riwayat lanjutan, ekspor, dan slip
-> gaji dibuka pada tahap berikutnya.
+> Status dokumen: Periode, pemeriksaan kesiapan, Simulasi, Persetujuan, Closing,
+> Riwayat, Ekspor, dan Slip Payroll Borongan sudah operasional.
 
 ## 1. Tujuan menu Payroll
 
@@ -232,12 +231,77 @@ akan dikelola pada proses tersendiri.
 Gunakan histori persetujuan untuk melihat siapa yang mengajukan, menyetujui,
 menolak, menarik, atau menutup beserta waktu dan alasannya.
 
-## 15. Batas tahap saat ini
+## 15. Membaca riwayat dan membandingkan perhitungan
+
+1. Buka **Payroll > Riwayat Payroll**.
+2. Gunakan site, status, atau rentang tanggal untuk menemukan periode.
+3. Pilih **Lihat histori** untuk membuka seluruh proses hitung pada periode itu.
+4. Centang dua run berstatus **Selesai** untuk melihat perbedaannya.
+
+Perbandingan menunjukkan perubahan jumlah karyawan dan selisih hasil Produksi,
+pendapatan, potongan, serta neto. Run gagal tetap ditampilkan sebagai histori,
+tetapi tidak dapat dibandingkan atau digunakan untuk slip.
+
+Perbandingan hanya dilakukan dalam periode yang sama. Fitur ini membantu
+menjawab pertanyaan seperti "apa yang berubah setelah hitung ulang?", bukan
+untuk membandingkan performa antarbulan.
+
+## 16. Mengekspor rekap dan daftar pembayaran
+
+Pada detail histori, pilih:
+
+- **Rekap** untuk mengunduh hasil Payroll. Nomor rekening selalu disamarkan.
+  Jika sumbernya belum final, file diberi keterangan **SIMULASI**.
+- **Daftar pembayaran** untuk menyiapkan nama bank, rekening lengkap, dan neto.
+  Pilihan ini hanya muncul pada hasil `FINAL` dari periode **Ditutup** dan hanya
+  untuk Payroll Finance atau Super Admin yang berwenang.
+
+Daftar pembayaran adalah bahan kerja untuk proses transfer. File tersebut bukan
+bukti bahwa transfer sudah dilakukan. Simpan dan kirim file dengan hati-hati
+karena memuat data rekening karyawan.
+
+## 17. Melihat dan mencetak slip
+
+1. Buka **Payroll > Slip Gaji**.
+2. Pilih periode, lalu pilih run yang sudah selesai.
+3. Cari nama atau nomor karyawan.
+4. Pilih **Preview** untuk membaca slip individual.
+5. Pengguna berizin dapat mencetak satu slip, beberapa slip yang dipilih, atau
+   seluruh slip pada run tersebut.
+
+Preview dari hasil yang belum ditutup memiliki watermark **SIMULASI** dan belum
+merupakan slip resmi. Slip tanpa watermark hanya tersedia dari current run
+`FINAL` pada periode **Ditutup**.
+
+Slip menampilkan hasil Produksi, pendapatan, potongan, neto, rekening yang
+disamarkan, dan ringkasan Attendance. Attendance tersebut bersifat informasi
+dan bukan pengali otomatis upah borongan. Cetak massal memakai kertas A4 portrait
+dengan dua slip per lembar.
+
+Profil perusahaan pada slip resmi mengikuti snapshot saat closing. Karena itu,
+slip lama tidak berubah ketika profil perusahaan diperbarui kemudian.
+
+## 18. Jika menu atau tombol tidak tersedia
+
+- Site yang tampil mengikuti akses akun.
+- Director dapat melihat preview dan rekap dengan rekening disamarkan, tetapi
+  tidak mencetak massal atau mengunduh Daftar Pembayaran secara default.
+- Payroll Finance dapat mencetak dan mengunduh Daftar Pembayaran untuk site
+  yang diberikan kepada akunnya.
+- Super Admin dapat menjalankan seluruh fungsi lintas site.
+
+Jika closing ditolak karena profil perusahaan belum lengkap, lengkapi nama dan
+alamat perusahaan melalui **Administrasi Sistem > Pengaturan**, lalu ulangi
+closing.
+
+## 19. Batas tahap saat ini
 
 Pada tahap saat ini, sistem belum:
 
 - menghitung pajak atau BPJS otomatis;
-- menerbitkan slip gaji.
+- mencatat status transfer atau pembayaran sebagai proses tersendiri;
+- menyimpan file PDF slip secara permanen; atau
+- menggunakan tanda tangan elektronik pada slip.
 
-Hasil simulasi maupun closing belum berarti gaji sudah ditransfer atau
-dibayarkan.
+Hasil simulasi, closing, export, maupun cetak slip belum berarti gaji sudah
+ditransfer atau dibayarkan.

@@ -114,7 +114,7 @@ export interface PayrollRunSummary {
   uid: string
   periodUid: string
   runNumber: number
-  runType: 'SIMULATION'
+  runType: 'SIMULATION' | 'FINAL'
   status: PayrollRunStatus
   startedAt: string
   finishedAt: string | null
@@ -125,6 +125,147 @@ export interface PayrollRunSummary {
   totalNetPay: string
   errorMessage: string | null
   isCurrent: boolean
+}
+
+export type PayrollHistoryRun = Omit<
+  PayrollRunSummary,
+  'periodUid' | 'errorMessage'
+>
+
+export interface PayrollHistoryPeriod {
+  uid: string
+  periodCode: string
+  periodName: string
+  periodStart: string
+  periodEnd: string
+  paymentDate: string | null
+  status: PayrollPeriodStatus
+  payrollBasis: 'PIECE_RATE'
+  site: Pick<PayrollSite, 'code' | 'name'>
+  currentRun: PayrollHistoryRun | null
+  runCount: number
+  completedRunCount: number
+  failedRunCount: number
+  createdAt: string
+  closedAt: string | null
+}
+
+export interface PayrollHistoryResult {
+  data: PayrollHistoryPeriod[]
+  meta: {
+    page: number
+    pageSize: number
+    total: number
+    totalPages: number
+    sites: PayrollSite[]
+    capabilities: {
+      canExport: boolean
+      canPaymentExport: boolean
+      canPrint: boolean
+    }
+  }
+}
+
+export interface PayrollRunAmounts {
+  pieceRateAmount: string
+  additionalEarnings: string
+  grossEarnings: string
+  totalDeductions: string
+  netPay: string
+}
+
+export interface PayrollRunComparison {
+  period: {
+    uid: string
+    periodCode: string
+    periodName: string
+    site: Pick<PayrollSite, 'code' | 'name'>
+    periodStart: string
+    periodEnd: string
+  }
+  baseRun: PayrollHistoryRun
+  targetRun: PayrollHistoryRun
+  summary: {
+    employeeCountDelta: number
+    totalPieceRateAmountDelta: string
+    totalEarningsDelta: string
+    totalDeductionsDelta: string
+    totalNetPayDelta: string
+  }
+  employees: Array<{
+    employeeUid: string
+    employeeNumber: string
+    fullName: string
+    change: 'ADDED' | 'REMOVED' | 'CHANGED' | 'UNCHANGED'
+    base: PayrollRunAmounts | null
+    target: PayrollRunAmounts | null
+    deltas: PayrollRunAmounts
+  }>
+}
+
+export interface PayrollPayslipBundle {
+  period: {
+    uid: string
+    periodCode: string
+    periodName: string
+    periodStart: string
+    periodEnd: string
+    paymentDate: string | null
+    status: PayrollPeriodStatus
+    site: Pick<PayrollSite, 'code' | 'name'>
+  }
+  run: PayrollHistoryRun
+  document: {
+    kind: 'SIMULATION' | 'OFFICIAL'
+    watermark: 'SIMULASI' | null
+    official: boolean
+    closedDoesNotMeanPaid: true
+    company: {
+      companyName: string
+      legalAddress: string | null
+      phone: string | null
+      email: string | null
+      website: string | null
+      taxNumber: string | null
+      logoFileUid: string | null
+      logoUrl: string | null
+      snapshotSource: 'CLOSE' | 'LEGACY_BACKFILL' | 'LIVE_PREVIEW'
+    }
+  }
+  employees: Array<{
+    employeeResultUid: string
+    employeeNumber: string
+    fullName: string
+    employeeType: string
+    departmentName: string | null
+    positionName: string | null
+    bank: { bankName: string | null; accountLast4: string | null }
+    attendance: {
+      scheduledDays: number
+      presentDays: number
+      absentDays: number
+      leaveDays: number
+      sickDays: number
+      permissionDays: number
+      holidayDays: number
+      lateMinutes: number
+      earlyLeaveMinutes: number
+    } | null
+    totals: PayrollRunAmounts
+    components: Array<{
+      code: string
+      name: string
+      category: 'EARNING' | 'DEDUCTION'
+      amount: string
+      notes: string | null
+    }>
+    productionSummary: Array<{
+      jobName: string
+      unitName: string
+      quantity: string
+      amount: string
+    }>
+  }>
 }
 
 export interface PayrollEmployeeResultSummary {

@@ -129,6 +129,21 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Slip resmi hanya bersumber dari Payroll `CLOSED`. Hasil `CALCULATED` hanya
   boleh dipratinjau dengan penanda Simulasi; status `CLOSED` tidak menyatakan
   pembayaran atau transfer sudah dilakukan.
+- Riwayat Payroll mempertahankan seluruh run. Perbandingan hanya boleh dilakukan
+  terhadap tepat dua run `COMPLETED` dalam periode yang sama dan seluruh angka
+  harus berasal dari snapshot masing-masing run.
+- Rekap Payroll selalu menyamarkan rekening. Rekening lengkap hanya boleh ada
+  pada Daftar Pembayaran dari current run `FINAL` pada periode `CLOSED`, untuk
+  Payroll Finance sesuai akses site dan `SUPER_ADMIN` lintas site.
+- Pengguna `payroll.view` boleh melihat preview slip dengan rekening
+  disamarkan. Cetak individual dan massal hanya untuk pengguna berizin
+  `payroll.print`; Direksi tidak mendapat akses cetak massal secara default.
+- Identitas perusahaan pada slip resmi disnapshot saat closing. Nama dan alamat
+  wajib tersedia, logo opsional, sedangkan snapshot periode lama harus ditandai
+  sebagai backfill legacy dan tidak boleh diklaim sebagai profil historis asli.
+- Export dan penerbitan data cetak wajib idempotent dan tercatat pada audit.
+  Sistem tidak menyimpan binary PDF pada fase awal dan catatan penerbitan tidak
+  berarti kertas sudah dicetak atau pembayaran telah dilakukan.
 - Semua aksi penting dan koreksi harus dapat ditelusuri melalui audit trail.
 - Exception Produksi wajib memakai preview lalu apply, alasan, idempotency,
   audit trail, pembatasan site, dan guard Payroll.

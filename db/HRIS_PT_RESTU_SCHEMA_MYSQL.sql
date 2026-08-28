@@ -1750,6 +1750,59 @@ CREATE TABLE payroll_workflow_actions (
   CONSTRAINT fk_payroll_workflow_action_user FOREIGN KEY (performed_by) REFERENCES users(id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE payroll_period_company_snapshots (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  payroll_period_id BIGINT UNSIGNED NOT NULL,
+  company_name VARCHAR(150) NOT NULL,
+  legal_address VARCHAR(500) NOT NULL,
+  phone VARCHAR(30) NULL,
+  email VARCHAR(191) NULL,
+  website VARCHAR(255) NULL,
+  tax_number VARCHAR(50) NULL,
+  logo_file_uid CHAR(36) NULL,
+  snapshot_source VARCHAR(30) NOT NULL,
+  snapped_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  snapped_by BIGINT UNSIGNED NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_payroll_period_company_snapshots_uid (uid),
+  UNIQUE KEY uq_payroll_period_company_snapshots_period (payroll_period_id),
+  CONSTRAINT chk_payroll_company_snapshot_source CHECK (snapshot_source IN ('CLOSE','LEGACY_BACKFILL')),
+  CONSTRAINT fk_payroll_company_snapshot_period FOREIGN KEY (payroll_period_id) REFERENCES payroll_periods(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_payroll_company_snapshot_user FOREIGN KEY (snapped_by) REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE payroll_output_audits (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  payroll_period_id BIGINT UNSIGNED NOT NULL,
+  payroll_run_id BIGINT UNSIGNED NOT NULL,
+  output_type VARCHAR(30) NOT NULL,
+  idempotency_key VARCHAR(100) NOT NULL,
+  employee_result_count INT UNSIGNED NOT NULL DEFAULT 0,
+  selection_json JSON NULL,
+  checksum_sha256 CHAR(64) NULL,
+  generated_by BIGINT UNSIGNED NOT NULL,
+  generated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_payroll_output_audits_uid (uid),
+  UNIQUE KEY uq_payroll_output_audits_idempotency (idempotency_key),
+  KEY idx_payroll_output_audits_period (payroll_period_id,generated_at),
+  KEY idx_payroll_output_audits_run (payroll_run_id,generated_at),
+  CONSTRAINT chk_payroll_output_audit_type CHECK (output_type IN ('SUMMARY_EXPORT','PAYMENT_EXPORT','SLIP_PRINT')),
+  CONSTRAINT fk_payroll_output_audit_period FOREIGN KEY (payroll_period_id) REFERENCES payroll_periods(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_payroll_output_audit_run FOREIGN KEY (payroll_run_id) REFERENCES payroll_runs(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_payroll_output_audit_user FOREIGN KEY (generated_by) REFERENCES users(id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ============================================================================
 -- G. AUDIT TRAIL
 -- ============================================================================
@@ -1910,6 +1963,9 @@ VALUES
   (UUID(), 'payroll.calculate', 'payroll', 'Hitung Payroll'),
   (UUID(), 'payroll.approve', 'payroll', 'Approve Payroll'),
   (UUID(), 'payroll.close', 'payroll', 'Closing Payroll'),
+  (UUID(), 'payroll.export', 'payroll', 'Ekspor Rekap Payroll'),
+  (UUID(), 'payroll.payment_export', 'payroll', 'Ekspor Daftar Pembayaran Payroll'),
+  (UUID(), 'payroll.print', 'payroll', 'Cetak Slip Payroll'),
   (UUID(), 'documents.manage', 'documents', 'Kelola Dokumen'),
   (UUID(), 'reports.view', 'reports', 'Lihat Laporan'),
   (UUID(), 'users.manage', 'users', 'Kelola User dan Hak Akses'),
@@ -1983,14 +2039,14 @@ INSERT INTO role_permissions (uid, role_id, permission_id)
 SELECT UUID(), r.id, p.id
 FROM roles r
 JOIN permissions p
-  ON p.code IN ('payroll.view', 'payroll.calculate', 'payroll.close')
+  ON p.code IN ('payroll.view', 'payroll.calculate', 'payroll.close', 'payroll.export', 'payroll.payment_export', 'payroll.print')
 WHERE r.code = 'PAYROLL_FINANCE';
 
 INSERT INTO role_permissions (uid, role_id, permission_id)
 SELECT UUID(), r.id, p.id
 FROM roles r
 JOIN permissions p
-  ON p.code IN ('payroll.view', 'payroll.approve')
+  ON p.code IN ('payroll.view', 'payroll.approve', 'payroll.export')
 WHERE r.code = 'DIRECTOR';
 
 -- Pengaturan global awal.

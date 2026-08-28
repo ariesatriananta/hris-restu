@@ -22,7 +22,7 @@ export type PayrollRunRow = RowDataPacket & {
   periodStart: string
   periodEnd: string
   runNumber: number
-  runType: 'SIMULATION'
+  runType: 'SIMULATION' | 'FINAL'
   status: PayrollRunStatus
   startedAt: string
   finishedAt: string | null

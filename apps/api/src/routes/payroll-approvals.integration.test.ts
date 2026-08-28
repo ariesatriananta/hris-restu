@@ -81,6 +81,9 @@ describe('Payroll approval API', () => {
       const statement = String(sql)
       if (statement.includes('WHERE pp.uid=? FOR UPDATE') || statement.includes('WHERE approval.uid=? FOR UPDATE'))
         return [[initial]]
+      if (statement.includes('FROM payroll_period_company_snapshots')) return [[]]
+      if (statement.includes("setting_key='company.profile'"))
+        return [[{ settingValue: JSON.stringify({ companyName: 'PT Restu Sejati Inti Abadi', legalAddress: 'Jepara' }) }]]
       if (statement.includes('WHERE pp.uid=?')) return [[final]]
       if (statement.includes('FROM payroll_workflow_actions action')) return [[]]
       return [[]]

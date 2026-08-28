@@ -19,6 +19,9 @@ import type {
   PayrollSimulationMeta,
   PayrollApprovalQueueResult,
   PayrollWorkflow,
+  PayrollHistoryResult,
+  PayrollPayslipBundle,
+  PayrollRunComparison,
 } from '../domain'
 
 const keys = {
@@ -43,6 +46,108 @@ const keys = {
     [...keys.all, 'approval-queue', input] as const,
   workflow: (periodUid: string) =>
     [...keys.all, periodUid, 'workflow'] as const,
+  history: (input: Record<string, unknown>) =>
+    [...keys.all, 'history', input] as const,
+  comparison: (periodUid: string, baseRunUid: string, targetRunUid: string) =>
+    [...keys.all, periodUid, 'comparison', baseRunUid, targetRunUid] as const,
+  payslips: (runUid: string, employeeResultUid?: string) =>
+    [...keys.run(runUid), 'payslips', employeeResultUid ?? 'all'] as const,
+}
+
+export function usePayrollHistory(input: Record<string, unknown>) {
+  return useQuery({
+    queryKey: keys.history(input),
+    queryFn: async () =>
+      (
+        await apiClient.get<PayrollHistoryResult>(
+          `/payroll/history?${params(input)}`
+        )
+      ).data,
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function usePayrollRunComparison(
+  periodUid?: string,
+  baseRunUid?: string,
+  targetRunUid?: string
+) {
+  return useQuery({
+    queryKey: keys.comparison(
+      periodUid ?? '',
+      baseRunUid ?? '',
+      targetRunUid ?? ''
+    ),
+    queryFn: async () =>
+      (
+        await apiClient.get<{ data: PayrollRunComparison }>(
+          `/payroll/periods/${periodUid}/compare?${params({ baseRunUid, targetRunUid })}`
+        )
+      ).data.data,
+    enabled: Boolean(periodUid && baseRunUid && targetRunUid),
+  })
+}
+
+export function usePayrollPayslips(
+  runUid?: string,
+  employeeResultUid?: string
+) {
+  return useQuery({
+    queryKey: keys.payslips(runUid ?? '', employeeResultUid),
+    queryFn: async () =>
+      (
+        await apiClient.get<{ data: PayrollPayslipBundle }>(
+          `/payroll/runs/${runUid}/payslips?${params({ employeeResultUid })}`
+        )
+      ).data.data,
+    enabled: Boolean(runUid),
+  })
+}
+
+export function useIssuePayrollPayslips() {
+  return useMutation({
+    mutationFn: async ({
+      runUid,
+      employeeResultUids,
+      idempotencyKey,
+    }: {
+      runUid: string
+      employeeResultUids?: string[]
+      idempotencyKey: string
+    }) =>
+      (
+        await apiClient.post<{
+          data: PayrollPayslipBundle
+          meta: { issuanceUid?: string; replay?: boolean }
+        }>(`/payroll/runs/${runUid}/payslips/issue`, {
+          employeeResultUids,
+          idempotencyKey,
+        })
+      ).data,
+  })
+}
+
+export async function exportPayrollRun(
+  runUid: string,
+  type: 'SUMMARY' | 'PAYMENT'
+) {
+  const response = await apiClient.post<Blob>(
+    `/payroll/runs/${runUid}/export`,
+    { type, idempotencyKey: crypto.randomUUID() },
+    { responseType: 'blob' }
+  )
+  const disposition = response.headers['content-disposition'] as
+    | string
+    | undefined
+  const filename =
+    disposition?.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i)?.[1] ??
+    `payroll-${type.toLowerCase()}.xlsx`
+  const href = URL.createObjectURL(response.data)
+  const anchor = document.createElement('a')
+  anchor.href = href
+  anchor.download = decodeURIComponent(filename)
+  anchor.click()
+  URL.revokeObjectURL(href)
 }
 
 export function usePayrollApprovalQueue(

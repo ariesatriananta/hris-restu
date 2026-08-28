@@ -202,6 +202,46 @@ Keputusan implementasi:
 - Preview slip simulasi memakai watermark; slip resmi hanya untuk `CLOSED`.
 - Cetak individual dan massal tanpa mengartikan closed sebagai sudah dibayar.
 
+Keputusan implementasi:
+
+- Riwayat menampilkan seluruh run, termasuk run gagal, tanpa menghapus atau
+  menimpa versi sebelumnya. Pesan teknis internal tidak dibuka kepada pengguna
+  operasional.
+- Perbandingan hanya berlaku untuk tepat dua run `COMPLETED` dalam periode yang
+  sama. Perubahan karyawan dan nominal dihitung dari snapshot kedua run.
+- Rekap Payroll dapat diekspor oleh pengguna berizin sesuai akses site. Nomor
+  rekening pada rekap selalu disamarkan dan hasil simulasi diberi label
+  `SIMULASI`.
+- Daftar Pembayaran merupakan export terpisah yang memuat rekening lengkap.
+  Dokumen ini hanya tersedia dari current run `FINAL` pada periode `CLOSED`
+  untuk Payroll Finance sesuai site dan `SUPER_ADMIN` lintas site.
+- Preview slip dapat dibaca oleh pengguna `payroll.view`, tetapi nomor rekening
+  tetap disamarkan. Cetak individual dan massal membutuhkan `payroll.print`.
+- Slip simulasi memakai watermark besar `SIMULASI`. Slip resmi hanya berasal
+  dari current run `FINAL` pada periode `CLOSED`.
+- Identitas perusahaan disnapshot secara atomik ketika closing. Nama dan alamat
+  wajib tersedia, logo bersifat opsional, dan periode `CLOSED` lama dibackfill
+  dengan penanda `LEGACY_BACKFILL` yang jujur.
+- Cetak massal memakai A4 portrait dengan dua slip per lembar. Sistem tidak
+  menyimpan binary PDF; tampilan cetak dibentuk kembali dari snapshot Payroll.
+- Export dan penerbitan data cetak dicatat secara idempotent pada audit trail.
+  Catatan tersebut tidak menyatakan dokumen benar-benar sudah dicetak atau dana
+  telah dibayarkan.
+
+### Exit criteria Milestone 4
+
+- Site scope, permission export sensitif, masking rekening, dan aturan
+  `CLOSED/FINAL` ditegakkan API.
+- Perbandingan menolak run yang sama, belum selesai, atau berasal dari periode
+  berbeda.
+- Rekap simulasi dan final dapat dibedakan dengan jelas; Daftar Pembayaran tidak
+  dapat diterbitkan dari simulasi.
+- Slip resmi reproducible dari snapshot identitas perusahaan, karyawan,
+  Produksi, Attendance, serta komponen run final.
+- Preview, drawer, loading, error, empty state, filter URL, cetak individual,
+  dan cetak massal layak pada desktop maupun mobile.
+- Migration, test backend/frontend, typecheck, lint, dan production build lulus.
+
 ## Milestone 5 - Payroll bulanan
 
 Milestone ini baru dimulai setelah formula gaji pokok, prorata join/resign,

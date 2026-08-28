@@ -17,6 +17,7 @@ type AuditInput = {
     | 'APPROVE'
     | 'REJECT'
     | 'EXPORT'
+    | 'PRINT'
     | 'OTHER'
   table: string
   recordId?: number | null

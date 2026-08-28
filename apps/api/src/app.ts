@@ -12,6 +12,7 @@ import { healthRouter } from './routes/health.js'
 import { internalRouter } from './routes/internal.js'
 import { payrollPeriodsRouter } from './routes/payroll-periods.js'
 import { payrollApprovalsRouter } from './routes/payroll-approvals.js'
+import { payrollHistoryRouter } from './routes/payroll-history.js'
 import { payrollSimulationsRouter } from './routes/payroll-simulations.js'
 import { productionFoundationRouter } from './routes/production-foundation.js'
 import { productionRecapsRouter } from './routes/production-recaps.js'
@@ -36,6 +37,7 @@ app.use('/api/production', productionRecapsRouter)
 app.use('/api/payroll', payrollPeriodsRouter)
 app.use('/api/payroll', payrollSimulationsRouter)
 app.use('/api/payroll', payrollApprovalsRouter)
+app.use('/api/payroll', payrollHistoryRouter)
 app.use('/api/system', systemRouter)
 app.use('/api/attendance', attendanceRouter)
 app.use('/api', (_req, res) =>
