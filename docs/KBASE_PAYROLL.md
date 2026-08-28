@@ -294,11 +294,43 @@ Jika closing ditolak karena profil perusahaan belum lengkap, lengkapi nama dan
 alamat perusahaan melalui **Administrasi Sistem > Pengaturan**, lalu ulangi
 closing.
 
-## 19. Batas tahap saat ini
+## 19. Mengatur skema upah dan master tarif
+
+Buka **Payroll > Skema Upah & Tarif** untuk melihat empat jenis skema:
+
+- **Borongan** dihitung dari hasil Produksi dan dibayar mingguan.
+- **Harian** dihitung dari tarif per hari dan hari Attendance **Hadir**.
+- **Training** dihitung dari tarif per hari dan hari Attendance **Hadir**.
+  Hasil Produksi Training tetap dicatat sebagai informasi kinerja, tetapi tidak
+  menjadi sumber nominal upah.
+- **Bulanan** menggunakan gaji pokok bulanan. Pengaturan cutoff awal memakai
+  akhir bulan.
+
+Halaman ini juga menyediakan daftar tarif harian, histori gaji pokok, dan hasil
+pemeriksaan data Training lama. Nominal hanya terlihat bagi pengguna yang
+berwenang. Director menerima nilai yang disamarkan.
+
+Perubahan gaji pokok berikutnya harus dimulai pada awal periode Payroll.
+Khusus gaji pokok pertama karyawan baru, tanggal efektif boleh mengikuti
+tanggal mulai bekerja agar prorata tetap dapat dihitung dengan benar.
+
+Kebijakan Payroll hanya dapat diubah Super Admin. Payroll Finance dapat melihat
+kebijakan sesuai site dan mengelola tarif bila memiliki kewenangan. Setiap
+koreksi atau pembatalan tarif wajib diberi alasan dan tetap tersimpan dalam
+histori.
+
+Pemeriksaan Training berstatus **Terblokir** berarti ada hasil Payroll lama yang
+sudah disetujui atau ditutup dan masih memperlakukan Training sebagai upah
+hasil. Jangan menghapus atau mengubah data tersebut secara manual; laporkan
+kepada Administrator untuk remediasi historis.
+
+## 20. Batas tahap saat ini
 
 Pada tahap saat ini, sistem belum:
 
 - menghitung pajak atau BPJS otomatis;
+- menghitung Payroll Harian, Training, atau Bulanan secara resmi; halaman Skema
+  Upah & Tarif pada tahap ini baru menyiapkan fondasi dan master;
 - mencatat status transfer atau pembayaran sebagai proses tersendiri;
 - menyimpan file PDF slip secara permanen; atau
 - menggunakan tanda tangan elektronik pada slip.

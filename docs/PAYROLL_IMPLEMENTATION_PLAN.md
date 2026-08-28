@@ -6,12 +6,17 @@ lulus test dan exit criteria sebelum milestone berikutnya dimulai.
 
 ## Keputusan produk yang sudah dikunci
 
-- Periode fleksibel per site, maksimal 31 hari, dan tidak boleh overlap.
+- Skema upah memisahkan basis kalkulasi dari frekuensi pembayaran:
+  `BORONGAN = PIECE_RATE/WEEKLY`, `HARIAN = TIME_BASED/WEEKLY`,
+  `TRAINING = TIME_BASED/WEEKLY`, dan `BULANAN = TIME_BASED/MONTHLY`.
+- Periode `PIECE_RATE/WEEKLY` fleksibel per site, maksimal 31 hari, dan tidak
+  boleh overlap. Periode `TIME_BASED/WEEKLY` selalu Senin-Minggu, sedangkan
+  periode `TIME_BASED/MONTHLY` mengikuti policy cutoff efektif.
 - Sumber nominal Produksi adalah snapshot `gross_amount` transaksi `POSTED`.
 - Attendance menjadi syarat kesiapan dan informasi, bukan pengali upah.
 - Karyawan resign tetap dibayar atas fakta Produksi historis dalam periode.
-- `BORONGAN` dan `TRAINING` masuk Payroll `PIECE_RATE`; tarif Training sementara
-  mengikuti tarif pekerjaan biasa.
+- Hasil Produksi karyawan `TRAINING` tetap dicatat untuk monitoring, tetapi
+  tidak menjadi sumber nominal Payroll.
 - Komponen tambahan dikelola eksplisit per periode; pajak dan BPJS otomatis
   belum termasuk scope awal.
 - Net negatif memblokir approval dan closing.
@@ -242,7 +247,118 @@ Keputusan implementasi:
   dan cetak massal layak pada desktop maupun mobile.
 - Migration, test backend/frontend, typecheck, lint, dan production build lulus.
 
-## Milestone 5 - Payroll bulanan
+## Milestone 5 - Payroll berbasis waktu
 
-Milestone ini baru dimulai setelah formula gaji pokok, prorata join/resign,
-snapshot Attendance harian, pajak, BPJS, serta kebijakan potongan disetujui.
+Milestone ini memperluas engine yang sudah dibangun tanpa menduplikasi workflow
+approval, closing, riwayat, export, dan slip pada Milestone 1-4. Implementasi
+dibagi agar perubahan skema tidak menulis ulang histori Payroll Borongan.
+
+### Matriks skema yang dikunci
+
+| Jenis karyawan | Basis kalkulasi | Frekuensi | Sumber nominal utama |
+| --- | --- | --- | --- |
+| `BORONGAN` | `PIECE_RATE` | `WEEKLY` | Produksi `POSTED` |
+| `HARIAN` | `TIME_BASED` | `WEEKLY` | Tarif harian x hari `PRESENT` |
+| `TRAINING` | `TIME_BASED` | `WEEKLY` | Tarif harian x hari `PRESENT` |
+| `BULANAN` | `TIME_BASED` | `MONTHLY` | Gaji pokok dan prorata kalender |
+
+Kombinasi kontrak berlaku ketat: jenis karyawan `TRAINING` hanya memakai
+kontrak `TRAINING`, sedangkan `BORONGAN`, `HARIAN`, dan `BULANAN` hanya memakai
+`PKWT` atau `PKWTT`.
+
+### Milestone 5A1 - Skema upah, policy, dan master tarif
+
+- Normalisasi basis kalkulasi menjadi `PIECE_RATE` atau `TIME_BASED` dan simpan
+  frekuensi `WEEKLY` atau `MONTHLY` secara terpisah serta effective-dated.
+- Pertahankan riwayat gaji pokok untuk `BULANAN` dan sediakan riwayat tarif
+  harian khusus `HARIAN`/`TRAINING`. Tarif wajib positif, IDR, tidak overlap,
+  tidak dihapus, dan setiap koreksi atau pembatalan memiliki revision serta
+  alasan.
+- Policy Payroll menggunakan pilihan bertipe dan tervalidasi, bukan formula
+  SQL/JavaScript bebas. Pada M5A1 setiap policy wajib dimiliki satu site agar
+  resolusinya deterministik; policy memiliki versi, tanggal efektif, status,
+  alasan, audit, serta snapshot pada periode dan run. Inheritance global/site
+  belum dibuka.
+- Policy awal `TIME_BASED/MONTHLY` memakai cutoff `LAST_DAY`. Perubahan cutoff
+  hanya berlaku ke depan melalui versi baru, menampilkan preview minimal tiga
+  periode berikutnya, dan ditolak jika menimbulkan overlap atau gap.
+- Perubahan gaji pokok hanya boleh efektif tepat pada awal periode Payroll yang
+  terbentuk dari policy cutoff. Perubahan di tengah periode ditolak agar tidak
+  menghasilkan segmen nominal yang ambigu.
+- Gaji pokok pertama untuk karyawan yang join di tengah periode boleh efektif
+  pada tanggal awal eligibility/join. Pengecualian ini hanya berlaku untuk
+  initial salary, bukan perubahan nominal dari histori gaji sebelumnya.
+- Policy awal hanya dapat dikelola `SUPER_ADMIN`. `PAYROLL_FINANCE` dapat
+  melihat policy sesuai akses site, tetapi tidak mengubahnya tanpa permission
+  eksplisit pada pengembangan selanjutnya.
+- Perhitungan uang memakai DECIMAL dan dibulatkan `HALF_UP` ke Rp1 per komponen
+  per karyawan. Policy pembulatan disnapshot dan tidak berlaku retroaktif.
+- Migrasi `TRAINING` wajib didahului preflight terhadap histori employment,
+  assignment/transaksi Produksi, serta period/run/snapshot Payroll. Transaksi
+  Produksi tetap dipertahankan sebagai fakta monitoring, tetapi dikeluarkan
+  dari nominal `PIECE_RATE` berdasarkan skema historis.
+- Migration utama tidak menghapus atau menulis ulang hasil `SUBMITTED`,
+  `APPROVED`, atau `CLOSED`. Data immutable yang masih mengandung upah Training
+  berbasis hasil menjadi blocker yang harus dilaporkan untuk remediasi owner.
+
+### Milestone 5A2 - Readiness dan preview segmentasi
+
+- Periode `TIME_BASED/WEEKLY` selalu Senin-Minggu selama tujuh hari dan boleh
+  melintasi bulan. Periode `TIME_BASED/MONTHLY` dibentuk dari policy cutoff;
+  default awal adalah tanggal 1 sampai akhir bulan.
+- Populasi memakai intersection periode, histori employment, kontrak, site,
+  jenis karyawan, policy, dan histori tarif/gaji yang efektif; data master saat
+  ini tidak boleh menggantikan fakta historis.
+- `HARIAN` dan `TRAINING` hanya membayar tanggal Attendance final berstatus
+  `PRESENT`. Status lain bernilai nol, termasuk Alpha, Izin, Sakit, Cuti, dan
+  hari libur tanpa kehadiran aktual.
+- `BULANAN` diprorata untuk join/resign berdasarkan hari kalender eligible.
+  Alpha dan Izin menjadi potongan eksplisit dengan rumus default:
+  `gaji pokok / hari kerja terjadwal dalam periode x jumlah hari Alpha/Izin`.
+- Bila policy cutoff berubah, pembagi potongan selalu memakai seluruh hari
+  kerja terjadwal dalam periode. Perubahan gaji tengah periode sudah diblokir
+  pada master sehingga hanya ada satu gaji pokok efektif per periode.
+- Readiness memblokir overlap/gap histori, kombinasi kontrak yang salah, policy
+  tidak tunggal, tarif/gaji tidak tercakup, currency tidak didukung, periode
+  overlap, Attendance belum final/ambigu, maupun formula komponen yang belum
+  didukung.
+- Preview menampilkan karyawan, rentang eligible, policy, coverage tarif/gaji,
+  jumlah hari kerja/PRESENT/Alpha/Izin, serta alasan dan tujuan tindakan. M5A
+  belum membuat payroll run atau snapshot hasil finansial permanen.
+
+### Milestone 5B - Simulasi waktu mingguan
+
+- Hitung `HARIAN` dan `TRAINING` berdasarkan snapshot tarif harian dan tanggal
+  Attendance `PRESENT`.
+- Pertahankan output Produksi Training sebagai informasi non-upah.
+- Gunakan idempotency, snapshot, histori run, permission, dan guard sumber yang
+  sama dengan simulasi `PIECE_RATE`.
+
+### Milestone 5C - Simulasi waktu bulanan
+
+- Hitung gaji pokok `BULANAN`, prorata kalender join/resign, serta potongan
+  Alpha/Izin berdasarkan policy yang disnapshot.
+- Pajak, BPJS, lembur, THR, dan bonus tahunan belum dihitung otomatis sampai
+  kebijakan regulasinya dikunci; penyesuaian awal tetap berupa komponen
+  eksplisit yang dapat diaudit.
+
+### Milestone 5D - Workflow dan output
+
+- Reuse approval/closing Milestone 3 dan riwayat/export/slip Milestone 4 untuk
+  seluruh skema. Jangan membuat state machine atau format dokumen paralel.
+
+### Exit criteria Milestone 5A
+
+- Matriks jenis karyawan-kontrak-skema ditegakkan oleh API dan readiness.
+- Tidak ada overlap/gap policy maupun histori tarif/gaji dan retry tidak
+  menggandakan baris atau revision.
+- Cutoff menghasilkan periode deterministik tanpa overlap/gap, termasuk bulan
+  28/29/30/31 hari dan perubahan policy future-effective.
+- Segmentasi benar untuk join, resign, transfer site, perubahan jenis/kontrak,
+  serta periode mingguan lintas bulan.
+- Data Training lama dilaporkan secara aman; fakta Produksi tidak dihapus dan
+  tidak lagi membentuk upah `PIECE_RATE`.
+- Site scope, masking nominal, permission, audit, dan snapshot policy
+  ditegakkan backend.
+- Seluruh regression Milestone 1-4 `PIECE_RATE` tetap lulus bersama migration,
+  unit/integration test, typecheck, lint, dan production build.

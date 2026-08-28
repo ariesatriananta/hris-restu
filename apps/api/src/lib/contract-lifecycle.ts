@@ -19,6 +19,10 @@ import {
 } from './contract-lifecycle-policy.js'
 import type { AuthContext } from '../middleware/authenticate.js'
 import { reconcileProductionAssignmentsAtEmploymentBoundary } from './production-assignment-lifecycle.js'
+import {
+  contractEmployeeTypeRuleMessage,
+  isContractEmployeeTypeCombinationAllowed,
+} from './employee-contract-policy.js'
 
 const endDateRequired = ['PKWT', 'TRAINING']
 export const businessDate = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
@@ -213,6 +217,12 @@ export async function transitionContract(contractUid: string, action: ContractTr
       WHERE c.uid=? FOR UPDATE`, [contractUid])
     const contract = rows[0]
     if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
+    if (
+      ['schedule', 'activate'].includes(action) &&
+      !isContractEmployeeTypeCombinationAllowed(contract.contractType, contract.employeeType)
+    ) {
+      throw new ApiError(422, contractEmployeeTypeRuleMessage())
+    }
     if (auth && !auth.roles.includes('SUPER_ADMIN') && !auth.siteAccess.includes(contract.site)) throw new ApiError(403, 'Akses site ditolak.')
     const source = auth ? 'MANUAL' : 'CRON'
     const contractStartDate = String(contract.contractStartDate)

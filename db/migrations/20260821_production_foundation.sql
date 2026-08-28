@@ -6,13 +6,13 @@
 
 START TRANSACTION;
 
--- Keputusan bisnis Fase Produksi: Borongan dan Training sama-sama berbasis
--- hasil produksi serta eligible untuk penugasan pekerjaan Produksi.
+-- Borongan dan Training sama-sama eligible untuk pencatatan Produksi. Upah
+-- Training tetap berbasis waktu; hasil Produksi hanya menjadi monitoring.
 UPDATE employee_types
 SET
   name='Pekerja Training',
-  payroll_basis='PIECE_RATE',
-  description='Pekerja dalam masa pelatihan produksi yang dicatat berdasarkan hasil kerja.'
+  payroll_basis='TIME_BASED',
+  description='Pekerja masa pelatihan dengan tarif harian; hasil Produksi hanya untuk monitoring.'
 WHERE code='TRAINING';
 
 INSERT INTO permissions (uid,code,module,name,description)

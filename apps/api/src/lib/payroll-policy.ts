@@ -97,7 +97,7 @@ export async function assertNoOverlappingPayrollPeriod(
   conn: PoolConnection,
   input: {
     siteId: number
-    payrollBasis: 'PIECE_RATE' | 'MONTHLY'
+    payrollBasis: 'PIECE_RATE' | 'TIME_BASED'
     periodStart: string
     periodEnd: string
     excludePeriodId?: number

@@ -369,6 +369,7 @@ CREATE TABLE employee_types (
   code VARCHAR(30) NOT NULL,
   name VARCHAR(100) NOT NULL,
   payroll_basis VARCHAR(20) NOT NULL,
+  pay_frequency VARCHAR(20) NOT NULL DEFAULT 'WEEKLY',
   description VARCHAR(255) NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -379,6 +380,7 @@ CREATE TABLE employee_types (
   UNIQUE KEY uq_employee_types_uid (uid),
   UNIQUE KEY uq_employee_types_code (code),
   CONSTRAINT chk_employee_types_basis CHECK (payroll_basis IN ('PIECE_RATE', 'MONTHLY', 'TIME_BASED')),
+  CONSTRAINT chk_employee_types_frequency CHECK (pay_frequency IN ('WEEKLY','MONTHLY')),
   CONSTRAINT chk_employee_types_active CHECK (is_active IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -514,6 +516,10 @@ CREATE TABLE employee_employment_histories (
   change_type VARCHAR(30) NOT NULL,
   reference_number VARCHAR(100) NULL,
   reason VARCHAR(255) NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+  cancelled_at DATETIME(3) NULL,
+  cancelled_by BIGINT UNSIGNED NULL,
+  cancellation_reason VARCHAR(500) NULL,
   notes TEXT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   created_by BIGINT UNSIGNED NULL,
@@ -682,9 +688,142 @@ CREATE TABLE employee_salary_histories (
   PRIMARY KEY (id),
   UNIQUE KEY uq_employee_salary_histories_uid (uid),
   KEY idx_employee_salary_history_dates (employee_id, effective_from, effective_to),
+  KEY idx_employee_salary_status (employee_id,status,effective_from,effective_to),
   CONSTRAINT chk_employee_salary_nonnegative CHECK (basic_salary >= 0),
   CONSTRAINT chk_employee_salary_dates CHECK (effective_to IS NULL OR effective_to >= effective_from),
-  CONSTRAINT fk_employee_salary_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON UPDATE CASCADE ON DELETE RESTRICT
+  CONSTRAINT chk_employee_salary_status CHECK (status IN ('ACTIVE','CANCELLED')),
+  CONSTRAINT fk_employee_salary_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_employee_salary_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE payroll_policy_versions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  site_id BIGINT UNSIGNED NOT NULL,
+  employee_type_code VARCHAR(30) NOT NULL,
+  wage_basis VARCHAR(20) NOT NULL,
+  pay_frequency VARCHAR(20) NOT NULL,
+  cutoff_type VARCHAR(20) NOT NULL,
+  cutoff_day TINYINT UNSIGNED NULL,
+  week_starts_on TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  prorate_basis VARCHAR(30) NOT NULL,
+  attendance_pay_rule VARCHAR(30) NOT NULL,
+  deduction_divisor VARCHAR(30) NOT NULL,
+  rounding_mode VARCHAR(20) NOT NULL DEFAULT 'HALF_UP',
+  rounding_scale TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  currency CHAR(3) NOT NULL DEFAULT 'IDR',
+  effective_from DATE NOT NULL,
+  effective_to DATE NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+  notes VARCHAR(500) NULL,
+  cancelled_at DATETIME(3) NULL,
+  cancelled_by BIGINT UNSIGNED NULL,
+  cancellation_reason VARCHAR(500) NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_payroll_policy_versions_uid (uid),
+  KEY idx_payroll_policy_scope_dates (site_id,employee_type_code,effective_from,effective_to,status),
+  CONSTRAINT chk_payroll_policy_employee_type CHECK (employee_type_code IN ('BORONGAN','HARIAN','BULANAN','TRAINING')),
+  CONSTRAINT chk_payroll_policy_basis CHECK (wage_basis IN ('PIECE_RATE','TIME_BASED')),
+  CONSTRAINT chk_payroll_policy_frequency CHECK (pay_frequency IN ('WEEKLY','MONTHLY')),
+  CONSTRAINT chk_payroll_policy_currency CHECK (currency='IDR'),
+  CONSTRAINT chk_payroll_policy_dates CHECK (effective_to IS NULL OR effective_to>=effective_from),
+  CONSTRAINT chk_payroll_policy_status CHECK (status IN ('ACTIVE','CANCELLED')),
+  CONSTRAINT fk_payroll_policy_site FOREIGN KEY (site_id) REFERENCES sites(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_payroll_policy_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE payroll_policy_revisions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  payroll_policy_version_id BIGINT UNSIGNED NOT NULL,
+  revision_type VARCHAR(20) NOT NULL,
+  idempotency_key VARCHAR(100) NOT NULL,
+  before_data JSON NULL,
+  after_data JSON NULL,
+  reason VARCHAR(500) NOT NULL,
+  revised_by BIGINT UNSIGNED NOT NULL,
+  revised_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_payroll_policy_revisions_uid (uid),
+  UNIQUE KEY uq_payroll_policy_revisions_idempotency (idempotency_key),
+  KEY idx_payroll_policy_revisions_policy (payroll_policy_version_id,revised_at),
+  CONSTRAINT chk_payroll_policy_revision_type CHECK (revision_type IN ('CREATE','CANCELLATION')),
+  CONSTRAINT fk_payroll_policy_revision_policy FOREIGN KEY (payroll_policy_version_id) REFERENCES payroll_policy_versions(id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE employee_daily_rate_histories (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  employee_id BIGINT UNSIGNED NOT NULL,
+  site_id BIGINT UNSIGNED NOT NULL,
+  employee_type_code VARCHAR(30) NOT NULL,
+  daily_rate DECIMAL(18,2) NOT NULL,
+  currency CHAR(3) NOT NULL DEFAULT 'IDR',
+  effective_from DATE NOT NULL,
+  effective_to DATE NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+  notes VARCHAR(500) NULL,
+  cancelled_at DATETIME(3) NULL,
+  cancelled_by BIGINT UNSIGNED NULL,
+  cancellation_reason VARCHAR(500) NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_employee_daily_rate_uid (uid),
+  KEY idx_employee_daily_rate_employee_dates (employee_id,effective_from,effective_to,status),
+  KEY idx_employee_daily_rate_site_type (site_id,employee_type_code,status),
+  CONSTRAINT chk_employee_daily_rate_type CHECK (employee_type_code IN ('HARIAN','TRAINING')),
+  CONSTRAINT chk_employee_daily_rate_amount CHECK (daily_rate>0),
+  CONSTRAINT chk_employee_daily_rate_currency CHECK (currency='IDR'),
+  CONSTRAINT chk_employee_daily_rate_dates CHECK (effective_to IS NULL OR effective_to>=effective_from),
+  CONSTRAINT chk_employee_daily_rate_status CHECK (status IN ('ACTIVE','CANCELLED')),
+  CONSTRAINT fk_employee_daily_rate_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_employee_daily_rate_site FOREIGN KEY (site_id) REFERENCES sites(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_employee_daily_rate_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE employee_daily_rate_revisions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  employee_daily_rate_history_id BIGINT UNSIGNED NOT NULL,
+  revision_type VARCHAR(20) NOT NULL,
+  idempotency_key VARCHAR(100) NOT NULL,
+  before_data JSON NULL,
+  after_data JSON NULL,
+  reason VARCHAR(500) NOT NULL,
+  revised_by BIGINT UNSIGNED NOT NULL,
+  revised_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_employee_daily_rate_revisions_uid (uid),
+  UNIQUE KEY uq_employee_daily_rate_revisions_idempotency (idempotency_key),
+  KEY idx_employee_daily_rate_revisions_rate (employee_daily_rate_history_id,revised_at),
+  CONSTRAINT chk_employee_daily_rate_revision_type CHECK (revision_type IN ('CREATE','CORRECTION','CANCELLATION')),
+  CONSTRAINT fk_employee_daily_rate_revision_rate FOREIGN KEY (employee_daily_rate_history_id) REFERENCES employee_daily_rate_histories(id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE employee_salary_history_revisions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  employee_salary_history_id BIGINT UNSIGNED NOT NULL,
+  revision_type VARCHAR(20) NOT NULL,
+  idempotency_key VARCHAR(100) NOT NULL,
+  before_data JSON NULL,
+  after_data JSON NULL,
+  reason VARCHAR(500) NOT NULL,
+  revised_by BIGINT UNSIGNED NOT NULL,
+  revised_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_employee_salary_history_revisions_uid (uid),
+  UNIQUE KEY uq_employee_salary_history_revisions_idempotency (idempotency_key),
+  KEY idx_employee_salary_history_revisions_salary (employee_salary_history_id,revised_at),
+  CONSTRAINT chk_employee_salary_revision_type CHECK (revision_type IN ('CREATE','CORRECTION','CANCELLATION')),
+  CONSTRAINT fk_employee_salary_revision_salary FOREIGN KEY (employee_salary_history_id) REFERENCES employee_salary_histories(id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================================
@@ -1444,6 +1583,7 @@ CREATE TABLE payroll_periods (
   period_end DATE NOT NULL,
   payment_date DATE NULL,
   payroll_basis VARCHAR(20) NOT NULL DEFAULT 'PIECE_RATE',
+  pay_frequency VARCHAR(20) NOT NULL DEFAULT 'WEEKLY',
   status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
   current_run_id BIGINT UNSIGNED NULL COMMENT 'Logical reference to payroll_runs.id; circular FK intentionally omitted.',
   approved_at DATETIME(3) NULL,
@@ -1465,11 +1605,27 @@ CREATE TABLE payroll_periods (
   KEY idx_payroll_periods_status (status),
   KEY idx_payroll_periods_cancelled_by (cancelled_by),
   CONSTRAINT chk_payroll_period_dates CHECK (period_end >= period_start),
-  CONSTRAINT chk_payroll_period_basis CHECK (payroll_basis IN ('PIECE_RATE', 'MONTHLY')),
+  CONSTRAINT chk_payroll_period_basis CHECK (payroll_basis IN ('PIECE_RATE', 'TIME_BASED')),
+  CONSTRAINT chk_payroll_period_frequency CHECK (pay_frequency IN ('WEEKLY', 'MONTHLY')),
   CONSTRAINT chk_payroll_period_status CHECK (status IN ('DRAFT', 'CALCULATED', 'APPROVED', 'CLOSED', 'CANCELLED')),
   CONSTRAINT chk_payroll_period_cancellation CHECK ((status='CANCELLED' AND cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL AND CHAR_LENGTH(TRIM(cancellation_reason))>=5) OR (status<>'CANCELLED' AND cancelled_at IS NULL AND cancelled_by IS NULL AND cancellation_reason IS NULL)),
   CONSTRAINT fk_payroll_period_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_payroll_period_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users (id) ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE payroll_period_policy_snapshots (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  payroll_period_id BIGINT UNSIGNED NOT NULL,
+  payroll_policy_version_id BIGINT UNSIGNED NOT NULL,
+  policy_snapshot JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_payroll_period_policy_snapshot_uid (uid),
+  UNIQUE KEY uq_payroll_period_policy_snapshot_period (payroll_period_id),
+  CONSTRAINT fk_payroll_period_policy_snapshot_period FOREIGN KEY (payroll_period_id) REFERENCES payroll_periods(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_payroll_period_policy_snapshot_policy FOREIGN KEY (payroll_policy_version_id) REFERENCES payroll_policy_versions(id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE payroll_period_manual_components (
@@ -1861,12 +2017,27 @@ VALUES
   (UUID(), 'PAYROLL_FINANCE', 'Finance / Payroll', 'Simulasi, validasi, approval, dan closing payroll.', 1),
   (UUID(), 'SITE_SUPERVISOR', 'Supervisor / PIC Site', 'Monitoring site dan approval koreksi operasional.', 1);
 
-INSERT INTO employee_types (uid, code, name, payroll_basis, description)
+INSERT INTO employee_types (uid, code, name, payroll_basis, pay_frequency, description)
 VALUES
-  (UUID(), 'BORONGAN', 'Pekerja Borongan', 'PIECE_RATE', 'Pekerja produksi yang dibayar berdasarkan hasil kerja.'),
-  (UUID(), 'HARIAN', 'Karyawan Harian', 'TIME_BASED', 'Karyawan dengan satuan upah berbasis waktu dan pembayaran harian atau mingguan.'),
-  (UUID(), 'BULANAN', 'Karyawan Bulanan', 'MONTHLY', 'Staff/non-produksi yang dibayar bulanan dan dapat menggunakan aturan shift.'),
-  (UUID(), 'TRAINING', 'Pekerja Training', 'PIECE_RATE', 'Pekerja dalam masa pelatihan produksi yang dicatat berdasarkan hasil kerja.');
+  (UUID(), 'BORONGAN', 'Pekerja Borongan', 'PIECE_RATE', 'WEEKLY', 'Pekerja produksi yang dibayar berdasarkan hasil kerja.'),
+  (UUID(), 'HARIAN', 'Karyawan Harian', 'TIME_BASED', 'WEEKLY', 'Karyawan dengan tarif harian berdasarkan Attendance PRESENT.'),
+  (UUID(), 'BULANAN', 'Karyawan Bulanan', 'TIME_BASED', 'MONTHLY', 'Staff/non-produksi yang dibayar bulanan dan dapat menggunakan aturan shift.'),
+  (UUID(), 'TRAINING', 'Pekerja Training', 'TIME_BASED', 'WEEKLY', 'Pekerja masa pelatihan dengan tarif harian; hasil Produksi hanya untuk monitoring.');
+
+INSERT INTO payroll_policy_versions(
+  uid,site_id,employee_type_code,wage_basis,pay_frequency,cutoff_type,
+  cutoff_day,week_starts_on,prorate_basis,attendance_pay_rule,
+  deduction_divisor,rounding_mode,rounding_scale,currency,effective_from,status,notes
+)
+SELECT UUID(),s.id,m.employee_type_code,m.wage_basis,m.pay_frequency,m.cutoff_type,
+       NULL,1,m.prorate_basis,m.attendance_pay_rule,m.deduction_divisor,
+       'HALF_UP',0,'IDR','2000-01-01','ACTIVE','Policy awal M5A1.'
+FROM sites s JOIN (
+  SELECT 'BORONGAN' employee_type_code,'PIECE_RATE' wage_basis,'WEEKLY' pay_frequency,'WEEK_END' cutoff_type,'NONE' prorate_basis,'INFORMATIONAL' attendance_pay_rule,'NONE' deduction_divisor
+  UNION ALL SELECT 'HARIAN','TIME_BASED','WEEKLY','WEEK_END','NONE','PRESENT_ONLY','NONE'
+  UNION ALL SELECT 'TRAINING','TIME_BASED','WEEKLY','WEEK_END','NONE','PRESENT_ONLY','NONE'
+  UNION ALL SELECT 'BULANAN','TIME_BASED','MONTHLY','LAST_DAY','CALENDAR_ELIGIBLE','MONTHLY_DEDUCTION','SCHEDULED_WORKDAYS'
+) m WHERE s.is_active=1;
 
 INSERT INTO employee_statuses (uid, code, name, allows_attendance, allows_production)
 VALUES
@@ -1966,6 +2137,9 @@ VALUES
   (UUID(), 'payroll.export', 'payroll', 'Ekspor Rekap Payroll'),
   (UUID(), 'payroll.payment_export', 'payroll', 'Ekspor Daftar Pembayaran Payroll'),
   (UUID(), 'payroll.print', 'payroll', 'Cetak Slip Payroll'),
+  (UUID(), 'payroll.policy.view', 'payroll', 'Lihat Kebijakan Payroll'),
+  (UUID(), 'payroll.policy.manage', 'payroll', 'Kelola Kebijakan Payroll'),
+  (UUID(), 'payroll.rate.manage', 'payroll', 'Kelola Tarif Waktu Payroll'),
   (UUID(), 'documents.manage', 'documents', 'Kelola Dokumen'),
   (UUID(), 'reports.view', 'reports', 'Lihat Laporan'),
   (UUID(), 'users.manage', 'users', 'Kelola User dan Hak Akses'),
@@ -2039,14 +2213,14 @@ INSERT INTO role_permissions (uid, role_id, permission_id)
 SELECT UUID(), r.id, p.id
 FROM roles r
 JOIN permissions p
-  ON p.code IN ('payroll.view', 'payroll.calculate', 'payroll.close', 'payroll.export', 'payroll.payment_export', 'payroll.print')
+  ON p.code IN ('payroll.view', 'payroll.calculate', 'payroll.close', 'payroll.export', 'payroll.payment_export', 'payroll.print', 'payroll.policy.view', 'payroll.rate.manage')
 WHERE r.code = 'PAYROLL_FINANCE';
 
 INSERT INTO role_permissions (uid, role_id, permission_id)
 SELECT UUID(), r.id, p.id
 FROM roles r
 JOIN permissions p
-  ON p.code IN ('payroll.view', 'payroll.approve', 'payroll.export')
+  ON p.code IN ('payroll.view', 'payroll.approve', 'payroll.export', 'payroll.policy.view')
 WHERE r.code = 'DIRECTOR';
 
 -- Pengaturan global awal.

@@ -28,7 +28,9 @@ import {
   paginationMeta,
 } from '../lib/contract-lifecycle-policy.js'
 import {
+  contractEmployeeTypeRuleMessage,
   contractTypeRuleMessage,
+  isContractEmployeeTypeCombinationAllowed,
   isContractTypeAllowed,
 } from '../lib/employee-contract-policy.js'
 import {
@@ -1566,6 +1568,9 @@ async function createDraftContract(
   const contractType = contractTypes[0]
   if (!contractType) throw new ApiError(422, 'Tipe kontrak tidak valid atau tidak aktif.')
   if (!isContractTypeAllowed(contractType.code)) throw new ApiError(422, contractTypeRuleMessage())
+  if (!isContractEmployeeTypeCombinationAllowed(contractType.code, employee.employeeType)) {
+    throw new ApiError(422, contractEmployeeTypeRuleMessage())
+  }
   const [sequences] = await conn.query<RowDataPacket[]>(
     'SELECT COALESCE(MAX(sequence_number), 0) + 1 nextSequence FROM employee_contracts WHERE employee_id=?',
     [employee.id]
@@ -1699,6 +1704,9 @@ employeesRouter.patch('/contracts/:contractUid', requirePermission('employees.ma
       const type = types[0]
       if (!type) throw new ApiError(422, 'Tipe kontrak tidak valid atau tidak aktif.')
       if (!isContractTypeAllowed(type.code)) throw new ApiError(422, contractTypeRuleMessage())
+      if (!isContractEmployeeTypeCombinationAllowed(type.code, contract.employeeType)) {
+        throw new ApiError(422, contractEmployeeTypeRuleMessage())
+      }
       await assertNoOpenScheduledStatusChange(conn, contract.employee_id, contract.id)
       await assertContractRules(conn, contract.employee_id, type.code, input.startDate, input.endDate, contract.id, contract.joinDate)
       const contractNumberSite = contractNumberSiteFromSnapshot(

@@ -484,3 +484,114 @@ export interface PayrollApprovalQueueResult {
   data: PayrollApprovalQueueItem[]
   meta: { page: number; pageSize: number; total: number }
 }
+
+export type PayrollWageBasis = 'PIECE_RATE' | 'TIME_BASED'
+export type PayrollPayFrequency = 'WEEKLY' | 'MONTHLY'
+export type PayrollEmployeeType = 'BORONGAN' | 'HARIAN' | 'TRAINING' | 'BULANAN'
+export type PayrollConfigurationStatus = 'ACTIVE' | 'CANCELLED'
+export type PayrollCutoffType = 'WEEK_END' | 'LAST_DAY' | 'DAY_OF_MONTH'
+
+export interface PayrollConfigurationMeta {
+  sites: PayrollSite[]
+  employees?: PayrollEmployeeOption[]
+  employeeTypes: Array<{
+    code: PayrollEmployeeType
+    name: string
+    wageBasis: PayrollWageBasis
+    payFrequency: PayrollPayFrequency
+  }>
+  capabilities: {
+    canManagePolicy: boolean
+    canManageRates: boolean
+    canViewAmounts: boolean
+  }
+}
+
+export interface PayrollPolicyPeriodPreview {
+  periodStart: string
+  periodEnd: string
+  label?: string
+}
+
+export interface PayrollPolicyVersion {
+  uid: string
+  version: number
+  site: PayrollSite
+  employeeType: PayrollEmployeeType
+  wageBasis: PayrollWageBasis
+  payFrequency: PayrollPayFrequency
+  cutoffType: PayrollCutoffType
+  cutoffDay: number | null
+  roundingMode: 'HALF_UP'
+  roundingScale: number
+  effectiveFrom: string
+  effectiveTo: string | null
+  status: PayrollConfigurationStatus
+  reason: string | null
+  createdAt: string | null
+  createdByName: string | null
+  nextPeriods: PayrollPolicyPeriodPreview[]
+}
+
+export interface PayrollPolicyListResult {
+  data: PayrollPolicyVersion[]
+  meta: PayrollConfigurationMeta
+}
+
+export interface PayrollPolicyPreview {
+  nextPeriods: PayrollPolicyPeriodPreview[]
+  warnings: Array<{ code: string; message: string }>
+}
+
+export interface PayrollEmployeeOption {
+  uid: string
+  employeeNumber: string
+  fullName: string
+  employeeType: PayrollEmployeeType
+  site: PayrollSite
+}
+
+export interface PayrollEmployeeRate {
+  uid: string
+  employee: PayrollEmployeeOption
+  site: PayrollSite
+  amount: string | null
+  amountMasked: boolean
+  currency: 'IDR'
+  effectiveFrom: string
+  effectiveTo: string | null
+  status: PayrollConfigurationStatus
+  notes: string | null
+  createdAt: string
+}
+
+export interface PayrollEmployeeRateListResult {
+  data: PayrollEmployeeRate[]
+  meta: {
+    sites: PayrollSite[]
+    employees: PayrollEmployeeOption[]
+    capabilities: PayrollConfigurationMeta['capabilities']
+  }
+}
+
+export interface PayrollTrainingPreflightIssue {
+  code: string
+  severity: 'BLOCKER' | 'WARNING' | 'INFO'
+  count: number
+  title: string
+  message: string
+  actionHint: string | null
+}
+
+export interface PayrollTrainingPreflight {
+  status: 'READY' | 'ATTENTION' | 'BLOCKED'
+  evaluatedAt: string
+  summary: {
+    trainingEmployees: number
+    employmentHistories: number
+    productionTransactions: number
+    payrollSnapshots: number
+    immutablePayrollSnapshots: number
+  }
+  issues: PayrollTrainingPreflightIssue[]
+}

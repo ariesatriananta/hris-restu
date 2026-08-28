@@ -114,7 +114,7 @@ async function assignmentCorrectionProposal(
   const [histories] = await connection.query<RowDataPacket[]>(
     `SELECT eh.id FROM employee_employment_histories eh
       JOIN employee_statuses es ON es.id=eh.employee_status_id AND es.allows_production=1
-      JOIN employee_types et ON et.id=eh.employee_type_id AND et.payroll_basis='PIECE_RATE'
+      JOIN employee_types et ON et.id=eh.employee_type_id AND et.code IN ('BORONGAN','TRAINING')
      WHERE eh.employee_id=? AND eh.site_id=? AND eh.effective_from<=?
        AND (eh.effective_to IS NULL OR eh.effective_to>=?)
        AND ((? IS NULL AND eh.effective_to IS NULL) OR (? IS NOT NULL AND (eh.effective_to IS NULL OR eh.effective_to>=?)))`,
@@ -1206,7 +1206,7 @@ productionFoundationRouter.get(
         'eh.effective_from<=?',
         '(eh.effective_to IS NULL OR eh.effective_to>=?)',
         'es.allows_production=1',
-        "et.payroll_basis='PIECE_RATE'",
+        "et.code IN ('BORONGAN','TRAINING')",
         `(SELECT COUNT(*)
             FROM employee_employment_histories active_history
            WHERE active_history.employee_id=eh.employee_id
@@ -1420,7 +1420,7 @@ productionFoundationRouter.get(
         JOIN employees e ON e.id=eh.employee_id
         JOIN sites s ON s.id=eh.site_id
         JOIN employee_statuses es ON es.id=eh.employee_status_id AND es.allows_production=1
-        JOIN employee_types et ON et.id=eh.employee_type_id AND et.payroll_basis='PIECE_RATE'
+        JOIN employee_types et ON et.id=eh.employee_type_id AND et.code IN ('BORONGAN','TRAINING')
         LEFT JOIN production_module_sections pms ON pms.id=eh.production_module_section_id
         LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
        WHERE s.code=? AND eh.effective_from<=? AND (eh.effective_to IS NULL OR eh.effective_to>=?)
@@ -1648,7 +1648,7 @@ productionFoundationRouter.post(
            JOIN employee_statuses es ON es.id=eh.employee_status_id
            JOIN employee_types et ON et.id=eh.employee_type_id
           WHERE eh.employee_id=? AND eh.site_id=?
-            AND es.allows_production=1 AND et.payroll_basis='PIECE_RATE'
+            AND es.allows_production=1 AND et.code IN ('BORONGAN','TRAINING')
             AND eh.effective_from<=?
             AND (eh.effective_to IS NULL OR eh.effective_to>=?)
             AND (
@@ -2044,7 +2044,7 @@ productionFoundationRouter.get(
                JOIN employee_statuses es ON es.id=eh.employee_status_id
                JOIN employee_types et ON et.id=eh.employee_type_id
               WHERE eh.site_id=? AND es.allows_production=1
-                AND et.payroll_basis='PIECE_RATE'
+                AND et.code IN ('BORONGAN','TRAINING')
                 AND eh.effective_from<=?
                 AND (eh.effective_to IS NULL OR eh.effective_to>=?)
                 AND (SELECT COUNT(*)

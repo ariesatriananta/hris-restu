@@ -22,6 +22,13 @@ import type {
   PayrollHistoryResult,
   PayrollPayslipBundle,
   PayrollRunComparison,
+  PayrollConfigurationMeta,
+  PayrollPolicyListResult,
+  PayrollPolicyPreview,
+  PayrollPolicyVersion,
+  PayrollEmployeeRate,
+  PayrollEmployeeRateListResult,
+  PayrollTrainingPreflight,
 } from '../domain'
 
 const keys = {
@@ -52,6 +59,392 @@ const keys = {
     [...keys.all, periodUid, 'comparison', baseRunUid, targetRunUid] as const,
   payslips: (runUid: string, employeeResultUid?: string) =>
     [...keys.run(runUid), 'payslips', employeeResultUid ?? 'all'] as const,
+  configuration: ['payroll-configuration'] as const,
+  configurationMeta: () => [...keys.configuration, 'meta'] as const,
+  policies: (input: Record<string, unknown>) =>
+    [...keys.configuration, 'policies', input] as const,
+  dailyRates: (input: Record<string, unknown>) =>
+    [...keys.configuration, 'daily-rates', input] as const,
+  salaries: (input: Record<string, unknown>) =>
+    [...keys.configuration, 'salaries', input] as const,
+  trainingPreflight: (site?: string) =>
+    [...keys.configuration, 'training-preflight', site ?? 'all'] as const,
+}
+
+export type PayrollPolicyInput = {
+  siteUid: string
+  employeeType: 'BORONGAN' | 'HARIAN' | 'TRAINING' | 'BULANAN'
+  wageBasis: 'PIECE_RATE' | 'TIME_BASED'
+  payFrequency: 'WEEKLY' | 'MONTHLY'
+  cutoffType: 'WEEK_END' | 'LAST_DAY' | 'DAY_OF_MONTH'
+  cutoffDay?: number
+  effectiveFrom: string
+}
+
+export type PayrollRateInput = {
+  employeeUid: string
+  siteUid: string
+  amount: string
+  effectiveFrom: string
+  effectiveTo?: string
+  notes?: string
+}
+
+export function usePayrollConfigurationMeta() {
+  return useQuery({
+    queryKey: keys.configurationMeta(),
+    queryFn: async () =>
+      normalizeConfigurationMeta(
+        (
+          await apiClient.get<{ data: BackendConfigurationMeta }>(
+            '/payroll/configuration/meta'
+          )
+        ).data.data
+      ),
+  })
+}
+
+export function usePayrollPolicies(
+  input: Record<string, unknown>,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: keys.policies(input),
+    queryFn: async () =>
+      normalizePolicies(
+        (
+          await apiClient.get<{
+            data: BackendPolicy[]
+            meta: { total: number }
+          }>(`/payroll/configuration/policies?${params(input)}`)
+        ).data
+      ),
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+}
+
+export function usePreviewPayrollPolicy() {
+  return useMutation({
+    mutationFn: async (input: PayrollPolicyInput) =>
+      normalizePolicyPreview(
+        (
+          await apiClient.post<{ data: BackendPolicyPreview }>(
+            '/payroll/configuration/policies/preview',
+            input
+          )
+        ).data.data
+      ),
+  })
+}
+
+export function useCreatePayrollPolicy() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (
+      input: PayrollPolicyInput & { reason: string; idempotencyKey: string }
+    ) =>
+      normalizePolicy(
+        (
+          await apiClient.post<{ data: BackendPolicy }>(
+            '/payroll/configuration/policies',
+            input
+          )
+        ).data.data,
+        1
+      ),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: keys.configuration }),
+  })
+}
+
+export function usePayrollDailyRates(
+  input: Record<string, unknown>,
+  enabled = true
+) {
+  return usePayrollEmployeeRates('daily-rates', input, enabled)
+}
+
+export function usePayrollSalaries(
+  input: Record<string, unknown>,
+  enabled = true
+) {
+  return usePayrollEmployeeRates('salaries', input, enabled)
+}
+
+function usePayrollEmployeeRates(
+  resource: 'daily-rates' | 'salaries',
+  input: Record<string, unknown>,
+  enabled: boolean
+) {
+  const queryKey =
+    resource === 'daily-rates' ? keys.dailyRates(input) : keys.salaries(input)
+  return useQuery({
+    queryKey,
+    queryFn: async () =>
+      normalizeNominalList(
+        (
+          await apiClient.get<{
+            data: BackendNominal[]
+            meta: { total: number }
+          }>(`/payroll/configuration/${resource}?${params(input)}`)
+        ).data,
+        resource
+      ),
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+}
+
+function usePayrollRateMutation(
+  request: (input: {
+    resource: 'daily-rates' | 'salaries'
+    uid?: string
+    payload: Record<string, unknown>
+  }) => Promise<PayrollEmployeeRate>
+) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: request,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: keys.configuration }),
+  })
+}
+
+export function useCreatePayrollRate() {
+  return usePayrollRateMutation(
+    async ({ resource, payload }) =>
+      (
+        await apiClient.post<{ data: PayrollEmployeeRate }>(
+          `/payroll/configuration/${resource}`,
+          payload
+        )
+      ).data.data
+  )
+}
+
+export function useCorrectPayrollRate() {
+  return usePayrollRateMutation(
+    async ({ resource, uid, payload }) =>
+      (
+        await apiClient.post<{ data: PayrollEmployeeRate }>(
+          `/payroll/configuration/${resource}/${uid}/correct`,
+          payload
+        )
+      ).data.data
+  )
+}
+
+export function useCancelPayrollRate() {
+  return usePayrollRateMutation(
+    async ({ resource, uid, payload }) =>
+      (
+        await apiClient.post<{ data: PayrollEmployeeRate }>(
+          `/payroll/configuration/${resource}/${uid}/cancel`,
+          payload
+        )
+      ).data.data
+  )
+}
+
+export function usePayrollTrainingPreflight(site?: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.trainingPreflight(site),
+    queryFn: async () =>
+      normalizeTrainingPreflight(
+        (
+          await apiClient.get<{ data: BackendTrainingPreflight }>(
+            `/payroll/configuration/training-preflight?${params({ site })}`
+          )
+        ).data.data
+      ),
+    enabled,
+  })
+}
+
+type BackendConfigurationMeta = {
+  sites: PayrollConfigurationMeta['sites']
+  employeeTypes: PayrollPolicyInput['employeeType'][]
+  wageMatrix: Record<
+    PayrollPolicyInput['employeeType'],
+    {
+      wageBasis: PayrollPolicyInput['wageBasis']
+      payFrequency: PayrollPolicyInput['payFrequency']
+    }
+  >
+  capabilities: {
+    canManagePolicy: boolean
+    canManageRates: boolean
+    canSeeNominal: boolean
+  }
+  employees?: PayrollConfigurationMeta['employees']
+}
+
+type BackendPeriodPreview = { start: string; end: string }
+type BackendPolicy = Omit<
+  PayrollPolicyVersion,
+  'version' | 'reason' | 'createdAt' | 'createdByName' | 'nextPeriods'
+> & {
+  notes: string | null
+  nextPeriods: BackendPeriodPreview[]
+}
+type BackendPolicyPreview = { nextPeriods: BackendPeriodPreview[] }
+type BackendNominal = {
+  uid: string
+  employee: Omit<PayrollEmployeeRate['employee'], 'site'>
+  site: PayrollEmployeeRate['site']
+  dailyRate?: string | null
+  basicSalary?: string | null
+  nominalMasked: boolean
+  currency: 'IDR'
+  effectiveFrom: string
+  effectiveTo: string | null
+  status: PayrollEmployeeRate['status']
+  notes: string | null
+}
+type BackendTrainingPreflight = {
+  status: 'READY' | 'BLOCKED'
+  summary: {
+    trainingEmployees: number
+    productionFacts: number
+    immutablePayrollRows: number
+  }
+  blockers: Array<{ code: string; message: string; count: number }>
+  notes: string[]
+}
+
+function normalizeConfigurationMeta(
+  input: BackendConfigurationMeta
+): PayrollConfigurationMeta {
+  return {
+    sites: input.sites,
+    employees: input.employees ?? [],
+    employeeTypes: input.employeeTypes.map((code) => ({
+      code,
+      name: code,
+      wageBasis: input.wageMatrix[code].wageBasis,
+      payFrequency: input.wageMatrix[code].payFrequency,
+    })),
+    capabilities: {
+      canManagePolicy: input.capabilities.canManagePolicy,
+      canManageRates: input.capabilities.canManageRates,
+      canViewAmounts: input.capabilities.canSeeNominal,
+    },
+  }
+}
+
+function normalizePeriods(periods: BackendPeriodPreview[]) {
+  return periods.map((period) => ({
+    periodStart: period.start,
+    periodEnd: period.end,
+  }))
+}
+
+function normalizePolicy(
+  input: BackendPolicy,
+  version: number
+): PayrollPolicyVersion {
+  return {
+    ...input,
+    version,
+    reason: input.notes,
+    createdAt: null,
+    createdByName: null,
+    nextPeriods: normalizePeriods(input.nextPeriods),
+  }
+}
+
+function normalizePolicies(input: {
+  data: BackendPolicy[]
+  meta: { total: number }
+}): PayrollPolicyListResult {
+  return {
+    data: input.data.map((policy, index) =>
+      normalizePolicy(policy, input.data.length - index)
+    ),
+    meta: {
+      sites: [],
+      employeeTypes: [],
+      capabilities: {
+        canManagePolicy: false,
+        canManageRates: false,
+        canViewAmounts: false,
+      },
+    },
+  }
+}
+
+function normalizePolicyPreview(
+  input: BackendPolicyPreview
+): PayrollPolicyPreview {
+  return { nextPeriods: normalizePeriods(input.nextPeriods), warnings: [] }
+}
+
+function normalizeNominalList(
+  input: { data: BackendNominal[]; meta: { total: number } },
+  resource: 'daily-rates' | 'salaries'
+): PayrollEmployeeRateListResult {
+  return {
+    data: input.data.map((item) => ({
+      uid: item.uid,
+      employee: { ...item.employee, site: item.site },
+      site: item.site,
+      amount:
+        resource === 'daily-rates'
+          ? (item.dailyRate ?? null)
+          : (item.basicSalary ?? null),
+      amountMasked: item.nominalMasked,
+      currency: item.currency,
+      effectiveFrom: item.effectiveFrom,
+      effectiveTo: item.effectiveTo,
+      status: item.status,
+      notes: item.notes,
+      createdAt: '',
+    })),
+    meta: {
+      sites: [],
+      employees: [],
+      capabilities: {
+        canManagePolicy: false,
+        canManageRates: false,
+        canViewAmounts: false,
+      },
+    },
+  }
+}
+
+function normalizeTrainingPreflight(
+  input: BackendTrainingPreflight
+): PayrollTrainingPreflight {
+  return {
+    status: input.status,
+    evaluatedAt: new Date().toISOString(),
+    summary: {
+      trainingEmployees: input.summary.trainingEmployees,
+      employmentHistories: 0,
+      productionTransactions: input.summary.productionFacts,
+      payrollSnapshots: input.summary.immutablePayrollRows,
+      immutablePayrollSnapshots: input.summary.immutablePayrollRows,
+    },
+    issues: [
+      ...input.blockers.map((issue) => ({
+        code: issue.code,
+        severity: 'BLOCKER' as const,
+        count: issue.count,
+        title: 'Payroll Training immutable ditemukan',
+        message: issue.message,
+        actionHint: 'Lakukan remediasi owner sebelum cutover skema Training.',
+      })),
+      ...input.notes.map((message, index) => ({
+        code: `NOTE_${index + 1}`,
+        severity: 'INFO' as const,
+        count: 0,
+        title: 'Catatan preflight',
+        message,
+        actionHint: null,
+      })),
+    ],
+  }
 }
 
 export function usePayrollHistory(input: Record<string, unknown>) {

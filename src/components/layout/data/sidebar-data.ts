@@ -126,6 +126,11 @@ export const sidebarData: SidebarData = {
           anyOfPermissions: ['payroll.view'],
           items: [
             {
+              title: 'Skema Upah & Tarif',
+              url: '/payroll/skema-upah',
+              anyOfPermissions: ['payroll.view'],
+            },
+            {
               title: 'Periode Payroll',
               url: '/payroll/periode',
               anyOfPermissions: ['payroll.view'],

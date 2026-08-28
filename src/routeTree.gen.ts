@@ -25,6 +25,7 @@ import { Route as AuthenticatedProduksiTarifSiteRouteImport } from './routes/_au
 import { Route as AuthenticatedProduksiRekapRouteImport } from './routes/_authenticated/produksi/rekap'
 import { Route as AuthenticatedProduksiMasterPekerjaanRouteImport } from './routes/_authenticated/produksi/master-pekerjaan'
 import { Route as AuthenticatedPayrollSlipGajiRouteImport } from './routes/_authenticated/payroll/slip-gaji'
+import { Route as AuthenticatedPayrollSkemaUpahRouteImport } from './routes/_authenticated/payroll/skema-upah'
 import { Route as AuthenticatedPayrollSimulasiRouteImport } from './routes/_authenticated/payroll/simulasi'
 import { Route as AuthenticatedPayrollRiwayatRouteImport } from './routes/_authenticated/payroll/riwayat'
 import { Route as AuthenticatedPayrollPeriodeRouteImport } from './routes/_authenticated/payroll/periode'
@@ -150,6 +151,12 @@ const AuthenticatedPayrollSlipGajiRoute =
   AuthenticatedPayrollSlipGajiRouteImport.update({
     id: '/payroll/slip-gaji',
     path: '/payroll/slip-gaji',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedPayrollSkemaUpahRoute =
+  AuthenticatedPayrollSkemaUpahRouteImport.update({
+    id: '/payroll/skema-upah',
+    path: '/payroll/skema-upah',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedPayrollSimulasiRoute =
@@ -437,6 +444,7 @@ export interface FileRoutesByFullPath {
   '/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
   '/payroll/riwayat': typeof AuthenticatedPayrollRiwayatRoute
   '/payroll/simulasi': typeof AuthenticatedPayrollSimulasiRoute
+  '/payroll/skema-upah': typeof AuthenticatedPayrollSkemaUpahRoute
   '/payroll/slip-gaji': typeof AuthenticatedPayrollSlipGajiRoute
   '/produksi/master-pekerjaan': typeof AuthenticatedProduksiMasterPekerjaanRoute
   '/produksi/rekap': typeof AuthenticatedProduksiRekapRoute
@@ -495,6 +503,7 @@ export interface FileRoutesByTo {
   '/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
   '/payroll/riwayat': typeof AuthenticatedPayrollRiwayatRoute
   '/payroll/simulasi': typeof AuthenticatedPayrollSimulasiRoute
+  '/payroll/skema-upah': typeof AuthenticatedPayrollSkemaUpahRoute
   '/payroll/slip-gaji': typeof AuthenticatedPayrollSlipGajiRoute
   '/produksi/master-pekerjaan': typeof AuthenticatedProduksiMasterPekerjaanRoute
   '/produksi/rekap': typeof AuthenticatedProduksiRekapRoute
@@ -555,6 +564,7 @@ export interface FileRoutesById {
   '/_authenticated/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
   '/_authenticated/payroll/riwayat': typeof AuthenticatedPayrollRiwayatRoute
   '/_authenticated/payroll/simulasi': typeof AuthenticatedPayrollSimulasiRoute
+  '/_authenticated/payroll/skema-upah': typeof AuthenticatedPayrollSkemaUpahRoute
   '/_authenticated/payroll/slip-gaji': typeof AuthenticatedPayrollSlipGajiRoute
   '/_authenticated/produksi/master-pekerjaan': typeof AuthenticatedProduksiMasterPekerjaanRoute
   '/_authenticated/produksi/rekap': typeof AuthenticatedProduksiRekapRoute
@@ -615,6 +625,7 @@ export interface FileRouteTypes {
     | '/payroll/periode'
     | '/payroll/riwayat'
     | '/payroll/simulasi'
+    | '/payroll/skema-upah'
     | '/payroll/slip-gaji'
     | '/produksi/master-pekerjaan'
     | '/produksi/rekap'
@@ -673,6 +684,7 @@ export interface FileRouteTypes {
     | '/payroll/periode'
     | '/payroll/riwayat'
     | '/payroll/simulasi'
+    | '/payroll/skema-upah'
     | '/payroll/slip-gaji'
     | '/produksi/master-pekerjaan'
     | '/produksi/rekap'
@@ -732,6 +744,7 @@ export interface FileRouteTypes {
     | '/_authenticated/payroll/periode'
     | '/_authenticated/payroll/riwayat'
     | '/_authenticated/payroll/simulasi'
+    | '/_authenticated/payroll/skema-upah'
     | '/_authenticated/payroll/slip-gaji'
     | '/_authenticated/produksi/master-pekerjaan'
     | '/_authenticated/produksi/rekap'
@@ -875,6 +888,13 @@ declare module '@tanstack/react-router' {
       path: '/payroll/slip-gaji'
       fullPath: '/payroll/slip-gaji'
       preLoaderRoute: typeof AuthenticatedPayrollSlipGajiRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/payroll/skema-upah': {
+      id: '/_authenticated/payroll/skema-upah'
+      path: '/payroll/skema-upah'
+      fullPath: '/payroll/skema-upah'
+      preLoaderRoute: typeof AuthenticatedPayrollSkemaUpahRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/payroll/simulasi': {
@@ -1313,6 +1333,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedPayrollPeriodeRoute: typeof AuthenticatedPayrollPeriodeRoute
   AuthenticatedPayrollRiwayatRoute: typeof AuthenticatedPayrollRiwayatRoute
   AuthenticatedPayrollSimulasiRoute: typeof AuthenticatedPayrollSimulasiRoute
+  AuthenticatedPayrollSkemaUpahRoute: typeof AuthenticatedPayrollSkemaUpahRoute
   AuthenticatedPayrollSlipGajiRoute: typeof AuthenticatedPayrollSlipGajiRoute
   AuthenticatedProduksiMasterPekerjaanRoute: typeof AuthenticatedProduksiMasterPekerjaanRoute
   AuthenticatedProduksiRekapRoute: typeof AuthenticatedProduksiRekapRoute
@@ -1371,6 +1392,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedPayrollPeriodeRoute: AuthenticatedPayrollPeriodeRoute,
   AuthenticatedPayrollRiwayatRoute: AuthenticatedPayrollRiwayatRoute,
   AuthenticatedPayrollSimulasiRoute: AuthenticatedPayrollSimulasiRoute,
+  AuthenticatedPayrollSkemaUpahRoute: AuthenticatedPayrollSkemaUpahRoute,
   AuthenticatedPayrollSlipGajiRoute: AuthenticatedPayrollSlipGajiRoute,
   AuthenticatedProduksiMasterPekerjaanRoute:
     AuthenticatedProduksiMasterPekerjaanRoute,

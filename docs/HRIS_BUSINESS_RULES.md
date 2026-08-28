@@ -12,12 +12,17 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 
 ## Aturan bisnis penting
 - Jenis karyawan operasional: `BORONGAN`, `HARIAN`, `BULANAN`, dan `TRAINING`.
-- Karyawan `BORONGAN` dan `TRAINING` menggunakan basis payroll `PIECE_RATE`
-  dan eligible untuk penugasan pekerjaan Produksi selama histori employment
-  efektifnya mengizinkan Produksi. Penugasan Produksi wajib mengikuti periode
-  histori tersebut dan tidak boleh menyeberangi periode inactive.
+- Skema upah memisahkan basis kalkulasi dan frekuensi pembayaran:
+  `BORONGAN = PIECE_RATE/WEEKLY`, `HARIAN = TIME_BASED/WEEKLY`,
+  `TRAINING = TIME_BASED/WEEKLY`, dan `BULANAN = TIME_BASED/MONTHLY`.
+- Karyawan `BORONGAN` dan `TRAINING` tetap eligible untuk penugasan dan
+  pencatatan Produksi selama histori employment efektifnya mengizinkan
+  Produksi. Hasil Produksi Training hanya menjadi fakta monitoring dan tidak
+  menjadi sumber nominal Payroll.
 - Semua jenis karyawan wajib memiliki penempatan Modul dan Bagian produksi pada registrasi dan mutasi.
-- Jenis kontrak `TRAINING`, `PKWT`, dan `PKWTT` dipilih sesuai kebijakan HR dan tidak ditentukan otomatis dari jenis karyawan.
+- Kombinasi jenis kontrak dan jenis karyawan berlaku ketat: kontrak `TRAINING`
+  hanya untuk jenis karyawan `TRAINING`, sedangkan `PKWT`/`PKWTT` hanya untuk
+  `BORONGAN`, `HARIAN`, atau `BULANAN`.
 - Cetak template kontrak produksi tahap pertama hanya untuk kombinasi karyawan `BORONGAN` dengan kontrak `PKWT`.
 - Kontrak `ACTIVE` tidak dapat dikoreksi periodenya. Salah aktivasi hanya dapat dibatalkan menjadi `CANCELLED` bila belum memiliki tanda tangan/lampiran dan belum digunakan oleh attendance, produksi, payroll, histori lanjutan, atau status kerja terjadwal; selain itu gunakan Terminasi lalu buat kontrak baru.
 - Aktivasi kontrak membuat status karyawan `ACTIVE` efektif sejak tanggal mulai kontrak, termasuk ketika HR terlambat menjalankan aktivasi. Aktivasi ditolak bila penyelarasan mundur akan melewati histori employment yang lebih baru.
@@ -60,9 +65,10 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   sudah disnapshot; status tersebut tidak menyatakan gaji sudah dibayar.
 - Payroll draft/simulasi dapat dihitung ulang. Payroll yang sudah closing bersifat immutable.
 - Koreksi setelah payroll closing tidak termasuk scope saat ini.
-- Implementasi Payroll pertama hanya untuk basis `PIECE_RATE`. Payroll
-  `MONTHLY` baru dibangun setelah snapshot Attendance harian, formula prorata,
-  pajak, dan BPJS dikunci.
+- Implementasi Payroll pertama hanya untuk `PIECE_RATE/WEEKLY`. Perluasan
+  berikutnya mencakup `TIME_BASED/WEEKLY` untuk HARIAN/TRAINING dan
+  `TIME_BASED/MONTHLY` untuk BULANAN dengan policy effective-dated yang
+  disnapshot pada periode serta run.
 - Periode Payroll `PIECE_RATE` dibuat fleksibel per site dengan rentang maksimal
   31 hari dan tidak boleh overlap dengan periode non-cancelled pada site serta
   basis Payroll yang sama.
@@ -77,8 +83,29 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   informasi, bukan pengali otomatis upah. Alpha, keterlambatan, dan pulang awal
   hanya memengaruhi nominal melalui komponen potongan eksplisit yang dapat
   diaudit.
-- Karyawan `BORONGAN` dan `TRAINING` mengikuti Payroll `PIECE_RATE`; pada fase
-  awal tarif Training mengikuti tarif pekerjaan Produksi biasa.
+- Hanya `BORONGAN` yang mengikuti Payroll `PIECE_RATE`. `TRAINING` tetap boleh
+  memiliki assignment dan transaksi Produksi untuk monitoring, tetapi dibayar
+  melalui tarif harian dan hanya Attendance final `PRESENT` yang menjadi hari
+  bayar.
+- Periode `TIME_BASED/WEEKLY` selalu Senin-Minggu dan boleh melintasi bulan.
+  Periode `TIME_BASED/MONTHLY` mengikuti policy cutoff; default awal adalah
+  `LAST_DAY` sehingga periodenya tanggal 1 sampai akhir bulan.
+- Policy Payroll bersifat versioned, effective-dated, wajib per site,
+  tervalidasi, dan disnapshot. Inheritance policy global/site belum digunakan
+  pada M5A1 agar resolusi policy tetap tunggal. Perubahan hanya berlaku ke
+  periode baru dan tidak boleh mengubah Payroll yang sudah diajukan,
+  disetujui, atau ditutup.
+- Perubahan gaji pokok BULANAN hanya boleh efektif tepat pada awal periode
+  Payroll. Gaji pokok pertama karyawan yang join di tengah periode boleh mulai
+  pada tanggal awal eligibility; pengecualian ini tidak berlaku untuk perubahan
+  nominal lanjutan. Join/resign diprorata memakai hari kalender eligible.
+- Alpha dan Izin karyawan BULANAN dicatat sebagai potongan eksplisit dengan
+  rumus default `gaji pokok / jumlah hari kerja terjadwal dalam periode x
+  jumlah hari Alpha/Izin`. Kalkulasi dibulatkan `HALF_UP` ke Rp1 per komponen
+  karyawan.
+- Policy Payroll tahap awal hanya dapat dikelola `SUPER_ADMIN`.
+  `PAYROLL_FINANCE` hanya melihat policy sesuai akses site; pembatasan ini
+  wajib ditegakkan API.
 - Bonus, tunjangan, penalti, pinjaman, dan potongan lain dikelola sebagai
   komponen eksplisit per periode. Pajak dan BPJS belum dihitung otomatis pada
   fase awal.

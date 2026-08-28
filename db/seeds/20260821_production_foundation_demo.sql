@@ -65,12 +65,12 @@ BEGIN
 
   START TRANSACTION;
 
-  -- Training mengikuti keputusan Fase Produksi: dicatat berdasarkan hasil.
+  -- Hasil Training dicatat untuk monitoring, tetapi upahnya berbasis waktu.
   UPDATE employee_types
   SET
     name='Pekerja Training',
-    payroll_basis='PIECE_RATE',
-    description='Pekerja dalam masa pelatihan produksi yang dicatat berdasarkan hasil kerja.',
+    payroll_basis='TIME_BASED',
+    description='Pekerja masa pelatihan dengan tarif harian; hasil Produksi hanya untuk monitoring.',
     updated_by=seed_user_id
   WHERE code='TRAINING';
 
@@ -180,7 +180,7 @@ BEGIN
   JOIN employee_statuses es
     ON es.id=eh.employee_status_id AND es.allows_production=1
   JOIN employee_types et
-    ON et.id=eh.employee_type_id AND et.payroll_basis='PIECE_RATE'
+    ON et.id=eh.employee_type_id AND et.code IN ('BORONGAN','TRAINING')
   JOIN production_module_sections pms
     ON pms.id=eh.production_module_section_id AND pms.is_active=1
   JOIN production_sections ps

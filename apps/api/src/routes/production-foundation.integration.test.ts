@@ -453,7 +453,7 @@ describe('Production foundation API', () => {
     expect(mocks.commit).toHaveBeenCalledOnce()
   })
 
-  it('penugasan terbuka wajib berada pada histori PIECE_RATE yang juga terbuka', async () => {
+  it('penugasan terbuka wajib berada pada histori Borongan/Training yang juga terbuka', async () => {
     mocks.query
       .mockResolvedValueOnce([[{ employeeId: 10, jobId: 20, siteId: 1 }]])
       .mockResolvedValueOnce([[{ id: 30 }]])
@@ -478,7 +478,7 @@ describe('Production foundation API', () => {
     const historyCall = mocks.query.mock.calls.find((call) =>
       String(call[0]).includes('FROM employee_employment_histories')
     )
-    expect(String(historyCall?.[0])).toContain("et.payroll_basis='PIECE_RATE'")
+    expect(String(historyCall?.[0])).toContain("et.code IN ('BORONGAN','TRAINING')")
     expect(String(historyCall?.[0])).toContain('eh.effective_to IS NULL')
     expect(historyCall?.[1]).toEqual([10, 1, '2026-08-01', '2026-08-01', null, null, null])
   })
