@@ -1,8 +1,8 @@
 # Knowledge Base Payroll
 
-> Status dokumen: Periode, pemeriksaan kesiapan, dan Simulasi Payroll Borongan
-> sudah operasional. Persetujuan, closing, riwayat lanjutan, dan slip gaji
-> dibuka pada tahap berikutnya.
+> Status dokumen: Periode, pemeriksaan kesiapan, Simulasi, Persetujuan, dan
+> Closing Payroll Borongan sudah operasional. Riwayat lanjutan, ekspor, dan slip
+> gaji dibuka pada tahap berikutnya.
 
 ## 1. Tujuan menu Payroll
 
@@ -175,14 +175,69 @@ Run yang gagal tidak digunakan sebagai hasil aktif dan tidak meninggalkan
 snapshot setengah jadi. Jika run terlihat Processing terlalu lama, pengguna
 berizin dapat menjalankan pemulihan lalu mencoba kembali.
 
-## 11. Batas tahap saat ini
+## 11. Mengajukan hasil simulasi
 
-Pada tahap Simulasi, sistem belum:
+1. Buka **Payroll > Approval & Closing**.
+2. Pilih periode yang sudah dihitung.
+3. Periksa run, jumlah karyawan, pendapatan, potongan, neto, dan pesan kesiapan.
+4. Jika muncul **Perlu hitung ulang**, kembali ke Simulasi Payroll dan hitung
+   ulang sebelum mengajukan.
+5. Pilih **Ajukan persetujuan** lalu pastikan ringkasannya benar.
 
-- mengajukan hasil untuk persetujuan;
-- melakukan closing;
+Pengajuan tidak dapat dilanjutkan jika hasil kosong, neto negatif, rekening
+snapshot belum lengkap, data belum siap, atau hasil simulasi sudah tertinggal
+dari perubahan sumber. Status periode tetap **Calculated** selama menunggu
+keputusan Direksi.
+
+Pengajuan yang masih menunggu dapat ditarik kembali dengan alasan. Setelah
+ditarik, simulasi wajib dihitung ulang sebelum diajukan lagi.
+
+## 12. Menyetujui atau menolak
+
+Direksi memeriksa pengajuan melalui halaman **Approval & Closing**. Detail
+menampilkan run yang diajukan, ringkasan nominal, kesiapan, dan histori tindakan.
+
+- Pilih **Setujui** jika hasil sudah benar.
+- Pilih **Tolak** jika masih perlu perbaikan. Alasan penolakan wajib diisi.
+
+Hasil yang ditolak tidak diajukan ulang secara langsung. Payroll Finance harus
+memperbaiki sumber atau komponen, menjalankan hitung ulang, lalu mengajukan run
+baru. Cara ini menjaga hasil dan keputusan lama tetap dapat ditelusuri.
+
+Super Admin dapat menjalankan seluruh proses, termasuk menyetujui pengajuannya
+sendiri untuk kebutuhan pemulihan operasional. Tindakan tersebut diberi penanda
+khusus pada histori agar tetap transparan.
+
+## 13. Melakukan closing
+
+Closing dilakukan setelah current run disetujui.
+
+1. Periksa kembali site, periode, nomor run, jumlah karyawan, dan nilai neto.
+2. Pastikan tidak ada blocker atau perubahan data yang membutuhkan hitung ulang.
+3. Pilih **Tutup Payroll** dan konfirmasi peringatan yang ditampilkan.
+
+Setelah closing, hasil menjadi final dan tidak dapat dibuka kembali. Closing
+tidak berarti dana sudah ditransfer atau diterima karyawan; status pembayaran
+akan dikelola pada proses tersendiri.
+
+## 14. Memahami tahapan proses
+
+| Tahap | Arti |
+| --- | --- |
+| **Simulasi** | Hasil sudah dihitung dan masih dapat dihitung ulang. |
+| **Diajukan** | Current run sedang menunggu keputusan Direksi. |
+| **Disetujui** | Current run sudah disetujui dan siap ditutup. |
+| **Ditutup** | Hasil telah menjadi final dan tidak dapat dibuka kembali. |
+
+Gunakan histori persetujuan untuk melihat siapa yang mengajukan, menyetujui,
+menolak, menarik, atau menutup beserta waktu dan alasannya.
+
+## 15. Batas tahap saat ini
+
+Pada tahap saat ini, sistem belum:
+
 - menghitung pajak atau BPJS otomatis;
 - menerbitkan slip gaji.
 
-Hasil simulasi belum berarti gaji sudah disetujui, ditutup, ditransfer, atau
+Hasil simulasi maupun closing belum berarti gaji sudah ditransfer atau
 dibayarkan.

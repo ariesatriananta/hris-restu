@@ -109,6 +109,23 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Approval wajib menunjuk run perhitungan tertentu. Pembuat run tidak boleh
   menyetujui run miliknya sendiri, kecuali `SUPER_ADMIN` untuk recovery yang
   tetap dicatat pada audit trail.
+- Pengajuan approval hanya boleh memakai current run `COMPLETED` yang masih
+  konsisten dengan snapshot dan sumbernya. Periode tetap `CALCULATED` selama
+  pengajuan menunggu keputusan. Readiness `ATTENTION` boleh diajukan, tetapi
+  readiness `BLOCKED`, rekening snapshot tidak lengkap, neto negatif, hasil
+  kosong, atau total tidak konsisten memblokir pengajuan, approval, dan closing.
+- Approval awal hanya satu tingkat oleh Direksi. Pengguna selain `SUPER_ADMIN`
+  tidak boleh menyetujui run yang dibuat atau diajukannya sendiri.
+  `SUPER_ADMIN` boleh menghitung, mengajukan, self-approve, menolak, menarik,
+  dan menutup Payroll lintas site; self-approval wajib ditandai sebagai override
+  pada audit trail.
+- Pengajuan `PENDING` dapat ditarik dengan alasan, sedangkan penolakan juga wajib
+  beralasan. Run yang ditolak atau ditarik tidak boleh diajukan ulang; pengguna
+  wajib menghitung ulang dan mengajukan run baru agar histori tetap immutable.
+- Closing hanya dapat dilakukan terhadap current run yang sudah disetujui dan
+  secara atomik mengubah periode menjadi `CLOSED` serta run menjadi `FINAL`.
+  Payroll `CLOSED` tidak dapat dibuka kembali dan tidak berarti pembayaran atau
+  transfer dana sudah dilakukan.
 - Slip resmi hanya bersumber dari Payroll `CLOSED`. Hasil `CALCULATED` hanya
   boleh dipratinjau dengan penanda Simulasi; status `CLOSED` tidak menyatakan
   pembayaran atau transfer sudah dilakukan.

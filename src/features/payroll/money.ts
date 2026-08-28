@@ -12,3 +12,16 @@ export function formatDecimalString(
   const number = `${negative ? '-' : ''}${integer}${fraction ? `,${fraction}` : ''}`
   return options.currency ? `Rp ${number}` : number
 }
+
+export function addDecimalStrings(...values: string[]) {
+  const total = values.reduce((sum, value) => {
+    const match = /^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(value.trim())
+    if (!match) return sum
+    const fraction = (match[3] ?? '').padEnd(2, '0')
+    const cents = BigInt(match[2] ?? '0') * 100n + BigInt(fraction || '0')
+    return sum + (match[1] === '-' ? -cents : cents)
+  }, 0n)
+  const negative = total < 0n
+  const absolute = negative ? -total : total
+  return `${negative ? '-' : ''}${absolute / 100n}.${String(absolute % 100n).padStart(2, '0')}`
+}

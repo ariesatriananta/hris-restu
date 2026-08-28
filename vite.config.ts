@@ -31,6 +31,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: [
+      '@radix-ui/react-checkbox',
       '@radix-ui/react-tooltip',
       'jsbarcode',
       'lucide-react',
@@ -40,7 +41,12 @@ export default defineConfig({
   test: {
     silent: 'passed-only',
     unstubEnvs: true,
-    exclude: ['apps/api/**'],
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/dist-server/**',
+      'apps/api/**',
+    ],
     browser: {
       enabled: true,
       provider: playwright({

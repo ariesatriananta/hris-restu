@@ -149,6 +149,52 @@ Keputusan implementasi:
 - Terapkan separation of duties, reject dengan alasan, audit trail, dan closing
   atomik yang immutable.
 
+Keputusan implementasi:
+
+- Pengajuan hanya boleh menunjuk `current_run_id` yang masih menjadi hasil
+  terbaru, berstatus `COMPLETED`, dan lolos pemeriksaan integritas snapshot.
+  Periode tetap `CALCULATED` selama approval berstatus `PENDING`.
+- `PAYROLL_FINANCE` dapat mengajukan, menarik pengajuan, dan melakukan closing
+  sesuai akses site. `DIRECTOR` dapat menyetujui atau menolak lintas site.
+- `SUPER_ADMIN` memiliki seluruh aksi di seluruh site, termasuk menghitung,
+  mengajukan, menyetujui hasil hitungannya sendiri, menolak, menarik pengajuan,
+  dan closing. Self-approval ditandai sebagai override pada audit trail.
+- Separation of duties berlaku bagi pengguna selain `SUPER_ADMIN`: pembuat run
+  atau pengaju tidak boleh menjadi penyetuju run yang sama.
+- Approval tahap awal hanya satu tingkat, yaitu Direksi. Struktur data tetap
+  mempertahankan level approval agar dapat diperluas tanpa mengubah histori.
+- Neto negatif, rekening snapshot tidak lengkap, populasi kosong, total run
+  yang tidak sama dengan agregasi detail, readiness `BLOCKED`, atau sumber yang
+  berubah setelah simulasi memblokir pengajuan, approval, dan closing. Readiness
+  `ATTENTION` lain boleh lanjut.
+- Pengajuan `PENDING` dapat ditarik oleh pihak berwenang dengan alasan minimal
+  lima karakter. Penolakan juga wajib memiliki alasan minimal lima karakter.
+- Run yang ditolak atau ditarik bersifat terminal untuk workflow approval.
+  Pengajuan ulang wajib memakai run baru hasil hitung ulang agar histori lama
+  tidak ditimpa atau dipakai ulang.
+- Closing hanya berlaku pada `current_run_id` yang telah disetujui. Transaksi
+  atomik mengubah periode menjadi `CLOSED` dan run menjadi `FINAL`.
+- Periode `CLOSED` tidak dapat dibuka kembali. Status ini mengunci hasil resmi,
+  tetapi tidak menyatakan dana sudah ditransfer atau diterima karyawan.
+- Semua mutation memakai idempotency key, row lock, conditional status update,
+  serta audit trail agar klik ganda atau request paralel tidak menggandakan aksi.
+
+### Exit criteria Milestone 3
+
+- Run stale, bukan current, belum selesai, neto negatif, kosong, atau tidak
+  konsisten tidak dapat diajukan, disetujui, maupun ditutup.
+- Submit, withdraw, approve, reject, dan close aman terhadap retry serta request
+  paralel dan tidak menghasilkan approval atau audit ganda.
+- Reject/withdraw mempertahankan histori dan hanya dapat dilanjutkan melalui run
+  baru hasil hitung ulang.
+- Separation of duties, pengecualian `SUPER_ADMIN`, permission, dan site scope
+  ditegakkan API serta tercermin jujur pada UI.
+- Closing mengesahkan tepat satu current run secara atomik, bersifat immutable,
+  dan tetap dibedakan dari status pembayaran.
+- Halaman approval memiliki tracker proses, blocker yang dapat ditindaklanjuti,
+  aksi sesuai role, histori persetujuan, serta state desktop/mobile yang layak.
+- Migration, test backend/frontend, typecheck, lint, dan production build lulus.
+
 ## Milestone 4 - Riwayat, export, dan slip
 
 - Riwayat periode dan run, termasuk perbandingan hasil simulasi.

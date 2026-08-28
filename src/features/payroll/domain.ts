@@ -258,3 +258,88 @@ export interface PayrollManualComponentRevision {
   revisedAt: string
   revisedBy: { uid: string | null; name: string }
 }
+
+export type PayrollApprovalStatus =
+  | 'PENDING'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'CANCELLED'
+
+export type PayrollWorkflowAction =
+  | 'SUBMIT'
+  | 'APPROVE'
+  | 'REJECT'
+  | 'WITHDRAW'
+  | 'CLOSE'
+
+export interface PayrollWorkflowIssue {
+  code: string
+  message: string
+  count: number
+}
+
+export interface PayrollWorkflow {
+  periodUid: string
+  periodStatus: PayrollPeriodStatus
+  currentRun: {
+    uid: string
+    runNumber: number
+    status: PayrollRunStatus
+    runType: 'SIMULATION' | 'FINAL'
+    employeeCount: number
+    totalPieceRateAmount: string
+    totalEarnings: string
+    totalDeductions: string
+    totalNetPay: string
+  } | null
+  approval: {
+    uid: string
+    status: PayrollApprovalStatus
+    requestedAt: string
+    requestedByName: string
+    reviewedAt: string | null
+    reviewedByName: string | null
+    notes: string | null
+    superAdminOverride: boolean
+  } | null
+  capabilities: {
+    canSubmit: boolean
+    canWithdraw: boolean
+    canApprove: boolean
+    canReject: boolean
+    canClose: boolean
+  }
+  integrity: {
+    valid: boolean
+    issues: PayrollWorkflowIssue[]
+  }
+  history: Array<{
+    uid: string
+    action: PayrollWorkflowAction
+    reason: string | null
+    superAdminOverride: boolean
+    performedAt: string
+    performedByName: string
+  }>
+}
+
+export interface PayrollApprovalQueueItem {
+  approvalUid: string
+  periodUid: string
+  periodCode: string
+  periodName: string
+  siteCode: string
+  siteName: string
+  runUid: string
+  runNumber: number
+  employeeCount: number
+  totalNetPay: string
+  requestedAt: string
+  requestedByName: string
+  superAdminOverride: boolean
+}
+
+export interface PayrollApprovalQueueResult {
+  data: PayrollApprovalQueueItem[]
+  meta: { page: number; pageSize: number; total: number }
+}

@@ -18,7 +18,9 @@ describe('handleServerError', () => {
   it('shows a generic message when the error is not recognised', () => {
     handleServerError(new Error('network'))
 
-    expect(toastError).toHaveBeenCalledWith('Something went wrong!')
+    expect(toastError).toHaveBeenCalledWith(
+      'Terjadi kesalahan. Silakan coba lagi.'
+    )
   })
 
   it('maps a plain object with status 204 to the no-content message', () => {
@@ -48,7 +50,9 @@ describe('handleServerError', () => {
 
     handleServerError(error)
 
-    expect(toastError).toHaveBeenCalledWith('Something went wrong!')
+    expect(toastError).toHaveBeenCalledWith(
+      'Terjadi kesalahan. Silakan coba lagi.'
+    )
   })
 
   it('falls back to the generic message when Axios data.title is an empty string', () => {
@@ -60,7 +64,9 @@ describe('handleServerError', () => {
 
     handleServerError(error)
 
-    expect(toastError).toHaveBeenCalledWith('Something went wrong!')
+    expect(toastError).toHaveBeenCalledWith(
+      'Terjadi kesalahan. Silakan coba lagi.'
+    )
   })
 
   it('logs the error to the console in development', () => {

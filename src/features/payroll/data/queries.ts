@@ -17,6 +17,8 @@ import type {
   PayrollRunDetail,
   PayrollRunSummary,
   PayrollSimulationMeta,
+  PayrollApprovalQueueResult,
+  PayrollWorkflow,
 } from '../domain'
 
 const keys = {
@@ -37,6 +39,121 @@ const keys = {
     [...keys.all, periodUid, 'manual-components'] as const,
   manualComponentRevisions: (periodUid: string, componentUid: string) =>
     [...keys.manualComponents(periodUid), componentUid, 'revisions'] as const,
+  approvalQueue: (input: Record<string, unknown>) =>
+    [...keys.all, 'approval-queue', input] as const,
+  workflow: (periodUid: string) =>
+    [...keys.all, periodUid, 'workflow'] as const,
+}
+
+export function usePayrollApprovalQueue(
+  input: Record<string, unknown>,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: keys.approvalQueue(input),
+    queryFn: async () =>
+      (
+        await apiClient.get<PayrollApprovalQueueResult>(
+          `/payroll/approvals?${params(input)}`
+        )
+      ).data,
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+}
+
+export function usePayrollWorkflow(periodUid?: string) {
+  return useQuery({
+    queryKey: keys.workflow(periodUid ?? ''),
+    queryFn: async () =>
+      (
+        await apiClient.get<{ data: PayrollWorkflow }>(
+          `/payroll/periods/${periodUid}/workflow`
+        )
+      ).data.data,
+    enabled: Boolean(periodUid),
+  })
+}
+
+type PayrollWorkflowMutationResult = {
+  data: PayrollWorkflow
+  meta: { replay: boolean }
+}
+
+function useWorkflowMutation(
+  request: (input: {
+    periodUid: string
+    approvalUid?: string
+    idempotencyKey: string
+    reason?: string
+    notes?: string
+  }) => Promise<PayrollWorkflowMutationResult>
+) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: request,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),
+  })
+}
+
+export function useSubmitPayrollApproval() {
+  return useWorkflowMutation(
+    async ({ periodUid, idempotencyKey, notes }) =>
+      (
+        await apiClient.post<PayrollWorkflowMutationResult>(
+          `/payroll/periods/${periodUid}/submit`,
+          { idempotencyKey, notes: notes || undefined }
+        )
+      ).data
+  )
+}
+
+export function useWithdrawPayrollApproval() {
+  return useWorkflowMutation(
+    async ({ approvalUid, idempotencyKey, reason }) =>
+      (
+        await apiClient.post<PayrollWorkflowMutationResult>(
+          `/payroll/approvals/${approvalUid}/withdraw`,
+          { idempotencyKey, reason }
+        )
+      ).data
+  )
+}
+
+export function useApprovePayrollApproval() {
+  return useWorkflowMutation(
+    async ({ approvalUid, idempotencyKey, notes }) =>
+      (
+        await apiClient.post<PayrollWorkflowMutationResult>(
+          `/payroll/approvals/${approvalUid}/approve`,
+          { idempotencyKey, notes: notes || undefined }
+        )
+      ).data
+  )
+}
+
+export function useRejectPayrollApproval() {
+  return useWorkflowMutation(
+    async ({ approvalUid, idempotencyKey, reason }) =>
+      (
+        await apiClient.post<PayrollWorkflowMutationResult>(
+          `/payroll/approvals/${approvalUid}/reject`,
+          { idempotencyKey, reason }
+        )
+      ).data
+  )
+}
+
+export function useClosePayrollPeriod() {
+  return useWorkflowMutation(
+    async ({ periodUid, idempotencyKey }) =>
+      (
+        await apiClient.post<PayrollWorkflowMutationResult>(
+          `/payroll/periods/${periodUid}/close`,
+          { idempotencyKey }
+        )
+      ).data
+  )
 }
 
 function params(input: Record<string, unknown>) {
@@ -63,7 +180,10 @@ export function usePayrollPeriodMeta() {
   })
 }
 
-export function usePayrollPeriods(input: Record<string, unknown>) {
+export function usePayrollPeriods(
+  input: Record<string, unknown>,
+  enabled = true
+) {
   return useQuery({
     queryKey: keys.list(input),
     queryFn: async () =>
@@ -73,6 +193,7 @@ export function usePayrollPeriods(input: Record<string, unknown>) {
         )
       ).data,
     placeholderData: keepPreviousData,
+    enabled,
   })
 }
 

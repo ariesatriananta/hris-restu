@@ -53,7 +53,7 @@ describe('useTableUrlState', () => {
     })
   })
 
-  it('uses 100 rows as the global table default', async () => {
+  it('uses 50 rows as the global table default', async () => {
     const navigate = vi.fn() as Mock<NavigateFn>
     const { result } = await renderHook(() =>
       useTableUrlState({ search: {}, navigate })
@@ -61,7 +61,7 @@ describe('useTableUrlState', () => {
 
     expect(result.current.pagination).toEqual({
       pageIndex: 0,
-      pageSize: 100,
+      pageSize: 50,
     })
   })
 

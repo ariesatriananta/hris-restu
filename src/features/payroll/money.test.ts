@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDecimalString } from './money'
+import { addDecimalStrings, formatDecimalString } from './money'
 
 describe('format nominal exact Payroll', () => {
   it('memformat string uang besar tanpa konversi Number', () => {
@@ -12,5 +12,12 @@ describe('format nominal exact Payroll', () => {
     expect(formatDecimalString('1400.0000', { currency: true })).toBe(
       'Rp 1.400'
     )
+  })
+})
+
+describe('addDecimalStrings', () => {
+  it('menjumlahkan nominal tanpa Number floating point', () => {
+    expect(addDecimalStrings('12000000.00', '600000.50')).toBe('12600000.50')
+    expect(addDecimalStrings('0.10', '0.20')).toBe('0.30')
   })
 })
