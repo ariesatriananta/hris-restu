@@ -1,14 +1,16 @@
 # Knowledge Base Payroll
 
-> Status dokumen: Periode, pemeriksaan kesiapan, Simulasi, Persetujuan, Closing,
-> Riwayat, Ekspor, dan Slip Payroll Borongan sudah operasional.
+> Status dokumen: Payroll Borongan sudah operasional sampai output. Payroll
+> HARIAN dan TRAINING sudah dapat diperiksa dan disimulasikan secara mingguan;
+> persetujuan, closing, ekspor, dan slipnya menyusul pada tahap berikutnya.
 
 ## 1. Tujuan menu Payroll
 
-Modul Payroll menyiapkan proses pembayaran hasil Produksi Borongan secara tertib
-dan dapat ditelusuri. Tahap pertama digunakan untuk membuat periode per site dan
-memeriksa apakah data Attendance, Produksi, karyawan, rekening, serta komponen
-Payroll sudah cukup rapi sebelum perhitungan dimulai.
+Modul Payroll menyiapkan perhitungan upah secara tertib dan dapat ditelusuri.
+Upah Borongan berasal dari hasil Produksi, sedangkan upah HARIAN dan TRAINING
+berasal dari hari hadir dan tarif harian. Sistem terlebih dahulu memeriksa
+apakah Attendance, penempatan, tarif, rekening, dan komponen Payroll sudah cukup
+rapi sebelum perhitungan dimulai.
 
 Membuat periode belum menghitung gaji dan belum mengunci data Attendance atau
 Produksi.
@@ -117,8 +119,10 @@ catatan dan gunakan **Batalkan** jika komponennya tidak lagi berlaku. Kedua aksi
 wajib disertai alasan. Perubahan tidak mengubah hasil run lama dan baru masuk
 setelah simulasi dihitung ulang.
 
-Komponen tetap yang tanggal berlakunya mengenai periode dibayarkan penuh satu
-kali. Sistem belum melakukan prorata otomatis.
+Pada Payroll Borongan, komponen tetap yang tanggal berlakunya mengenai periode
+dibayarkan penuh satu kali. Untuk simulasi HARIAN/TRAINING saat ini hanya
+komponen manual periode yang digunakan; komponen tetap/berulang belum diterapkan
+agar nominal mingguan tidak terbayar berulang tanpa aturan yang jelas.
 
 ## 8. Menjalankan simulasi
 
@@ -131,7 +135,7 @@ kali. Sistem belum melakukan prorata otomatis.
    otomatis.
 6. Periksa KPI dan daftar hasil per karyawan.
 
-Perhitungan memakai rumus awal berikut:
+Untuk Payroll Borongan, perhitungan memakai rumus:
 
 **Neto = hasil Produksi + komponen pendapatan - komponen potongan**
 
@@ -142,18 +146,31 @@ sebagai informasi dan tidak otomatis menambah atau memotong nominal.
 Jika data sumber atau komponen berubah, pilih **Hitung ulang**. Sistem membuat
 versi run baru dan tidak menghapus versi sebelumnya.
 
+Untuk Payroll HARIAN dan TRAINING mingguan, rumusnya:
+
+**Neto simulasi = jumlah tarif pada hari hadir + komponen manual pendapatan - komponen manual potongan**
+
+Hanya Attendance final berstatus **Hadir/PRESENT** yang dibayar. Karyawan yang
+eligible tetapi tidak hadir tetap ditampilkan dengan upah dasar Rp0. Kehadiran
+aktual pada hari nonkerja tetap dihitung dan diberi tanda perhatian. Produksi
+karyawan TRAINING hanya ditampilkan sebagai informasi jumlah hasil dan tidak
+menambah nominal upah.
+
 ## 9. Membaca hasil simulasi
 
 Ringkasan menampilkan:
 
 - jumlah karyawan yang dihitung;
-- nilai hasil Produksi;
+- nilai hasil Produksi untuk Borongan, atau hari dibayar dan upah dasar untuk
+  HARIAN/TRAINING;
 - tambahan pendapatan;
 - total potongan; dan
 - nilai neto.
 
-Pilih salah satu karyawan untuk melihat rincian transaksi Produksi, ringkasan
-Attendance, komponen pendapatan/potongan, status rekening, dan jejak rumus.
+Pilih salah satu karyawan untuk melihat rincian transaksi Produksi atau ledger
+harian, ringkasan Attendance, komponen pendapatan/potongan, status rekening, dan
+jejak rumus. Ledger HARIAN/TRAINING menjelaskan tanggal, status Attendance,
+tipe hari, tarif, apakah hari tersebut dibayar, dan nominalnya.
 Informasi rekening mengikuti kewenangan akun dan dapat disamarkan untuk pengguna
 read-only.
 
@@ -163,6 +180,10 @@ dan closing.
 
 Semua hasil pada halaman ini masih berstatus **SIMULASI** dan belum merupakan
 slip gaji resmi atau bukti pembayaran.
+
+Khusus Payroll HARIAN/TRAINING, hasil belum dapat diajukan, ditutup, diekspor,
+atau diterbitkan sebagai slip sampai tahap workflow Payroll berbasis waktu
+selesai. Gunakan halaman Simulasi untuk memeriksa hasil sementara.
 
 ## 10. Jika proses terputus
 

@@ -98,6 +98,21 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Preview kesiapan berbasis waktu tidak membuat run atau hasil finansial
   permanen. Policy, kontrak, histori tarif/gaji, Attendance, dan currency yang
   tidak lengkap tetap menjadi blocker walaupun ada komponen manual.
+- Simulasi mingguan HARIAN/TRAINING menyertakan seluruh karyawan eligible,
+  termasuk karyawan tanpa Attendance `PRESENT`; upah dasar karyawan tersebut
+  bernilai nol. Nominal harian dijumlahkan per karyawan lalu dibulatkan satu
+  kali menggunakan `HALF_UP` ke Rp1 sesuai policy snapshot.
+- Snapshot waktu disimpan per karyawan dan tanggal eligible. Hari nonkerja
+  hanya dibayar apabila Attendance final benar-benar `PRESENT` dan wajib
+  ditandai sebagai perhatian untuk pengguna.
+- Pada simulasi mingguan HARIAN/TRAINING hanya komponen manual periode yang
+  diterapkan. Komponen berulang diblokir sampai aturan frekuensi dan proratanya
+  ditetapkan.
+- Produksi karyawan TRAINING hanya menjadi informasi monitoring kuantitas per
+  pekerjaan dan satuan. Nilai bruto Produksi tidak boleh menambah upah dasar,
+  gross, maupun neto Payroll berbasis waktu.
+- Run `TIME_BASED` belum boleh diajukan, disetujui, ditutup, diekspor, atau
+  diterbitkan sebagai slip sampai workflow dan output Milestone 5D selesai.
 - Perubahan gaji pokok Bulanan di tengah periode atau snapshot policy yang tidak
   cocok dengan identitas periode menjadi blocker dan wajib diperbaiki sebelum
   perhitungan resmi.

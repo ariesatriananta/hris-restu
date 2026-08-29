@@ -98,6 +98,8 @@ async function snapshotCompanyAtClosing(
 
 const periodWorkflowProjection = `SELECT
   pp.id periodId,pp.uid periodUid,pp.status periodStatus,pp.current_run_id currentRunId,
+  pp.payroll_basis payrollBasis,pp.pay_frequency payFrequency,
+  pp.employee_type_code employeeTypeCode,
   pp.period_code periodCode,pp.period_name periodName,
   DATE_FORMAT(pp.period_start,'%Y-%m-%d') periodStart,
   DATE_FORMAT(pp.period_end,'%Y-%m-%d') periodEnd,
@@ -142,6 +144,8 @@ async function findApproval(
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT
        pp.id periodId,pp.uid periodUid,pp.status periodStatus,pp.current_run_id currentRunId,
+       pp.payroll_basis payrollBasis,pp.pay_frequency payFrequency,
+       pp.employee_type_code employeeTypeCode,
        pp.period_code periodCode,pp.period_name periodName,
        DATE_FORMAT(pp.period_start,'%Y-%m-%d') periodStart,
        DATE_FORMAT(pp.period_end,'%Y-%m-%d') periodEnd,
@@ -286,6 +290,15 @@ function assertCurrentCompletedRun(row: RowDataPacket) {
   }
 }
 
+function assertWorkflowAvailable(row: RowDataPacket) {
+  if (row.payrollBasis === 'TIME_BASED') {
+    throw new ApiError(
+      409,
+      'Simulasi Payroll berbasis waktu belum dapat diajukan, disetujui, atau ditutup. Workflow resmi tersedia pada Milestone 5D.'
+    )
+  }
+}
+
 async function assertIntegrity(conn: PoolConnection, row: RowDataPacket) {
   assertCurrentCompletedRun(row)
   await lockIntegritySources(conn, row)
@@ -311,23 +324,28 @@ function capabilities(auth: AuthContext, row: RowDataPacket, integrityValid: boo
   const separatedApprover =
     isSuper(auth) ||
     (Number(row.requestedBy) !== auth.id && Number(row.calculatedBy) !== auth.id)
+  const workflowAvailable = row.payrollBasis !== 'TIME_BASED'
   return {
     canSubmit:
+      workflowAvailable &&
       calculate &&
       row.periodStatus === 'CALCULATED' &&
       row.runStatus === 'COMPLETED' &&
       integrityValid &&
       !row.approvalId,
     canWithdraw:
+      workflowAvailable &&
       calculate &&
       row.approvalStatus === 'PENDING',
     canApprove:
+      workflowAvailable &&
       approve &&
       separatedApprover &&
       row.approvalStatus === 'PENDING' &&
       integrityValid,
-    canReject: approve && row.approvalStatus === 'PENDING',
+    canReject: workflowAvailable && approve && row.approvalStatus === 'PENDING',
     canClose:
+      workflowAvailable &&
       close &&
       row.periodStatus === 'APPROVED' &&
       row.approvalStatus === 'APPROVED' &&
@@ -354,8 +372,16 @@ async function workflowDto(auth: AuthContext, periodUid: string) {
       WHERE action.payroll_period_id=? ORDER BY action.performed_at,action.id`,
     [row.periodId]
   )
-  const integrity =
-    row.runId && row.runStatus === 'COMPLETED' && row.periodStatus !== 'CLOSED'
+  const integrity = row.payrollBasis === 'TIME_BASED'
+    ? {
+        valid: false,
+        issues: [{
+          code: 'TIME_BASED_WORKFLOW_NOT_AVAILABLE',
+          message: 'Workflow resmi Payroll berbasis waktu tersedia pada Milestone 5D.',
+          count: 1,
+        }],
+      }
+    : row.runId && row.runStatus === 'COMPLETED' && row.periodStatus !== 'CLOSED'
       ? await inspectPayrollRunIntegrity(pool, {
           id: Number(row.runId),
           periodId: Number(row.periodId),
@@ -371,6 +397,9 @@ async function workflowDto(auth: AuthContext, periodUid: string) {
   return {
     periodUid: row.periodUid,
     periodStatus: row.periodStatus,
+    payrollBasis: row.payrollBasis,
+    payFrequency: row.payFrequency,
+    employeeType: row.employeeTypeCode,
     currentRun: row.runId
       ? {
           uid: row.runUid,
@@ -542,6 +571,7 @@ payrollApprovalsRouter.post(
       const input = submitInput.parse(req.body)
       await conn.beginTransaction()
       const row = await findPeriod(conn, auth, periodUid)
+      assertWorkflowAvailable(row)
       if (
         await replay(conn, input.idempotencyKey, 'SUBMIT', {
           periodId: Number(row.periodId),
@@ -605,6 +635,7 @@ async function reviewHandler(
     const input = action === 'REJECT' ? reasonInput.parse(req.body) : reviewInput.parse(req.body)
     await conn.beginTransaction()
     const row = await findApproval(conn, auth, approvalUid)
+    assertWorkflowAvailable(row)
     if (await replay(conn, input.idempotencyKey, action, { approvalId: Number(row.approvalId) })) {
       await conn.commit()
       return res.json({ data: await workflowDto(auth, String(row.periodUid)), meta: { replay: true } })
@@ -683,6 +714,7 @@ payrollApprovalsRouter.post(
       const input = reasonInput.parse(req.body)
       await conn.beginTransaction()
       const row = await findApproval(conn, auth, approvalUid)
+      assertWorkflowAvailable(row)
       if (await replay(conn, input.idempotencyKey, 'WITHDRAW', { approvalId: Number(row.approvalId) })) {
         await conn.commit()
         return res.json({ data: await workflowDto(auth, String(row.periodUid)), meta: { replay: true } })
@@ -726,6 +758,7 @@ payrollApprovalsRouter.post(
       const input = idempotent.parse(req.body)
       await conn.beginTransaction()
       const row = await findPeriod(conn, auth, periodUid)
+      assertWorkflowAvailable(row)
       if (await replay(conn, input.idempotencyKey, 'CLOSE', { periodId: Number(row.periodId) })) {
         await conn.commit()
         return res.json({ data: await workflowDto(auth, periodUid), meta: { replay: true } })

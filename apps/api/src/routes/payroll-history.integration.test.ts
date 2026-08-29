@@ -22,6 +22,7 @@ vi.mock('../middleware/authenticate.js',()=>({
 const finance:AuthContext={id:7,uid:'finance',name:'Finance',email:null,roles:['PAYROLL_FINANCE'],permissions:['payroll.view'],siteAccess:['JEPARA']}
 const run={id:9,uid:'22222222-2222-4222-8222-222222222222',runId:9,periodId:3,periodUid:'11111111-1111-4111-8111-111111111111',periodCode:'PAY-JPR-1',periodName:'Payroll Jepara',
   periodStart:'2026-08-01',periodEnd:'2026-08-07',paymentDate:null,periodStatus:'CALCULATED',currentRunId:9,siteId:1,siteCode:'JEPARA',siteName:'Site Jepara',
+  payrollBasis:'PIECE_RATE',payFrequency:'WEEKLY',employeeTypeCode:'BORONGAN',
   runUid:'22222222-2222-4222-8222-222222222222',runNumber:1,runType:'SIMULATION',runStatus:'COMPLETED',runEmployeeCount:1,
   runPieceRate:'100.00',runEarnings:'0.00',runDeductions:'0.00',runNetPay:'100.00',runStartedAt:'2026-08-08T08:00:00.000+07:00',runFinishedAt:'2026-08-08T08:01:00.000+07:00',runIsCurrent:1}
 
@@ -71,5 +72,18 @@ describe('Payroll M4 history API',()=>{
     expect(body.data.employees[0].bank).toEqual({bankName:'BCA',accountLast4:'7890'})
     const issue=await request(`/runs/${run.runUid}/payslips/issue`,{method:'POST',body:{idempotencyKey:'66666666-6666-4666-8666-666666666666'}})
     expect(issue.status).toBe(403);expect(mocks.audit).not.toHaveBeenCalled()
+  })
+
+  it('menolak export dan slip TIME_BASED sampai output M5D tersedia',async()=>{
+    const timeRun={...run,payrollBasis:'TIME_BASED',employeeTypeCode:'HARIAN'}
+    mocks.query.mockResolvedValue([[timeRun]])
+    const exportResponse=await request(`/runs/${run.runUid}/export`,{
+      method:'POST',auth:{...finance,permissions:['payroll.view','payroll.export']},
+      body:{type:'SUMMARY',idempotencyKey:'74444444-4444-4444-8444-444444444444'},
+    })
+    expect(exportResponse.status).toBe(409)
+    const slipResponse=await request(`/runs/${run.runUid}/payslips`)
+    expect(slipResponse.status).toBe(409)
+    expect(mocks.audit).not.toHaveBeenCalled()
   })
 })

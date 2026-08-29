@@ -56,7 +56,9 @@ async function loadRun(auth: AuthContext, runUid: string, executor: Pick<typeof 
   const [rows]=await executor.query<RowDataPacket[]>(`SELECT pr.id runId,pr.payroll_period_id periodId,pp.uid periodUid,
     pp.period_code periodCode,pp.period_name periodName,DATE_FORMAT(pp.period_start,'%Y-%m-%d') periodStart,
     DATE_FORMAT(pp.period_end,'%Y-%m-%d') periodEnd,DATE_FORMAT(pp.payment_date,'%Y-%m-%d') paymentDate,
-    pp.status periodStatus,pp.current_run_id currentRunId,s.id siteId,s.code siteCode,s.name siteName,
+    pp.status periodStatus,pp.payroll_basis payrollBasis,pp.pay_frequency payFrequency,
+    pp.employee_type_code employeeTypeCode,pp.current_run_id currentRunId,
+    s.id siteId,s.code siteCode,s.name siteName,
     ${runColumns('pr','run')},(pp.current_run_id=pr.id) runIsCurrent
     FROM payroll_runs pr JOIN payroll_periods pp ON pp.id=pr.payroll_period_id JOIN sites s ON s.id=pp.site_id WHERE pr.uid=?`,[runUid])
   if(!rows[0]) throw new ApiError(404,'Run Payroll tidak ditemukan.')
@@ -64,6 +66,9 @@ async function loadRun(auth: AuthContext, runUid: string, executor: Pick<typeof 
 }
 function assertCompleted(row:RowDataPacket){ if(row.runStatus!=='COMPLETED') throw new ApiError(409,'Output hanya tersedia untuk run Payroll yang sudah selesai.') }
 function isOfficial(row:RowDataPacket){ return row.periodStatus==='CLOSED'&&row.runType==='FINAL'&&Number(row.currentRunId)===Number(row.runId) }
+function assertOutputAvailable(row:RowDataPacket) {
+  if(row.payrollBasis==='TIME_BASED') throw new ApiError(409,'Export dan slip Payroll berbasis waktu tersedia pada Milestone 5D. Gunakan detail simulasi untuk pemeriksaan sementara.')
+}
 
 async function employeeRows(runId:number, options?:{ids?:string[];query?:string}) {
   const values:unknown[]=[runId],conditions:string[]=[]
@@ -208,7 +213,7 @@ payrollHistoryRouter.get('/periods/:periodUid/compare',requirePermission('payrol
 payrollHistoryRouter.post('/runs/:runUid/export',async(req,res,next)=>{try{
   const input=outputInput.parse(req.body),permission=input.type==='PAYMENT'?'payroll.payment_export':'payroll.export',auth=res.locals.auth as AuthContext
   if(!isSuper(auth)&&!auth.permissions.includes(permission)) throw new ApiError(403,'Anda tidak memiliki izin untuk export Payroll ini.')
-  const row=await loadRun(auth,uuid.parse(req.params.runUid));assertCompleted(row);if(input.type==='PAYMENT'&&!isOfficial(row)) throw new ApiError(409,'Daftar Pembayaran hanya tersedia dari current run FINAL pada Payroll CLOSED.')
+  const row=await loadRun(auth,uuid.parse(req.params.runUid));assertOutputAvailable(row);assertCompleted(row);if(input.type==='PAYMENT'&&!isOfficial(row)) throw new ApiError(409,'Daftar Pembayaran hanya tersedia dari current run FINAL pada Payroll CLOSED.')
   const results=await employeeRows(Number(row.runId),{ids:input.employeeResultUids,query:input.query}); const exportRows:PayrollExportRow[]=results.map(result=>({employeeNumber:result.employee_number_snapshot,fullName:result.employee_name_snapshot,
     employeeType:result.employee_type_snapshot,departmentName:result.department_name_snapshot,positionName:result.position_name_snapshot,bankName:result.bank_name_snapshot,
     bankAccountNumber:result.bank_account_number_snapshot,bankAccountName:result.bank_account_name_snapshot,pieceRateAmount:money(result.piece_rate_amount),additionalEarnings:money(result.additional_earnings),
@@ -225,11 +230,14 @@ payrollHistoryRouter.post('/runs/:runUid/export',async(req,res,next)=>{try{
 
 payrollHistoryRouter.get('/runs/:runUid/payslips',requirePermission('payroll.view'),async(req,res,next)=>{try{
   const auth=res.locals.auth as AuthContext,row=await loadRun(auth,uuid.parse(req.params.runUid)),resultUid=req.query.employeeResultUid?uuid.parse(req.query.employeeResultUid):undefined
+  assertOutputAvailable(row)
   res.json({data:await payslipPayload(row,resultUid?[resultUid]:undefined),meta:{}})
 }catch(error){next(error)}})
 
 payrollHistoryRouter.post('/runs/:runUid/payslips/issue',requirePermission('payroll.print'),async(req,res,next)=>{const conn=await pool.getConnection();try{
-  const auth=res.locals.auth as AuthContext,input=issueInput.parse(req.body),row=await loadRun(auth,uuid.parse(req.params.runUid)),payload=await payslipPayload(row,input.employeeResultUids)
+  const auth=res.locals.auth as AuthContext,input=issueInput.parse(req.body),row=await loadRun(auth,uuid.parse(req.params.runUid))
+  assertOutputAvailable(row)
+  const payload=await payslipPayload(row,input.employeeResultUids)
   await conn.beginTransaction();const audit=await insertOutputAudit(conn,{auth,request:req,row,type:'SLIP_PRINT',key:input.idempotencyKey,count:payload.employees.length,selection:{employeeResultUids:input.employeeResultUids??'ALL'}});await conn.commit()
   res.json({data:payload,meta:{issuanceUid:audit.uid,replay:audit.replay}})
 }catch(error){await conn.rollback();next(error)}finally{conn.release()}})

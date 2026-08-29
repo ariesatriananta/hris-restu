@@ -52,6 +52,8 @@ const period = {
   siteId: 2,
   status: 'DRAFT',
   payrollBasis: 'PIECE_RATE',
+  payFrequency: 'WEEKLY',
+  employeeType: 'BORONGAN',
   periodStart: '2026-08-01',
   periodEnd: '2026-08-07',
   siteCode: 'JEPARA',
@@ -66,6 +68,9 @@ const run = {
   siteCode: 'JEPARA',
   periodStart: '2026-08-01',
   periodEnd: '2026-08-07',
+  payrollBasis: 'PIECE_RATE',
+  payFrequency: 'WEEKLY',
+  employeeType: 'BORONGAN',
   runNumber: 1,
   runType: 'SIMULATION',
   status: 'PROCESSING',
@@ -73,6 +78,7 @@ const run = {
   finishedAt: null,
   employeeCount: 0,
   totalPieceRateAmount: '0.00',
+  totalBasicSalaryAmount: '0.00',
   totalEarnings: '0.00',
   totalDeductions: '0.00',
   totalNetPay: '0.00',
@@ -151,6 +157,9 @@ describe('Payroll simulation service', () => {
           periodId: 10,
           siteId: 2,
           periodStatus: 'CALCULATED',
+          payrollBasis: 'PIECE_RATE',
+          payFrequency: 'WEEKLY',
+          employeeType: 'BORONGAN',
           periodStart: '2026-08-01',
           periodEnd: '2026-08-07',
         },
@@ -183,6 +192,9 @@ describe('Payroll simulation service', () => {
               periodId: 10,
               siteId: 2,
               periodStatus: 'DRAFT',
+              payrollBasis: 'PIECE_RATE',
+              payFrequency: 'WEEKLY',
+              employeeType: 'BORONGAN',
               periodStart: '2026-08-01',
               periodEnd: '2026-08-07',
             },
@@ -218,6 +230,9 @@ describe('Payroll simulation service', () => {
               periodId: 10,
               siteId: 2,
               periodStatus: 'DRAFT',
+              payrollBasis: 'PIECE_RATE',
+              payFrequency: 'WEEKLY',
+              employeeType: 'BORONGAN',
               periodStart: '2026-08-01',
               periodEnd: '2026-08-07',
             },
@@ -263,6 +278,9 @@ describe('Payroll simulation service', () => {
               periodId: 10,
               siteId: 2,
               periodStatus: 'DRAFT',
+              payrollBasis: 'PIECE_RATE',
+              payFrequency: 'WEEKLY',
+              employeeType: 'BORONGAN',
               periodStart: '2026-08-01',
               periodEnd: '2026-08-07',
             },
@@ -286,5 +304,114 @@ describe('Payroll simulation service', () => {
     expect(String(resultInsert?.[0])).toContain(
       'ORDER BY historical.effective_from DESC,historical.id DESC'
     )
+  })
+
+  it('membuat run strategy TIME_BASED mingguan dengan calculation version M5B', async () => {
+    const timePeriod = {
+      ...period,
+      payrollBasis: 'TIME_BASED',
+      employeeType: 'HARIAN',
+      policySnapshot: {
+        employeeType: 'HARIAN',
+        wageBasis: 'TIME_BASED',
+        payFrequency: 'WEEKLY',
+      },
+    }
+    mocks.query
+      .mockResolvedValueOnce([[timePeriod]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[{ total: 0 }]])
+      .mockResolvedValueOnce([[{ runNumber: 1 }]])
+      .mockResolvedValueOnce([[
+        { ...run, payrollBasis: 'TIME_BASED', employeeType: 'HARIAN' },
+      ]])
+    mocks.execute.mockResolvedValueOnce([{ insertId: 21 }])
+
+    const result = await createProcessingRun({
+      auth,
+      periodUid: 'period',
+      idempotencyKey: 'time-key',
+    })
+
+    expect(result.replay).toBe(false)
+    const insert = mocks.execute.mock.calls[0]
+    expect(String(insert?.[0])).toContain('calculation_version')
+    expect(insert?.[1]).toContain('3.0-TIME-WEEKLY')
+    expect(mocks.readiness).toHaveBeenCalledWith(
+      connection,
+      expect.objectContaining({
+        payrollBasis: 'TIME_BASED',
+        employeeType: 'HARIAN',
+        payFrequency: 'WEEKLY',
+      })
+    )
+  })
+
+  it('menolak komponen berulang pada simulasi TIME_BASED', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[
+        {
+          ...period,
+          payrollBasis: 'TIME_BASED',
+          employeeType: 'TRAINING',
+          policySnapshot: {},
+        },
+      ]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[{ total: 1 }]])
+
+    await expect(
+      createProcessingRun({
+        auth,
+        periodUid: 'period',
+        idempotencyKey: 'recurring-key',
+      })
+    ).rejects.toMatchObject({ status: 409 })
+    expect(mocks.execute).not.toHaveBeenCalled()
+  })
+
+  it('snapshot TIME_BASED membayar PRESENT, membulatkan total, dan memisahkan monitoring Training', async () => {
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const statement = String(sql)
+      if (statement.includes('FROM payroll_runs pr JOIN payroll_periods')) {
+        return [[{
+          id: 21,
+          uid: 'run',
+          status: 'PROCESSING',
+          periodId: 10,
+          siteId: 2,
+          periodStatus: 'DRAFT',
+          payrollBasis: 'TIME_BASED',
+          payFrequency: 'WEEKLY',
+          employeeType: 'TRAINING',
+          policySnapshot: {},
+          periodStart: '2026-08-03',
+          periodEnd: '2026-08-09',
+        }]]
+      }
+      if (statement.includes('COUNT(*) total FROM payroll_employee_results'))
+        return [[{ total: 1 }]]
+      if (statement.includes('COUNT(DISTINCT component.id) total'))
+        return [[{ total: 0 }]]
+      return [[]]
+    })
+    mocks.execute.mockResolvedValue([{}])
+
+    await calculatePayrollRun(21, auth)
+
+    const statements = mocks.execute.mock.calls.map((call) => String(call[0]))
+    expect(statements.some((sql) => sql.includes('INSERT INTO payroll_time_details'))).toBe(true)
+    expect(statements.some((sql) => sql.includes("attendance.attendance_status='PRESENT'"))).toBe(true)
+    expect(statements.some((sql) => sql.includes("COALESCE(attendance.attendance_status='PRESENT',0)"))).toBe(true)
+    expect(statements.some((sql) => sql.includes("THEN 'OFFDAY_PRESENT'"))).toBe(true)
+    expect(statements.some((sql) => sql.includes('ROUND(SUM(amount_snapshot),0)'))).toBe(true)
+    expect(statements.some((sql) => sql.includes('INSERT INTO payroll_training_production_details'))).toBe(true)
+    expect(statements.some((sql) => sql.includes("'RECURRING'"))).toBe(false)
+    expect(statements.some((sql) => sql.includes('UPDATE production_transactions'))).toBe(false)
+    expect(mocks.commit).toHaveBeenCalledOnce()
   })
 })

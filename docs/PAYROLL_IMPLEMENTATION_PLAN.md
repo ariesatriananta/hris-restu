@@ -341,11 +341,33 @@ kontrak `TRAINING`, sedangkan `BORONGAN`, `HARIAN`, dan `BULANAN` hanya memakai
 
 ### Milestone 5B - Simulasi waktu mingguan
 
-- Hitung `HARIAN` dan `TRAINING` berdasarkan snapshot tarif harian dan tanggal
-  Attendance `PRESENT`.
-- Pertahankan output Produksi Training sebagai informasi non-upah.
-- Gunakan idempotency, snapshot, histori run, permission, dan guard sumber yang
-  sama dengan simulasi `PIECE_RATE`.
+- Perluas run engine yang sama dengan strategy `TIME_BASED/WEEKLY`; jangan
+  membuat endpoint, state machine, atau histori run paralel.
+- Hitung `HARIAN` dan `TRAINING` berdasarkan tarif harian efektif pada setiap
+  tanggal Attendance final `PRESENT`. Tanggal selain `PRESENT` disnapshot
+  dengan nominal nol agar hasil dapat diaudit dari hari ke hari.
+- Karyawan yang eligible tetap dibuatkan hasil walaupun tidak memiliki
+  `PRESENT`; upah dasarnya menjadi Rp0 dan komponen manual tetap terlihat.
+- Jumlahkan nominal harian per karyawan menggunakan DECIMAL, kemudian bulatkan
+  total upah dasar satu kali dengan `HALF_UP` ke Rp1 sesuai policy snapshot.
+- Simpan snapshot harian terpisah dari detail Produksi. Snapshot minimal memuat
+  tanggal, Attendance, tipe hari, tarif dan sumber tarif, status dibayar,
+  nominal, serta penanda `PRESENT` pada hari nonkerja.
+- Pada M5B hanya komponen manual periode yang boleh memengaruhi hasil
+  `TIME_BASED`. Komponen berulang menjadi blocker sampai aturan frekuensi dan
+  proratanya dikunci.
+- Pertahankan transaksi Produksi Training sebagai informasi monitoring berupa
+  jumlah transaksi dan kuantitas per pekerjaan/satuan. Nilai bruto Produksi
+  tidak boleh masuk ke upah dasar, gross, atau neto.
+- Gunakan idempotency, snapshot, histori run, permission, recovery, dan guard
+  sumber yang sama dengan simulasi `PIECE_RATE`. Hitung ulang membuat run baru
+  dan tidak mengubah snapshot run sukses sebelumnya.
+- UI simulasi adaptif: Borongan menampilkan sumber Produksi, sedangkan
+  HARIAN/TRAINING menampilkan hari dibayar, upah dasar, warning hari nonkerja,
+  dan ledger harian dalam drawer.
+- Sampai M5D, run `TIME_BASED` hanya merupakan simulasi. Backend wajib menolak
+  pengajuan, persetujuan, closing, export, dan slip agar hasil belum dipakai
+  sebagai output Payroll resmi.
 
 ### Milestone 5C - Simulasi waktu bulanan
 

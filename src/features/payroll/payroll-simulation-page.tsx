@@ -4,6 +4,7 @@ import { format, parseISO } from 'date-fns'
 import { id } from 'date-fns/locale'
 import {
   AlertTriangle,
+  CalendarCheck2,
   Calculator,
   CheckCircle2,
   CircleDollarSign,
@@ -69,9 +70,13 @@ import {
   useUpdatePayrollManualComponent,
 } from './data/queries'
 import type {
+  PayrollEmployeeType,
   PayrollEmployeeResultSummary,
   PayrollReadinessStatus,
   PayrollRunSummary,
+  PayrollTimeSnapshot,
+  PayrollTrainingProductionSnapshot,
+  PayrollWageBasis,
 } from './domain'
 import {
   isPositivePayrollAmount,
@@ -138,6 +143,9 @@ export function PayrollSimulationPage({
   const calculate = useCalculatePayroll()
   const recover = useRecoverStalePayrollRun()
   const [componentOpen, setComponentOpen] = useState(false)
+  const payrollBasis = period.data?.payrollBasis ?? 'PIECE_RATE'
+  const employeeType = period.data?.employeeType
+  const timeBased = payrollBasis === 'TIME_BASED'
 
   const patch = (value: SearchState) =>
     navigate({ search: (previous) => ({ ...previous, ...value }) })
@@ -162,7 +170,7 @@ export function PayrollSimulationPage({
           <div>
             <div className='flex items-center gap-2'>
               <p className='text-sm font-medium text-primary'>
-                Payroll Borongan
+                {timeBased ? 'Payroll Berbasis Waktu' : 'Payroll Borongan'}
               </p>
               <Badge
                 variant='outline'
@@ -175,8 +183,9 @@ export function PayrollSimulationPage({
               Simulasi Payroll
             </h1>
             <p className='text-sm text-muted-foreground'>
-              Hitung snapshot hasil Produksi dan komponen tanpa menerbitkan slip
-              resmi.
+              {timeBased
+                ? 'Simulasikan upah dari kehadiran dan tarif harian tanpa menerbitkan slip resmi.'
+                : 'Hitung snapshot hasil Produksi dan komponen tanpa menerbitkan slip resmi.'}
             </p>
           </div>
           <div className='flex flex-col gap-2 sm:flex-row'>
@@ -308,7 +317,7 @@ export function PayrollSimulationPage({
               </Alert>
             ) : run.data?.status === 'COMPLETED' ? (
               <>
-                <SimulationKpis run={run.data} />
+                <SimulationKpis run={run.data} payrollBasis={payrollBasis} />
                 <EmployeeResults
                   data={employees.data?.data ?? []}
                   total={employees.data?.meta.total ?? 0}
@@ -317,6 +326,7 @@ export function PayrollSimulationPage({
                   issue={issue}
                   page={page}
                   pageSize={pageSize}
+                  payrollBasis={payrollBasis}
                   onPatch={patch}
                 />
               </>
@@ -329,6 +339,8 @@ export function PayrollSimulationPage({
         employeeUid={employeeUid}
         open={Boolean(employeeUid) && run.data?.status === 'COMPLETED'}
         enabled={run.data?.status === 'COMPLETED'}
+        payrollBasis={payrollBasis}
+        employeeType={employeeType}
         onOpenChange={(open) => !open && patch({ employeeUid: undefined })}
       />
       <ManualComponentDialog
@@ -378,40 +390,71 @@ function ReadinessBanner({
   )
 }
 
-function SimulationKpis({ run }: { run: PayrollRunSummary }) {
+function SimulationKpis({
+  run,
+  payrollBasis,
+}: {
+  run: PayrollRunSummary
+  payrollBasis: PayrollWageBasis
+}) {
+  const timeBased = payrollBasis === 'TIME_BASED'
   const cards = [
-    ['Karyawan', run.employeeCount, Users, 'border-sky-200 bg-sky-50/70'],
-    [
-      'Bruto Produksi',
-      amount(run.totalPieceRateAmount),
-      CircleDollarSign,
-      'border-indigo-200 bg-indigo-50/70',
-    ],
-    [
-      'Tambahan',
-      amount(run.totalEarnings),
-      Plus,
-      'border-emerald-200 bg-emerald-50/70',
-    ],
-    [
-      'Potongan',
-      amount(run.totalDeductions),
-      WalletCards,
-      'border-red-200 bg-red-50/70',
-    ],
-    [
-      'Neto',
-      amount(run.totalNetPay),
-      Calculator,
-      'border-amber-200 bg-amber-50/70',
-    ],
-  ] as const
+    {
+      label: 'Karyawan',
+      value: run.employeeCount,
+      Icon: Users,
+      tone: 'border-sky-200 bg-sky-50/70',
+    },
+    {
+      label: timeBased ? 'Upah dasar' : 'Bruto Produksi',
+      value: amount(
+        timeBased ? (run.totalBasicSalaryAmount ?? '0') : run.totalPieceRateAmount
+      ),
+      Icon: CircleDollarSign,
+      tone: 'border-indigo-200 bg-indigo-50/70',
+    },
+    ...(timeBased
+      ? [
+          {
+            label: 'Hari dibayar',
+            value: run.totalPayablePresentDays ?? 0,
+            hint:
+              (run.totalOffdayPresentDays ?? 0) > 0
+                ? `${(run.totalOffdayPresentDays ?? 0).toLocaleString('id-ID')} hari nonkerja`
+                : undefined,
+            Icon: CalendarCheck2,
+            tone: 'border-cyan-200 bg-cyan-50/70',
+          },
+        ]
+      : []),
+    {
+      label: 'Tambahan',
+      value: amount(run.totalEarnings),
+      Icon: Plus,
+      tone: 'border-emerald-200 bg-emerald-50/70',
+    },
+    {
+      label: 'Potongan',
+      value: amount(run.totalDeductions),
+      Icon: WalletCards,
+      tone: 'border-red-200 bg-red-50/70',
+    },
+    {
+      label: 'Neto simulasi',
+      value: amount(run.totalNetPay),
+      Icon: Calculator,
+      tone: 'border-amber-200 bg-amber-50/70',
+    },
+  ]
   return (
     <section
       aria-label='Ringkasan simulasi'
-      className='grid gap-2 sm:grid-cols-2 xl:grid-cols-5'
+      className={cn(
+        'grid gap-2 sm:grid-cols-2',
+        timeBased ? 'xl:grid-cols-6' : 'xl:grid-cols-5'
+      )}
     >
-      {cards.map(([label, value, Icon, tone]) => (
+      {cards.map(({ label, value, hint, Icon, tone }) => (
         <div
           key={label}
           className={cn(
@@ -423,9 +466,18 @@ function SimulationKpis({ run }: { run: PayrollRunSummary }) {
             <span>{label}</span>
             <Icon className='size-4' />
           </div>
-          <p className='mt-1 truncate text-lg font-bold' title={String(value)}>
-            {typeof value === 'number' ? value.toLocaleString('id-ID') : value}
-          </p>
+          <div className='mt-1 flex min-w-0 items-baseline gap-1.5'>
+            <p className='truncate text-lg font-bold' title={String(value)}>
+              {typeof value === 'number'
+                ? value.toLocaleString('id-ID')
+                : value}
+            </p>
+            {hint && (
+              <span className='shrink-0 text-[10px] font-medium text-amber-700 dark:text-amber-400'>
+                {hint}
+              </span>
+            )}
+          </div>
         </div>
       ))}
     </section>
@@ -440,6 +492,7 @@ function EmployeeResults({
   issue,
   page,
   pageSize,
+  payrollBasis,
   onPatch,
 }: {
   data: PayrollEmployeeResultSummary[]
@@ -449,6 +502,7 @@ function EmployeeResults({
   issue?: string
   page: number
   pageSize: number
+  payrollBasis: PayrollWageBasis
   onPatch: (value: SearchState) => void
 }) {
   return (
@@ -490,7 +544,9 @@ function EmployeeResults({
       <div className='overflow-hidden rounded-lg border'>
         <div className='hidden grid-cols-[minmax(220px,1.5fr)_repeat(4,minmax(110px,1fr))_52px] gap-3 border-b bg-muted/40 px-3 py-2 text-xs font-semibold md:grid'>
           <span>Karyawan</span>
-          <span>Produksi</span>
+          <span>
+            {payrollBasis === 'TIME_BASED' ? 'Hari & Upah Dasar' : 'Produksi'}
+          </span>
           <span>Tambahan</span>
           <span>Potongan</span>
           <span>Neto</span>
@@ -505,6 +561,7 @@ function EmployeeResults({
             <EmployeeResultRow
               key={item.uid}
               item={item}
+              payrollBasis={payrollBasis}
               onOpen={() => onPatch({ employeeUid: item.uid })}
             />
           ))
@@ -542,9 +599,11 @@ function EmployeeResults({
 
 function EmployeeResultRow({
   item,
+  payrollBasis,
   onOpen,
 }: {
   item: PayrollEmployeeResultSummary
+  payrollBasis: PayrollWageBasis
   onOpen: () => void
 }) {
   return (
@@ -564,7 +623,24 @@ function EmployeeResultRow({
           ))}
         </div>
       </div>
-      <ResultAmount mobile='Produksi' value={item.pieceRateAmount} />
+      {payrollBasis === 'TIME_BASED' ? (
+        <div className='flex justify-between gap-3 md:block'>
+          <span className='text-xs text-muted-foreground md:hidden'>
+            Hari & Upah Dasar
+          </span>
+          <div>
+            <p className='font-medium'>{amount(item.basicSalaryAmount)}</p>
+            <p className='text-xs text-muted-foreground'>
+              {item.payablePresentDays.toLocaleString('id-ID')} hari dibayar
+              {item.offdayPresentDays > 0
+                ? ` · ${item.offdayPresentDays} hari nonkerja`
+                : ''}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <ResultAmount mobile='Produksi' value={item.pieceRateAmount} />
+      )}
       <ResultAmount mobile='Tambahan' value={item.additionalEarnings} />
       <ResultAmount mobile='Potongan' value={item.totalDeductions} />
       <ResultAmount mobile='Neto' value={item.netPay} strong />
@@ -603,15 +679,20 @@ function EmployeeResultSheet({
   employeeUid,
   open,
   enabled,
+  payrollBasis,
+  employeeType,
   onOpenChange,
 }: {
   runUid?: string
   employeeUid?: string
   open: boolean
   enabled: boolean
+  payrollBasis: PayrollWageBasis
+  employeeType?: PayrollEmployeeType
   onOpenChange: (open: boolean) => void
 }) {
   const detail = usePayrollEmployeeResult(runUid, employeeUid, enabled)
+  const timeBased = payrollBasis === 'TIME_BASED'
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className='w-full overflow-y-auto p-0 sm:max-w-2xl'>
@@ -650,8 +731,12 @@ function EmployeeResultSheet({
               </div>
               <div className='mt-3 grid grid-cols-2 gap-2 text-sm'>
                 <ResultFact
-                  label='Bruto Produksi'
-                  value={amount(detail.data.totals.pieceRateAmount)}
+                  label={timeBased ? 'Upah dasar waktu' : 'Bruto Produksi'}
+                  value={amount(
+                    timeBased
+                      ? detail.data.totals.basicSalaryAmount
+                      : detail.data.totals.pieceRateAmount
+                  )}
                 />
                 <ResultFact
                   label='Tambahan'
@@ -717,40 +802,49 @@ function EmployeeResultSheet({
                 </p>
               )}
               <p className='mt-2 text-xs text-muted-foreground'>
-                Attendance merupakan informasi dan tidak otomatis memotong upah
-                borongan.
+                {timeBased
+                  ? 'Hanya status PRESENT yang dibayar. Kehadiran pada hari nonkerja tetap dibayar dan ditandai sebagai perhatian.'
+                  : 'Attendance merupakan informasi dan tidak otomatis memotong upah borongan.'}
               </p>
             </section>
-            <section className='space-y-2'>
-              <h3 className='font-semibold'>
-                Transaksi Produksi ({detail.data.production.length})
-              </h3>
-              {detail.data.production.length ? (
-                detail.data.production.map((item) => (
-                  <div
-                    key={`${item.transactionNumber}-${item.businessDate}`}
-                    className='rounded-lg border p-3 text-sm'
-                  >
-                    <div className='flex justify-between gap-3'>
-                      <div>
-                        <p className='font-medium'>{item.jobName}</p>
-                        <p className='text-xs text-muted-foreground'>
-                          {date(item.businessDate)} · {item.transactionNumber}
-                        </p>
+            {timeBased && <TimeLedger details={detail.data.timeDetails} />}
+            {!timeBased && (
+              <section className='space-y-2'>
+                <h3 className='font-semibold'>
+                  Transaksi Produksi ({detail.data.production.length})
+                </h3>
+                {detail.data.production.length ? (
+                  detail.data.production.map((item) => (
+                    <div
+                      key={`${item.transactionNumber}-${item.businessDate}`}
+                      className='rounded-lg border p-3 text-sm'
+                    >
+                      <div className='flex justify-between gap-3'>
+                        <div>
+                          <p className='font-medium'>{item.jobName}</p>
+                          <p className='text-xs text-muted-foreground'>
+                            {date(item.businessDate)} · {item.transactionNumber}
+                          </p>
+                        </div>
+                        <p className='font-semibold'>{amount(item.amount)}</p>
                       </div>
-                      <p className='font-semibold'>{amount(item.amount)}</p>
+                      <p className='mt-1 text-xs text-muted-foreground'>
+                        {item.quantity} {item.unitName} × {amount(item.rate)}
+                      </p>
                     </div>
-                    <p className='mt-1 text-xs text-muted-foreground'>
-                      {item.quantity} {item.unitName} × {amount(item.rate)}
-                    </p>
-                  </div>
-                ))
-              ) : (
-                <p className='text-sm text-muted-foreground'>
-                  Tidak ada transaksi Produksi.
-                </p>
-              )}
-            </section>
+                  ))
+                ) : (
+                  <p className='text-sm text-muted-foreground'>
+                    Tidak ada transaksi Produksi.
+                  </p>
+                )}
+              </section>
+            )}
+            {timeBased && employeeType === 'TRAINING' && (
+              <TrainingProductionSnapshots
+                items={detail.data.trainingProduction}
+              />
+            )}
             <section className='space-y-2'>
               <h3 className='font-semibold'>
                 Komponen Payroll ({detail.data.components.length})
@@ -790,8 +884,12 @@ function EmployeeResultSheet({
               <h3 className='font-semibold'>Jejak Perhitungan</h3>
               <dl className='mt-2 space-y-2 text-sm'>
                 <ResultFact
-                  label='Produksi'
-                  value={detail.data.formulaTrace.pieceRate}
+                  label={timeBased ? 'Upah dasar waktu' : 'Produksi'}
+                  value={
+                    timeBased
+                      ? detail.data.formulaTrace.timeBased
+                      : detail.data.formulaTrace.pieceRate
+                  }
                 />
                 <ResultFact
                   label='Komponen berulang'
@@ -812,6 +910,129 @@ function EmployeeResultSheet({
         )}
       </SheetContent>
     </Sheet>
+  )
+}
+
+function TimeLedger({ details }: { details: PayrollTimeSnapshot[] }) {
+  return (
+    <section className='space-y-2' aria-labelledby='time-ledger-title'>
+      <div className='flex items-center justify-between gap-3'>
+        <div>
+          <h3 id='time-ledger-title' className='font-semibold'>
+            Rincian Upah Harian
+          </h3>
+          <p className='text-xs text-muted-foreground'>
+            Jejak Attendance, tarif, dan nominal yang dihitung per tanggal.
+          </p>
+        </div>
+        <Badge variant='outline'>{details.length} tanggal</Badge>
+      </div>
+      {details.length ? (
+        <div className='overflow-hidden rounded-lg border'>
+          <div className='hidden grid-cols-[1fr_1fr_1fr_1fr] gap-3 border-b bg-muted/40 px-3 py-2 text-xs font-semibold sm:grid'>
+            <span>Tanggal</span>
+            <span>Attendance</span>
+            <span>Tarif</span>
+            <span className='text-end'>Dibayar</span>
+          </div>
+          {details.map((item) => (
+            <div
+              key={item.businessDate}
+              className='grid gap-2 border-b p-3 text-sm last:border-b-0 sm:grid-cols-[1fr_1fr_1fr_1fr] sm:items-center sm:gap-3'
+            >
+              <div>
+                <p className='font-medium'>{date(item.businessDate)}</p>
+                <p className='text-xs text-muted-foreground'>
+                  {item.calendarDayType === 'WORKDAY'
+                    ? 'Hari kerja'
+                    : 'Hari nonkerja'}
+                </p>
+              </div>
+              <div className='flex items-center justify-between gap-2 sm:block'>
+                <span className='text-xs text-muted-foreground sm:hidden'>
+                  Attendance
+                </span>
+                <Badge variant={item.isPayable ? 'default' : 'secondary'}>
+                  {item.attendanceStatus}
+                </Badge>
+              </div>
+              <ResultAmount mobile='Tarif harian' value={item.dailyRate} />
+              <div className='flex items-center justify-between gap-2 sm:block sm:text-end'>
+                <span className='text-xs text-muted-foreground sm:hidden'>
+                  Nominal
+                </span>
+                <p
+                  className={
+                    item.isPayable ? 'font-bold' : 'text-muted-foreground'
+                  }
+                >
+                  {amount(item.amount)}
+                </p>
+                {item.warningCode === 'OFFDAY_PRESENT' && (
+                  <p className='text-xs font-medium text-amber-700 dark:text-amber-400'>
+                    Hadir hari nonkerja
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className='rounded-lg border border-dashed p-5 text-center'>
+          <CalendarCheck2 className='mx-auto size-6 text-muted-foreground' />
+          <p className='mt-2 text-sm text-muted-foreground'>
+            Rincian upah harian belum tersedia pada snapshot ini.
+          </p>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function TrainingProductionSnapshots({
+  items,
+}: {
+  items: PayrollTrainingProductionSnapshot[]
+}) {
+  return (
+    <section className='space-y-2' aria-labelledby='training-production-title'>
+      <div>
+        <h3 id='training-production-title' className='font-semibold'>
+          Monitoring Produksi Training ({items.length})
+        </h3>
+        <p className='text-xs text-muted-foreground'>
+          Hanya informasi hasil latihan. Kuantitas ini tidak menambah upah
+          Payroll.
+        </p>
+      </div>
+      {items.length ? (
+        items.map((item) => (
+          <div
+            key={`${item.transactionNumber}-${item.businessDate}`}
+            className='rounded-lg border p-3 text-sm'
+          >
+            <div className='flex items-start justify-between gap-3'>
+              <div>
+                <p className='font-medium'>{item.jobName}</p>
+                <p className='text-xs text-muted-foreground'>
+                  {date(item.businessDate)} · {item.transactionNumber}
+                </p>
+              </div>
+              <Badge variant='secondary'>Monitoring</Badge>
+            </div>
+            <p className='mt-2 font-semibold'>
+              {item.quantity} {item.unitName}
+            </p>
+          </div>
+        ))
+      ) : (
+        <div className='rounded-lg border border-dashed p-5 text-center'>
+          <p className='text-sm text-muted-foreground'>
+            Tidak ada hasil Produksi Training pada periode ini.
+          </p>
+        </div>
+      )}
+    </section>
   )
 }
 

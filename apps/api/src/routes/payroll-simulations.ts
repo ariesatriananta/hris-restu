@@ -73,6 +73,8 @@ async function period(
 ) {
   const [rows] = await executor.query<RowDataPacket[]>(
     `SELECT pp.id,pp.uid,pp.site_id siteId,pp.status,
+            pp.payroll_basis payrollBasis,pp.pay_frequency payFrequency,
+            pp.employee_type_code employeeType,
             DATE_FORMAT(pp.period_start,'%Y-%m-%d') periodStart,
             DATE_FORMAT(pp.period_end,'%Y-%m-%d') periodEnd,s.code siteCode
        FROM payroll_periods pp JOIN sites s ON s.id=pp.site_id
@@ -209,9 +211,14 @@ payrollSimulationsRouter.get(
          FROM employees e
          JOIN employee_employment_histories eh ON eh.employee_id=e.id AND eh.site_id=?
           AND eh.effective_from<=? AND (eh.effective_to IS NULL OR eh.effective_to>=?)
-         JOIN employee_types et ON et.id=eh.employee_type_id AND et.payroll_basis='PIECE_RATE'
+         JOIN employee_types et ON et.id=eh.employee_type_id AND et.code=?
         ORDER BY e.full_name,e.employee_number`,
-        [current.siteId, current.periodEnd, current.periodStart]
+        [
+          current.siteId,
+          current.periodEnd,
+          current.periodStart,
+          current.employeeType,
+        ]
       )
       res.json({ data: { componentTypes, employees } })
     } catch (error) {
@@ -321,12 +328,13 @@ payrollSimulationsRouter.post(
         `SELECT e.id,e.uid FROM employees e
         WHERE e.uid=? AND EXISTS (
           SELECT 1 FROM employee_employment_histories eh
-          JOIN employee_types et ON et.id=eh.employee_type_id AND et.payroll_basis='PIECE_RATE'
+          JOIN employee_types et ON et.id=eh.employee_type_id AND et.code=?
            WHERE eh.employee_id=e.id AND eh.site_id=?
              AND eh.effective_from<=? AND (eh.effective_to IS NULL OR eh.effective_to>=?)
         ) FOR UPDATE`,
         [
           input.employeeUid,
+          current.employeeType,
           current.siteId,
           current.periodEnd,
           current.periodStart,
@@ -802,7 +810,15 @@ payrollSimulationsRouter.get(
         `SELECT result.uid,result.employee_number_snapshot employeeNumber,result.employee_name_snapshot fullName,
               result.employee_type_snapshot employeeType,result.department_name_snapshot departmentName,
               result.position_name_snapshot positionName,result.production_transaction_count productionTransactionCount,
-              result.piece_rate_amount pieceRateAmount,result.additional_earnings additionalEarnings,
+              result.attendance_days attendanceDays,
+              (SELECT COALESCE(SUM(time_detail.is_payable=1),0)
+                 FROM payroll_time_details time_detail
+                WHERE time_detail.payroll_employee_result_id=result.id) payablePresentDays,
+              (SELECT COALESCE(SUM(time_detail.warning_code='OFFDAY_PRESENT'),0)
+                 FROM payroll_time_details time_detail
+                WHERE time_detail.payroll_employee_result_id=result.id) offdayPresentDays,
+              result.piece_rate_amount pieceRateAmount,result.basic_salary_amount basicSalaryAmount,
+              result.additional_earnings additionalEarnings,
               result.gross_earnings grossEarnings,result.total_deductions totalDeductions,result.net_pay netPay,
               result.bank_name_snapshot bankName,result.bank_account_number_snapshot bankAccountNumber
          FROM payroll_employee_results result WHERE ${where.join(' AND ')}
@@ -817,7 +833,11 @@ payrollSimulationsRouter.get(
         departmentName: row.departmentName,
         positionName: row.positionName,
         productionTransactionCount: Number(row.productionTransactionCount),
+        attendanceDays: Number(row.attendanceDays),
+        payablePresentDays: Number(row.payablePresentDays ?? 0),
+        offdayPresentDays: Number(row.offdayPresentDays ?? 0),
         pieceRateAmount: amount(row.pieceRateAmount),
+        basicSalaryAmount: amount(row.basicSalaryAmount),
         additionalEarnings: amount(row.additionalEarnings),
         grossEarnings: amount(row.grossEarnings),
         totalDeductions: amount(row.totalDeductions),
@@ -873,6 +893,28 @@ payrollSimulationsRouter.get(
         `SELECT transaction_number_snapshot transactionNumber,DATE_FORMAT(business_date,'%Y-%m-%d') businessDate,job_name_snapshot jobName,unit_name_snapshot unitName,quantity_snapshot quantity,rate_snapshot rate,amount_snapshot amount FROM payroll_production_details WHERE payroll_employee_result_id=? ORDER BY business_date,transaction_number_snapshot`,
         [result.id]
       )
+      const [timeDetails] = await pool.query<RowDataPacket[]>(
+        `SELECT DATE_FORMAT(detail.business_date,'%Y-%m-%d') businessDate,
+                detail.attendance_status_snapshot attendanceStatus,
+                detail.calendar_day_type_snapshot calendarDayType,
+                detail.is_scheduled isScheduled,detail.is_payable isPayable,
+                detail.daily_rate_snapshot dailyRate,detail.amount_snapshot amount,
+                detail.worked_minutes_snapshot workedMinutes,detail.warning_code warningCode
+           FROM payroll_time_details detail
+          WHERE detail.payroll_employee_result_id=?
+          ORDER BY detail.business_date,detail.id`,
+        [result.id]
+      )
+      const [trainingProduction] = await pool.query<RowDataPacket[]>(
+        `SELECT detail.transaction_number_snapshot transactionNumber,
+                DATE_FORMAT(detail.business_date,'%Y-%m-%d') businessDate,
+                detail.job_name_snapshot jobName,detail.unit_name_snapshot unitName,
+                detail.quantity_snapshot quantity
+           FROM payroll_training_production_details detail
+          WHERE detail.payroll_employee_result_id=?
+          ORDER BY detail.business_date,detail.transaction_number_snapshot`,
+        [result.id]
+      )
       const [components] = await pool.query<RowDataPacket[]>(
         `SELECT component_code_snapshot code,component_name_snapshot name,component_category category,source_type sourceType,amount,notes FROM payroll_employee_component_details WHERE payroll_employee_result_id=? ORDER BY component_category,component_name_snapshot,id`,
         [result.id]
@@ -898,6 +940,7 @@ payrollSimulationsRouter.get(
           },
           totals: {
             pieceRateAmount: amount(result.piece_rate_amount),
+            basicSalaryAmount: amount(result.basic_salary_amount),
             additionalEarnings: amount(result.additional_earnings),
             grossEarnings: amount(result.gross_earnings),
             totalDeductions: amount(result.total_deductions),
@@ -926,14 +969,43 @@ payrollSimulationsRouter.get(
             rate: String(row.rate),
             amount: amount(row.amount),
           })),
+          timeDetails: timeDetails.map((row) => ({
+            businessDate: row.businessDate,
+            attendanceStatus: row.attendanceStatus,
+            calendarDayType: row.calendarDayType,
+            isScheduled: Number(row.isScheduled) === 1,
+            isPayable: Number(row.isPayable) === 1,
+            dailyRate: amount(row.dailyRate),
+            amount: amount(row.amount),
+            workedMinutes:
+              row.workedMinutes == null ? null : Number(row.workedMinutes),
+            warningCode: row.warningCode ?? null,
+          })),
+          trainingProduction: trainingProduction.map((row) => ({
+            transactionNumber: row.transactionNumber,
+            businessDate: row.businessDate,
+            jobName: row.jobName,
+            unitName: row.unitName,
+            quantity: String(row.quantity),
+          })),
           components: components.map((row) => ({
             ...row,
             amount: amount(row.amount),
           })),
           attendance: attendance[0] ?? null,
           formulaTrace: {
-            pieceRate: 'SUM(snapshot Produksi POSTED)',
-            recurring: 'Nominal penuh satu kali bila efektif overlap periode',
+            pieceRate:
+              run.payrollBasis === 'PIECE_RATE'
+                ? 'SUM(snapshot Produksi POSTED)'
+                : null,
+            timeBased:
+              run.payrollBasis === 'TIME_BASED'
+                ? 'ROUND(HALF_UP, SUM(tarif harian pada Attendance PRESENT), Rp1)'
+                : null,
+            recurring:
+              run.payrollBasis === 'PIECE_RATE'
+                ? 'Nominal penuh satu kali bila efektif overlap periode'
+                : 'Tidak digunakan pada TIME_BASED M5B',
             manual: 'Komponen ACTIVE pada periode',
             net: 'grossEarnings - totalDeductions',
           },

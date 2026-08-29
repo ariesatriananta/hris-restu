@@ -1,4 +1,5 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
+import type { PoolConnection } from 'mysql2/promise'
 import { randomUUID } from 'node:crypto'
 import { pool } from '../db.js'
 import type { AuthContext } from '../middleware/authenticate.js'
@@ -21,13 +22,20 @@ export type PayrollRunRow = RowDataPacket & {
   siteCode: string
   periodStart: string
   periodEnd: string
+  payrollBasis: 'PIECE_RATE' | 'TIME_BASED'
+  payFrequency: 'WEEKLY' | 'MONTHLY'
+  employeeType: 'BORONGAN' | 'HARIAN' | 'TRAINING' | 'BULANAN'
   runNumber: number
   runType: 'SIMULATION' | 'FINAL'
   status: PayrollRunStatus
   startedAt: string
   finishedAt: string | null
   employeeCount: number
+  totalAttendanceDays: number
+  totalPayablePresentDays: number
+  totalOffdayPresentDays: number
   totalPieceRateAmount: string
+  totalBasicSalaryAmount: string
   totalEarnings: string
   totalDeductions: string
   totalNetPay: string
@@ -39,10 +47,24 @@ export const runProjection = `SELECT pr.id,pr.uid,pr.payroll_period_id periodId,
   pp.uid periodUid,pp.site_id siteId,s.code siteCode,
   DATE_FORMAT(pp.period_start,'%Y-%m-%d') periodStart,
   DATE_FORMAT(pp.period_end,'%Y-%m-%d') periodEnd,
+  pp.payroll_basis payrollBasis,pp.pay_frequency payFrequency,
+  pp.employee_type_code employeeType,
   pr.run_number runNumber,pr.run_type runType,pr.status,
   CONCAT(DATE_FORMAT(pr.calculation_started_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') startedAt,
   IF(pr.calculation_finished_at IS NULL,NULL,CONCAT(DATE_FORMAT(pr.calculation_finished_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00')) finishedAt,
-  pr.employee_count employeeCount,pr.total_piece_rate_amount totalPieceRateAmount,
+  pr.employee_count employeeCount,
+  (SELECT COALESCE(SUM(result.attendance_days),0)
+     FROM payroll_employee_results result WHERE result.payroll_run_id=pr.id) totalAttendanceDays,
+  (SELECT COALESCE(SUM(detail.is_payable=1),0)
+     FROM payroll_time_details detail
+     JOIN payroll_employee_results result ON result.id=detail.payroll_employee_result_id
+    WHERE result.payroll_run_id=pr.id) totalPayablePresentDays,
+  (SELECT COALESCE(SUM(detail.warning_code='OFFDAY_PRESENT'),0)
+     FROM payroll_time_details detail
+     JOIN payroll_employee_results result ON result.id=detail.payroll_employee_result_id
+    WHERE result.payroll_run_id=pr.id) totalOffdayPresentDays,
+  pr.total_piece_rate_amount totalPieceRateAmount,
+  pr.total_basic_salary_amount totalBasicSalaryAmount,
   pr.total_earnings totalEarnings,pr.total_deductions totalDeductions,
   pr.total_net_pay totalNetPay,pr.error_message errorMessage,pp.current_run_id currentRunId
  FROM payroll_runs pr
@@ -59,12 +81,63 @@ export function runDto(row: PayrollRunRow) {
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
     employeeCount: Number(row.employeeCount),
+    totalAttendanceDays: Number(row.totalAttendanceDays ?? 0),
+    totalPayablePresentDays: Number(row.totalPayablePresentDays ?? 0),
+    totalOffdayPresentDays: Number(row.totalOffdayPresentDays ?? 0),
+    payrollBasis: row.payrollBasis,
+    payFrequency: row.payFrequency,
+    employeeType: row.employeeType,
     totalPieceRateAmount: String(row.totalPieceRateAmount ?? '0.00'),
+    totalBasicSalaryAmount: String(row.totalBasicSalaryAmount ?? '0.00'),
     totalEarnings: String(row.totalEarnings ?? '0.00'),
     totalDeductions: String(row.totalDeductions ?? '0.00'),
     totalNetPay: String(row.totalNetPay ?? '0.00'),
     errorMessage: row.errorMessage,
     isCurrent: Number(row.currentRunId ?? 0) === Number(row.id),
+  }
+}
+
+type WeeklyTimeScope = {
+  id: number
+  uid: string
+  periodId: number
+  siteId: number
+  periodStart: string
+  periodEnd: string
+  payrollBasis: 'TIME_BASED'
+  payFrequency: 'WEEKLY'
+  employeeType: 'HARIAN' | 'TRAINING'
+  policySnapshot: unknown
+}
+
+async function assertNoTimeBasedRecurringComponents(
+  conn: Pick<PoolConnection, 'query'>,
+  scope: Omit<WeeklyTimeScope, 'id' | 'uid' | 'periodId' | 'payrollBasis' | 'payFrequency' | 'policySnapshot'>
+) {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT COUNT(DISTINCT component.id) total
+       FROM employee_payroll_components component
+       JOIN employee_employment_histories history
+         ON history.employee_id=component.employee_id AND history.site_id=?
+        AND history.effective_from<=? AND (history.effective_to IS NULL OR history.effective_to>=?)
+       JOIN employee_types employee_type
+         ON employee_type.id=history.employee_type_id AND employee_type.code=?
+      WHERE component.is_active=1 AND component.effective_from<=?
+        AND (component.effective_to IS NULL OR component.effective_to>=?)`,
+    [
+      scope.siteId,
+      scope.periodEnd,
+      scope.periodStart,
+      scope.employeeType,
+      scope.periodEnd,
+      scope.periodStart,
+    ]
+  )
+  if (Number(rows[0]?.total ?? 0) > 0) {
+    throw new ApiError(
+      409,
+      'Payroll HARIAN/TRAINING belum mendukung komponen berulang. Gunakan komponen manual pada periode ini.'
+    )
   }
 }
 
@@ -85,9 +158,13 @@ export async function createProcessingRun(input: {
     await conn.beginTransaction()
     const [periodRows] = await conn.query<RowDataPacket[]>(
       `SELECT pp.id,pp.uid,pp.site_id siteId,pp.status,pp.payroll_basis payrollBasis,
+              pp.pay_frequency payFrequency,pp.employee_type_code employeeType,
+              snapshot.policy_snapshot policySnapshot,
               DATE_FORMAT(pp.period_start,'%Y-%m-%d') periodStart,
               DATE_FORMAT(pp.period_end,'%Y-%m-%d') periodEnd,s.code siteCode
          FROM payroll_periods pp JOIN sites s ON s.id=pp.site_id
+         LEFT JOIN payroll_period_policy_snapshots snapshot
+           ON snapshot.payroll_period_id=pp.id
         WHERE pp.uid=? FOR UPDATE`,
       [input.periodUid]
     )
@@ -97,10 +174,18 @@ export async function createProcessingRun(input: {
     if (!global && !input.auth.siteAccess.includes(String(period.siteCode))) {
       throw new ApiError(403, 'Akses site Payroll ditolak.')
     }
-    if (period.payrollBasis !== 'PIECE_RATE')
+    const supportedPieceRate =
+      period.payrollBasis === 'PIECE_RATE' &&
+      period.employeeType === 'BORONGAN' &&
+      period.payFrequency === 'WEEKLY'
+    const supportedWeeklyTime =
+      period.payrollBasis === 'TIME_BASED' &&
+      ['HARIAN', 'TRAINING'].includes(String(period.employeeType)) &&
+      period.payFrequency === 'WEEKLY'
+    if (!supportedPieceRate && !supportedWeeklyTime)
       throw new ApiError(
         409,
-        'Simulasi awal hanya mendukung Payroll PIECE_RATE.'
+        'Simulasi saat ini hanya mendukung BORONGAN, HARIAN, dan TRAINING mingguan.'
       )
     if (!['DRAFT', 'CALCULATED'].includes(String(period.status))) {
       throw new ApiError(
@@ -149,12 +234,24 @@ export async function createProcessingRun(input: {
       siteId: Number(period.siteId),
       periodStart: String(period.periodStart),
       periodEnd: String(period.periodEnd),
+      payrollBasis: period.payrollBasis,
+      payFrequency: period.payFrequency,
+      employeeType: period.employeeType,
+      policySnapshot: period.policySnapshot,
     })
     if (readiness.status === 'BLOCKED') {
       throw new ApiError(
         409,
         'Readiness Payroll masih BLOCKED. Selesaikan seluruh blocker sebelum menghitung.'
       )
+    }
+    if (supportedWeeklyTime) {
+      await assertNoTimeBasedRecurringComponents(conn, {
+        siteId: Number(period.siteId),
+        employeeType: String(period.employeeType) as 'HARIAN' | 'TRAINING',
+        periodStart: String(period.periodStart),
+        periodEnd: String(period.periodEnd),
+      })
     }
 
     const [numberRows] = await conn.query<RowDataPacket[]>(
@@ -167,15 +264,18 @@ export async function createProcessingRun(input: {
          uid,payroll_period_id,idempotency_key,run_number,run_type,status,
          processing_slot,calculation_version,calculation_started_at,parameters_json,
          calculated_by,created_by,updated_by
-       ) VALUES(?,?,?,?,'SIMULATION','PROCESSING',1,'2.0',NOW(3),?,?,?,?)`,
+       ) VALUES(?,?,?,?,'SIMULATION','PROCESSING',1,?,NOW(3),?,?,?,?)`,
       [
         uid,
         period.id,
         input.idempotencyKey,
         Number(numberRows[0]?.runNumber ?? 1),
+        supportedWeeklyTime ? '3.0-TIME-WEEKLY' : '2.0',
         JSON.stringify({
           readinessStatus: readiness.status,
           evaluatedAt: readiness.evaluatedAt,
+          payrollBasis: period.payrollBasis,
+          employeeType: period.employeeType,
         }),
         input.auth.id,
         input.auth.id,
@@ -215,6 +315,305 @@ export async function createProcessingRun(input: {
   }
 }
 
+async function calculateWeeklyTimeBasedRun(
+  conn: PoolConnection,
+  run: WeeklyTimeScope,
+  auth: AuthContext
+) {
+  await assertNoTimeBasedRecurringComponents(conn, run)
+
+  // Populasi mengikuti histori harian. Karyawan eligible tanpa PRESENT tetap
+  // mempunyai hasil Rp0 agar review Payroll tidak menyembunyikan siapa pun.
+  await conn.execute(
+    `INSERT INTO payroll_employee_results(
+       uid,payroll_run_id,payroll_period_id,employee_id,site_id,
+       employee_number_snapshot,employee_name_snapshot,employee_type_snapshot,
+       department_name_snapshot,position_name_snapshot,work_group_name_snapshot,
+       bank_name_snapshot,bank_account_number_snapshot,bank_account_name_snapshot,
+       created_by,updated_by
+     )
+     SELECT UUID(),?,?,population.employee_id,?,e.employee_number,e.full_name,
+            ?,department.name,position_row.name,work_group.name,
+            e.bank_name,e.bank_account_number,e.bank_account_name,?,?
+       FROM (
+         SELECT DISTINCT history.employee_id
+           FROM employee_employment_histories history
+           JOIN employee_types employee_type
+             ON employee_type.id=history.employee_type_id AND employee_type.code=?
+           JOIN employee_statuses employee_status
+             ON employee_status.id=history.employee_status_id AND employee_status.allows_attendance=1
+          WHERE history.site_id=? AND history.effective_from<=?
+            AND (history.effective_to IS NULL OR history.effective_to>=?)
+       ) population
+       JOIN employees e ON e.id=population.employee_id
+       JOIN employee_employment_histories snapshot_history ON snapshot_history.id=(
+         SELECT candidate.id
+           FROM employee_employment_histories candidate
+           JOIN employee_types candidate_type
+             ON candidate_type.id=candidate.employee_type_id AND candidate_type.code=?
+          WHERE candidate.employee_id=population.employee_id AND candidate.site_id=?
+            AND candidate.effective_from<=?
+            AND (candidate.effective_to IS NULL OR candidate.effective_to>=?)
+          ORDER BY candidate.effective_from DESC,candidate.id DESC LIMIT 1
+       )
+       LEFT JOIN departments department ON department.id=snapshot_history.department_id
+       LEFT JOIN positions position_row ON position_row.id=snapshot_history.position_id
+       LEFT JOIN work_groups work_group ON work_group.id=snapshot_history.work_group_id`,
+    [
+      run.id,
+      run.periodId,
+      run.siteId,
+      run.employeeType,
+      auth.id,
+      auth.id,
+      run.employeeType,
+      run.siteId,
+      run.periodEnd,
+      run.periodStart,
+      run.employeeType,
+      run.siteId,
+      run.periodEnd,
+      run.periodStart,
+    ]
+  )
+
+  const [resultCountRows] = await conn.query<RowDataPacket[]>(
+    `SELECT COUNT(*) total FROM payroll_employee_results WHERE payroll_run_id=?`,
+    [run.id]
+  )
+  if (Number(resultCountRows[0]?.total ?? 0) === 0) {
+    throw new ApiError(
+      409,
+      `Populasi simulasi Payroll ${run.employeeType} kosong setelah validasi histori.`
+    )
+  }
+
+  // Satu baris immutable per tanggal eligible. Nilai per hari tidak dibulatkan;
+  // pembulatan HALF_UP Rp1 dilakukan setelah seluruh tarif harian dijumlahkan.
+  await conn.execute(
+    `INSERT INTO payroll_time_details(
+       uid,payroll_employee_result_id,attendance_record_id,
+       employee_daily_rate_history_id,business_date,attendance_status_snapshot,
+       calendar_day_type_snapshot,is_scheduled,is_payable,daily_rate_snapshot,
+       amount_snapshot,worked_minutes_snapshot,warning_code,created_by,updated_by
+     )
+     WITH RECURSIVE dates AS (
+       SELECT CAST(? AS DATE) business_date
+       UNION ALL SELECT DATE_ADD(business_date,INTERVAL 1 DAY)
+         FROM dates WHERE business_date<?
+     ), eligible AS (
+       SELECT dates.business_date,result.id result_id,result.employee_id,result.site_id
+         FROM dates
+         JOIN payroll_employee_results result ON result.payroll_run_id=?
+         JOIN employee_employment_histories history
+           ON history.employee_id=result.employee_id AND history.site_id=result.site_id
+          AND history.effective_from<=dates.business_date
+          AND (history.effective_to IS NULL OR history.effective_to>=dates.business_date)
+         JOIN employee_types employee_type
+           ON employee_type.id=history.employee_type_id AND employee_type.code=?
+         JOIN employee_statuses employee_status
+           ON employee_status.id=history.employee_status_id AND employee_status.allows_attendance=1
+     )
+     SELECT UUID(),eligible.result_id,attendance.id,rate.id,eligible.business_date,
+            COALESCE(attendance.attendance_status,'NOT_RECORDED'),
+            COALESCE(attendance.calendar_day_type,'NOT_RECORDED'),
+            EXISTS(SELECT 1 FROM employee_shift_assignments assignment
+              JOIN shifts shift_row ON shift_row.id=assignment.shift_id
+             WHERE assignment.employee_id=eligible.employee_id
+               AND shift_row.site_id=eligible.site_id
+               AND assignment.effective_from<=eligible.business_date
+               AND (assignment.effective_to IS NULL OR assignment.effective_to>=eligible.business_date)
+               AND JSON_CONTAINS(assignment.work_days_json,
+                 CAST((((DAYOFWEEK(eligible.business_date)+5)%7)+1) AS CHAR),'$')),
+            COALESCE(attendance.attendance_status='PRESENT',0),rate.daily_rate,
+            CASE WHEN attendance.attendance_status='PRESENT' THEN rate.daily_rate ELSE 0 END,
+            attendance.worked_minutes,
+            CASE WHEN attendance.attendance_status='PRESENT'
+                       AND attendance.calendar_day_type<>'WORKDAY'
+                 THEN 'OFFDAY_PRESENT' ELSE NULL END,?,?
+       FROM eligible
+       LEFT JOIN attendance_records attendance
+         ON attendance.employee_id=eligible.employee_id
+        AND attendance.site_id=eligible.site_id
+        AND attendance.business_date=eligible.business_date
+       JOIN employee_daily_rate_histories rate
+         ON rate.employee_id=eligible.employee_id AND rate.site_id=eligible.site_id
+        AND rate.employee_type_code=? AND rate.status='ACTIVE'
+        AND rate.effective_from<=eligible.business_date
+        AND (rate.effective_to IS NULL OR rate.effective_to>=eligible.business_date)`,
+    [
+      run.periodStart,
+      run.periodEnd,
+      run.id,
+      run.employeeType,
+      auth.id,
+      auth.id,
+      run.employeeType,
+    ]
+  )
+
+  // M5B sengaja hanya menerima komponen manual untuk basis waktu.
+  await conn.execute(
+    `INSERT INTO payroll_employee_component_details(
+       uid,payroll_employee_result_id,payroll_component_type_id,
+       component_code_snapshot,component_name_snapshot,component_category,
+       source_type,source_id,amount,notes,created_by,updated_by
+     )
+     SELECT UUID(),result.id,component_type.id,component_type.code,
+            component_type.name,component_type.component_category,
+            'MANUAL',manual.id,manual.amount,manual.notes,?,?
+       FROM payroll_employee_results result
+       JOIN payroll_period_manual_components manual
+         ON manual.employee_id=result.employee_id
+        AND manual.payroll_period_id=? AND manual.status='ACTIVE'
+       JOIN payroll_component_types component_type
+         ON component_type.id=manual.payroll_component_type_id
+      WHERE result.payroll_run_id=?`,
+    [auth.id, auth.id, run.periodId, run.id]
+  )
+
+  await conn.execute(
+    `INSERT INTO payroll_attendance_summaries(
+       uid,payroll_employee_result_id,scheduled_days,present_days,absent_days,
+       leave_days,sick_days,permission_days,holiday_days,late_minutes,
+       early_leave_minutes,worked_minutes,created_by,updated_by
+     )
+     SELECT UUID(),result.id,
+            COALESCE(SUM(detail.is_scheduled=1),0),
+            COALESCE(SUM(detail.attendance_status_snapshot='PRESENT'),0),
+            COALESCE(SUM(detail.attendance_status_snapshot='ABSENT'),0),
+            COALESCE(SUM(detail.attendance_status_snapshot='LEAVE'),0),
+            COALESCE(SUM(detail.attendance_status_snapshot='SICK'),0),
+            COALESCE(SUM(detail.attendance_status_snapshot='PERMISSION'),0),
+            COALESCE(SUM(detail.calendar_day_type_snapshot='NON_WORKDAY'),0),
+            COALESCE(SUM(attendance.late_minutes),0),
+            COALESCE(SUM(attendance.early_leave_minutes),0),
+            COALESCE(SUM(detail.worked_minutes_snapshot),0),?,?
+       FROM payroll_employee_results result
+       LEFT JOIN payroll_time_details detail
+         ON detail.payroll_employee_result_id=result.id
+       LEFT JOIN attendance_records attendance
+         ON attendance.id=detail.attendance_record_id
+      WHERE result.payroll_run_id=? GROUP BY result.id`,
+    [auth.id, auth.id, run.id]
+  )
+
+  if (run.employeeType === 'TRAINING') {
+    await conn.execute(
+      `INSERT INTO payroll_training_production_details(
+         uid,payroll_employee_result_id,production_transaction_id,
+         production_job_id,business_date,transaction_number_snapshot,
+         job_name_snapshot,unit_name_snapshot,quantity_snapshot,created_by,updated_by
+       )
+       SELECT UUID(),result.id,transaction_row.id,transaction_row.production_job_id,
+              transaction_row.business_date,transaction_row.transaction_number,
+              job.name,unit.name,transaction_row.quantity,?,?
+         FROM payroll_employee_results result
+         JOIN production_transactions transaction_row
+           ON transaction_row.employee_id=result.employee_id
+          AND transaction_row.site_id=result.site_id
+          AND transaction_row.status='POSTED'
+          AND transaction_row.business_date BETWEEN ? AND ?
+          AND EXISTS (
+            SELECT 1 FROM employee_employment_histories production_history
+            JOIN employee_types production_employee_type
+              ON production_employee_type.id=production_history.employee_type_id
+             AND production_employee_type.code='TRAINING'
+            WHERE production_history.employee_id=result.employee_id
+              AND production_history.site_id=result.site_id
+              AND production_history.effective_from<=transaction_row.business_date
+              AND (production_history.effective_to IS NULL
+                   OR production_history.effective_to>=transaction_row.business_date)
+          )
+         JOIN production_jobs job ON job.id=transaction_row.production_job_id
+         JOIN work_units unit ON unit.id=transaction_row.unit_id
+        WHERE result.payroll_run_id=?`,
+      [auth.id, auth.id, run.periodStart, run.periodEnd, run.id]
+    )
+  }
+
+  await conn.execute(
+    `UPDATE payroll_employee_results result
+     LEFT JOIN (
+       SELECT payroll_employee_result_id,
+              ROUND(SUM(amount_snapshot),0) baseAmount,
+              SUM(is_payable=1) presentDays,
+              SUM(warning_code='OFFDAY_PRESENT') offdayPresentDays
+         FROM payroll_time_details GROUP BY payroll_employee_result_id
+     ) time_detail ON time_detail.payroll_employee_result_id=result.id
+     LEFT JOIN (
+       SELECT payroll_employee_result_id,
+              SUM(CASE WHEN component_category='EARNING' THEN amount ELSE 0 END) earnings,
+              SUM(CASE WHEN component_category='DEDUCTION' THEN amount ELSE 0 END) deductions
+         FROM payroll_employee_component_details GROUP BY payroll_employee_result_id
+     ) component ON component.payroll_employee_result_id=result.id
+     LEFT JOIN (
+       SELECT payroll_employee_result_id,COUNT(*) transactionCount
+         FROM payroll_training_production_details GROUP BY payroll_employee_result_id
+     ) training ON training.payroll_employee_result_id=result.id
+        SET result.attendance_days=COALESCE(time_detail.presentDays,0),
+            result.production_transaction_count=COALESCE(training.transactionCount,0),
+            result.piece_rate_amount=0,
+            result.basic_salary_amount=COALESCE(time_detail.baseAmount,0),
+            result.additional_earnings=COALESCE(component.earnings,0),
+            result.gross_earnings=COALESCE(time_detail.baseAmount,0)+COALESCE(component.earnings,0),
+            result.total_deductions=COALESCE(component.deductions,0),
+            result.net_pay=COALESCE(time_detail.baseAmount,0)+COALESCE(component.earnings,0)-COALESCE(component.deductions,0),
+            result.calculation_notes=CASE
+              WHEN COALESCE(time_detail.offdayPresentDays,0)>0
+                THEN CONCAT(time_detail.offdayPresentDays,' kehadiran hari nonkerja tetap dibayar.')
+              ELSE NULL END
+      WHERE result.payroll_run_id=?`,
+    [run.id]
+  )
+
+  await conn.execute(
+    `UPDATE payroll_runs run_row
+       JOIN (
+         SELECT payroll_run_id,COUNT(*) employeeCount,
+                COALESCE(SUM(piece_rate_amount),0) pieceAmount,
+                COALESCE(SUM(basic_salary_amount),0) basicAmount,
+                COALESCE(SUM(additional_earnings),0) earnings,
+                COALESCE(SUM(total_deductions),0) deductions,
+                COALESCE(SUM(net_pay),0) netPay
+           FROM payroll_employee_results WHERE payroll_run_id=? GROUP BY payroll_run_id
+       ) totals ON totals.payroll_run_id=run_row.id
+        SET run_row.status='COMPLETED',run_row.processing_slot=NULL,
+            run_row.calculation_finished_at=NOW(3),
+            run_row.employee_count=totals.employeeCount,
+            run_row.total_piece_rate_amount=totals.pieceAmount,
+            run_row.total_basic_salary_amount=totals.basicAmount,
+            run_row.total_earnings=totals.earnings,
+            run_row.total_deductions=totals.deductions,
+            run_row.total_net_pay=totals.netPay,run_row.updated_by=?
+      WHERE run_row.id=? AND run_row.status='PROCESSING'`,
+    [run.id, auth.id, run.id]
+  )
+  await conn.execute(
+    `UPDATE payroll_periods
+        SET status='CALCULATED',current_run_id=?,updated_by=? WHERE id=?`,
+    [run.id, auth.id, run.periodId]
+  )
+  await writeAudit(
+    {
+      auth,
+      module: 'PAYROLL',
+      siteId: run.siteId,
+      action: 'GENERATE',
+      table: 'payroll_runs',
+      recordId: run.id,
+      recordUid: run.uid,
+      description: `Simulasi Payroll ${run.employeeType} mingguan selesai dihitung.`,
+      afterData: {
+        status: 'COMPLETED',
+        payrollBasis: 'TIME_BASED',
+        employeeType: run.employeeType,
+      },
+    },
+    conn
+  )
+}
+
 export async function calculatePayrollRun(runId: number, auth: AuthContext) {
   const conn = await pool.getConnection()
   let failedContext: { uid: string; siteId: number } | null = null
@@ -223,9 +622,14 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
     const [rows] = await conn.query<RowDataPacket[]>(
       `SELECT pr.id,pr.uid,pr.status,pr.payroll_period_id periodId,
               pp.site_id siteId,pp.status periodStatus,
+              pp.payroll_basis payrollBasis,pp.pay_frequency payFrequency,
+              pp.employee_type_code employeeType,
+              snapshot.policy_snapshot policySnapshot,
               DATE_FORMAT(pp.period_start,'%Y-%m-%d') periodStart,
               DATE_FORMAT(pp.period_end,'%Y-%m-%d') periodEnd
          FROM payroll_runs pr JOIN payroll_periods pp ON pp.id=pr.payroll_period_id
+         LEFT JOIN payroll_period_policy_snapshots snapshot
+           ON snapshot.payroll_period_id=pp.id
         WHERE pr.id=? FOR UPDATE`,
       [runId]
     )
@@ -249,6 +653,15 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
         WHERE site_id=? AND business_date BETWEEN ? AND ? FOR UPDATE`,
       [run.siteId, run.periodStart, run.periodEnd]
     )
+    if (run.payrollBasis === 'TIME_BASED') {
+      await conn.query(
+        `SELECT rate.id FROM employee_daily_rate_histories rate
+          WHERE rate.site_id=? AND rate.employee_type_code=? AND rate.status='ACTIVE'
+            AND rate.effective_from<=?
+            AND (rate.effective_to IS NULL OR rate.effective_to>=?) FOR UPDATE`,
+        [run.siteId, run.employeeType, run.periodEnd, run.periodStart]
+      )
+    }
     await conn.query(
       `SELECT epc.id FROM employee_payroll_components epc
         WHERE epc.is_active=1 AND epc.effective_from<=?
@@ -284,12 +697,34 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
       siteId: Number(run.siteId),
       periodStart: String(run.periodStart),
       periodEnd: String(run.periodEnd),
+      payrollBasis: run.payrollBasis,
+      payFrequency: run.payFrequency,
+      employeeType: run.employeeType,
+      policySnapshot: run.policySnapshot,
     })
     if (readiness.status === 'BLOCKED') {
       throw new ApiError(
         409,
         'Readiness Payroll berubah menjadi BLOCKED sebelum snapshot dibuat.'
       )
+    }
+    if (run.payrollBasis === 'TIME_BASED') {
+      if (
+        run.payFrequency !== 'WEEKLY' ||
+        !['HARIAN', 'TRAINING'].includes(String(run.employeeType))
+      ) {
+        throw new ApiError(
+          409,
+          'M5B hanya menghitung Payroll HARIAN dan TRAINING mingguan.'
+        )
+      }
+      await calculateWeeklyTimeBasedRun(
+        conn,
+        run as WeeklyTimeScope,
+        auth
+      )
+      await conn.commit()
+      return
     }
 
     // Populasi adalah gabungan fakta produksi, komponen berulang, dan komponen manual.

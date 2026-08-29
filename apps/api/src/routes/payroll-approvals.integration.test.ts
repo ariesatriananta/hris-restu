@@ -46,6 +46,7 @@ const superAdmin: AuthContext = {
 const period = {
   periodId: 3, periodUid: '11111111-1111-4111-8111-111111111111',
   periodStatus: 'CALCULATED', currentRunId: 7, siteId: 2, siteCode: 'JEPARA',
+  payrollBasis: 'PIECE_RATE', payFrequency: 'WEEKLY', employeeTypeCode: 'BORONGAN',
   runId: 7, runUid: '22222222-2222-4222-8222-222222222222', runNumber: 1,
   runStatus: 'COMPLETED', runType: 'SIMULATION', employeeCount: 2,
   calculatedBy: 7,
@@ -112,6 +113,21 @@ describe('Payroll approval API', () => {
     expect(response.status).toBe(409)
     expect(mocks.audit).not.toHaveBeenCalled()
     expect(mocks.rollback).toHaveBeenCalledOnce()
+  })
+
+  it('menolak submit TIME_BASED sampai workflow M5D tersedia', async () => {
+    mutationQueries(
+      { ...period, payrollBasis: 'TIME_BASED', employeeTypeCode: 'HARIAN' },
+      period
+    )
+    const response = await request(`/periods/${period.periodUid}/submit`, {
+      method: 'POST', body: { idempotencyKey: '34333333-3333-4333-8333-333333333333' },
+    })
+    const body = await response.json() as { message: string }
+    expect(response.status).toBe(409)
+    expect(body.message).toContain('Milestone 5D')
+    expect(mocks.integrity).not.toHaveBeenCalled()
+    expect(mocks.execute).not.toHaveBeenCalled()
   })
 
   it('retry submit idempotent tidak membuat approval atau audit kedua', async () => {

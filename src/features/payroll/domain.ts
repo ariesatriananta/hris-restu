@@ -208,7 +208,14 @@ export interface PayrollRunSummary {
   startedAt: string
   finishedAt: string | null
   employeeCount: number
+  payrollBasis?: PayrollWageBasis
+  payFrequency?: PayrollPayFrequency
+  employeeType?: PayrollEmployeeType
   totalPieceRateAmount: string
+  totalBasicSalaryAmount?: string
+  totalAttendanceDays?: number
+  totalPayablePresentDays?: number
+  totalOffdayPresentDays?: number
   totalEarnings: string
   totalDeductions: string
   totalNetPay: string
@@ -365,7 +372,11 @@ export interface PayrollEmployeeResultSummary {
   departmentName: string | null
   positionName: string | null
   productionTransactionCount: number
+  attendanceDays: number
+  payablePresentDays: number
+  offdayPresentDays: number
   pieceRateAmount: string
+  basicSalaryAmount: string
   additionalEarnings: string
   grossEarnings: string
   totalDeductions: string
@@ -386,6 +397,26 @@ export interface PayrollProductionSnapshot {
   quantity: string
   rate: string
   amount: string
+}
+
+export interface PayrollTimeSnapshot {
+  businessDate: string
+  attendanceStatus: string
+  calendarDayType: string
+  isScheduled: boolean
+  isPayable: boolean
+  dailyRate: string
+  amount: string
+  workedMinutes: number | null
+  warningCode: string | null
+}
+
+export interface PayrollTrainingProductionSnapshot {
+  transactionNumber: string
+  businessDate: string
+  jobName: string
+  unitName: string
+  quantity: string
 }
 
 export interface PayrollComponentSnapshot {
@@ -410,6 +441,7 @@ export interface PayrollEmployeeResultDetail {
   }
   totals: {
     pieceRateAmount: string
+    basicSalaryAmount: string
     additionalEarnings: string
     grossEarnings: string
     totalDeductions: string
@@ -434,10 +466,13 @@ export interface PayrollEmployeeResultDetail {
     earlyLeaveMinutes: number
     workedMinutes: number
   } | null
+  timeDetails: PayrollTimeSnapshot[]
+  trainingProduction: PayrollTrainingProductionSnapshot[]
   production: PayrollProductionSnapshot[]
   components: PayrollComponentSnapshot[]
   formulaTrace: {
-    pieceRate: string
+    pieceRate: string | null
+    timeBased: string | null
     recurring: string
     manual: string
     net: string
