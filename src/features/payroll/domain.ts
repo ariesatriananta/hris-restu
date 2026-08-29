@@ -25,6 +25,9 @@ export interface PayrollReadinessIssue {
     | 'PRODUCTION'
     | 'COMPONENT'
     | 'PAYMENT'
+    | 'POLICY'
+    | 'RATE'
+    | 'CONTRACT'
   actionUrl: string | null
 }
 
@@ -34,6 +37,8 @@ export interface PayrollReadinessDetail {
   populationCount: number
   productionEmployeeCount: number
   componentOnlyEmployeeCount: number
+  blockerCount: number
+  warningCount: number
   blockers: PayrollReadinessIssue[]
   warnings: PayrollReadinessIssue[]
   facts: {
@@ -51,7 +56,56 @@ export interface PayrollReadinessDetail {
     activeComponentCount: number
     recurringComponentCount: number
     attendance: { absent: number; late: number; earlyLeave: number }
+    scheduledWorkDays?: number
+    payablePresentDays?: number
+    offdayPresentDays?: number
+    alphaDays?: number
+    permissionDays?: number
+    coveredRateEmployees?: number
+    coveredSalaryEmployees?: number
+    missingAttendanceEmployees?: number
+    unsupportedCurrencyEmployees?: number
+    invalidSalarySegmentEmployees?: number
   }
+  employees?: PayrollPeriodReadinessEmployee[]
+}
+
+export interface PayrollPeriodReadinessEmployee {
+  employeeUid: string
+  employeeNumber: string
+  fullName: string
+  employeeType: PayrollEmployeeType
+  eligibleFrom: string
+  eligibleTo: string
+  payablePresentDays: number
+  offdayPresentDays: number
+  alphaDays: number
+  permissionDays: number
+  eligibleCalendarDays: number
+  scheduledWorkDays: number
+  baseAmount: string | null
+  estimatedGrossAmount: string
+  estimatedDeductionAmount: string
+  estimatedNetAmount: string
+  currency: string | null
+  baseCoverage: 'COVERED' | 'MISSING' | 'AMBIGUOUS'
+  contractCoverage: 'VALID' | 'INVALID'
+  manualComponentCount: number
+  missingBaseDays?: number
+  ambiguousBaseDays?: number
+  invalidContractDays?: number
+  duplicateAttendanceDays?: number
+  missingAttendanceDays?: number
+  unsupportedCurrencyDays?: number
+  rateSegmentCount?: number
+  bankAccountComplete?: boolean
+  issues?: Array<{
+    code: string
+    severity: 'BLOCKER' | 'WARNING'
+    count: number
+    message: string
+    actionUrl: string | null
+  }>
 }
 
 export interface PayrollPeriodSummary {
@@ -61,7 +115,10 @@ export interface PayrollPeriodSummary {
   periodStart: string
   periodEnd: string
   paymentDate: string | null
-  payrollBasis: 'PIECE_RATE'
+  payrollBasis: PayrollWageBasis
+  employeeType?: PayrollEmployeeType
+  payFrequency?: PayrollPayFrequency
+  policyVersionUid?: string | null
   status: PayrollPeriodStatus
   notes: string | null
   site: PayrollSite
@@ -79,13 +136,45 @@ export interface PayrollPeriodDetail extends Omit<
   'readiness'
 > {
   readiness: PayrollReadinessDetail
+  policySnapshot?: Partial<PayrollPolicyVersion> | null
 }
 
 export interface PayrollPeriodMeta {
   sites: PayrollSite[]
   statuses: PayrollPeriodStatus[]
   maxPeriodDays: number
-  payrollBasis: 'PIECE_RATE'
+  payrollBasis?: PayrollWageBasis
+  employeeTypes?: PayrollEmployeeType[]
+  payrollBases?: PayrollWageBasis[]
+  payFrequencies?: PayrollPayFrequency[]
+}
+
+export interface PayrollPeriodPreview {
+  site: PayrollSite
+  period: { periodStart: string; periodEnd: string }
+  policy: Partial<PayrollPolicyVersion> & {
+    versionUid: string
+    employeeType: PayrollEmployeeType
+    wageBasis: PayrollWageBasis
+    payFrequency: PayrollPayFrequency
+  }
+  employees: PayrollPeriodReadinessEmployee[]
+  readiness: PayrollReadinessDetail
+  summary: {
+    populationCount: number
+    payablePresentDays: number
+    offdayPresentDays: number
+    missingBaseAmountEmployees: number
+    ambiguousBaseAmountEmployees: number
+    invalidContractEmployees: number
+    duplicateAttendanceEmployees: number
+    missingAttendanceEmployees: number
+    unsupportedCurrencyEmployees: number
+    invalidSalarySegmentEmployees: number
+    estimatedGrossAmount: string
+    estimatedDeductionAmount: string
+    estimatedNetAmount: string
+  }
 }
 
 export interface PayrollPeriodsResult {

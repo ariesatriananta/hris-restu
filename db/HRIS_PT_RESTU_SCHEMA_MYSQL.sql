@@ -681,6 +681,10 @@ CREATE TABLE employee_salary_histories (
   basic_salary DECIMAL(18,2) NOT NULL DEFAULT 0.00,
   currency CHAR(3) NOT NULL DEFAULT 'IDR',
   reason VARCHAR(255) NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+  cancelled_at DATETIME(3) NULL,
+  cancelled_by BIGINT UNSIGNED NULL,
+  cancellation_reason VARCHAR(500) NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   created_by BIGINT UNSIGNED NULL,
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
@@ -1584,6 +1588,7 @@ CREATE TABLE payroll_periods (
   payment_date DATE NULL,
   payroll_basis VARCHAR(20) NOT NULL DEFAULT 'PIECE_RATE',
   pay_frequency VARCHAR(20) NOT NULL DEFAULT 'WEEKLY',
+  employee_type_code VARCHAR(30) NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
   current_run_id BIGINT UNSIGNED NULL COMMENT 'Logical reference to payroll_runs.id; circular FK intentionally omitted.',
   approved_at DATETIME(3) NULL,
@@ -1602,11 +1607,17 @@ CREATE TABLE payroll_periods (
   UNIQUE KEY uq_payroll_periods_uid (uid),
   UNIQUE KEY uq_payroll_periods_site_code (site_id, period_code),
   KEY idx_payroll_periods_site_dates (site_id, period_start, period_end),
+  KEY idx_payroll_periods_scheme_dates (site_id,payroll_basis,pay_frequency,employee_type_code,period_start,period_end),
   KEY idx_payroll_periods_status (status),
   KEY idx_payroll_periods_cancelled_by (cancelled_by),
   CONSTRAINT chk_payroll_period_dates CHECK (period_end >= period_start),
   CONSTRAINT chk_payroll_period_basis CHECK (payroll_basis IN ('PIECE_RATE', 'TIME_BASED')),
   CONSTRAINT chk_payroll_period_frequency CHECK (pay_frequency IN ('WEEKLY', 'MONTHLY')),
+  CONSTRAINT chk_payroll_period_scheme CHECK (
+    (employee_type_code='BORONGAN' AND payroll_basis='PIECE_RATE' AND pay_frequency='WEEKLY')
+    OR (employee_type_code IN ('HARIAN','TRAINING') AND payroll_basis='TIME_BASED' AND pay_frequency='WEEKLY')
+    OR (employee_type_code='BULANAN' AND payroll_basis='TIME_BASED' AND pay_frequency='MONTHLY')
+  ),
   CONSTRAINT chk_payroll_period_status CHECK (status IN ('DRAFT', 'CALCULATED', 'APPROVED', 'CLOSED', 'CANCELLED')),
   CONSTRAINT chk_payroll_period_cancellation CHECK ((status='CANCELLED' AND cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL AND CHAR_LENGTH(TRIM(cancellation_reason))>=5) OR (status<>'CANCELLED' AND cancelled_at IS NULL AND cancelled_by IS NULL AND cancellation_reason IS NULL)),
   CONSTRAINT fk_payroll_period_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT,

@@ -83,7 +83,10 @@ export function assertPayrollPeriodRange(input: {
   const totalDays = Math.floor((end - start) / 86_400_000) + 1
 
   if (!Number.isFinite(totalDays) || totalDays < 1) {
-    throw new ApiError(422, 'Tanggal akhir periode tidak boleh sebelum tanggal awal.')
+    throw new ApiError(
+      422,
+      'Tanggal akhir periode tidak boleh sebelum tanggal awal.'
+    )
   }
   if (totalDays > maximumDays) {
     throw new ApiError(
@@ -98,6 +101,8 @@ export async function assertNoOverlappingPayrollPeriod(
   input: {
     siteId: number
     payrollBasis: 'PIECE_RATE' | 'TIME_BASED'
+    payFrequency?: 'WEEKLY' | 'MONTHLY'
+    employeeType?: 'BORONGAN' | 'HARIAN' | 'TRAINING' | 'BULANAN'
     periodStart: string
     periodEnd: string
     excludePeriodId?: number
@@ -106,13 +111,20 @@ export async function assertNoOverlappingPayrollPeriod(
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT id,period_code periodCode
        FROM payroll_periods
-      WHERE site_id=? AND payroll_basis=? AND status<>'CANCELLED'
+      WHERE site_id=? AND payroll_basis=?
+        AND (? IS NULL OR pay_frequency=?)
+        AND (? IS NULL OR employee_type_code=?)
+        AND status<>'CANCELLED'
         AND period_start<=? AND period_end>=?
         AND (? IS NULL OR id<>?)
       LIMIT 1 FOR UPDATE`,
     [
       input.siteId,
       input.payrollBasis,
+      input.payFrequency ?? null,
+      input.payFrequency ?? null,
+      input.employeeType ?? null,
+      input.employeeType ?? null,
       input.periodEnd,
       input.periodStart,
       input.excludePeriodId ?? null,

@@ -129,4 +129,129 @@ describe('Payroll readiness', () => {
       ])
     )
   })
+
+  it('TIME_BASED memblokir gap tarif dan tetap memperingatkan PRESENT hari nonkerja', async () => {
+    const db = executor([
+      [
+        {
+          employeeUid: '11111111-1111-4111-8111-111111111111',
+          employeeNumber: 'JPR-001',
+          fullName: 'Sari',
+          employeeType: 'TRAINING',
+          eligibleFrom: '2026-08-03',
+          eligibleTo: '2026-08-09',
+          payablePresentDays: 5,
+          offdayPresentDays: 1,
+          alphaDays: 1,
+          permissionDays: 0,
+          missingBaseDays: 2,
+          ambiguousBaseDays: 0,
+          invalidContractDays: 0,
+          duplicateAttendanceDays: 0,
+          rateSegmentCount: 1,
+          baseAmount: null,
+          currency: null,
+          bankAccountComplete: 1,
+          manualComponentCount: 1,
+        },
+      ],
+      [
+        {
+          dbToday: '2026-08-28',
+          pendingCorrections: 0,
+          pendingClassifications: 0,
+          ambiguousEmployment: 0,
+          unsupportedFormula: 0,
+          activeManualComponents: 1,
+        },
+      ],
+      [{ expectedDays: 5, finalizedDays: 5, runningDays: 0 }],
+    ])
+    const result = await evaluatePayrollReadiness(db as never, {
+      ...period,
+      payrollBasis: 'TIME_BASED',
+      payFrequency: 'WEEKLY',
+      employeeType: 'TRAINING',
+      policySnapshot: {
+        versionUid: 'policy',
+        employeeType: 'TRAINING',
+        wageBasis: 'TIME_BASED',
+        payFrequency: 'WEEKLY',
+      },
+    })
+    expect(result.blockers.map((item) => item.code)).toContain(
+      'BASE_RATE_MISSING'
+    )
+    expect(result.warnings.map((item) => item.code)).toContain(
+      'OFFDAY_PRESENT_PAYABLE'
+    )
+    expect(result.facts).toMatchObject({
+      timeBasedEmployeeCount: 1,
+      payablePresentDays: 5,
+      offdayPresentDays: 1,
+    })
+    expect(String(db.query.mock.calls[0]?.[0])).toContain('rate_matches')
+  })
+
+  it('TIME_BASED memblokir snapshot yang tidak cocok dan perubahan gaji di tengah periode', async () => {
+    const db = executor([
+      [
+        {
+          employeeUid: '22222222-2222-4222-8222-222222222222',
+          employeeNumber: 'JPR-002',
+          fullName: 'Budi',
+          employeeType: 'BULANAN',
+          eligibleFrom: '2026-08-01',
+          eligibleTo: '2026-08-31',
+          payablePresentDays: 20,
+          offdayPresentDays: 0,
+          alphaDays: 1,
+          permissionDays: 0,
+          missingBaseDays: 0,
+          ambiguousBaseDays: 0,
+          invalidContractDays: 0,
+          duplicateAttendanceDays: 0,
+          missingAttendanceDays: 0,
+          unsupportedCurrencyDays: 0,
+          rateSegmentCount: 2,
+          baseAmount: '5000000',
+          currency: 'IDR',
+          bankAccountComplete: 1,
+          manualComponentCount: 0,
+        },
+      ],
+      [
+        {
+          dbToday: '2026-09-01',
+          pendingCorrections: 0,
+          pendingClassifications: 0,
+          ambiguousEmployment: 0,
+          unsupportedFormula: 0,
+          activeManualComponents: 0,
+        },
+      ],
+      [{ expectedDays: 22, finalizedDays: 22, runningDays: 0 }],
+    ])
+    const result = await evaluatePayrollReadiness(db as never, {
+      ...period,
+      periodStart: '2026-08-01',
+      periodEnd: '2026-08-31',
+      payrollBasis: 'TIME_BASED',
+      payFrequency: 'MONTHLY',
+      employeeType: 'BULANAN',
+      policySnapshot: {
+        versionUid: 'policy',
+        employeeType: 'HARIAN',
+        wageBasis: 'TIME_BASED',
+        payFrequency: 'WEEKLY',
+      },
+    })
+    expect(result.blockers.map((item) => item.code)).toEqual(
+      expect.arrayContaining([
+        'POLICY_SNAPSHOT_MISMATCH',
+        'SALARY_SEGMENT_INVALID',
+      ])
+    )
+    expect(result.facts.invalidSalarySegmentEmployees).toBe(1)
+  })
 })

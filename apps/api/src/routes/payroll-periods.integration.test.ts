@@ -85,6 +85,13 @@ const readiness = {
     activeComponentCount: 2,
     recurringComponentCount: 2,
     missingEmploymentHistoryEmployees: 0,
+    timeBasedEmployeeCount: 0,
+    payablePresentDays: 0,
+    offdayPresentDays: 0,
+    missingBaseAmountEmployees: 0,
+    ambiguousBaseAmountEmployees: 0,
+    invalidContractEmployees: 0,
+    duplicateAttendanceEmployees: 0,
     attendance: { absent: 0, late: 0, earlyLeave: 0 },
   },
 }
@@ -143,6 +150,9 @@ const periodRow = {
   periodEnd: '2026-08-07',
   paymentDate: '2026-08-08',
   payrollBasis: 'PIECE_RATE',
+  payFrequency: 'WEEKLY',
+  employeeType: 'BORONGAN',
+  policySnapshot: null,
   status: 'DRAFT',
   notes: null,
   createdAt: '2026-08-28T00:00:00.000Z',
@@ -182,10 +192,36 @@ describe('Payroll periods API', () => {
         statement.includes('LIMIT 1 FOR UPDATE')
       )
         return [[]]
+      if (statement.includes('FROM payroll_policy_versions'))
+        return [
+          [
+            {
+              id: 8,
+              uid: '11111111-1111-4111-8111-111111111111',
+              siteId: 2,
+              employeeType: 'BORONGAN',
+              wageBasis: 'PIECE_RATE',
+              payFrequency: 'WEEKLY',
+              cutoffType: 'WEEK_END',
+              cutoffDay: null,
+              weekStartsOn: 1,
+              prorateBasis: 'NONE',
+              attendancePayRule: 'INFORMATIONAL',
+              deductionDivisor: 'NONE',
+              roundingMode: 'HALF_UP',
+              roundingScale: 0,
+              currency: 'IDR',
+              effectiveFrom: '2026-01-01',
+              effectiveTo: null,
+            },
+          ],
+        ]
       if (statement.includes('WHERE pp.uid=?')) return [[periodRow]]
       return [[]]
     })
-    mocks.execute.mockResolvedValueOnce([{ insertId: 15 }])
+    mocks.execute
+      .mockResolvedValueOnce([{ insertId: 15 }])
+      .mockResolvedValueOnce([{}])
     const response = await request('/periods', {
       method: 'POST',
       body: {
@@ -198,7 +234,10 @@ describe('Payroll periods API', () => {
     expect(response.status).toBe(201)
     expect(String(mocks.query.mock.calls[0]?.[0])).toContain('FOR UPDATE')
     expect(String(mocks.execute.mock.calls[0]?.[0])).toContain(
-      "'PIECE_RATE','DRAFT'"
+      'employee_type_code'
+    )
+    expect(String(mocks.execute.mock.calls[1]?.[0])).toContain(
+      'payroll_period_policy_snapshots'
     )
     expect(mocks.audit).toHaveBeenCalledOnce()
     expect(mocks.commit).toHaveBeenCalledOnce()

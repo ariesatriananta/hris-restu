@@ -303,6 +303,11 @@ kontrak `TRAINING`, sedangkan `BORONGAN`, `HARIAN`, dan `BULANAN` hanya memakai
 
 ### Milestone 5A2 - Readiness dan preview segmentasi
 
+- Periode mingguan `HARIAN` dan `TRAINING` dibuat terpisah agar policy,
+  populasi, snapshot, dan audit tetap deterministik.
+- Pembuatan periode memakai tanggal acuan. Server menyelesaikan tepat satu
+  policy historis, memvalidasi batas periode, lalu menyimpan identitas jenis,
+  basis, frekuensi, dan snapshot policy secara atomik bersama periode Draft.
 - Periode `TIME_BASED/WEEKLY` selalu Senin-Minggu selama tujuh hari dan boleh
   melintasi bulan. Periode `TIME_BASED/MONTHLY` dibentuk dari policy cutoff;
   default awal adalah tanggal 1 sampai akhir bulan.
@@ -312,6 +317,8 @@ kontrak `TRAINING`, sedangkan `BORONGAN`, `HARIAN`, dan `BULANAN` hanya memakai
 - `HARIAN` dan `TRAINING` hanya membayar tanggal Attendance final berstatus
   `PRESENT`. Status lain bernilai nol, termasuk Alpha, Izin, Sakit, Cuti, dan
   hari libur tanpa kehadiran aktual.
+- `PRESENT` final pada hari nonkerja tetap masuk estimasi satu hari bayar dan
+  selalu ditampilkan sebagai warning untuk ditinjau.
 - `BULANAN` diprorata untuk join/resign berdasarkan hari kalender eligible.
   Alpha dan Izin menjadi potongan eksplisit dengan rumus default:
   `gaji pokok / hari kerja terjadwal dalam periode x jumlah hari Alpha/Izin`.
@@ -325,6 +332,12 @@ kontrak `TRAINING`, sedangkan `BORONGAN`, `HARIAN`, dan `BULANAN` hanya memakai
 - Preview menampilkan karyawan, rentang eligible, policy, coverage tarif/gaji,
   jumlah hari kerja/PRESENT/Alpha/Izin, serta alasan dan tujuan tindakan. M5A
   belum membuat payroll run atau snapshot hasil finansial permanen.
+- Preview juga menjalankan preflight global yang sama dengan periode Draft:
+  akhir periode, finalisasi Attendance, workflow Attendance tertunda, konsistensi
+  snapshot policy, mata uang, dan perubahan gaji Bulanan di tengah periode.
+- Komponen manual tetap dapat digunakan oleh periode `TIME_BASED`, tetapi tidak
+  boleh menyamarkan policy, tarif harian, gaji pokok, kontrak, atau Attendance
+  yang hilang dan tetap menjadi blocker readiness.
 
 ### Milestone 5B - Simulasi waktu mingguan
 

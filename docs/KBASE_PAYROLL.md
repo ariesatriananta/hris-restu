@@ -324,13 +324,33 @@ sudah disetujui atau ditutup dan masih memperlakukan Training sebagai upah
 hasil. Jangan menghapus atau mengubah data tersebut secara manual; laporkan
 kepada Administrator untuk remediasi historis.
 
-## 20. Batas tahap saat ini
+## 20. Membuat dan memeriksa periode berbasis waktu
+
+Pada **Payroll > Periode Payroll**, pilih site, jenis Payroll, dan satu tanggal
+acuan di dalam periode yang ingin diproses. Sistem menentukan tanggal mulai dan
+akhir dari policy yang berlaku saat itu. Harian dan Training dibuat sebagai
+periode terpisah, walaupun sama-sama memakai periode Senin-Minggu.
+
+Pilih **Periksa kesiapan** sebelum membuat periode. Pemeriksaan menampilkan:
+
+- karyawan yang masuk periode berdasarkan histori penempatan dan kontrak;
+- cakupan tarif harian atau gaji pokok;
+- hari Hadir, Alpha, Izin, serta hari kerja terjadwal;
+- estimasi bruto, potongan, dan neto; serta
+- masalah yang harus diperbaiki beserta menu tindak lanjutnya, termasuk periode
+  yang belum selesai atau Attendance yang belum difinalisasi.
+
+Kehadiran nyata pada hari nonkerja tetap dihitung untuk karyawan Harian atau
+Training, tetapi ditandai sebagai perhatian agar HR dapat memeriksanya. Estimasi
+ini hanya untuk pemeriksaan data dan belum menjadi hasil Payroll resmi.
+
+## 21. Batas tahap saat ini
 
 Pada tahap saat ini, sistem belum:
 
 - menghitung pajak atau BPJS otomatis;
-- menghitung Payroll Harian, Training, atau Bulanan secara resmi; halaman Skema
-  Upah & Tarif pada tahap ini baru menyiapkan fondasi dan master;
+- menghitung Payroll Harian, Training, atau Bulanan secara resmi; sistem baru
+  menyediakan master, pembentukan periode, readiness, dan preview estimasi;
 - mencatat status transfer atau pembayaran sebagai proses tersendiri;
 - menyimpan file PDF slip secara permanen; atau
 - menggunakan tanda tangan elektronik pada slip.

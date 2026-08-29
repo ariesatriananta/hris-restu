@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
-import { differenceInCalendarDays, format, parseISO } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import {
   flexRender,
   getCoreRowModel,
@@ -72,20 +72,25 @@ import {
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
+import { periodForDate } from './payroll-period-policy'
 import {
   useCancelPayrollPeriod,
   useCreatePayrollPeriod,
+  usePayrollPolicies,
   usePayrollPeriod,
+  usePayrollPeriodEmployees,
   usePayrollPeriodMeta,
   usePayrollPeriods,
+  usePreviewPayrollPeriod,
 } from './data/queries'
 import type {
+  PayrollEmployeeType,
+  PayrollPeriodReadinessEmployee,
   PayrollPeriodStatus,
   PayrollPeriodSummary,
   PayrollPeriodsResult,
   PayrollReadinessStatus,
 } from './domain'
-import { validatePayrollPeriodDraft } from './period-validation'
 
 const statusLabels: Record<PayrollPeriodStatus, string> = {
   DRAFT: 'Draft',
@@ -98,6 +103,15 @@ const readinessLabels: Record<PayrollReadinessStatus, string> = {
   READY: 'Siap',
   ATTENTION: 'Perlu perhatian',
   BLOCKED: 'Terblokir',
+}
+const employeeTypeLabels: Record<PayrollEmployeeType, string> = {
+  BORONGAN: 'Borongan',
+  HARIAN: 'Harian',
+  TRAINING: 'Training',
+  BULANAN: 'Bulanan',
+}
+function employeeTypeLabel(value?: PayrollEmployeeType) {
+  return value ? employeeTypeLabels[value] : 'Borongan'
 }
 
 function dateLabel(value: string | null) {
@@ -113,6 +127,7 @@ function rupiah(value: number) {
 function inputDate(value: Date | undefined) {
   return value ? format(value, 'yyyy-MM-dd') : undefined
 }
+
 function parseInputDate(value: unknown) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
     ? parseISO(value)
@@ -139,6 +154,9 @@ export function PayrollPeriodsPage({
     query: typeof search.filter === 'string' ? search.filter : undefined,
     site: Array.isArray(search.site) ? search.site : undefined,
     status: Array.isArray(search.status) ? search.status : undefined,
+    employeeType: Array.isArray(search.employeeType)
+      ? search.employeeType
+      : undefined,
     dateFrom: typeof search.dateFrom === 'string' ? search.dateFrom : undefined,
     dateTo: typeof search.dateTo === 'string' ? search.dateTo : undefined,
   }
@@ -153,13 +171,13 @@ export function PayrollPeriodsPage({
       <div className='space-y-4'>
         <header className='flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
           <div>
-            <p className='text-sm font-medium text-primary'>Payroll Borongan</p>
+            <p className='text-sm font-medium text-primary'>Payroll</p>
             <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
               Periode Payroll
             </h1>
             <p className='max-w-3xl text-sm text-muted-foreground'>
-              Siapkan periode per site dan periksa kesiapan Attendance serta
-              Produksi sebelum dihitung.
+              Siapkan periode per site dan skema upah, lalu periksa sumber data
+              sebelum proses Payroll dilanjutkan.
             </p>
           </div>
           {canCalculate && (
@@ -173,8 +191,8 @@ export function PayrollPeriodsPage({
           <CircleDollarSign className='text-sky-700' />
           <AlertTitle>Belum menghitung gaji</AlertTitle>
           <AlertDescription>
-            Periode Draft hanya memeriksa kesiapan data. Attendance dan Produksi
-            belum dikunci sampai proses perhitungan dimulai.
+            Periode Draft hanya memeriksa kesiapan data. Belum ada hasil Payroll
+            atau snapshot finansial yang dibuat pada tahap ini.
           </AlertDescription>
         </Alert>
 
@@ -203,7 +221,6 @@ export function PayrollPeriodsPage({
         open={createOpen}
         onOpenChange={setCreateOpen}
         sites={meta.data?.sites ?? []}
-        maxDays={meta.data?.maxPeriodDays ?? 31}
       />
       <PeriodDetailSheet
         uid={detailUid}
@@ -323,7 +340,9 @@ function PayrollPeriodsTable({
           <div className='min-w-0'>
             <p className='truncate font-semibold'>{row.original.periodName}</p>
             <p className='truncate text-xs text-muted-foreground'>
-              {row.original.periodCode}
+              {employeeTypeLabel(row.original.employeeType)} ·{' '}
+              {row.original.payFrequency === 'WEEKLY' ? 'Mingguan' : 'Bulanan'}{' '}
+              · {row.original.periodCode}
             </p>
           </div>
         ),
@@ -333,6 +352,11 @@ function PayrollPeriodsTable({
         accessorFn: (row) => row.site.code,
         header: 'Site',
         cell: ({ row }) => row.original.site.name,
+      },
+      {
+        id: 'employeeType',
+        accessorFn: (row) => row.employeeType,
+        header: 'Jenis payroll',
       },
       {
         id: 'dates',
@@ -393,6 +417,11 @@ function PayrollPeriodsTable({
     columnFilters: [
       { columnId: 'site', searchKey: 'site', type: 'array' },
       { columnId: 'status', searchKey: 'status', type: 'array' },
+      {
+        columnId: 'employeeType',
+        searchKey: 'employeeType',
+        type: 'array',
+      },
     ],
   })
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -406,6 +435,7 @@ function PayrollPeriodsTable({
     },
     manualPagination: true,
     manualFiltering: true,
+    initialState: { columnVisibility: { employeeType: false } },
     pageCount: Math.max(1, totalPages),
     onGlobalFilterChange: url.onGlobalFilterChange,
     onColumnFiltersChange: url.onColumnFiltersChange,
@@ -441,6 +471,13 @@ function PayrollPeriodsTable({
               value,
               label,
             })),
+          },
+          {
+            columnId: 'employeeType',
+            title: 'Jenis payroll',
+            options: Object.entries(employeeTypeLabels).map(
+              ([value, label]) => ({ value, label })
+            ),
           },
         ]}
         additionalFilters={
@@ -540,7 +577,8 @@ function PayrollPeriodsTable({
                 <div>
                   <p className='font-semibold'>{item.periodName}</p>
                   <p className='text-xs text-muted-foreground'>
-                    {item.site.name} · {item.periodCode}
+                    {item.site.name} · {employeeTypeLabel(item.employeeType)} ·{' '}
+                    {item.periodCode}
                   </p>
                 </div>
                 <StatusBadge status={item.status} />
@@ -635,49 +673,72 @@ function CreatePeriodDialog({
   open,
   onOpenChange,
   sites,
-  maxDays,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  sites: Array<{ uid: string; name: string }>
-  maxDays: number
+  sites: Array<{ uid: string; code: string; name: string }>
 }) {
   const mutation = useCreatePayrollPeriod()
+  const preview = usePreviewPayrollPeriod()
   const [siteUid, setSiteUid] = useState('')
-  const [start, setStart] = useState<Date>()
-  const [end, setEnd] = useState<Date>()
+  const [employeeType, setEmployeeType] =
+    useState<PayrollEmployeeType>('BORONGAN')
+  const [periodAnchor, setPeriodAnchor] = useState<Date>(new Date())
   const [payment, setPayment] = useState<Date>()
   const [name, setName] = useState('')
   const [notes, setNotes] = useState('')
-  const days = start && end ? differenceInCalendarDays(end, start) + 1 : 0
-  const validationError = validatePayrollPeriodDraft({
-    siteUid,
-    start,
-    end,
-    payment,
-    maxDays,
-  })
-  const invalid = Boolean(validationError)
+  const selectedSite = sites.find((site) => site.uid === siteUid)
+  const policies = usePayrollPolicies(
+    {
+      site: selectedSite?.code,
+      employeeType,
+      status: 'ACTIVE',
+    },
+    open && Boolean(selectedSite)
+  )
+  const anchorDate = inputDate(periodAnchor)!
+  const policy = policies.data?.data.find(
+    (item) =>
+      item.employeeType === employeeType &&
+      item.status === 'ACTIVE' &&
+      item.effectiveFrom <= anchorDate &&
+      (item.effectiveTo == null || item.effectiveTo >= anchorDate)
+  )
+  const selectedPeriod = policy
+    ? periodForDate(periodAnchor, policy)
+    : undefined
+  const previewMatches =
+    preview.data?.site.uid === siteUid &&
+    preview.data.policy.employeeType === employeeType &&
+    preview.data.period.periodStart === selectedPeriod?.periodStart &&
+    preview.data.period.periodEnd === selectedPeriod?.periodEnd
+  const invalid = !siteUid || !selectedPeriod || !previewMatches
+
+  const resetPreview = () => {
+    preview.reset()
+  }
 
   const close = (next: boolean) => {
     if (mutation.isPending) return
     onOpenChange(next)
     if (!next) {
       setSiteUid('')
-      setStart(undefined)
-      setEnd(undefined)
+      setEmployeeType('BORONGAN')
+      setPeriodAnchor(new Date())
       setPayment(undefined)
       setName('')
       setNotes('')
+      preview.reset()
     }
   }
   const submit = async () => {
-    if (invalid || !start || !end) return
+    if (invalid || !selectedPeriod) return
     try {
       await mutation.mutateAsync({
         siteUid,
-        periodStart: inputDate(start)!,
-        periodEnd: inputDate(end)!,
+        employeeType,
+        periodStart: selectedPeriod.periodStart,
+        periodEnd: selectedPeriod.periodEnd,
         paymentDate: inputDate(payment) ?? null,
         periodName: name.trim() || undefined,
         notes: notes.trim() || undefined,
@@ -694,13 +755,20 @@ function CreatePeriodDialog({
         <DialogHeader>
           <DialogTitle>Buat Periode Payroll</DialogTitle>
           <DialogDescription>
-            Periode baru disimpan sebagai Draft dan belum mengunci data sumber.
+            Pilih site dan jenis Payroll. Rentang tanggal mengikuti policy
+            aktif, bukan diisi bebas.
           </DialogDescription>
         </DialogHeader>
         <div className='grid gap-4 sm:grid-cols-2'>
           <div className='space-y-2 sm:col-span-2'>
             <Label htmlFor='payroll-site'>Site</Label>
-            <Select value={siteUid} onValueChange={setSiteUid}>
+            <Select
+              value={siteUid}
+              onValueChange={(value) => {
+                setSiteUid(value)
+                resetPreview()
+              }}
+            >
               <SelectTrigger id='payroll-site' className='w-full'>
                 <SelectValue placeholder='Pilih site' />
               </SelectTrigger>
@@ -713,36 +781,138 @@ function CreatePeriodDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className='space-y-2'>
-            <Label>Tanggal mulai</Label>
+          <div className='space-y-2 sm:col-span-2'>
+            <Label htmlFor='payroll-employee-type'>Jenis payroll</Label>
+            <Select
+              value={employeeType}
+              onValueChange={(value: PayrollEmployeeType) => {
+                setEmployeeType(value)
+                resetPreview()
+              }}
+            >
+              <SelectTrigger id='payroll-employee-type' className='w-full'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(employeeTypeLabels).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className='space-y-2 sm:col-span-2'>
+            <Label>Tanggal acuan periode</Label>
             <DatePicker
-              selected={start}
+              selected={periodAnchor}
               onSelect={(date) => {
-                setStart(date)
-                if (end && date && end < date) setEnd(undefined)
+                if (!date) return
+                setPeriodAnchor(date)
+                resetPreview()
               }}
             />
+            <p className='text-xs text-muted-foreground'>
+              Pilih satu tanggal di dalam periode yang ingin diproses. Sistem
+              menentukan awal dan akhir periode dari policy yang berlaku saat
+              itu.
+            </p>
           </div>
-          <div className='space-y-2'>
-            <Label>Tanggal akhir</Label>
-            <DatePicker
-              selected={end}
-              onSelect={setEnd}
-              disabledDates={(date) =>
-                Boolean(
-                  start &&
-                  (date < start ||
-                    differenceInCalendarDays(date, start) >= maxDays)
-                )
-              }
-            />
+          <div className='space-y-2 sm:col-span-2'>
+            <Label>Policy yang digunakan</Label>
+            {!siteUid ? (
+              <div className='rounded-lg border border-dashed p-4 text-sm text-muted-foreground'>
+                Pilih site untuk mencari policy aktif.
+              </div>
+            ) : policies.isPending ? (
+              <Skeleton className='h-20 w-full' />
+            ) : policy ? (
+              <div className='rounded-lg border border-sky-200 bg-sky-50/60 p-3 dark:border-sky-900 dark:bg-sky-950/20'>
+                <div className='flex flex-wrap items-center justify-between gap-2'>
+                  <p className='font-semibold'>
+                    {employeeTypeLabels[policy.employeeType]}
+                  </p>
+                  <Badge variant='outline'>Versi {policy.version}</Badge>
+                </div>
+                <p className='mt-1 text-xs text-muted-foreground'>
+                  {policy.wageBasis === 'PIECE_RATE'
+                    ? 'Satuan hasil'
+                    : 'Satuan waktu'}{' '}
+                  · {policy.payFrequency === 'WEEKLY' ? 'Mingguan' : 'Bulanan'}{' '}
+                  · efektif {dateLabel(policy.effectiveFrom)}
+                </p>
+              </div>
+            ) : (
+              <Alert variant='destructive'>
+                <AlertTriangle />
+                <AlertTitle>Policy aktif belum tersedia</AlertTitle>
+                <AlertDescription>
+                  Lengkapi policy {employeeTypeLabels[employeeType]} untuk site
+                  ini di menu Skema Upah & Tarif.
+                </AlertDescription>
+              </Alert>
+            )}
           </div>
+          {policy ? (
+            <div className='space-y-2 sm:col-span-2'>
+              <Label>Rentang hasil policy</Label>
+              <div className='rounded-lg border bg-muted/30 p-3 text-sm'>
+                <span className='font-semibold'>
+                  {dateLabel(selectedPeriod!.periodStart)}–
+                  {dateLabel(selectedPeriod!.periodEnd)}
+                </span>
+                <p className='mt-1 text-xs text-muted-foreground'>
+                  {policy.payFrequency === 'WEEKLY'
+                    ? 'Periode mingguan Senin–Minggu.'
+                    : 'Periode bulanan mengikuti cutoff policy.'}
+                </p>
+              </div>
+            </div>
+          ) : null}
+          {selectedPeriod ? (
+            <div className='sm:col-span-2'>
+              <Button
+                type='button'
+                variant='secondary'
+                onClick={() =>
+                  void preview
+                    .mutateAsync({
+                      siteUid,
+                      employeeType,
+                      periodStart: selectedPeriod.periodStart,
+                      periodEnd: selectedPeriod.periodEnd,
+                    })
+                    .catch((error) =>
+                      toast.error(
+                        apiMessage(error, 'Preview periode gagal dimuat.')
+                      )
+                    )
+                }
+                disabled={preview.isPending}
+              >
+                {preview.isPending ? (
+                  <LoaderCircle className='animate-spin' />
+                ) : (
+                  <Eye />
+                )}
+                Periksa kesiapan
+              </Button>
+            </div>
+          ) : null}
+          {previewMatches && preview.data ? (
+            <PreviewSummary preview={preview.data} />
+          ) : null}
           <div className='space-y-2'>
             <Label>Tanggal pembayaran (opsional)</Label>
             <DatePicker
               selected={payment}
               onSelect={setPayment}
-              disabledDates={(date) => Boolean(end && date < end)}
+              disabledDates={(date) =>
+                Boolean(
+                  selectedPeriod &&
+                  format(date, 'yyyy-MM-dd') < selectedPeriod.periodEnd
+                )
+              }
               placeholder='Belum ditentukan'
             />
           </div>
@@ -767,19 +937,6 @@ function CreatePeriodDialog({
             />
           </div>
         </div>
-        {start && end && (
-          <p
-            className={cn(
-              'text-xs',
-              days > maxDays ? 'text-destructive' : 'text-muted-foreground'
-            )}
-          >
-            {days} hari kalender · maksimal {maxDays} hari.
-          </p>
-        )}
-        {validationError && siteUid && start && end && (
-          <p className='text-xs text-destructive'>{validationError}</p>
-        )}
         <DialogFooter>
           <Button
             variant='outline'
@@ -801,6 +958,88 @@ function CreatePeriodDialog({
   )
 }
 
+function PreviewSummary({
+  preview,
+}: {
+  preview: import('./domain').PayrollPeriodPreview
+}) {
+  if (preview.policy.wageBasis === 'PIECE_RATE') {
+    return (
+      <Alert className='sm:col-span-2'>
+        <CheckCircle2 />
+        <AlertTitle>Policy Borongan valid</AlertTitle>
+        <AlertDescription>
+          Populasi dan transaksi Produksi diperiksa kembali setelah periode
+          Draft dibuat.
+        </AlertDescription>
+      </Alert>
+    )
+  }
+  const blocked = preview.readiness.blockerCount
+  return (
+    <div className='space-y-2 rounded-lg border p-3 sm:col-span-2'>
+      <div className='flex items-center justify-between gap-2'>
+        <p className='font-semibold'>Preview kesiapan</p>
+        <Badge variant={blocked ? 'destructive' : 'secondary'}>
+          {blocked ? `${blocked} perlu diperbaiki` : 'Siap dibuat'}
+        </Badge>
+      </div>
+      <div className='grid grid-cols-3 gap-2 text-sm'>
+        <Fact label='Karyawan' value={preview.summary.populationCount} />
+        <Fact
+          label='PRESENT dibayar'
+          value={preview.summary.payablePresentDays}
+        />
+        <Fact
+          label='PRESENT nonkerja'
+          value={preview.summary.offdayPresentDays}
+        />
+      </div>
+      <div className='grid grid-cols-3 gap-2 rounded-md bg-muted/40 p-2 text-sm'>
+        <Fact
+          label='Estimasi bruto'
+          value={Number(preview.summary.estimatedGrossAmount)}
+          money
+        />
+        <Fact
+          label='Estimasi potongan'
+          value={Number(preview.summary.estimatedDeductionAmount)}
+          money
+        />
+        <Fact
+          label='Estimasi neto'
+          value={Number(preview.summary.estimatedNetAmount)}
+          money
+        />
+      </div>
+      {preview.summary.offdayPresentDays > 0 ? (
+        <p className='rounded-md bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200'>
+          PRESENT pada hari nonkerja tetap dibayar dan ditandai untuk review.
+        </p>
+      ) : null}
+      {preview.readiness.blockers.length > 0 ? (
+        <div className='space-y-1 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs'>
+          {preview.readiness.blockers.slice(0, 3).map((item) => (
+            <p key={item.code} className='text-destructive'>
+              {item.message}
+              {item.count > 1 ? ` (${item.count})` : ''}
+            </p>
+          ))}
+          {preview.readiness.blockers.length > 3 ? (
+            <p className='text-muted-foreground'>
+              +{preview.readiness.blockers.length - 3} pemeriksaan lain setelah
+              Draft disimpan.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      <p className='text-xs text-muted-foreground'>
+        Preview ini belum membuat run Payroll atau hasil finansial permanen.
+      </p>
+    </div>
+  )
+}
+
 function PeriodDetailSheet({
   uid,
   open,
@@ -813,7 +1052,9 @@ function PeriodDetailSheet({
   canCalculate: boolean
 }) {
   const detail = usePayrollPeriod(uid)
+  const employees = usePayrollPeriodEmployees(uid)
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [employee, setEmployee] = useState<PayrollPeriodReadinessEmployee>()
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
@@ -842,6 +1083,12 @@ function PeriodDetailSheet({
                     <p className='text-xs text-muted-foreground'>
                       {detail.data.site.name} · {detail.data.periodCode}
                     </p>
+                    <p className='mt-1 text-xs font-medium text-primary'>
+                      {employeeTypeLabel(detail.data.employeeType)} ·{' '}
+                      {detail.data.payFrequency === 'WEEKLY'
+                        ? 'Mingguan'
+                        : 'Bulanan'}
+                    </p>
                   </div>
                   <StatusBadge status={detail.data.status} />
                 </div>
@@ -853,18 +1100,7 @@ function PeriodDetailSheet({
                   Pembayaran: {dateLabel(detail.data.paymentDate)}
                 </p>
               </div>
-              <div className='grid grid-cols-2 gap-2'>
-                <Metric
-                  label='Populasi'
-                  value={detail.data.readiness.populationCount}
-                  icon={Users}
-                />
-                <Metric
-                  label='Dari Produksi'
-                  value={detail.data.readiness.productionEmployeeCount}
-                  icon={CircleDollarSign}
-                />
-              </div>
+              <SchemeMetrics period={detail.data} />
               <section className='space-y-2'>
                 <div className='flex items-center justify-between gap-2'>
                   <h3 className='font-semibold'>Kesiapan periode</h3>
@@ -883,6 +1119,51 @@ function PeriodDetailSheet({
                   empty='Tidak ada peringatan.'
                 />
               </section>
+              {employees.data?.data.length ? (
+                <section className='space-y-2'>
+                  <div>
+                    <h3 className='font-semibold'>Kesiapan per karyawan</h3>
+                    <p className='text-xs text-muted-foreground'>
+                      Pilih karyawan untuk melihat tanggal eligible, alasan, dan
+                      tindak lanjut yang diperlukan.
+                    </p>
+                  </div>
+                  <div className='max-h-72 space-y-1 overflow-y-auto rounded-lg border p-1'>
+                    {employees.data.data.map((item) => (
+                      <button
+                        key={item.employeeUid}
+                        type='button'
+                        onClick={() => setEmployee(item)}
+                        className='flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring'
+                      >
+                        <span className='min-w-0'>
+                          <span className='block truncate text-sm font-medium'>
+                            {item.fullName}
+                          </span>
+                          <span className='block text-xs text-muted-foreground'>
+                            {item.employeeNumber} ·{' '}
+                            {dateLabel(item.eligibleFrom)}–
+                            {dateLabel(item.eligibleTo)}
+                          </span>
+                        </span>
+                        <Badge
+                          variant={
+                            item.baseCoverage === 'COVERED' &&
+                            item.contractCoverage === 'VALID'
+                              ? 'secondary'
+                              : 'destructive'
+                          }
+                        >
+                          {item.baseCoverage === 'COVERED' &&
+                          item.contractCoverage === 'VALID'
+                            ? 'Siap'
+                            : 'Periksa'}
+                        </Badge>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
               <section className='rounded-lg border p-4'>
                 <h3 className='font-semibold'>Fakta Produksi & Komponen</h3>
                 <dl className='mt-2 grid grid-cols-2 gap-2 text-sm'>
@@ -971,8 +1252,162 @@ function PeriodDetailSheet({
         uid={uid}
         onCancelled={() => onOpenChange(false)}
       />
+      <EmployeeReadinessSheet
+        employee={employee}
+        open={Boolean(employee)}
+        onOpenChange={(next) => !next && setEmployee(undefined)}
+      />
     </>
   )
+}
+
+function SchemeMetrics({
+  period,
+}: {
+  period: import('./domain').PayrollPeriodDetail
+}) {
+  const timeBased = period.payrollBasis === 'TIME_BASED'
+  const facts = period.readiness.facts
+  return (
+    <div className='grid grid-cols-2 gap-2'>
+      <Metric
+        label='Populasi'
+        value={period.readiness.populationCount}
+        icon={Users}
+      />
+      <Metric
+        label={timeBased ? 'Hari PRESENT dibayar' : 'Dari Produksi'}
+        value={
+          timeBased
+            ? (facts.payablePresentDays ?? 0)
+            : period.readiness.productionEmployeeCount
+        }
+        icon={timeBased ? CheckCircle2 : CircleDollarSign}
+      />
+      {timeBased && (facts.offdayPresentDays ?? 0) > 0 ? (
+        <div className='col-span-2 rounded-lg border border-amber-300 bg-amber-50/70 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200'>
+          <strong>{facts.offdayPresentDays}</strong> kehadiran tercatat pada
+          hari nonkerja. Kehadiran aktual tetap dibayar, tetapi perlu ditinjau.
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function EmployeeReadinessSheet({
+  employee,
+  open,
+  onOpenChange,
+}: {
+  employee?: PayrollPeriodReadinessEmployee
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const blockers = (employee?.issues ?? [])
+    .filter((issue) => issue.severity === 'BLOCKER')
+    .map((issue) => ({ ...issue, group: employeeIssueGroup(issue.code) }))
+  const warnings = (employee?.issues ?? [])
+    .filter((issue) => issue.severity === 'WARNING')
+    .map((issue) => ({ ...issue, group: employeeIssueGroup(issue.code) }))
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className='w-full overflow-y-auto sm:max-w-md'>
+        <SheetHeader>
+          <SheetTitle>Detail Kesiapan Karyawan</SheetTitle>
+          <SheetDescription>
+            Tanggal dan alasan di bawah berasal dari sumber Payroll terbaru.
+          </SheetDescription>
+        </SheetHeader>
+        {employee ? (
+          <div className='mt-5 space-y-4'>
+            <div className='rounded-lg border p-4'>
+              <p className='font-semibold'>{employee.fullName}</p>
+              <p className='text-sm text-muted-foreground'>
+                {employee.employeeNumber} ·{' '}
+                {employeeTypeLabels[employee.employeeType]}
+              </p>
+              <p className='mt-3 text-sm'>
+                Eligible {dateLabel(employee.eligibleFrom)}–
+                {dateLabel(employee.eligibleTo)}
+              </p>
+            </div>
+            <div className='grid grid-cols-2 gap-2'>
+              <Metric
+                label='PRESENT dibayar'
+                value={employee.payablePresentDays}
+                icon={CheckCircle2}
+              />
+              <Metric
+                label='PRESENT nonkerja'
+                value={employee.offdayPresentDays}
+                icon={AlertTriangle}
+              />
+              <Metric label='Alpha' value={employee.alphaDays} icon={Ban} />
+              <Metric
+                label='Izin'
+                value={employee.permissionDays}
+                icon={FileClock}
+              />
+            </div>
+            <section className='grid grid-cols-3 gap-2 rounded-lg border p-3 text-sm'>
+              <Fact
+                label='Estimasi bruto'
+                value={Number(employee.estimatedGrossAmount)}
+                money
+              />
+              <Fact
+                label='Potongan'
+                value={Number(employee.estimatedDeductionAmount)}
+                money
+              />
+              <Fact
+                label='Estimasi neto'
+                value={Number(employee.estimatedNetAmount)}
+                money
+              />
+            </section>
+            <section className='rounded-lg border p-4 text-sm'>
+              <h3 className='font-semibold'>Coverage sumber</h3>
+              <dl className='mt-2 space-y-2'>
+                <div className='flex justify-between gap-3'>
+                  <dt className='text-muted-foreground'>Tarif / gaji</dt>
+                  <dd className='font-medium'>{employee.baseCoverage}</dd>
+                </div>
+                <div className='flex justify-between gap-3'>
+                  <dt className='text-muted-foreground'>Kontrak</dt>
+                  <dd className='font-medium'>{employee.contractCoverage}</dd>
+                </div>
+              </dl>
+            </section>
+            {blockers.length ? (
+              <IssueGroup
+                title='Harus diperbaiki'
+                items={blockers}
+                tone='danger'
+                empty=''
+              />
+            ) : null}
+            {warnings.length ? (
+              <IssueGroup
+                title='Perlu ditinjau'
+                items={warnings}
+                tone='warning'
+                empty=''
+              />
+            ) : null}
+          </div>
+        ) : null}
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+function employeeIssueGroup(code: string) {
+  if (code.includes('ATTENDANCE') || code.includes('OFFDAY'))
+    return 'ATTENDANCE'
+  if (code.includes('CONTRACT')) return 'EMPLOYMENT'
+  return 'RATE'
 }
 
 function Metric({
@@ -994,11 +1429,21 @@ function Metric({
     </div>
   )
 }
-function Fact({ label, value }: { label: string; value: number }) {
+function Fact({
+  label,
+  value,
+  money = false,
+}: {
+  label: string
+  value: number
+  money?: boolean
+}) {
   return (
     <div>
       <dt className='text-xs text-muted-foreground'>{label}</dt>
-      <dd className='font-semibold'>{value.toLocaleString('id-ID')}</dd>
+      <dd className='font-semibold'>
+        {money ? rupiah(value) : value.toLocaleString('id-ID')}
+      </dd>
     </div>
   )
 }

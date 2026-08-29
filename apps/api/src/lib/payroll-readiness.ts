@@ -1,5 +1,6 @@
 import type { RowDataPacket } from 'mysql2'
 import type { Pool, PoolConnection } from 'mysql2/promise'
+import { previewTimeBasedPopulation } from './payroll-period-resolver.js'
 
 export type PayrollReadinessStatus = 'READY' | 'ATTENTION' | 'BLOCKED'
 
@@ -13,6 +14,8 @@ export type PayrollReadinessIssue = {
     | 'ATTENDANCE'
     | 'EMPLOYMENT'
     | 'PRODUCTION'
+    | 'POLICY'
+    | 'RATE'
     | 'COMPONENT'
     | 'PAYMENT'
   actionUrl: string | null
@@ -43,7 +46,22 @@ export type PayrollReadiness = {
     activeComponentCount: number
     recurringComponentCount: number
     missingEmploymentHistoryEmployees: number
-    attendance: { absent: number; late: number; earlyLeave: number }
+    timeBasedEmployeeCount: number
+    payablePresentDays: number
+    offdayPresentDays: number
+    missingBaseAmountEmployees: number
+    ambiguousBaseAmountEmployees: number
+    invalidContractEmployees: number
+    duplicateAttendanceEmployees: number
+    missingAttendanceEmployees: number
+    unsupportedCurrencyEmployees: number
+    invalidSalarySegmentEmployees: number
+    attendance: {
+      absent: number
+      permission?: number
+      late: number
+      earlyLeave: number
+    }
   }
 }
 
@@ -54,6 +72,22 @@ type PeriodScope = {
   siteId: number
   periodStart: string
   periodEnd: string
+  payrollBasis?: 'PIECE_RATE' | 'TIME_BASED'
+  payFrequency?: 'WEEKLY' | 'MONTHLY'
+  employeeType?: 'BORONGAN' | 'HARIAN' | 'TRAINING' | 'BULANAN' | null
+  policySnapshot?: unknown
+  timePreviewRows?: Awaited<ReturnType<typeof previewTimeBasedPopulation>>
+}
+
+function policySnapshotMatchesPeriod(period: PeriodScope) {
+  if (!period.policySnapshot || typeof period.policySnapshot !== 'object')
+    return false
+  const snapshot = period.policySnapshot as Record<string, unknown>
+  return (
+    snapshot.employeeType === period.employeeType &&
+    snapshot.wageBasis === period.payrollBasis &&
+    snapshot.payFrequency === period.payFrequency
+  )
 }
 
 function number(value: unknown) {
@@ -71,7 +105,7 @@ function issue(
   return { code, message, count, severity, group, actionUrl }
 }
 
-export async function evaluatePayrollReadiness(
+async function evaluatePieceRatePayrollReadiness(
   executor: Executor,
   period: PeriodScope
 ): Promise<PayrollReadiness> {
@@ -528,7 +562,426 @@ export async function evaluatePayrollReadiness(
       activeComponentCount,
       recurringComponentCount: activeComponentCount,
       missingEmploymentHistoryEmployees,
+      timeBasedEmployeeCount: 0,
+      payablePresentDays: 0,
+      offdayPresentDays: 0,
+      missingBaseAmountEmployees: 0,
+      ambiguousBaseAmountEmployees: 0,
+      invalidContractEmployees: 0,
+      duplicateAttendanceEmployees: 0,
+      missingAttendanceEmployees: 0,
+      unsupportedCurrencyEmployees: 0,
+      invalidSalarySegmentEmployees: 0,
       attendance: { absent, late, earlyLeave },
     },
   }
+}
+
+async function evaluateTimeBasedPayrollReadiness(
+  executor: Executor,
+  period: PeriodScope
+): Promise<PayrollReadiness> {
+  const employeeType = period.employeeType
+  if (
+    employeeType !== 'HARIAN' &&
+    employeeType !== 'TRAINING' &&
+    employeeType !== 'BULANAN'
+  ) {
+    throw new Error(
+      'Periode TIME_BASED wajib memiliki jenis karyawan HARIAN, TRAINING, atau BULANAN.'
+    )
+  }
+  const rows =
+    period.timePreviewRows ??
+    (await previewTimeBasedPopulation(executor, {
+      periodId: period.id,
+      siteId: period.siteId,
+      employeeType,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+    }))
+  const [integrityRows] = await executor.query<RowDataPacket[]>(
+    `SELECT CURRENT_DATE() dbToday,
+       (SELECT COUNT(*) FROM attendance_corrections correction
+         JOIN attendance_records attendance ON attendance.id=correction.attendance_record_id
+        WHERE attendance.site_id=? AND attendance.business_date BETWEEN ? AND ?
+          AND correction.approval_status='PENDING') pendingCorrections,
+       (SELECT COUNT(*) FROM attendance_classification_requests request
+        WHERE request.site_id=? AND request.start_date<=? AND request.end_date>=?
+          AND request.approval_status='PENDING') pendingClassifications,
+       (SELECT COUNT(DISTINCT first_history.employee_id)
+          FROM employee_employment_histories first_history
+          JOIN employee_types first_type ON first_type.id=first_history.employee_type_id AND first_type.code=?
+          JOIN employee_employment_histories second_history ON second_history.employee_id=first_history.employee_id
+             AND second_history.id>first_history.id
+             AND second_history.effective_from<=COALESCE(first_history.effective_to,'9999-12-31')
+             AND first_history.effective_from<=COALESCE(second_history.effective_to,'9999-12-31')
+         WHERE (first_history.site_id=? OR second_history.site_id=?)
+           AND first_history.effective_from<=? AND COALESCE(first_history.effective_to,'9999-12-31')>=?
+           AND second_history.effective_from<=? AND COALESCE(second_history.effective_to,'9999-12-31')>=?) ambiguousEmployment,
+       (SELECT COUNT(*) FROM employee_payroll_components component
+          JOIN payroll_component_types component_type ON component_type.id=component.payroll_component_type_id
+         WHERE component.is_active=1 AND component_type.calculation_method='FORMULA'
+           AND component.effective_from<=? AND (component.effective_to IS NULL OR component.effective_to>=?)
+           AND EXISTS (SELECT 1 FROM employee_employment_histories history
+             JOIN employee_types history_type ON history_type.id=history.employee_type_id AND history_type.code=?
+            WHERE history.employee_id=component.employee_id AND history.site_id=?
+              AND history.effective_from<=? AND (history.effective_to IS NULL OR history.effective_to>=?))) unsupportedFormula,
+       (SELECT COUNT(*) FROM payroll_period_manual_components manual
+         WHERE manual.payroll_period_id=? AND manual.status='ACTIVE') activeManualComponents`,
+    [
+      period.siteId,
+      period.periodStart,
+      period.periodEnd,
+      period.siteId,
+      period.periodEnd,
+      period.periodStart,
+      employeeType,
+      period.siteId,
+      period.siteId,
+      period.periodEnd,
+      period.periodStart,
+      period.periodEnd,
+      period.periodStart,
+      period.periodEnd,
+      period.periodStart,
+      employeeType,
+      period.siteId,
+      period.periodEnd,
+      period.periodStart,
+      period.id,
+    ]
+  )
+  const [attendanceRows] = await executor.query<RowDataPacket[]>(
+    `WITH RECURSIVE dates AS (
+       SELECT CAST(? AS DATE) business_date
+       UNION ALL SELECT DATE_ADD(business_date,INTERVAL 1 DAY) FROM dates WHERE business_date<?
+     ), expected AS (
+       SELECT dates.business_date
+         FROM dates
+        WHERE EXISTS (SELECT 1 FROM employee_shift_assignments assignment
+          JOIN employee_employment_histories history ON history.employee_id=assignment.employee_id
+          JOIN employee_types employee_type ON employee_type.id=history.employee_type_id AND employee_type.code=?
+          JOIN employee_statuses employee_status ON employee_status.id=history.employee_status_id AND employee_status.allows_attendance=1
+         WHERE history.site_id=? AND assignment.effective_from<=dates.business_date
+           AND (assignment.effective_to IS NULL OR assignment.effective_to>=dates.business_date)
+           AND history.effective_from<=dates.business_date AND (history.effective_to IS NULL OR history.effective_to>=dates.business_date)
+           AND JSON_CONTAINS(assignment.work_days_json,CAST((((DAYOFWEEK(dates.business_date)+5)%7)+1) AS CHAR),'$'))
+     ) SELECT COUNT(*) expectedDays,COALESCE(SUM(latest.status='SUCCEEDED'),0) finalizedDays,
+              COALESCE(SUM(latest.status='RUNNING'),0) runningDays
+         FROM expected LEFT JOIN attendance_daily_finalization_runs latest ON latest.id=(
+           SELECT MAX(candidate.id) FROM attendance_daily_finalization_runs candidate
+            WHERE candidate.site_id=? AND candidate.business_date=expected.business_date)`,
+    [
+      period.periodStart,
+      period.periodEnd,
+      employeeType,
+      period.siteId,
+      period.siteId,
+    ]
+  )
+  const integrity = integrityRows[0] ?? {}
+  const attendance = attendanceRows[0] ?? {}
+  const blockers: PayrollReadinessIssue[] = []
+  const warnings: PayrollReadinessIssue[] = []
+  const periodFinished = String(integrity.dbToday ?? '') > period.periodEnd
+  const expectedAttendanceDays = number(attendance.expectedDays)
+  const finalizedAttendanceDays = number(attendance.finalizedDays)
+  const missingBaseAmountEmployees = rows.filter(
+    (row) => row.missingBaseDays > 0
+  ).length
+  const ambiguousBaseAmountEmployees = rows.filter(
+    (row) => row.ambiguousBaseDays > 0
+  ).length
+  const invalidContractEmployees = rows.filter(
+    (row) => row.invalidContractDays > 0
+  ).length
+  const duplicateAttendanceEmployees = rows.filter(
+    (row) => row.duplicateAttendanceDays > 0
+  ).length
+  const missingAttendanceEmployees = rows.filter(
+    (row) => row.missingAttendanceDays > 0
+  ).length
+  const unsupportedCurrencyEmployees = rows.filter(
+    (row) => row.unsupportedCurrencyDays > 0
+  ).length
+  const invalidSalarySegmentEmployees =
+    employeeType === 'BULANAN'
+      ? rows.filter((row) => row.rateSegmentCount > 1).length
+      : 0
+  const missingBankAccounts = rows.filter(
+    (row) => !row.bankAccountComplete
+  ).length
+  if (!period.policySnapshot)
+    blockers.push(
+      issue(
+        'POLICY_SNAPSHOT_MISSING',
+        'Snapshot policy Payroll periode tidak ditemukan.',
+        1,
+        'BLOCKER',
+        'PERIOD',
+        '/payroll/skema-upah'
+      )
+    )
+  else if (!policySnapshotMatchesPeriod(period))
+    blockers.push(
+      issue(
+        'POLICY_SNAPSHOT_MISMATCH',
+        'Snapshot policy tidak sesuai jenis karyawan, basis upah, atau frekuensi periode.',
+        1,
+        'BLOCKER',
+        'POLICY',
+        '/payroll/skema-upah'
+      )
+    )
+  if (!periodFinished)
+    blockers.push(
+      issue(
+        'PERIOD_NOT_ENDED',
+        'Periode Payroll belum selesai.',
+        1,
+        'BLOCKER',
+        'PERIOD',
+        null
+      )
+    )
+  if (expectedAttendanceDays !== finalizedAttendanceDays)
+    blockers.push(
+      issue(
+        'ATTENDANCE_NOT_FINALIZED',
+        'Finalisasi Attendance untuk hari kerja terjadwal belum lengkap.',
+        Math.max(0, expectedAttendanceDays - finalizedAttendanceDays),
+        'BLOCKER',
+        'ATTENDANCE',
+        '/attendance/monitoring-harian'
+      )
+    )
+  if (number(attendance.runningDays) > 0)
+    blockers.push(
+      issue(
+        'ATTENDANCE_FINALIZATION_RUNNING',
+        'Finalisasi Attendance masih berjalan.',
+        number(attendance.runningDays),
+        'BLOCKER',
+        'ATTENDANCE',
+        '/attendance/monitoring-harian'
+      )
+    )
+  if (number(integrity.pendingCorrections) > 0)
+    blockers.push(
+      issue(
+        'PENDING_ATTENDANCE_CORRECTION',
+        'Masih ada koreksi Attendance yang menunggu keputusan.',
+        number(integrity.pendingCorrections),
+        'BLOCKER',
+        'ATTENDANCE',
+        '/attendance/tindak-lanjut'
+      )
+    )
+  if (number(integrity.pendingClassifications) > 0)
+    blockers.push(
+      issue(
+        'PENDING_ATTENDANCE_CLASSIFICATION',
+        'Masih ada klasifikasi Attendance yang menunggu keputusan.',
+        number(integrity.pendingClassifications),
+        'BLOCKER',
+        'ATTENDANCE',
+        '/attendance/tindak-lanjut'
+      )
+    )
+  if (number(integrity.ambiguousEmployment) > 0)
+    blockers.push(
+      issue(
+        'AMBIGUOUS_EMPLOYMENT',
+        'Histori employment bertumpang-tindih pada periode ini.',
+        number(integrity.ambiguousEmployment),
+        'BLOCKER',
+        'EMPLOYMENT',
+        '/karyawan/data-karyawan'
+      )
+    )
+  if (!rows.length)
+    blockers.push(
+      issue(
+        'EMPTY_POPULATION',
+        'Tidak ada karyawan eligible untuk jenis dan periode Payroll ini.',
+        1,
+        'BLOCKER',
+        'PERIOD',
+        null
+      )
+    )
+  if (missingBaseAmountEmployees)
+    blockers.push(
+      issue(
+        'BASE_RATE_MISSING',
+        'Tarif harian atau gaji pokok belum mencakup seluruh tanggal eligible.',
+        missingBaseAmountEmployees,
+        'BLOCKER',
+        'RATE',
+        '/payroll/skema-upah'
+      )
+    )
+  if (ambiguousBaseAmountEmployees)
+    blockers.push(
+      issue(
+        'BASE_RATE_AMBIGUOUS',
+        'Lebih dari satu tarif harian atau gaji pokok berlaku pada tanggal yang sama.',
+        ambiguousBaseAmountEmployees,
+        'BLOCKER',
+        'RATE',
+        '/payroll/skema-upah'
+      )
+    )
+  if (invalidContractEmployees)
+    blockers.push(
+      issue(
+        'CONTRACT_MATRIX_INVALID',
+        'Kontrak efektif tidak sesuai matriks jenis karyawan.',
+        invalidContractEmployees,
+        'BLOCKER',
+        'EMPLOYMENT',
+        '/karyawan/kontrak'
+      )
+    )
+  if (duplicateAttendanceEmployees)
+    blockers.push(
+      issue(
+        'ATTENDANCE_DUPLICATE',
+        'Terdapat fakta Attendance ganda pada tanggal yang sama.',
+        duplicateAttendanceEmployees,
+        'BLOCKER',
+        'ATTENDANCE',
+        '/attendance/rekap'
+      )
+    )
+  if (missingAttendanceEmployees)
+    blockers.push(
+      issue(
+        'ATTENDANCE_MISSING',
+        'Fakta Attendance hari kerja belum tersedia.',
+        missingAttendanceEmployees,
+        'BLOCKER',
+        'ATTENDANCE',
+        '/attendance/monitoring-harian'
+      )
+    )
+  if (unsupportedCurrencyEmployees)
+    blockers.push(
+      issue(
+        'CURRENCY_UNSUPPORTED',
+        'Tarif harian atau gaji pokok memakai mata uang yang belum didukung.',
+        unsupportedCurrencyEmployees,
+        'BLOCKER',
+        'RATE',
+        '/payroll/skema-upah'
+      )
+    )
+  if (invalidSalarySegmentEmployees)
+    blockers.push(
+      issue(
+        'SALARY_SEGMENT_INVALID',
+        'Perubahan gaji pokok ditemukan di tengah periode. Gaji baru wajib mulai pada awal periode Payroll.',
+        invalidSalarySegmentEmployees,
+        'BLOCKER',
+        'RATE',
+        '/payroll/skema-upah'
+      )
+    )
+  if (number(integrity.unsupportedFormula) > 0)
+    blockers.push(
+      issue(
+        'UNSUPPORTED_FORMULA_COMPONENT',
+        'Ada komponen formula yang belum didukung.',
+        number(integrity.unsupportedFormula),
+        'BLOCKER',
+        'COMPONENT',
+        null
+      )
+    )
+  if (missingBankAccounts)
+    warnings.push(
+      issue(
+        'MISSING_BANK_ACCOUNT',
+        'Data rekening sebagian karyawan belum lengkap.',
+        missingBankAccounts,
+        'WARNING',
+        'PAYMENT',
+        '/karyawan/data-karyawan'
+      )
+    )
+  const offdayPresentDays = rows.reduce(
+    (sum, row) => sum + row.offdayPresentDays,
+    0
+  )
+  if (offdayPresentDays)
+    warnings.push(
+      issue(
+        'OFFDAY_PRESENT_PAYABLE',
+        'Kehadiran PRESENT pada hari nonkerja tetap dihitung sebagai hari dibayar.',
+        offdayPresentDays,
+        'WARNING',
+        'ATTENDANCE',
+        '/attendance/rekap'
+      )
+    )
+  const payablePresentDays = rows.reduce(
+    (sum, row) => sum + row.payablePresentDays,
+    0
+  )
+  const alpha = rows.reduce((sum, row) => sum + row.alphaDays, 0)
+  const permission = rows.reduce((sum, row) => sum + row.permissionDays, 0)
+  return {
+    status: blockers.length
+      ? 'BLOCKED'
+      : warnings.length
+        ? 'ATTENTION'
+        : 'READY',
+    evaluatedAt: new Date().toISOString(),
+    populationCount: rows.length,
+    productionEmployeeCount: 0,
+    componentOnlyEmployeeCount: 0,
+    blockerCount: blockers.length,
+    warningCount: warnings.length,
+    blockers,
+    warnings,
+    facts: {
+      periodFinished,
+      expectedAttendanceDays,
+      finalizedAttendanceDays,
+      pendingAttendanceCorrections: number(integrity.pendingCorrections),
+      pendingAttendanceClassifications: number(
+        integrity.pendingClassifications
+      ),
+      ambiguousEmploymentEmployees: number(integrity.ambiguousEmployment),
+      conflictingProductionTransactions: 0,
+      unsupportedFormulaComponents: number(integrity.unsupportedFormula),
+      missingBankAccounts,
+      postedTransactionCount: 0,
+      productionGrossAmount: 0,
+      activeComponentCount: number(integrity.activeManualComponents),
+      recurringComponentCount: 0,
+      missingEmploymentHistoryEmployees: 0,
+      timeBasedEmployeeCount: rows.length,
+      payablePresentDays,
+      offdayPresentDays,
+      missingBaseAmountEmployees,
+      ambiguousBaseAmountEmployees,
+      invalidContractEmployees,
+      duplicateAttendanceEmployees,
+      missingAttendanceEmployees,
+      unsupportedCurrencyEmployees,
+      invalidSalarySegmentEmployees,
+      attendance: { absent: alpha, permission, late: 0, earlyLeave: 0 },
+    },
+  }
+}
+
+export async function evaluatePayrollReadiness(
+  executor: Executor,
+  period: PeriodScope
+): Promise<PayrollReadiness> {
+  return period.payrollBasis === 'TIME_BASED'
+    ? evaluateTimeBasedPayrollReadiness(executor, period)
+    : evaluatePieceRatePayrollReadiness(executor, period)
 }

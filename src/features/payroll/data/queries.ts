@@ -9,6 +9,8 @@ import type {
   PayrollPeriodDetail,
   PayrollPeriodMeta,
   PayrollPeriodSummary,
+  PayrollPeriodPreview,
+  PayrollPeriodReadinessEmployee,
   PayrollPeriodsResult,
   PayrollEmployeeResultDetail,
   PayrollEmployeeResultSummary,
@@ -37,6 +39,8 @@ const keys = {
   list: (input: Record<string, unknown>) =>
     [...keys.all, 'list', input] as const,
   detail: (uid: string) => [...keys.all, 'detail', uid] as const,
+  periodEmployees: (uid: string) => [...keys.detail(uid), 'employees'] as const,
+  periodPreview: () => [...keys.all, 'preview'] as const,
   runs: (periodUid: string) => [...keys.all, periodUid, 'runs'] as const,
   run: (runUid: string) => [...keys.all, 'run', runUid] as const,
   employees: (runUid: string, input: Record<string, unknown>) =>
@@ -708,11 +712,26 @@ export function usePayrollPeriod(uid?: string) {
   })
 }
 
+export function usePayrollPeriodEmployees(uid?: string) {
+  return useQuery({
+    queryKey: keys.periodEmployees(uid ?? ''),
+    queryFn: async () =>
+      (
+        await apiClient.get<{
+          data: PayrollPeriodReadinessEmployee[]
+          meta: { summary: PayrollPeriodPreview['summary'] }
+        }>(`/payroll/periods/${uid}/employees`)
+      ).data,
+    enabled: Boolean(uid),
+  })
+}
+
 export function useCreatePayrollPeriod() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (body: {
       siteUid: string
+      employeeType: 'BORONGAN' | 'HARIAN' | 'TRAINING' | 'BULANAN'
       periodStart: string
       periodEnd: string
       paymentDate?: string | null
@@ -726,6 +745,23 @@ export function useCreatePayrollPeriod() {
         )
       ).data.data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),
+  })
+}
+
+export function usePreviewPayrollPeriod() {
+  return useMutation({
+    mutationFn: async (body: {
+      siteUid: string
+      employeeType: 'BORONGAN' | 'HARIAN' | 'TRAINING' | 'BULANAN'
+      periodStart: string
+      periodEnd: string
+    }) =>
+      (
+        await apiClient.post<{ data: PayrollPeriodPreview }>(
+          '/payroll/periods/preview',
+          body
+        )
+      ).data.data,
   })
 }
 

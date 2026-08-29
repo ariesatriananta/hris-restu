@@ -90,6 +90,17 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Periode `TIME_BASED/WEEKLY` selalu Senin-Minggu dan boleh melintasi bulan.
   Periode `TIME_BASED/MONTHLY` mengikuti policy cutoff; default awal adalah
   `LAST_DAY` sehingga periodenya tanggal 1 sampai akhir bulan.
+- Periode mingguan `HARIAN` dan `TRAINING` dibuat terpisah. Pembuatan periode
+  memakai tanggal acuan, menyelesaikan tepat satu policy historis, dan menyimpan
+  snapshot policy secara atomik bersama periode Draft.
+- Kehadiran final `PRESENT` pada hari nonkerja untuk HARIAN/TRAINING tetap
+  dihitung sebagai satu hari bayar dan ditandai sebagai warning operasional.
+- Preview kesiapan berbasis waktu tidak membuat run atau hasil finansial
+  permanen. Policy, kontrak, histori tarif/gaji, Attendance, dan currency yang
+  tidak lengkap tetap menjadi blocker walaupun ada komponen manual.
+- Perubahan gaji pokok Bulanan di tengah periode atau snapshot policy yang tidak
+  cocok dengan identitas periode menjadi blocker dan wajib diperbaiki sebelum
+  perhitungan resmi.
 - Policy Payroll bersifat versioned, effective-dated, wajib per site,
   tervalidasi, dan disnapshot. Inheritance policy global/site belum digunakan
   pada M5A1 agar resolusi policy tetap tunggal. Perubahan hanya berlaku ke

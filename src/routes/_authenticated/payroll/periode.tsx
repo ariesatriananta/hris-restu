@@ -11,6 +11,9 @@ export const Route = createFileRoute('/_authenticated/payroll/periode')({
     status: z
       .array(z.enum(['DRAFT', 'CALCULATED', 'APPROVED', 'CLOSED', 'CANCELLED']))
       .optional(),
+    employeeType: z
+      .array(z.enum(['BORONGAN', 'HARIAN', 'TRAINING', 'BULANAN']))
+      .optional(),
     dateFrom: z.string().date().optional(),
     dateTo: z.string().date().optional(),
     page: z.number().int().positive().optional(),
