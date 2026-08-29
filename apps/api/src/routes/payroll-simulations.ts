@@ -820,8 +820,19 @@ payrollSimulationsRouter.get(
               result.piece_rate_amount pieceRateAmount,result.basic_salary_amount basicSalaryAmount,
               result.additional_earnings additionalEarnings,
               result.gross_earnings grossEarnings,result.total_deductions totalDeductions,result.net_pay netPay,
-              result.bank_name_snapshot bankName,result.bank_account_number_snapshot bankAccountNumber
-         FROM payroll_employee_results result WHERE ${where.join(' AND ')}
+              result.bank_name_snapshot bankName,result.bank_account_number_snapshot bankAccountNumber,
+              monthly.full_basic_salary_snapshot fullBasicSalary,
+              monthly.eligible_calendar_days eligibleCalendarDays,
+              monthly.period_calendar_days periodCalendarDays,
+              monthly.prorated_basic_salary proratedBasicSalary,
+              monthly.scheduled_work_days scheduledWorkDays,
+              monthly.alpha_days alphaDays,monthly.permission_days permissionDays,
+              monthly.alpha_deduction alphaDeduction,
+              monthly.permission_deduction permissionDeduction
+         FROM payroll_employee_results result
+         LEFT JOIN payroll_monthly_summaries monthly
+           ON monthly.payroll_employee_result_id=result.id
+        WHERE ${where.join(' AND ')}
         ORDER BY result.employee_name_snapshot,result.employee_number_snapshot LIMIT ? OFFSET ?`,
         [...values, pageSize, (page - 1) * pageSize]
       )
@@ -842,6 +853,20 @@ payrollSimulationsRouter.get(
         grossEarnings: amount(row.grossEarnings),
         totalDeductions: amount(row.totalDeductions),
         netPay: amount(row.netPay),
+        monthly:
+          row.fullBasicSalary == null
+            ? null
+            : {
+                fullBasicSalary: amount(row.fullBasicSalary),
+                eligibleCalendarDays: Number(row.eligibleCalendarDays),
+                periodCalendarDays: Number(row.periodCalendarDays),
+                proratedBasicSalary: amount(row.proratedBasicSalary),
+                scheduledWorkDays: Number(row.scheduledWorkDays),
+                alphaDays: Number(row.alphaDays),
+                permissionDays: Number(row.permissionDays),
+                alphaDeduction: amount(row.alphaDeduction),
+                permissionDeduction: amount(row.permissionDeduction),
+              },
         issues: [
           ...(String(row.netPay).trim().startsWith('-')
             ? ['NEGATIVE_NET']
@@ -913,6 +938,39 @@ payrollSimulationsRouter.get(
            FROM payroll_training_production_details detail
           WHERE detail.payroll_employee_result_id=?
           ORDER BY detail.business_date,detail.transaction_number_snapshot`,
+        [result.id]
+      )
+      const [monthlyRows] = await pool.query<RowDataPacket[]>(
+        `SELECT summary.full_basic_salary_snapshot fullBasicSalary,
+                summary.currency_snapshot currency,
+                summary.eligible_calendar_days eligibleCalendarDays,
+                summary.period_calendar_days periodCalendarDays,
+                summary.prorated_basic_salary proratedBasicSalary,
+                summary.scheduled_work_days scheduledWorkDays,
+                summary.alpha_days alphaDays,summary.permission_days permissionDays,
+                summary.alpha_deduction alphaDeduction,
+                summary.permission_deduction permissionDeduction,
+                salary.uid salaryHistoryUid,
+                DATE_FORMAT(salary.effective_from,'%Y-%m-%d') salaryEffectiveFrom
+           FROM payroll_monthly_summaries summary
+           JOIN employee_salary_histories salary
+             ON salary.id=summary.employee_salary_history_id
+          WHERE summary.payroll_employee_result_id=?`,
+        [result.id]
+      )
+      const [monthlyDailyRows] = await pool.query<RowDataPacket[]>(
+        `SELECT DATE_FORMAT(detail.business_date,'%Y-%m-%d') businessDate,
+                detail.attendance_status_snapshot attendanceStatus,
+                detail.calendar_day_type_snapshot calendarDayType,
+                detail.calendar_reason_type_snapshot calendarReasonType,
+                detail.is_scheduled isScheduled,
+                detail.deduction_type deductionType,
+                detail.full_basic_salary_snapshot fullBasicSalary,
+                detail.currency_snapshot currency,
+                detail.worked_minutes_snapshot workedMinutes
+           FROM payroll_monthly_daily_details detail
+          WHERE detail.payroll_employee_result_id=?
+          ORDER BY detail.business_date,detail.id`,
         [result.id]
       )
       const [components] = await pool.query<RowDataPacket[]>(
@@ -988,6 +1046,40 @@ payrollSimulationsRouter.get(
             unitName: row.unitName,
             quantity: String(row.quantity),
           })),
+          monthlyDetail: monthlyRows[0]
+            ? {
+                fullBasicSalary: amount(monthlyRows[0].fullBasicSalary),
+                currency: monthlyRows[0].currency,
+                eligibleCalendarDays: Number(
+                  monthlyRows[0].eligibleCalendarDays
+                ),
+                periodCalendarDays: Number(monthlyRows[0].periodCalendarDays),
+                proratedBasicSalary: amount(
+                  monthlyRows[0].proratedBasicSalary
+                ),
+                scheduledWorkDays: Number(monthlyRows[0].scheduledWorkDays),
+                alphaDays: Number(monthlyRows[0].alphaDays),
+                permissionDays: Number(monthlyRows[0].permissionDays),
+                alphaDeduction: amount(monthlyRows[0].alphaDeduction),
+                permissionDeduction: amount(
+                  monthlyRows[0].permissionDeduction
+                ),
+                salaryHistoryUid: monthlyRows[0].salaryHistoryUid,
+                salaryEffectiveFrom: monthlyRows[0].salaryEffectiveFrom,
+              }
+            : null,
+          monthlyDailyDetails: monthlyDailyRows.map((row) => ({
+            businessDate: row.businessDate,
+            attendanceStatus: row.attendanceStatus,
+            calendarDayType: row.calendarDayType,
+            calendarReasonType: row.calendarReasonType,
+            isScheduled: Number(row.isScheduled) === 1,
+            deductionType: row.deductionType,
+            fullBasicSalary: amount(row.fullBasicSalary),
+            currency: row.currency,
+            workedMinutes:
+              row.workedMinutes == null ? null : Number(row.workedMinutes),
+          })),
           components: components.map((row) => ({
             ...row,
             amount: amount(row.amount),
@@ -999,13 +1091,19 @@ payrollSimulationsRouter.get(
                 ? 'SUM(snapshot Produksi POSTED)'
                 : null,
             timeBased:
-              run.payrollBasis === 'TIME_BASED'
+              run.payrollBasis === 'TIME_BASED' &&
+              run.payFrequency === 'WEEKLY'
                 ? 'ROUND(HALF_UP, SUM(tarif harian pada Attendance PRESENT), Rp1)'
+                : null,
+            monthly:
+              run.payrollBasis === 'TIME_BASED' &&
+              run.payFrequency === 'MONTHLY'
+                ? 'Prorata = ROUND(gaji pokok x hari kalender eligible / hari kalender periode, Rp1); potongan Alpha dan Izin dibulatkan terpisah dari gaji pokok / hari kerja terjadwal.'
                 : null,
             recurring:
               run.payrollBasis === 'PIECE_RATE'
                 ? 'Nominal penuh satu kali bila efektif overlap periode'
-                : 'Tidak digunakan pada TIME_BASED M5B',
+                : 'Tidak digunakan pada TIME_BASED M5B/M5C',
             manual: 'Komponen ACTIVE pada periode',
             net: 'grossEarnings - totalDeductions',
           },

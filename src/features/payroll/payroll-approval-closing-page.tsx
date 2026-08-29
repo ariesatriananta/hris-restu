@@ -74,7 +74,13 @@ import type {
   PayrollPeriodSummary,
   PayrollWorkflow,
 } from './domain'
-import { addDecimalStrings, formatDecimalString } from './money'
+import { formatDecimalString } from './money'
+import {
+  payrollBaseAmount,
+  payrollBaseLabel,
+  payrollGrossAmount,
+  payrollSchemeName,
+} from './payroll-presentation'
 import {
   isRecalculationIssue,
   payrollApprovalStatusLabel,
@@ -144,11 +150,11 @@ export function PayrollApprovalClosingPage({
   const meta = usePayrollPeriodMeta()
   const queue = usePayrollApprovalQueue(
     {
-    status: 'PENDING',
-    siteCode,
-    query: query || undefined,
-    page,
-    pageSize,
+      status: 'PENDING',
+      siteCode,
+      query: query || undefined,
+      page,
+      pageSize,
     },
     status === 'PENDING'
   )
@@ -169,15 +175,13 @@ export function PayrollApprovalClosingPage({
       ? (queue.data?.meta.total ?? 0)
       : (periods.data?.meta.total ?? 0)
   const shown =
-    status === 'PENDING'
-      ? queue.data?.data.length
-      : periods.data?.data.length
+    status === 'PENDING' ? queue.data?.data.length : periods.data?.data.length
 
   return (
     <Main>
       <div className='space-y-4'>
         <header>
-          <p className='text-sm font-medium text-primary'>Payroll Borongan</p>
+          <p className='text-sm font-medium text-primary'>Payroll</p>
           <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
             Approval & Closing
           </h1>
@@ -363,6 +367,9 @@ function PendingCard({
           <p className='text-sm text-muted-foreground'>
             {item.siteName} / {item.periodCode} / Run #{item.runNumber}
           </p>
+          <Badge variant='outline' className='mt-2'>
+            {payrollSchemeName(item)}
+          </Badge>
         </div>
         <Button size='sm' variant='outline' onClick={onOpen}>
           <Eye /> Periksa
@@ -403,6 +410,9 @@ function PeriodCard({
           <p className='text-sm text-muted-foreground'>
             {item.site.name} / {item.periodCode}
           </p>
+          <Badge variant='outline' className='mt-2'>
+            {payrollSchemeName(item)}
+          </Badge>
           <p className='mt-1 text-xs text-muted-foreground'>
             {date(item.periodStart)} – {date(item.periodEnd)}
           </p>
@@ -471,10 +481,7 @@ function WorkflowSheet({
           ) : (
             <>
               <WorkflowTracker workflow={workflow.data} />
-              <PeriodSummary
-                period={period.data}
-                workflow={workflow.data}
-              />
+              <PeriodSummary period={period.data} workflow={workflow.data} />
               <IntegrityPanel workflow={workflow.data} />
               <WorkflowActions workflow={workflow.data} onAction={setAction} />
               <ApprovalHistory workflow={workflow.data} />
@@ -532,10 +539,12 @@ function PeriodSummary({
   workflow: PayrollWorkflow
 }) {
   const run = workflow.currentRun
-  const gross = addDecimalStrings(
-    run?.totalPieceRateAmount ?? '0',
-    run?.totalEarnings ?? '0'
-  )
+  const scheme = {
+    payrollBasis: workflow.payrollBasis ?? period.payrollBasis,
+    payFrequency: workflow.payFrequency ?? period.payFrequency,
+    employeeType: workflow.employeeType ?? period.employeeType,
+  }
+  const gross = run ? payrollGrossAmount(run, scheme) : '0'
   return (
     <section className='rounded-lg border p-3'>
       <div className='flex flex-wrap items-start justify-between gap-2'>
@@ -547,6 +556,7 @@ function PeriodSummary({
           </p>
         </div>
         <PeriodBadge status={workflow.periodStatus} />
+        <Badge variant='outline'>{payrollSchemeName(scheme)}</Badge>
       </div>
       <div className='mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4'>
         <Metric
@@ -564,8 +574,8 @@ function PeriodSummary({
           icon={Users}
         />
         <Metric
-          label='Hasil produksi'
-          value={money(run?.totalPieceRateAmount ?? '0')}
+          label={payrollBaseLabel(scheme)}
+          value={money(run ? payrollBaseAmount(run, scheme) : '0')}
           icon={Banknote}
         />
         <Metric
@@ -815,10 +825,12 @@ function WorkflowActionDialog({
   if (!action) return null
   const label = labels[action]
   const run = workflow.currentRun
-  const gross = addDecimalStrings(
-    run?.totalPieceRateAmount ?? '0',
-    run?.totalEarnings ?? '0'
-  )
+  const scheme = {
+    payrollBasis: workflow.payrollBasis ?? period.payrollBasis,
+    payFrequency: workflow.payFrequency ?? period.payFrequency,
+    employeeType: workflow.employeeType ?? period.employeeType,
+  }
+  const gross = run ? payrollGrossAmount(run, scheme) : '0'
 
   const execute = async () => {
     const input = {
@@ -872,8 +884,8 @@ function WorkflowActionDialog({
               value={`${workflow.currentRun?.employeeCount ?? 0}`}
             />
             <SummaryRow
-              label='Hasil produksi'
-              value={money(run?.totalPieceRateAmount ?? '0')}
+              label={payrollBaseLabel(scheme)}
+              value={money(run ? payrollBaseAmount(run, scheme) : '0')}
             />
             <SummaryRow
               label='Tambahan'

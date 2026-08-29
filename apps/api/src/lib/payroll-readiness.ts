@@ -627,6 +627,13 @@ async function evaluateTimeBasedPayrollReadiness(
              JOIN employee_types history_type ON history_type.id=history.employee_type_id AND history_type.code=?
             WHERE history.employee_id=component.employee_id AND history.site_id=?
               AND history.effective_from<=? AND (history.effective_to IS NULL OR history.effective_to>=?))) unsupportedFormula,
+       (SELECT COUNT(*) FROM employee_payroll_components component
+         WHERE component.is_active=1
+           AND component.effective_from<=? AND (component.effective_to IS NULL OR component.effective_to>=?)
+           AND EXISTS (SELECT 1 FROM employee_employment_histories history
+             JOIN employee_types history_type ON history_type.id=history.employee_type_id AND history_type.code=?
+            WHERE history.employee_id=component.employee_id AND history.site_id=?
+              AND history.effective_from<=? AND (history.effective_to IS NULL OR history.effective_to>=?))) recurringComponents,
        (SELECT COUNT(*) FROM payroll_period_manual_components manual
          WHERE manual.payroll_period_id=? AND manual.status='ACTIVE') activeManualComponents`,
     [
@@ -641,6 +648,12 @@ async function evaluateTimeBasedPayrollReadiness(
       period.siteId,
       period.periodEnd,
       period.periodStart,
+      period.periodEnd,
+      period.periodStart,
+      period.periodEnd,
+      period.periodStart,
+      employeeType,
+      period.siteId,
       period.periodEnd,
       period.periodStart,
       period.periodEnd,
@@ -701,6 +714,9 @@ async function evaluateTimeBasedPayrollReadiness(
   ).length
   const missingAttendanceEmployees = rows.filter(
     (row) => row.missingAttendanceDays > 0
+  ).length
+  const invalidShiftEmployees = rows.filter(
+    (row) => row.invalidShiftDays > 0
   ).length
   const unsupportedCurrencyEmployees = rows.filter(
     (row) => row.unsupportedCurrencyDays > 0
@@ -866,6 +882,17 @@ async function evaluateTimeBasedPayrollReadiness(
         '/attendance/monitoring-harian'
       )
     )
+  if (invalidShiftEmployees)
+    blockers.push(
+      issue(
+        'SHIFT_ASSIGNMENT_INVALID',
+        'Penugasan shift tidak tunggal atau tidak tersedia pada tanggal eligible.',
+        invalidShiftEmployees,
+        'BLOCKER',
+        'ATTENDANCE',
+        '/attendance/master-shift'
+      )
+    )
   if (unsupportedCurrencyEmployees)
     blockers.push(
       issue(
@@ -894,6 +921,17 @@ async function evaluateTimeBasedPayrollReadiness(
         'UNSUPPORTED_FORMULA_COMPONENT',
         'Ada komponen formula yang belum didukung.',
         number(integrity.unsupportedFormula),
+        'BLOCKER',
+        'COMPONENT',
+        null
+      )
+    )
+  if (number(integrity.recurringComponents) > 0)
+    blockers.push(
+      issue(
+        'RECURRING_COMPONENT_UNSUPPORTED',
+        'Komponen berulang belum didukung untuk Payroll berbasis waktu. Gunakan komponen manual periode.',
+        number(integrity.recurringComponents),
         'BLOCKER',
         'COMPONENT',
         null
@@ -960,7 +998,7 @@ async function evaluateTimeBasedPayrollReadiness(
       postedTransactionCount: 0,
       productionGrossAmount: 0,
       activeComponentCount: number(integrity.activeManualComponents),
-      recurringComponentCount: 0,
+      recurringComponentCount: number(integrity.recurringComponents),
       missingEmploymentHistoryEmployees: 0,
       timeBasedEmployeeCount: rows.length,
       payablePresentDays,

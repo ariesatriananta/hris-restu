@@ -121,4 +121,59 @@ describe('Slip Payroll M4', () => {
     expect(html).toContain('Status ditutup tidak menyatakan dana sudah dibayar')
     expect(html).not.toContain('SIMULASI')
   })
+
+  it('menyajikan slip bulanan dengan prorata dan ringkasan potongan', () => {
+    const data = bundle('SIMULATION')
+    data.period.payrollBasis = 'TIME_BASED'
+    data.period.payFrequency = 'MONTHLY'
+    data.period.employeeType = 'BULANAN'
+    data.employees[0].totals.basicSalaryAmount = '4000000.00'
+    data.employees[0].monthly = {
+      fullBasicSalary: '5000000.00',
+      eligibleCalendarDays: 25,
+      periodCalendarDays: 31,
+      proratedBasicSalary: '4000000.00',
+      scheduledWorkDays: 22,
+      alphaDays: 2,
+      permissionDays: 1,
+      alphaDeduction: '454545.00',
+      permissionDeduction: '227273.00',
+    }
+
+    const html = renderToStaticMarkup(
+      <Payslip employee={data.employees[0]} bundle={data} />
+    )
+
+    expect(html).toContain('Bulanan')
+    expect(html).toContain('Gaji pokok prorata')
+    expect(html).toContain('25/31 hari kalender eligible')
+    expect(html).not.toContain('Ringkasan hasil produksi')
+  })
+
+  it('menyajikan slip mingguan berbasis waktu dari snapshot hari dibayar', () => {
+    const data = bundle('SIMULATION')
+    data.period.payrollBasis = 'TIME_BASED'
+    data.period.payFrequency = 'WEEKLY'
+    data.period.employeeType = 'HARIAN'
+    data.employees[0].totals.basicSalaryAmount = '750000.00'
+    data.employees[0].weeklyTime = {
+      payableDays: 5,
+      offdayPresentDays: 1,
+      baseAmount: '750000.00',
+      rateBreakdown: [
+        { dailyRate: '150000.00', payableDays: 5, amount: '750000.00' },
+      ],
+    }
+
+    const html = renderToStaticMarkup(
+      <Payslip employee={data.employees[0]} bundle={data} />
+    )
+
+    expect(html).toContain('Harian mingguan')
+    expect(html).toContain('Upah hari hadir')
+    expect(html).toContain('5 hari hadir dibayar')
+    expect(html).toContain('Rp 150.000 × 5 hari = Rp 750.000')
+    expect(html).toContain('1 hadir hari nonkerja tidak dibayar')
+    expect(html).not.toContain('Ringkasan hasil produksi')
+  })
 })

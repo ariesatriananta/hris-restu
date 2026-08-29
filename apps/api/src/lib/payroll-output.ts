@@ -10,6 +10,7 @@ export type PayrollExportRow = {
   bankAccountNumber: string | null
   bankAccountName: string | null
   pieceRateAmount: string
+  basicSalaryAmount: string
   additionalEarnings: string
   grossEarnings: string
   totalDeductions: string
@@ -50,6 +51,9 @@ export async function buildPayrollWorkbook(input: {
   runNumber: number
   runType: 'SIMULATION' | 'FINAL'
   runStatus: string
+  payrollBasis: 'PIECE_RATE' | 'TIME_BASED'
+  employeeType: string
+  payFrequency: 'WEEKLY' | 'MONTHLY'
   rows: PayrollExportRow[]
 }) {
   const workbook = new ExcelJS.Workbook()
@@ -65,6 +69,7 @@ export async function buildPayrollWorkbook(input: {
     ['Site', safeSpreadsheetText(input.siteName)],
     ['Rentang', `${input.periodStart} s.d. ${input.periodEnd}`],
     ['Run', `Run ${input.runNumber}`],
+    ['Skema', `${input.employeeType} / ${input.payrollBasis} / ${input.payFrequency}`],
     ['Jenis hasil', input.runType === 'FINAL' ? 'FINAL / RESMI' : 'SIMULASI'],
     ['Status run', safeSpreadsheetText(input.runStatus)],
     ['Catatan', 'Status CLOSED berarti hasil Payroll disahkan, bukan bukti pembayaran.'],
@@ -84,13 +89,19 @@ export async function buildPayrollWorkbook(input: {
     styleSheet(sheet,[20,32,18,24,32,18])
     sheet.getColumn(6).numFmt = '[$Rp-id-ID] #,##0.00;[Red]-[$Rp-id-ID] #,##0.00'
   } else {
-    sheet.addRow(['Nomor Karyawan','Nama','Jenis','Bagian','Jabatan','Bank','Rekening','Produksi','Pendapatan Lain','Bruto','Potongan','Neto'])
+    const baseLabel = input.payrollBasis === 'PIECE_RATE'
+      ? 'Hasil Borongan'
+      : input.payFrequency === 'WEEKLY'
+        ? 'Upah Hari Hadir'
+        : 'Gaji Pokok Prorata'
+    sheet.addRow(['Nomor Karyawan','Nama','Jenis','Bagian','Jabatan','Bank','Rekening',baseLabel,'Pendapatan Lain','Bruto','Potongan','Neto'])
     input.rows.forEach((row) => sheet.addRow([
       safeSpreadsheetText(row.employeeNumber),safeSpreadsheetText(row.fullName),
       safeSpreadsheetText(row.employeeType),safeSpreadsheetText(row.departmentName),
       safeSpreadsheetText(row.positionName),safeSpreadsheetText(row.bankName),
       row.bankAccountNumber ? `****${row.bankAccountNumber.slice(-4)}` : '',
-      money(row.pieceRateAmount),money(row.additionalEarnings),money(row.grossEarnings),
+      money(input.payrollBasis === 'PIECE_RATE' ? row.pieceRateAmount : row.basicSalaryAmount),
+      money(row.additionalEarnings),money(row.grossEarnings),
       money(row.totalDeductions),money(row.netPay),
     ]))
     styleSheet(sheet,[20,32,18,24,24,18,16,18,18,18,18,18])

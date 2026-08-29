@@ -1,16 +1,17 @@
 # Knowledge Base Payroll
 
-> Status dokumen: Payroll Borongan sudah operasional sampai output. Payroll
-> HARIAN dan TRAINING sudah dapat diperiksa dan disimulasikan secara mingguan;
-> persetujuan, closing, ekspor, dan slipnya menyusul pada tahap berikutnya.
+> Status dokumen: Payroll Borongan, HARIAN, TRAINING, dan BULANAN sudah memakai
+> alur pemeriksaan, simulasi, persetujuan, closing, ekspor, dan slip yang sama.
+> Sumber serta rincian perhitungannya menyesuaikan skema masing-masing.
 
 ## 1. Tujuan menu Payroll
 
 Modul Payroll menyiapkan perhitungan upah secara tertib dan dapat ditelusuri.
-Upah Borongan berasal dari hasil Produksi, sedangkan upah HARIAN dan TRAINING
-berasal dari hari hadir dan tarif harian. Sistem terlebih dahulu memeriksa
-apakah Attendance, penempatan, tarif, rekening, dan komponen Payroll sudah cukup
-rapi sebelum perhitungan dimulai.
+Upah Borongan berasal dari hasil Produksi, upah HARIAN dan TRAINING berasal dari
+hari hadir dan tarif harian, sedangkan upah BULANAN berasal dari gaji pokok yang
+dapat diprorata serta dikurangi Alpha/Izin. Sistem terlebih dahulu memeriksa
+apakah Attendance, penempatan, shift, kalender, tarif atau gaji pokok, rekening,
+dan komponen Payroll sudah cukup rapi sebelum perhitungan dimulai.
 
 Membuat periode belum menghitung gaji dan belum mengunci data Attendance atau
 Produksi.
@@ -181,9 +182,10 @@ dan closing.
 Semua hasil pada halaman ini masih berstatus **SIMULASI** dan belum merupakan
 slip gaji resmi atau bukti pembayaran.
 
-Khusus Payroll HARIAN/TRAINING, hasil belum dapat diajukan, ditutup, diekspor,
-atau diterbitkan sebagai slip sampai tahap workflow Payroll berbasis waktu
-selesai. Gunakan halaman Simulasi untuk memeriksa hasil sementara.
+Payroll HARIAN, TRAINING, dan BULANAN dapat diajukan setelah hasil simulasi dan
+seluruh sumbernya lolos pemeriksaan integritas. Jika tarif, gaji pokok,
+Attendance, penempatan, shift, kalender, policy, komponen, atau rekening berubah
+setelah simulasi, sistem meminta hitung ulang sebelum proses dilanjutkan.
 
 ## 10. Jika proses terputus
 
@@ -365,16 +367,45 @@ Kehadiran nyata pada hari nonkerja tetap dihitung untuk karyawan Harian atau
 Training, tetapi ditandai sebagai perhatian agar HR dapat memeriksanya. Estimasi
 ini hanya untuk pemeriksaan data dan belum menjadi hasil Payroll resmi.
 
-## 21. Batas tahap saat ini
+## 21. Memeriksa simulasi Payroll Bulanan
+
+Buka **Payroll > Simulasi Payroll**, lalu pilih periode karyawan **Bulanan**.
+Pilih **Hitung** setelah kesiapan periode tidak lagi berstatus **Terblokir**.
+Hasil simulasi menampilkan gaji prorata, potongan Alpha, potongan Izin, bruto,
+dan neto. Angka tersebut adalah snapshot pada saat perhitungan dijalankan;
+perubahan master setelahnya tidak mengubah run yang sudah selesai.
+
+Pilih ikon detail pada karyawan untuk melihat dasar perhitungannya:
+
+- gaji pokok penuh yang berlaku;
+- jumlah hari kalender karyawan masih eligible dibandingkan seluruh hari dalam
+  periode;
+- gaji pokok setelah prorata join atau resign;
+- jumlah hari kerja terjadwal sebagai pembagi potongan;
+- jumlah dan nominal potongan Alpha serta Izin secara terpisah; dan
+- ledger Attendance per tanggal beserta dampaknya terhadap potongan.
+
+Sakit dan Cuti tidak otomatis mengurangi gaji pokok pada tahap ini. Komponen
+tambahan atau potongan lain harus dicatat sebagai komponen manual yang dapat
+diaudit. Jika neto menjadi negatif, hasil tetap terlihat agar sumber masalah
+dapat diperbaiki.
+
+Setelah hasil diperiksa dan tidak memiliki blocker, Payroll Bulanan dapat
+mengikuti proses pengajuan, persetujuan, dan closing yang sama dengan Payroll
+Borongan. Perubahan sumber setelah simulasi mengharuskan HR menghitung ulang
+agar hasil resmi tetap sesuai data terbaru.
+
+## 22. Batas tahap saat ini
 
 Pada tahap saat ini, sistem belum:
 
 - menghitung pajak atau BPJS otomatis;
-- menghitung Payroll Harian, Training, atau Bulanan secara resmi; sistem baru
-  menyediakan master, pembentukan periode, readiness, dan preview estimasi;
 - mencatat status transfer atau pembayaran sebagai proses tersendiri;
 - menyimpan file PDF slip secara permanen; atau
 - menggunakan tanda tangan elektronik pada slip.
 
-Hasil simulasi, closing, export, maupun cetak slip belum berarti gaji sudah
-ditransfer atau dibayarkan.
+Hasil simulasi dapat diajukan dan ditutup setelah seluruh pemeriksaan lolos.
+Rekap dan slip menyesuaikan jenis Payroll: hasil produksi untuk Borongan, upah
+harian untuk Harian/Training, serta gaji pokok prorata untuk Bulanan. Walaupun
+sudah ditutup atau dicetak, hasil tersebut belum berarti gaji sudah ditransfer
+atau dibayarkan.

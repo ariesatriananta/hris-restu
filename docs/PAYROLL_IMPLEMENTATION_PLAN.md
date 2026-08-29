@@ -365,22 +365,72 @@ kontrak `TRAINING`, sedangkan `BORONGAN`, `HARIAN`, dan `BULANAN` hanya memakai
 - UI simulasi adaptif: Borongan menampilkan sumber Produksi, sedangkan
   HARIAN/TRAINING menampilkan hari dibayar, upah dasar, warning hari nonkerja,
   dan ledger harian dalam drawer.
-- Sampai M5D, run `TIME_BASED` hanya merupakan simulasi. Backend wajib menolak
-  pengajuan, persetujuan, closing, export, dan slip agar hasil belum dipakai
-  sebagai output Payroll resmi.
+- Pada tahap M5B, run `TIME_BASED` masih dibatasi sebagai simulasi. Pembatasan
+  workflow dan output tersebut telah dibuka secara terkendali melalui M5D.
 
 ### Milestone 5C - Simulasi waktu bulanan
 
 - Hitung gaji pokok `BULANAN`, prorata kalender join/resign, serta potongan
   Alpha/Izin berdasarkan policy yang disnapshot.
+- Gaji dasar diprorata per karyawan dengan rumus
+  `ROUND(gaji pokok x hari kalender eligible / seluruh hari kalender periode, 0)`.
+- Pembagi potongan memakai seluruh hari kerja terjadwal dalam periode. Pola
+  shift historis diekstrapolasi untuk join/resign parsial, hari libur efektif
+  dikeluarkan, dan `WORKDAY_OVERRIDE` tetap dihitung sebagai hari kerja.
+- Alpha dan Izin hanya dihitung pada tanggal eligible yang terjadwal. Keduanya
+  menjadi komponen `SYSTEM` terpisah dan masing-masing dibulatkan `HALF_UP` ke
+  Rp1 sebelum dijumlahkan dengan komponen manual.
+- Simpan summary formula dan ledger tanggal eligible pada tabel snapshot khusus
+  bulanan. Histori gaji dikunci bersama Attendance, shift, employment, komponen,
+  dan policy sebelum snapshot dibuat; retry selalu membuat run baru tanpa
+  mengubah run sukses sebelumnya.
+- Komponen berulang tetap menjadi blocker. Komponen manual periode tetap boleh
+  digunakan, sedangkan neto negatif tetap terlihat sebagai exception simulasi.
 - Pajak, BPJS, lembur, THR, dan bonus tahunan belum dihitung otomatis sampai
   kebijakan regulasinya dikunci; penyesuaian awal tetap berupa komponen
   eksplisit yang dapat diaudit.
+- Pada tahap M5C, workflow dan output resmi `TIME_BASED` masih ditolak backend.
+  M5D kemudian membukanya setelah pemeriksaan integritas lintas sumber lulus.
 
 ### Milestone 5D - Workflow dan output
 
 - Reuse approval/closing Milestone 3 dan riwayat/export/slip Milestone 4 untuk
   seluruh skema. Jangan membuat state machine atau format dokumen paralel.
+- Pemeriksaan integritas wajib strategy-aware. `PIECE_RATE` memeriksa snapshot
+  Produksi, HARIAN/TRAINING memeriksa ledger dan tarif harian, sedangkan
+  BULANAN memeriksa summary, ledger, histori gaji, prorata, serta potongan
+  Alpha/Izin. Seluruh skema tetap memeriksa Attendance, employment, shift,
+  kalender, policy, komponen, populasi, rekening, dan agregat run yang relevan.
+- Terapkan aturan M3 tanpa pengecualian baru: hanya current run `COMPLETED` yang
+  konsisten dapat diajukan; reject/withdraw wajib beralasan dan membutuhkan run
+  baru; closing atomik menghasilkan run `FINAL` serta periode `CLOSED` yang
+  immutable. `SUPER_ADMIN` tetap dapat self-approval dengan override audit.
+- Riwayat dan perbandingan run memakai label dasar yang adaptif: Hasil Produksi,
+  Upah Harian, atau Gaji Pokok Prorata. Perbandingan tetap menampilkan
+  pendapatan lain, bruto, potongan, dan neto dari snapshot masing-masing run.
+- Rekap simulasi diberi identitas `SIMULASI` dan menyamarkan rekening. Daftar
+  Pembayaran dengan rekening lengkap hanya tersedia dari current run `FINAL`
+  pada periode `CLOSED` bagi pengguna berizin sesuai site.
+- Slip HARIAN/TRAINING menampilkan tarif harian, hari dibayar, dan upah dasar.
+  Slip BULANAN menampilkan gaji pokok, prorata kalender, potongan Alpha, dan
+  potongan Izin. Ledger harian lengkap tetap berada di detail aplikasi agar
+  slip cetak ringkas dan mudah dibaca.
+- M5D tidak mencatat status transfer, rekonsiliasi bank, jurnal Finance, pajak,
+  BPJS, THR, lembur, atau bonus otomatis. Closing tetap berarti hasil Payroll
+  disahkan, bukan bukti pembayaran.
+
+### Exit criteria Milestone 5D
+
+- HARIAN, TRAINING, dan BULANAN dapat submit, approve/reject, withdraw, dan
+  close melalui workflow yang sama dengan Borongan tanpa melemahkan site scope
+  maupun separation of duties.
+- Drift tarif/gaji, Attendance, shift, kalender, employment, policy, komponen,
+  populasi, rekening, atau total snapshot memblokir workflow dan meminta hitung
+  ulang dengan pesan operasional yang jelas.
+- Riwayat, perbandingan, export, serta slip menyajikan label dan nilai dasar
+  sesuai skema; output resmi hanya berasal dari current run `FINAL/CLOSED`.
+- Regression seluruh skema Payroll, unit/integration test, typecheck, lint, dan
+  production build lulus tanpa mengubah rumus M5B/M5C.
 
 ### Exit criteria Milestone 5A
 

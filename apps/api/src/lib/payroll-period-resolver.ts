@@ -175,6 +175,7 @@ export type TimePayrollPreviewRow = {
   invalidContractDays: number
   duplicateAttendanceDays: number
   missingAttendanceDays: number
+  invalidShiftDays: number
   unsupportedCurrencyDays: number
   rateSegmentCount: number
   bankAccountComplete: boolean
@@ -251,6 +252,14 @@ export async function previewTimeBasedPopulation(
               (SELECT MAX(attendance.calendar_day_type) FROM attendance_records attendance
                 WHERE attendance.employee_id=eligible.employee_id AND attendance.site_id=eligible.site_id
                   AND attendance.business_date=eligible.business_date) calendar_day_type,
+              (SELECT MAX(attendance.calendar_reason_type) FROM attendance_records attendance
+                WHERE attendance.employee_id=eligible.employee_id AND attendance.site_id=eligible.site_id
+                  AND attendance.business_date=eligible.business_date) calendar_reason_type,
+              (SELECT COUNT(*) FROM employee_shift_assignments assignment
+                JOIN shifts shift_row ON shift_row.id=assignment.shift_id AND shift_row.site_id=eligible.site_id
+                WHERE assignment.employee_id=eligible.employee_id
+                  AND assignment.effective_from<=eligible.business_date
+                  AND (assignment.effective_to IS NULL OR assignment.effective_to>=eligible.business_date)) assignment_matches,
               (SELECT COUNT(*) FROM employee_shift_assignments assignment
                 JOIN shifts shift_row ON shift_row.id=assignment.shift_id AND shift_row.site_id=eligible.site_id
                 WHERE assignment.employee_id=eligible.employee_id
@@ -262,6 +271,49 @@ export async function previewTimeBasedPopulation(
                     '$'
                   )) shift_matches
          FROM eligible
+     ), population AS (
+       SELECT DISTINCT employee_id,site_id FROM eligible
+     ), period_schedule AS (
+       SELECT population.employee_id,dates.business_date,
+              CASE
+                WHEN EXISTS(SELECT 1 FROM attendance_calendar_site_rules override_rule
+                  WHERE override_rule.site_id=population.site_id
+                    AND override_rule.business_date=dates.business_date
+                    AND override_rule.rule_type='WORKDAY_OVERRIDE'
+                    AND override_rule.cancelled_at IS NULL) THEN 1
+                WHEN EXISTS(SELECT 1 FROM attendance_calendar_events holiday_event
+                  WHERE holiday_event.event_date=dates.business_date
+                    AND holiday_event.event_type='NATIONAL_HOLIDAY'
+                    AND holiday_event.cancelled_at IS NULL)
+                  OR EXISTS(SELECT 1 FROM attendance_calendar_site_rules holiday_rule
+                    LEFT JOIN attendance_calendar_events linked_event
+                      ON linked_event.id=holiday_rule.calendar_event_id
+                    WHERE holiday_rule.site_id=population.site_id
+                      AND holiday_rule.business_date=dates.business_date
+                      AND holiday_rule.rule_type IN ('COLLECTIVE_LEAVE','SITE_HOLIDAY')
+                      AND holiday_rule.cancelled_at IS NULL
+                      AND (linked_event.id IS NULL OR linked_event.cancelled_at IS NULL)) THEN 0
+                ELSE COALESCE(JSON_CONTAINS((
+                  SELECT assignment.work_days_json
+                    FROM employee_shift_assignments assignment
+                    JOIN shifts shift_row ON shift_row.id=assignment.shift_id
+                     AND shift_row.site_id=population.site_id
+                   WHERE assignment.employee_id=population.employee_id
+                     AND assignment.effective_from<=?
+                     AND (assignment.effective_to IS NULL OR assignment.effective_to>=?)
+                   ORDER BY CASE
+                     WHEN assignment.effective_from<=dates.business_date
+                      AND (assignment.effective_to IS NULL OR assignment.effective_to>=dates.business_date) THEN 0
+                     WHEN dates.business_date<assignment.effective_from
+                       THEN DATEDIFF(assignment.effective_from,dates.business_date)
+                     ELSE DATEDIFF(dates.business_date,assignment.effective_to)
+                   END,assignment.effective_from DESC,assignment.id DESC LIMIT 1
+                ),CAST((((DAYOFWEEK(dates.business_date)+5)%7)+1) AS CHAR),'$'),0)
+              END is_scheduled
+         FROM population CROSS JOIN dates
+     ), schedule_totals AS (
+       SELECT employee_id,SUM(is_scheduled=1) scheduled_work_days
+         FROM period_schedule GROUP BY employee_id
      )
      SELECT employee_uid employeeUid,employee_number employeeNumber,full_name fullName,
             employee_type employeeType,MAX(bank_account_complete) bankAccountComplete,
@@ -269,13 +321,19 @@ export async function previewTimeBasedPopulation(
             DATE_FORMAT(MAX(business_date),'%Y-%m-%d') eligibleTo,
             SUM(attendance_matches=1 AND attendance_status='PRESENT') payablePresentDays,
             SUM(attendance_matches=1 AND attendance_status='PRESENT' AND calendar_day_type<>'WORKDAY') offdayPresentDays,
-            SUM(attendance_matches=1 AND attendance_status='ABSENT') alphaDays,
-            SUM(attendance_matches=1 AND attendance_status='PERMISSION') permissionDays,
+            SUM(attendance_matches=1
+                AND (calendar_reason_type='WORKDAY_OVERRIDE' OR shift_matches=1)
+                AND calendar_day_type='WORKDAY' AND attendance_status='ABSENT') alphaDays,
+            SUM(attendance_matches=1
+                AND (calendar_reason_type='WORKDAY_OVERRIDE' OR shift_matches=1)
+                AND calendar_day_type='WORKDAY' AND attendance_status='PERMISSION') permissionDays,
             COUNT(*) eligibleCalendarDays,
-            SUM(attendance_matches=1 AND calendar_day_type='WORKDAY') scheduledWorkDays,
+            MAX(schedule_totals.scheduled_work_days) scheduledWorkDays,
             SUM(rate_matches=0) missingBaseDays,SUM(rate_matches>1) ambiguousBaseDays,
             SUM(contract_matches<>1) invalidContractDays,SUM(attendance_matches>1) duplicateAttendanceDays,
-            SUM(attendance_matches=0 AND shift_matches=1) missingAttendanceDays,
+            SUM(attendance_matches=0
+                AND (calendar_reason_type='WORKDAY_OVERRIDE' OR shift_matches=1)) missingAttendanceDays,
+            SUM(assignment_matches<>1) invalidShiftDays,
             SUM(rate_matches=1 AND currency<>'IDR') unsupportedCurrencyDays,
             COUNT(DISTINCT CASE WHEN rate_matches=1 THEN CONCAT(rate_amount,'|',currency) END) rateSegmentCount,
             CASE WHEN SUM(rate_matches<>1)=0 AND COUNT(DISTINCT CONCAT(rate_amount,'|',currency))=1
@@ -288,6 +346,7 @@ export async function previewTimeBasedPopulation(
             (SELECT COUNT(*) FROM payroll_period_manual_components manual
               WHERE manual.payroll_period_id=? AND manual.employee_id=daily.employee_id AND manual.status='ACTIVE') manualComponentCount
        FROM daily
+       JOIN schedule_totals ON schedule_totals.employee_id=daily.employee_id
       GROUP BY employee_id,employee_uid,employee_number,full_name,employee_type
       ORDER BY full_name,employee_number`,
     [
@@ -295,6 +354,8 @@ export async function previewTimeBasedPopulation(
       input.periodEnd,
       input.siteId,
       input.employeeType,
+      input.periodEnd,
+      input.periodStart,
       input.periodId ?? 0,
     ]
   )
@@ -308,16 +369,25 @@ export async function previewTimeBasedPopulation(
     const baseAmount = Number(row.baseAmount ?? 0)
     const eligibleDays = Number(row.eligibleCalendarDays ?? 0)
     const scheduledDays = Number(row.scheduledWorkDays ?? 0)
-    const deductionDays =
-      Number(row.alphaDays ?? 0) + Number(row.permissionDays ?? 0)
+    const alphaDays = Number(row.alphaDays ?? 0)
+    const permissionDays = Number(row.permissionDays ?? 0)
     const monthlyBase =
       isMonthly && periodDays > 0
         ? Math.round((baseAmount * eligibleDays) / periodDays)
         : 0
-    const monthlyDeduction =
+    // Alpha dan Izin adalah dua komponen audit terpisah. Masing-masing wajib
+    // dibulatkan HALF_UP ke Rupiah sebelum dijumlahkan agar preview sama dengan
+    // snapshot finansial run M5C.
+    const monthlyAlphaDeduction =
       isMonthly && scheduledDays > 0
-        ? Math.round((baseAmount / scheduledDays) * deductionDays)
+        ? Math.round((baseAmount / scheduledDays) * alphaDays)
         : 0
+    const monthlyPermissionDeduction =
+      isMonthly && scheduledDays > 0
+        ? Math.round((baseAmount / scheduledDays) * permissionDays)
+        : 0
+    const monthlyDeduction =
+      monthlyAlphaDeduction + monthlyPermissionDeduction
     const estimatedGrossAmount = isMonthly
       ? monthlyBase
       : Number(row.estimatedWeeklyGross ?? 0)
@@ -352,6 +422,7 @@ export async function previewTimeBasedPopulation(
       invalidContractDays: Number(row.invalidContractDays ?? 0),
       duplicateAttendanceDays: Number(row.duplicateAttendanceDays ?? 0),
       missingAttendanceDays: Number(row.missingAttendanceDays ?? 0),
+      invalidShiftDays: Number(row.invalidShiftDays ?? 0),
       unsupportedCurrencyDays: Number(row.unsupportedCurrencyDays ?? 0),
       rateSegmentCount: Number(row.rateSegmentCount ?? 0),
       bankAccountComplete: Number(row.bankAccountComplete) === 1,

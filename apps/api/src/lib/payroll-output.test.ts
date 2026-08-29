@@ -12,10 +12,11 @@ describe('Payroll output', () => {
     const buffer = await buildPayrollWorkbook({
       type: 'SUMMARY', periodCode: 'PAY-1', periodName: 'Payroll 1',siteName: 'Jepara',
       periodStart: '2026-08-01',periodEnd: '2026-08-07',runNumber:2,
-      runType:'SIMULATION',runStatus:'COMPLETED',rows: [{
+      runType:'SIMULATION',runStatus:'COMPLETED',payrollBasis:'PIECE_RATE',
+      employeeType:'BORONGAN',payFrequency:'WEEKLY',rows: [{
         employeeNumber: 'PKDS-1',fullName: '=RISK',employeeType: 'BORONGAN',
         departmentName: null,positionName: null,bankName: 'BCA',bankAccountNumber: '00123',
-        bankAccountName: 'AAN',pieceRateAmount: '100.00',additionalEarnings: '0.00',
+        bankAccountName: 'AAN',pieceRateAmount: '100.00',basicSalaryAmount:'0.00',additionalEarnings: '0.00',
         grossEarnings: '100.00',totalDeductions: '0.00',netPay: '100.00',
       }],
     })

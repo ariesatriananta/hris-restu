@@ -111,8 +111,12 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Produksi karyawan TRAINING hanya menjadi informasi monitoring kuantitas per
   pekerjaan dan satuan. Nilai bruto Produksi tidak boleh menambah upah dasar,
   gross, maupun neto Payroll berbasis waktu.
-- Run `TIME_BASED` belum boleh diajukan, disetujui, ditutup, diekspor, atau
-  diterbitkan sebagai slip sampai workflow dan output Milestone 5D selesai.
+- Run `TIME_BASED` memakai workflow resmi yang sama dengan `PIECE_RATE` setelah
+  lolos pemeriksaan integritas snapshot sesuai skemanya. Submit, approval,
+  closing, export, dan slip tidak boleh melewati blocker readiness, perubahan
+  sumber, neto negatif, rekening tidak lengkap, atau current run yang stale.
+- Closing mengesahkan hasil Payroll dan membuat current run menjadi `FINAL`,
+  tetapi tidak menyatakan gaji sudah ditransfer atau diterima karyawan.
 - Perubahan gaji pokok Bulanan di tengah periode atau snapshot policy yang tidak
   cocok dengan identitas periode menjadi blocker dan wajib diperbaiki sebelum
   perhitungan resmi.
@@ -129,6 +133,14 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   rumus default `gaji pokok / jumlah hari kerja terjadwal dalam periode x
   jumlah hari Alpha/Izin`. Kalkulasi dibulatkan `HALF_UP` ke Rp1 per komponen
   karyawan.
+- Pembagi potongan BULANAN memakai seluruh hari kerja terjadwal dalam periode,
+  bukan hanya hari setelah join atau sebelum resign. Jadwal mengikuti histori
+  shift; hari libur resmi/site dikeluarkan, sedangkan `WORKDAY_OVERRIDE`
+  dimasukkan walaupun jatuh pada hari yang biasanya libur. Pembilang Alpha dan
+  Izin tetap hanya memakai tanggal eligible karyawan.
+- `SICK`, `LEAVE`, hari libur, dan hari nonkerja tidak membentuk potongan
+  otomatis BULANAN. Alpha dan Izin disnapshot sebagai dua komponen sistem
+  terpisah agar formula dan pembulatannya dapat diaudit.
 - Policy Payroll tahap awal hanya dapat dikelola `SUPER_ADMIN`.
   `PAYROLL_FINANCE` hanya melihat policy sesuai akses site; pembatasan ini
   wajib ditegakkan API.

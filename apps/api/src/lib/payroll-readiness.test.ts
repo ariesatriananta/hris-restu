@@ -162,6 +162,7 @@ describe('Payroll readiness', () => {
           pendingClassifications: 0,
           ambiguousEmployment: 0,
           unsupportedFormula: 0,
+          recurringComponents: 1,
           activeManualComponents: 1,
         },
       ],
@@ -182,6 +183,9 @@ describe('Payroll readiness', () => {
     expect(result.blockers.map((item) => item.code)).toContain(
       'BASE_RATE_MISSING'
     )
+    expect(result.blockers.map((item) => item.code)).toContain(
+      'RECURRING_COMPONENT_UNSUPPORTED'
+    )
     expect(result.warnings.map((item) => item.code)).toContain(
       'OFFDAY_PRESENT_PAYABLE'
     )
@@ -189,6 +193,7 @@ describe('Payroll readiness', () => {
       timeBasedEmployeeCount: 1,
       payablePresentDays: 5,
       offdayPresentDays: 1,
+      recurringComponentCount: 1,
     })
     expect(String(db.query.mock.calls[0]?.[0])).toContain('rate_matches')
   })

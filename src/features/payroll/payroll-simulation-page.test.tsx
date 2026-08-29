@@ -301,4 +301,188 @@ describe('Payroll simulation page', () => {
       .element(screen.getByText('Rp 150.000', { exact: true }).first())
       .toBeInTheDocument()
   })
+
+  it('menyajikan formula prorata dan potongan Bulanan secara terpisah', async () => {
+    const monthly = {
+      fullBasicSalary: '5000000.00',
+      eligibleCalendarDays: 21,
+      periodCalendarDays: 31,
+      proratedBasicSalary: '3387097.00',
+      scheduledWorkDays: 22,
+      alphaDays: 2,
+      permissionDays: 1,
+      alphaDeduction: '454545.00',
+      permissionDeduction: '227273.00',
+    }
+    const screen = await renderPage({
+      search: {
+        periodUid: 'period-monthly',
+        runUid: 'run-monthly',
+        employeeUid: 'result-monthly',
+      },
+      seed: (client) => {
+        client.setQueryData(['payroll-periods', 'detail', 'period-monthly'], {
+          uid: 'period-monthly',
+          payrollBasis: 'TIME_BASED',
+          payFrequency: 'MONTHLY',
+          employeeType: 'BULANAN',
+          readiness: { status: 'READY', blockers: [], warnings: [] },
+        })
+        client.setQueryData(
+          ['payroll-periods', 'period-monthly', 'runs'],
+          [{ uid: 'run-monthly', runNumber: 1, isCurrent: true }]
+        )
+        client.setQueryData(['payroll-periods', 'run', 'run-monthly'], {
+          uid: 'run-monthly',
+          status: 'COMPLETED',
+          employeeCount: 1,
+          totalPieceRateAmount: '0.00',
+          totalBasicSalaryAmount: '3387097.00',
+          totalProratedBasicSalary: '3387097.00',
+          totalAlphaDeduction: '454545.00',
+          totalPermissionDeduction: '227273.00',
+          totalEarnings: '0.00',
+          totalGrossEarnings: '3387097.00',
+          totalDeductions: '681818.00',
+          totalNetPay: '2705279.00',
+        })
+        client.setQueryData(
+          [
+            'payroll-periods',
+            'run',
+            'run-monthly',
+            'employees',
+            {
+              page: 1,
+              pageSize: 50,
+              query: undefined,
+              issue: undefined,
+            },
+          ],
+          {
+            data: [
+              {
+                uid: 'result-monthly',
+                employeeNumber: 'BUL-001',
+                fullName: 'ANI BULANAN',
+                employeeType: 'BULANAN',
+                basicSalaryAmount: '3387097.00',
+                payablePresentDays: 0,
+                offdayPresentDays: 0,
+                monthly,
+                additionalEarnings: '0.00',
+                totalDeductions: '681818.00',
+                netPay: '2705279.00',
+                issues: [],
+              },
+            ],
+            meta: { page: 1, pageSize: 50, total: 1, totalPages: 1 },
+          }
+        )
+        client.setQueryData(
+          [
+            'payroll-periods',
+            'run',
+            'run-monthly',
+            'employee',
+            'result-monthly',
+          ],
+          {
+            uid: 'result-monthly',
+            employee: {
+              uid: 'employee-monthly',
+              employeeNumber: 'BUL-001',
+              fullName: 'ANI BULANAN',
+              employeeType: 'BULANAN',
+              departmentName: 'HR',
+              positionName: 'Staf',
+              workGroupName: null,
+            },
+            totals: {
+              pieceRateAmount: '0.00',
+              basicSalaryAmount: '3387097.00',
+              additionalEarnings: '0.00',
+              grossEarnings: '3387097.00',
+              totalDeductions: '681818.00',
+              netPay: '2705279.00',
+            },
+            bank: { complete: false },
+            attendance: {
+              scheduledDays: 22,
+              presentDays: 18,
+              absentDays: 2,
+              leaveDays: 1,
+              sickDays: 0,
+              permissionDays: 1,
+              holidayDays: 0,
+              lateMinutes: 0,
+              earlyLeaveMinutes: 0,
+              workedMinutes: 0,
+            },
+            monthlyDetail: {
+              ...monthly,
+              currency: 'IDR',
+              salaryHistoryUid: 'salary-history-1',
+              salaryEffectiveFrom: '2026-08-01',
+            },
+            monthlyDailyDetails: [
+              {
+                businessDate: '2026-08-10',
+                attendanceStatus: 'ABSENT',
+                calendarDayType: 'WORKDAY',
+                calendarReasonType: 'SHIFT_WEEKDAY',
+                isScheduled: true,
+                fullBasicSalary: '5000000.00',
+                currency: 'IDR',
+                workedMinutes: null,
+                deductionType: 'ALPHA',
+              },
+            ],
+            timeDetails: [],
+            trainingProduction: [],
+            production: [],
+            components: [],
+            formulaTrace: {
+              pieceRate: null,
+              timeBased: null,
+              monthly: 'Gaji pokok x kalender eligible / kalender periode',
+              recurring: 'Tidak digunakan pada TIME_BASED M5C',
+              manual: 'Komponen ACTIVE pada periode',
+              net: 'grossEarnings - totalDeductions',
+            },
+          }
+        )
+      },
+    })
+
+    await expect
+      .element(screen.getByText('Gaji prorata', { exact: true }).first())
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByText('Potongan Alpha', { exact: true }).first())
+      .toBeInTheDocument()
+    await expect
+      .element(
+        screen.getByRole('heading', { name: 'Dasar Perhitungan Bulanan' })
+      )
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByText('21 dari 31 hari'))
+      .toBeInTheDocument()
+    await expect
+      .element(
+        screen.getByRole('heading', { name: 'Ledger Attendance Bulanan' })
+      )
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByText('Potongan Alpha', { exact: true }).last())
+      .toBeInTheDocument()
+    await expect
+      .element(
+        screen.getByText('Periksa prorata dan potongan per karyawan', {
+          exact: false,
+        })
+      )
+      .toBeInTheDocument()
+  })
 })

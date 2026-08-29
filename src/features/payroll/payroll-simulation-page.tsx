@@ -72,6 +72,9 @@ import {
 import type {
   PayrollEmployeeType,
   PayrollEmployeeResultSummary,
+  PayrollMonthlyDetail,
+  PayrollMonthlyDailySnapshot,
+  PayrollPayFrequency,
   PayrollReadinessStatus,
   PayrollRunSummary,
   PayrollTimeSnapshot,
@@ -145,7 +148,9 @@ export function PayrollSimulationPage({
   const [componentOpen, setComponentOpen] = useState(false)
   const payrollBasis = period.data?.payrollBasis ?? 'PIECE_RATE'
   const employeeType = period.data?.employeeType
+  const payFrequency = period.data?.payFrequency
   const timeBased = payrollBasis === 'TIME_BASED'
+  const monthly = timeBased && payFrequency === 'MONTHLY'
 
   const patch = (value: SearchState) =>
     navigate({ search: (previous) => ({ ...previous, ...value }) })
@@ -184,7 +189,9 @@ export function PayrollSimulationPage({
             </h1>
             <p className='text-sm text-muted-foreground'>
               {timeBased
-                ? 'Simulasikan upah dari kehadiran dan tarif harian tanpa menerbitkan slip resmi.'
+                ? monthly
+                  ? 'Simulasikan gaji bulanan, prorata kalender, serta potongan Alpha dan Izin.'
+                  : 'Simulasikan upah dari kehadiran dan tarif harian tanpa menerbitkan slip resmi.'
                 : 'Hitung snapshot hasil Produksi dan komponen tanpa menerbitkan slip resmi.'}
             </p>
           </div>
@@ -249,6 +256,17 @@ export function PayrollSimulationPage({
               blockers={period.data.readiness.blockers.length}
               warnings={period.data.readiness.warnings.length}
             />
+            {monthly && (
+              <Alert className='border-indigo-200 bg-indigo-50/60 dark:bg-indigo-950/20'>
+                <ShieldAlert />
+                <AlertTitle>Hasil masih berupa simulasi</AlertTitle>
+                <AlertDescription>
+                  Periksa prorata dan potongan per karyawan sebelum diajukan.
+                  Slip resmi baru tersedia setelah periode ditutup dengan run
+                  FINAL.
+                </AlertDescription>
+              </Alert>
+            )}
             {runs.data?.length ? (
               <div className='flex flex-wrap items-center gap-2'>
                 <span className='text-xs font-medium text-muted-foreground'>
@@ -317,7 +335,11 @@ export function PayrollSimulationPage({
               </Alert>
             ) : run.data?.status === 'COMPLETED' ? (
               <>
-                <SimulationKpis run={run.data} payrollBasis={payrollBasis} />
+                <SimulationKpis
+                  run={run.data}
+                  payrollBasis={payrollBasis}
+                  payFrequency={payFrequency}
+                />
                 <EmployeeResults
                   data={employees.data?.data ?? []}
                   total={employees.data?.meta.total ?? 0}
@@ -327,6 +349,7 @@ export function PayrollSimulationPage({
                   page={page}
                   pageSize={pageSize}
                   payrollBasis={payrollBasis}
+                  payFrequency={payFrequency}
                   onPatch={patch}
                 />
               </>
@@ -340,6 +363,7 @@ export function PayrollSimulationPage({
         open={Boolean(employeeUid) && run.data?.status === 'COMPLETED'}
         enabled={run.data?.status === 'COMPLETED'}
         payrollBasis={payrollBasis}
+        payFrequency={payFrequency}
         employeeType={employeeType}
         onOpenChange={(open) => !open && patch({ employeeUid: undefined })}
       />
@@ -393,59 +417,105 @@ function ReadinessBanner({
 function SimulationKpis({
   run,
   payrollBasis,
+  payFrequency,
 }: {
   run: PayrollRunSummary
   payrollBasis: PayrollWageBasis
+  payFrequency?: PayrollPayFrequency
 }) {
   const timeBased = payrollBasis === 'TIME_BASED'
-  const cards = [
-    {
-      label: 'Karyawan',
-      value: run.employeeCount,
-      Icon: Users,
-      tone: 'border-sky-200 bg-sky-50/70',
-    },
-    {
-      label: timeBased ? 'Upah dasar' : 'Bruto Produksi',
-      value: amount(
-        timeBased ? (run.totalBasicSalaryAmount ?? '0') : run.totalPieceRateAmount
-      ),
-      Icon: CircleDollarSign,
-      tone: 'border-indigo-200 bg-indigo-50/70',
-    },
-    ...(timeBased
-      ? [
-          {
-            label: 'Hari dibayar',
-            value: run.totalPayablePresentDays ?? 0,
-            hint:
-              (run.totalOffdayPresentDays ?? 0) > 0
-                ? `${(run.totalOffdayPresentDays ?? 0).toLocaleString('id-ID')} hari nonkerja`
-                : undefined,
-            Icon: CalendarCheck2,
-            tone: 'border-cyan-200 bg-cyan-50/70',
-          },
-        ]
-      : []),
-    {
-      label: 'Tambahan',
-      value: amount(run.totalEarnings),
-      Icon: Plus,
-      tone: 'border-emerald-200 bg-emerald-50/70',
-    },
-    {
-      label: 'Potongan',
-      value: amount(run.totalDeductions),
-      Icon: WalletCards,
-      tone: 'border-red-200 bg-red-50/70',
-    },
-    {
-      label: 'Neto simulasi',
-      value: amount(run.totalNetPay),
-      Icon: Calculator,
-      tone: 'border-amber-200 bg-amber-50/70',
-    },
-  ]
+  const monthly = timeBased && payFrequency === 'MONTHLY'
+  const cards = monthly
+    ? [
+        {
+          label: 'Karyawan',
+          value: run.employeeCount,
+          Icon: Users,
+          tone: 'border-sky-200 bg-sky-50/70',
+        },
+        {
+          label: 'Gaji prorata',
+          value: amount(
+            run.totalProratedBasicSalary ?? run.totalBasicSalaryAmount ?? '0'
+          ),
+          Icon: CalendarCheck2,
+          tone: 'border-indigo-200 bg-indigo-50/70',
+        },
+        {
+          label: 'Potongan Alpha',
+          value: amount(run.totalAlphaDeduction ?? '0'),
+          Icon: ShieldAlert,
+          tone: 'border-red-200 bg-red-50/70',
+        },
+        {
+          label: 'Potongan Izin',
+          value: amount(run.totalPermissionDeduction ?? '0'),
+          Icon: WalletCards,
+          tone: 'border-orange-200 bg-orange-50/70',
+        },
+        {
+          label: 'Bruto',
+          value: amount(run.totalGrossEarnings ?? '0'),
+          Icon: CircleDollarSign,
+          tone: 'border-emerald-200 bg-emerald-50/70',
+        },
+        {
+          label: 'Neto simulasi',
+          value: amount(run.totalNetPay),
+          Icon: Calculator,
+          tone: 'border-amber-200 bg-amber-50/70',
+        },
+      ]
+    : [
+        {
+          label: 'Karyawan',
+          value: run.employeeCount,
+          Icon: Users,
+          tone: 'border-sky-200 bg-sky-50/70',
+        },
+        {
+          label: timeBased ? 'Upah dasar' : 'Bruto Produksi',
+          value: amount(
+            timeBased
+              ? (run.totalBasicSalaryAmount ?? '0')
+              : run.totalPieceRateAmount
+          ),
+          Icon: CircleDollarSign,
+          tone: 'border-indigo-200 bg-indigo-50/70',
+        },
+        ...(timeBased
+          ? [
+              {
+                label: 'Hari dibayar',
+                value: run.totalPayablePresentDays ?? 0,
+                hint:
+                  (run.totalOffdayPresentDays ?? 0) > 0
+                    ? `${(run.totalOffdayPresentDays ?? 0).toLocaleString('id-ID')} hari nonkerja`
+                    : undefined,
+                Icon: CalendarCheck2,
+                tone: 'border-cyan-200 bg-cyan-50/70',
+              },
+            ]
+          : []),
+        {
+          label: 'Tambahan',
+          value: amount(run.totalEarnings),
+          Icon: Plus,
+          tone: 'border-emerald-200 bg-emerald-50/70',
+        },
+        {
+          label: 'Potongan',
+          value: amount(run.totalDeductions),
+          Icon: WalletCards,
+          tone: 'border-red-200 bg-red-50/70',
+        },
+        {
+          label: 'Neto simulasi',
+          value: amount(run.totalNetPay),
+          Icon: Calculator,
+          tone: 'border-amber-200 bg-amber-50/70',
+        },
+      ]
   return (
     <section
       aria-label='Ringkasan simulasi'
@@ -493,6 +563,7 @@ function EmployeeResults({
   page,
   pageSize,
   payrollBasis,
+  payFrequency,
   onPatch,
 }: {
   data: PayrollEmployeeResultSummary[]
@@ -503,8 +574,10 @@ function EmployeeResults({
   page: number
   pageSize: number
   payrollBasis: PayrollWageBasis
+  payFrequency?: PayrollPayFrequency
   onPatch: (value: SearchState) => void
 }) {
+  const monthly = payrollBasis === 'TIME_BASED' && payFrequency === 'MONTHLY'
   return (
     <section className='space-y-3'>
       <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
@@ -542,10 +615,14 @@ function EmployeeResults({
         </Select>
       </div>
       <div className='overflow-hidden rounded-lg border'>
-        <div className='hidden grid-cols-[minmax(220px,1.5fr)_repeat(4,minmax(110px,1fr))_52px] gap-3 border-b bg-muted/40 px-3 py-2 text-xs font-semibold md:grid'>
+        <div className='hidden grid-cols-[minmax(170px,1.4fr)_minmax(130px,1.05fr)_repeat(3,minmax(88px,.8fr))_40px] gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-semibold md:grid'>
           <span>Karyawan</span>
           <span>
-            {payrollBasis === 'TIME_BASED' ? 'Hari & Upah Dasar' : 'Produksi'}
+            {monthly
+              ? 'Gaji & Prorata'
+              : payrollBasis === 'TIME_BASED'
+                ? 'Hari & Upah Dasar'
+                : 'Produksi'}
           </span>
           <span>Tambahan</span>
           <span>Potongan</span>
@@ -562,6 +639,7 @@ function EmployeeResults({
               key={item.uid}
               item={item}
               payrollBasis={payrollBasis}
+              payFrequency={payFrequency}
               onOpen={() => onPatch({ employeeUid: item.uid })}
             />
           ))
@@ -600,14 +678,17 @@ function EmployeeResults({
 function EmployeeResultRow({
   item,
   payrollBasis,
+  payFrequency,
   onOpen,
 }: {
   item: PayrollEmployeeResultSummary
   payrollBasis: PayrollWageBasis
+  payFrequency?: PayrollPayFrequency
   onOpen: () => void
 }) {
+  const monthly = payrollBasis === 'TIME_BASED' && payFrequency === 'MONTHLY'
   return (
-    <div className='grid gap-2 border-b p-3 last:border-b-0 md:grid-cols-[minmax(220px,1.5fr)_repeat(4,minmax(110px,1fr))_52px] md:items-center md:gap-3'>
+    <div className='grid gap-2 border-b p-3 last:border-b-0 md:grid-cols-[minmax(170px,1.4fr)_minmax(130px,1.05fr)_repeat(3,minmax(88px,.8fr))_40px] md:items-center'>
       <div>
         <p className='font-semibold'>{item.fullName}</p>
         <p className='text-xs text-muted-foreground'>
@@ -623,7 +704,24 @@ function EmployeeResultRow({
           ))}
         </div>
       </div>
-      {payrollBasis === 'TIME_BASED' ? (
+      {monthly && item.monthly ? (
+        <div className='flex justify-between gap-3 md:block'>
+          <span className='text-xs text-muted-foreground md:hidden'>
+            Gaji & Prorata
+          </span>
+          <div>
+            <p className='font-medium'>{amount(item.basicSalaryAmount)}</p>
+            <p className='text-xs text-muted-foreground'>
+              {item.monthly.eligibleCalendarDays}/
+              {item.monthly.periodCalendarDays} hari kalender
+            </p>
+            <p className='text-[11px] text-muted-foreground'>
+              Alpha {item.monthly.alphaDays} / Izin{' '}
+              {item.monthly.permissionDays}
+            </p>
+          </div>
+        </div>
+      ) : payrollBasis === 'TIME_BASED' ? (
         <div className='flex justify-between gap-3 md:block'>
           <span className='text-xs text-muted-foreground md:hidden'>
             Hari & Upah Dasar
@@ -680,6 +778,7 @@ function EmployeeResultSheet({
   open,
   enabled,
   payrollBasis,
+  payFrequency,
   employeeType,
   onOpenChange,
 }: {
@@ -688,11 +787,13 @@ function EmployeeResultSheet({
   open: boolean
   enabled: boolean
   payrollBasis: PayrollWageBasis
+  payFrequency?: PayrollPayFrequency
   employeeType?: PayrollEmployeeType
   onOpenChange: (open: boolean) => void
 }) {
   const detail = usePayrollEmployeeResult(runUid, employeeUid, enabled)
   const timeBased = payrollBasis === 'TIME_BASED'
+  const monthly = timeBased && payFrequency === 'MONTHLY'
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className='w-full overflow-y-auto p-0 sm:max-w-2xl'>
@@ -731,7 +832,13 @@ function EmployeeResultSheet({
               </div>
               <div className='mt-3 grid grid-cols-2 gap-2 text-sm'>
                 <ResultFact
-                  label={timeBased ? 'Upah dasar waktu' : 'Bruto Produksi'}
+                  label={
+                    monthly
+                      ? 'Gaji pokok prorata'
+                      : timeBased
+                        ? 'Upah dasar waktu'
+                        : 'Bruto Produksi'
+                  }
                   value={amount(
                     timeBased
                       ? detail.data.totals.basicSalaryAmount
@@ -753,6 +860,19 @@ function EmployeeResultSheet({
                 />
               </div>
             </section>
+            {monthly && detail.data.monthlyDetail && (
+              <MonthlyFormulaEvidence snapshot={detail.data.monthlyDetail} />
+            )}
+            {monthly && !detail.data.monthlyDetail && (
+              <Alert variant='destructive'>
+                <AlertTriangle />
+                <AlertTitle>Snapshot Bulanan tidak tersedia</AlertTitle>
+                <AlertDescription>
+                  Run ini tidak memiliki dasar prorata dan potongan yang dapat
+                  diaudit. Jalankan ulang simulasi setelah memeriksa readiness.
+                </AlertDescription>
+              </Alert>
+            )}
             <section className='rounded-lg border p-4'>
               <h3 className='font-semibold'>Status rekening</h3>
               <p className='mt-1 text-sm'>
@@ -803,11 +923,20 @@ function EmployeeResultSheet({
               )}
               <p className='mt-2 text-xs text-muted-foreground'>
                 {timeBased
-                  ? 'Hanya status PRESENT yang dibayar. Kehadiran pada hari nonkerja tetap dibayar dan ditandai sebagai perhatian.'
+                  ? monthly
+                    ? 'Gaji pokok diprorata dari hari kalender eligible. Hanya Alpha dan Izin pada hari kerja terjadwal yang menjadi potongan otomatis.'
+                    : 'Hanya status PRESENT yang dibayar. Kehadiran pada hari nonkerja tetap dibayar dan ditandai sebagai perhatian.'
                   : 'Attendance merupakan informasi dan tidak otomatis memotong upah borongan.'}
               </p>
             </section>
-            {timeBased && <TimeLedger details={detail.data.timeDetails} />}
+            {timeBased &&
+              (monthly ? (
+                <MonthlyAttendanceLedger
+                  details={detail.data.monthlyDailyDetails ?? []}
+                />
+              ) : (
+                <TimeLedger details={detail.data.timeDetails} />
+              ))}
             {!timeBased && (
               <section className='space-y-2'>
                 <h3 className='font-semibold'>
@@ -884,11 +1013,20 @@ function EmployeeResultSheet({
               <h3 className='font-semibold'>Jejak Perhitungan</h3>
               <dl className='mt-2 space-y-2 text-sm'>
                 <ResultFact
-                  label={timeBased ? 'Upah dasar waktu' : 'Produksi'}
+                  label={
+                    monthly
+                      ? 'Gaji bulanan'
+                      : timeBased
+                        ? 'Upah dasar waktu'
+                        : 'Produksi'
+                  }
                   value={
-                    timeBased
-                      ? detail.data.formulaTrace.timeBased
-                      : detail.data.formulaTrace.pieceRate
+                    monthly
+                      ? (detail.data.formulaTrace.monthly ??
+                        detail.data.formulaTrace.timeBased)
+                      : timeBased
+                        ? detail.data.formulaTrace.timeBased
+                        : detail.data.formulaTrace.pieceRate
                   }
                 />
                 <ResultFact
@@ -982,6 +1120,154 @@ function TimeLedger({ details }: { details: PayrollTimeSnapshot[] }) {
           <CalendarCheck2 className='mx-auto size-6 text-muted-foreground' />
           <p className='mt-2 text-sm text-muted-foreground'>
             Rincian upah harian belum tersedia pada snapshot ini.
+          </p>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function MonthlyFormulaEvidence({
+  snapshot,
+}: {
+  snapshot: PayrollMonthlyDetail
+}) {
+  return (
+    <section
+      className='space-y-3 rounded-lg border border-indigo-200 bg-indigo-50/40 p-4 dark:bg-indigo-950/10'
+      aria-labelledby='monthly-formula-title'
+    >
+      <div>
+        <h3 id='monthly-formula-title' className='font-semibold'>
+          Dasar Perhitungan Bulanan
+        </h3>
+        <p className='text-xs text-muted-foreground'>
+          Snapshot formula pada run ini tetap sama walaupun master berubah.
+        </p>
+      </div>
+      <div className='grid grid-cols-2 gap-3 text-sm sm:grid-cols-3'>
+        <ResultFact
+          label='Gaji pokok penuh'
+          value={amount(snapshot.fullBasicSalary)}
+        />
+        <ResultFact
+          label='Kalender eligible'
+          value={`${snapshot.eligibleCalendarDays} dari ${snapshot.periodCalendarDays} hari`}
+        />
+        <ResultFact
+          label='Gaji prorata'
+          value={amount(snapshot.proratedBasicSalary)}
+          strong
+        />
+        <ResultFact
+          label='Pembagi hari kerja'
+          value={`${snapshot.scheduledWorkDays} hari`}
+        />
+        <ResultFact
+          label={`Alpha (${snapshot.alphaDays} hari)`}
+          value={amount(snapshot.alphaDeduction)}
+        />
+        <ResultFact
+          label={`Izin (${snapshot.permissionDays} hari)`}
+          value={amount(snapshot.permissionDeduction)}
+        />
+      </div>
+      <p className='text-xs text-muted-foreground'>
+        Gaji berlaku sejak {date(snapshot.salaryEffectiveFrom)} /{' '}
+        {snapshot.currency}.
+      </p>
+      <div className='rounded-md bg-background/80 px-3 py-2 text-xs text-muted-foreground'>
+        Prorata = gaji pokok x hari kalender eligible / hari kalender periode.
+        Potongan Alpha dan Izin dihitung terpisah dari gaji pokok penuh / hari
+        kerja terjadwal.
+      </div>
+    </section>
+  )
+}
+
+function MonthlyAttendanceLedger({
+  details,
+}: {
+  details: PayrollMonthlyDailySnapshot[]
+}) {
+  return (
+    <section className='space-y-2' aria-labelledby='monthly-ledger-title'>
+      <div className='flex items-center justify-between gap-3'>
+        <div>
+          <h3 id='monthly-ledger-title' className='font-semibold'>
+            Ledger Attendance Bulanan
+          </h3>
+          <p className='text-xs text-muted-foreground'>
+            Status harian dan dampaknya pada potongan Alpha atau Izin.
+          </p>
+        </div>
+        <Badge variant='outline'>{details.length} tanggal</Badge>
+      </div>
+      {details.length ? (
+        <div className='overflow-hidden rounded-lg border'>
+          <div className='hidden grid-cols-[1.05fr_1fr_.8fr_1fr] gap-3 border-b bg-muted/40 px-3 py-2 text-xs font-semibold sm:grid'>
+            <span>Tanggal</span>
+            <span>Attendance</span>
+            <span>Jadwal</span>
+            <span className='text-end'>Dampak</span>
+          </div>
+          {details.map((item) => (
+            <div
+              key={item.businessDate}
+              className='grid gap-2 border-b p-3 text-sm last:border-b-0 sm:grid-cols-[1.05fr_1fr_.8fr_1fr] sm:items-center sm:gap-3'
+            >
+              <div>
+                <p className='font-medium'>{date(item.businessDate)}</p>
+                <p className='text-xs text-muted-foreground'>
+                  {item.calendarDayType === 'WORKDAY'
+                    ? 'Hari kerja'
+                    : 'Hari nonkerja'}
+                </p>
+              </div>
+              <div className='flex items-center justify-between gap-2 sm:block'>
+                <span className='text-xs text-muted-foreground sm:hidden'>
+                  Attendance
+                </span>
+                <Badge
+                  variant={
+                    item.deductionType !== 'NONE' ? 'destructive' : 'secondary'
+                  }
+                >
+                  {item.attendanceStatus}
+                </Badge>
+              </div>
+              <div className='flex justify-between gap-2 sm:block'>
+                <span className='text-xs text-muted-foreground sm:hidden'>
+                  Jadwal
+                </span>
+                <span>{item.isScheduled ? 'Terjadwal' : 'Tidak'}</span>
+              </div>
+              <div className='flex items-center justify-between gap-2 sm:block sm:text-end'>
+                <span className='text-xs text-muted-foreground sm:hidden'>
+                  Dampak
+                </span>
+                {item.deductionType !== 'NONE' ? (
+                  <div>
+                    <p className='font-medium text-destructive'>
+                      Potongan{' '}
+                      {item.deductionType === 'ALPHA' ? 'Alpha' : 'Izin'}
+                    </p>
+                    <p className='text-xs text-muted-foreground'>
+                      Nominal total ada pada dasar perhitungan.
+                    </p>
+                  </div>
+                ) : (
+                  <span className='text-muted-foreground'>Tidak dipotong</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className='rounded-lg border border-dashed p-5 text-center'>
+          <CalendarCheck2 className='mx-auto size-6 text-muted-foreground' />
+          <p className='mt-2 text-sm text-muted-foreground'>
+            Ledger Attendance bulanan belum tersedia pada snapshot ini.
           </p>
         </div>
       )}

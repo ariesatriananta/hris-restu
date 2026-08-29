@@ -213,10 +213,15 @@ export interface PayrollRunSummary {
   employeeType?: PayrollEmployeeType
   totalPieceRateAmount: string
   totalBasicSalaryAmount?: string
+  totalProratedBasicSalary?: string
+  totalAlphaDeduction?: string
+  totalPermissionDeduction?: string
+  totalEligibleCalendarDays?: number
   totalAttendanceDays?: number
   totalPayablePresentDays?: number
   totalOffdayPresentDays?: number
   totalEarnings: string
+  totalGrossEarnings?: string
   totalDeductions: string
   totalNetPay: string
   errorMessage: string | null
@@ -236,7 +241,9 @@ export interface PayrollHistoryPeriod {
   periodEnd: string
   paymentDate: string | null
   status: PayrollPeriodStatus
-  payrollBasis: 'PIECE_RATE'
+  payrollBasis: PayrollWageBasis
+  payFrequency?: PayrollPayFrequency
+  employeeType?: PayrollEmployeeType
   site: Pick<PayrollSite, 'code' | 'name'>
   currentRun: PayrollHistoryRun | null
   runCount: number
@@ -264,6 +271,7 @@ export interface PayrollHistoryResult {
 
 export interface PayrollRunAmounts {
   pieceRateAmount: string
+  basicSalaryAmount?: string
   additionalEarnings: string
   grossEarnings: string
   totalDeductions: string
@@ -278,12 +286,16 @@ export interface PayrollRunComparison {
     site: Pick<PayrollSite, 'code' | 'name'>
     periodStart: string
     periodEnd: string
+    payrollBasis?: PayrollWageBasis
+    payFrequency?: PayrollPayFrequency
+    employeeType?: PayrollEmployeeType
   }
   baseRun: PayrollHistoryRun
   targetRun: PayrollHistoryRun
   summary: {
     employeeCountDelta: number
     totalPieceRateAmountDelta: string
+    totalBasicSalaryAmountDelta?: string
     totalEarningsDelta: string
     totalDeductionsDelta: string
     totalNetPayDelta: string
@@ -308,6 +320,9 @@ export interface PayrollPayslipBundle {
     periodEnd: string
     paymentDate: string | null
     status: PayrollPeriodStatus
+    payrollBasis?: PayrollWageBasis
+    payFrequency?: PayrollPayFrequency
+    employeeType?: PayrollEmployeeType
     site: Pick<PayrollSite, 'code' | 'name'>
   }
   run: PayrollHistoryRun
@@ -361,6 +376,17 @@ export interface PayrollPayslipBundle {
       quantity: string
       amount: string
     }>
+    weeklyTime?: {
+      payableDays: number
+      offdayPresentDays: number
+      baseAmount: string
+      rateBreakdown: Array<{
+        dailyRate: string
+        payableDays: number
+        amount: string
+      }>
+    } | null
+    monthly?: PayrollMonthlySnapshot | null
   }>
 }
 
@@ -377,6 +403,7 @@ export interface PayrollEmployeeResultSummary {
   offdayPresentDays: number
   pieceRateAmount: string
   basicSalaryAmount: string
+  monthly?: PayrollMonthlySnapshot | null
   additionalEarnings: string
   grossEarnings: string
   totalDeductions: string
@@ -409,6 +436,36 @@ export interface PayrollTimeSnapshot {
   amount: string
   workedMinutes: number | null
   warningCode: string | null
+}
+
+export interface PayrollMonthlySnapshot {
+  fullBasicSalary: string
+  eligibleCalendarDays: number
+  periodCalendarDays: number
+  proratedBasicSalary: string
+  scheduledWorkDays: number
+  alphaDays: number
+  permissionDays: number
+  alphaDeduction: string
+  permissionDeduction: string
+}
+
+export interface PayrollMonthlyDetail extends PayrollMonthlySnapshot {
+  currency: string
+  salaryHistoryUid: string
+  salaryEffectiveFrom: string
+}
+
+export interface PayrollMonthlyDailySnapshot {
+  businessDate: string
+  attendanceStatus: string
+  calendarDayType: string
+  calendarReasonType: string
+  isScheduled: boolean
+  deductionType: 'NONE' | 'ALPHA' | 'PERMISSION'
+  fullBasicSalary: string
+  currency: string
+  workedMinutes: number | null
 }
 
 export interface PayrollTrainingProductionSnapshot {
@@ -467,12 +524,15 @@ export interface PayrollEmployeeResultDetail {
     workedMinutes: number
   } | null
   timeDetails: PayrollTimeSnapshot[]
+  monthlyDetail?: PayrollMonthlyDetail | null
+  monthlyDailyDetails?: PayrollMonthlyDailySnapshot[]
   trainingProduction: PayrollTrainingProductionSnapshot[]
   production: PayrollProductionSnapshot[]
   components: PayrollComponentSnapshot[]
   formulaTrace: {
     pieceRate: string | null
     timeBased: string | null
+    monthly?: string | null
     recurring: string
     manual: string
     net: string
@@ -546,6 +606,9 @@ export interface PayrollWorkflowIssue {
 export interface PayrollWorkflow {
   periodUid: string
   periodStatus: PayrollPeriodStatus
+  payrollBasis?: PayrollWageBasis
+  payFrequency?: PayrollPayFrequency
+  employeeType?: PayrollEmployeeType
   currentRun: {
     uid: string
     runNumber: number
@@ -553,6 +616,11 @@ export interface PayrollWorkflow {
     runType: 'SIMULATION' | 'FINAL'
     employeeCount: number
     totalPieceRateAmount: string
+    totalBasicSalaryAmount?: string
+    totalProratedBasicSalary?: string
+    totalAlphaDeduction?: string
+    totalPermissionDeduction?: string
+    totalGrossEarnings?: string
     totalEarnings: string
     totalDeductions: string
     totalNetPay: string
@@ -602,6 +670,9 @@ export interface PayrollApprovalQueueItem {
   requestedAt: string
   requestedByName: string
   superAdminOverride: boolean
+  payrollBasis?: PayrollWageBasis
+  payFrequency?: PayrollPayFrequency
+  employeeType?: PayrollEmployeeType
 }
 
 export interface PayrollApprovalQueueResult {

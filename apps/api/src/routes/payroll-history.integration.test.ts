@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { errorHandler } from '../lib/errors.js'
 import type { AuthContext } from '../middleware/authenticate.js'
-import { payrollHistoryRouter } from './payroll-history.js'
+import { exactMoneyDelta, payrollHistoryRouter } from './payroll-history.js'
 
 const mocks=vi.hoisted(()=>({query:vi.fn(),execute:vi.fn(),begin:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),audit:vi.fn()}))
 const conn={query:mocks.query,execute:mocks.execute,beginTransaction:mocks.begin,commit:mocks.commit,rollback:mocks.rollback,release:mocks.release}
@@ -24,7 +24,7 @@ const run={id:9,uid:'22222222-2222-4222-8222-222222222222',runId:9,periodId:3,pe
   periodStart:'2026-08-01',periodEnd:'2026-08-07',paymentDate:null,periodStatus:'CALCULATED',currentRunId:9,siteId:1,siteCode:'JEPARA',siteName:'Site Jepara',
   payrollBasis:'PIECE_RATE',payFrequency:'WEEKLY',employeeTypeCode:'BORONGAN',
   runUid:'22222222-2222-4222-8222-222222222222',runNumber:1,runType:'SIMULATION',runStatus:'COMPLETED',runEmployeeCount:1,
-  runPieceRate:'100.00',runEarnings:'0.00',runDeductions:'0.00',runNetPay:'100.00',runStartedAt:'2026-08-08T08:00:00.000+07:00',runFinishedAt:'2026-08-08T08:01:00.000+07:00',runIsCurrent:1}
+  runPieceRate:'100.00',runBasicSalary:'0.00',runEarnings:'0.00',runDeductions:'0.00',runNetPay:'100.00',runStartedAt:'2026-08-08T08:00:00.000+07:00',runFinishedAt:'2026-08-08T08:01:00.000+07:00',runIsCurrent:1}
 
 async function request(path:string,input:{method?:string;body?:unknown;auth?:AuthContext}={}){
   const app=express();app.use(express.json());app.use((_req,res,next)=>{res.locals.auth=input.auth??finance;next()});app.use('/api/payroll',payrollHistoryRouter);app.use(errorHandler)
@@ -35,6 +35,11 @@ async function request(path:string,input:{method?:string;body?:unknown;auth?:Aut
 
 describe('Payroll M4 history API',()=>{
   beforeEach(()=>{vi.clearAllMocks();mocks.begin.mockResolvedValue(undefined);mocks.commit.mockResolvedValue(undefined);mocks.rollback.mockResolvedValue(undefined);mocks.execute.mockResolvedValue([{affectedRows:1,insertId:1}])})
+
+  it('menghitung delta DECIMAL tanpa kehilangan presisi Number',()=>{
+    expect(exactMoneyDelta('9007199254740993.11','9007199254740992.10')).toBe('1.01')
+    expect(exactMoneyDelta('0.01','1.00')).toBe('-0.99')
+  })
 
   it('menolak filter site di luar akses Finance',async()=>{
     const response=await request('/history?siteCode=SEMARANG')
@@ -74,16 +79,22 @@ describe('Payroll M4 history API',()=>{
     expect(issue.status).toBe(403);expect(mocks.audit).not.toHaveBeenCalled()
   })
 
-  it('menolak export dan slip TIME_BASED sampai output M5D tersedia',async()=>{
-    const timeRun={...run,payrollBasis:'TIME_BASED',employeeTypeCode:'HARIAN'}
-    mocks.query.mockResolvedValue([[timeRun]])
-    const exportResponse=await request(`/runs/${run.runUid}/export`,{
-      method:'POST',auth:{...finance,permissions:['payroll.view','payroll.export']},
-      body:{type:'SUMMARY',idempotencyKey:'74444444-4444-4444-8444-444444444444'},
+  it('membuka preview slip TIME_BASED sebagai dokumen simulasi',async()=>{
+    const timeRun={...run,payrollBasis:'TIME_BASED',employeeTypeCode:'HARIAN',runPieceRate:'0.00',runBasicSalary:'125000.00',runNetPay:'125000.00'}
+    mocks.query.mockImplementation(async(sql:unknown)=>{
+      const statement=String(sql)
+      if(statement.includes('FROM payroll_runs pr JOIN payroll_periods')) return [[timeRun]]
+      if(statement.includes('SELECT result.* FROM payroll_employee_results')) return [[{id:5,uid:'55555555-5555-4555-8555-555555555555',employee_number_snapshot:'PKDS-1',employee_name_snapshot:'AAN',employee_type_snapshot:'HARIAN',department_name_snapshot:'Produksi',position_name_snapshot:'Operator',bank_name_snapshot:'BCA',bank_account_number_snapshot:'1234567890',piece_rate_amount:'0.00',basic_salary_amount:'125000.00',additional_earnings:'0.00',gross_earnings:'125000.00',total_deductions:'0.00',net_pay:'125000.00'}]]
+      if(statement.includes('FROM payroll_time_details')) return [[{resultId:5,dailyRate:'125000.00',payableDays:1,offdayPresentDays:0,amount:'125000.00'}]]
+      if(statement.includes('payroll_employee_component_details')||statement.includes('payroll_production_details')||statement.includes('payroll_attendance_summaries')||statement.includes('payroll_period_company_snapshots')) return [[]]
+      if(statement.includes("setting_key='company.profile'")) return [[{settingValue:JSON.stringify({companyName:'PT RSIA',legalAddress:'Jepara'})}]]
+      return [[]]
     })
-    expect(exportResponse.status).toBe(409)
     const slipResponse=await request(`/runs/${run.runUid}/payslips`)
-    expect(slipResponse.status).toBe(409)
+    expect(slipResponse.status).toBe(200)
+    const body=await slipResponse.json() as {data:{document:{kind:string;watermark:string};employees:Array<{weeklyTime:{payableDays:number;baseAmount:string}}>} }
+    expect(body.data.document).toMatchObject({kind:'SIMULATION',watermark:'SIMULASI'})
+    expect(body.data.employees[0].weeklyTime).toMatchObject({payableDays:1,baseAmount:'125000.00'})
     expect(mocks.audit).not.toHaveBeenCalled()
   })
 })

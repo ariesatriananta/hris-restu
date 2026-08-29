@@ -70,4 +70,41 @@ describe('Payroll approval integrity', () => {
       'NEGATIVE_NET_PAY',
     ])
   })
+
+  it('memakai integrity strategy TIME_BASED dan mendeteksi drift sumber', async () => {
+    const query = vi.fn().mockResolvedValue([[
+      {
+        resultEmployeeCount: 2,
+        rateDrift: 1,
+        scheduleDrift: 2,
+        policyDrift: 1,
+        populationDrift: 1,
+      },
+    ]])
+    const result = await inspectPayrollRunIntegrity({ query }, {
+      ...run,
+      payrollBasis: 'TIME_BASED',
+      payFrequency: 'WEEKLY',
+      employeeType: 'HARIAN',
+      policySnapshot: {
+        employeeType: 'HARIAN',
+        wageBasis: 'TIME_BASED',
+        payFrequency: 'WEEKLY',
+      },
+    })
+    expect(result.issues.map((entry) => entry.code)).toEqual([
+      'TIME_RATE_SNAPSHOT_DRIFT',
+      'SCHEDULE_SNAPSHOT_DRIFT',
+      'POLICY_SNAPSHOT_DRIFT',
+      'POPULATION_SNAPSHOT_DRIFT',
+    ])
+    const sql = String(query.mock.calls[0]?.[0])
+    expect(sql).toContain('payroll_time_details')
+    expect(sql).toContain('employee_daily_rate_histories')
+    expect(sql).toContain('payroll_period_policy_snapshots')
+    expect(sql).not.toContain('0 scheduleDrift')
+    expect((sql.match(/\?/g) ?? []).length).toBe(
+      (query.mock.calls[0]?.[1] as unknown[]).length
+    )
+  })
 })

@@ -414,4 +414,99 @@ describe('Payroll simulation service', () => {
     expect(statements.some((sql) => sql.includes('UPDATE production_transactions'))).toBe(false)
     expect(mocks.commit).toHaveBeenCalledOnce()
   })
+
+  it('membuat run strategy TIME_BASED bulanan dengan calculation version M5C', async () => {
+    const monthlyPeriod = {
+      ...period,
+      payrollBasis: 'TIME_BASED',
+      payFrequency: 'MONTHLY',
+      employeeType: 'BULANAN',
+      periodStart: '2026-08-01',
+      periodEnd: '2026-08-31',
+      policySnapshot: {
+        employeeType: 'BULANAN',
+        wageBasis: 'TIME_BASED',
+        payFrequency: 'MONTHLY',
+      },
+    }
+    mocks.query
+      .mockResolvedValueOnce([[monthlyPeriod]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[{ total: 0 }]])
+      .mockResolvedValueOnce([[{ runNumber: 1 }]])
+      .mockResolvedValueOnce([[
+        {
+          ...run,
+          payrollBasis: 'TIME_BASED',
+          payFrequency: 'MONTHLY',
+          employeeType: 'BULANAN',
+        },
+      ]])
+    mocks.execute.mockResolvedValueOnce([{ insertId: 21 }])
+
+    await createProcessingRun({
+      auth,
+      periodUid: 'period',
+      idempotencyKey: 'monthly-key',
+    })
+
+    expect(mocks.execute.mock.calls[0]?.[1]).toContain('3.1-TIME-MONTHLY')
+  })
+
+  it('M5C memakai pembagi hari kerja seluruh periode dan menghormati override kalender', async () => {
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const statement = String(sql)
+      if (statement.includes('FROM payroll_runs pr JOIN payroll_periods')) {
+        return [[{
+          id: 21,
+          uid: 'run',
+          status: 'PROCESSING',
+          periodId: 10,
+          siteId: 2,
+          periodStatus: 'DRAFT',
+          payrollBasis: 'TIME_BASED',
+          payFrequency: 'MONTHLY',
+          employeeType: 'BULANAN',
+          policySnapshot: {},
+          periodStart: '2026-08-01',
+          periodEnd: '2026-08-31',
+        }]]
+      }
+      if (statement.includes('COUNT(*) total FROM payroll_employee_results'))
+        return [[{ total: 1 }]]
+      if (statement.includes('COUNT(DISTINCT component.id) total'))
+        return [[{ total: 0 }]]
+      return [[]]
+    })
+    mocks.execute.mockResolvedValue([{}])
+
+    await calculatePayrollRun(21, auth)
+
+    const statements = mocks.execute.mock.calls.map((call) => String(call[0]))
+    const daily = statements.find((sql) =>
+      sql.includes('INSERT INTO payroll_monthly_daily_details')
+    )
+    const summary = statements.find((sql) =>
+      sql.includes('INSERT INTO payroll_monthly_summaries')
+    )
+    expect(daily).toContain("calendar_reason_type='WORKDAY_OVERRIDE'")
+    expect(summary).toContain('CROSS JOIN dates')
+    expect(summary).toContain("override_rule.rule_type='WORKDAY_OVERRIDE'")
+    expect(summary).toContain(
+      "holiday_rule.rule_type IN ('COLLECTIVE_LEAVE','SITE_HOLIDAY')"
+    )
+    expect(summary).toContain(
+      'MAX(detail.full_basic_salary_snapshot)*COUNT(*)/(DATEDIFF(?,?)+1)'
+    )
+    expect(summary).toContain(
+      'MAX(detail.full_basic_salary_snapshot)/MAX(schedule.scheduled_work_days)'
+    )
+    expect(statements.some((sql) =>
+      sql.includes("component_type.code='MONTHLY_ALPHA_DEDUCTION'")
+    )).toBe(true)
+    expect(statements.some((sql) => sql.includes("'RECURRING'"))).toBe(false)
+    expect(mocks.commit).toHaveBeenCalledOnce()
+  })
 })

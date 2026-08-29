@@ -116,4 +116,59 @@ describe('Riwayat Payroll M4', () => {
     expect(html).toContain('BUDI BERUBAH')
     expect(html).toContain('Nominal berubah')
   })
+
+  it('menggunakan delta upah dasar untuk perbandingan TIME_BASED', () => {
+    const run = {
+      uid: crypto.randomUUID(),
+      runNumber: 1,
+      runType: 'SIMULATION' as const,
+      status: 'COMPLETED' as const,
+      employeeCount: 1,
+      totalPieceRateAmount: '0.00',
+      totalBasicSalaryAmount: '750000.00',
+      totalEarnings: '0.00',
+      totalDeductions: '0.00',
+      totalNetPay: '750000.00',
+      startedAt: '2026-08-28T08:00:00+07:00',
+      finishedAt: '2026-08-28T08:01:00+07:00',
+      isCurrent: false,
+    }
+    const data: PayrollRunComparison = {
+      period: {
+        uid: crypto.randomUUID(),
+        periodCode: 'PAY-HARIAN-01',
+        periodName: 'Payroll Harian Test',
+        site: { code: 'JEPARA', name: 'Jepara' },
+        periodStart: '2026-08-24',
+        periodEnd: '2026-08-30',
+        payrollBasis: 'TIME_BASED',
+        payFrequency: 'WEEKLY',
+        employeeType: 'HARIAN',
+      },
+      baseRun: run,
+      targetRun: { ...run, uid: crypto.randomUUID(), runNumber: 2 },
+      summary: {
+        employeeCountDelta: 0,
+        totalPieceRateAmountDelta: '0.00',
+        totalBasicSalaryAmountDelta: '150000.00',
+        totalEarningsDelta: '0.00',
+        totalDeductionsDelta: '0.00',
+        totalNetPayDelta: '150000.00',
+      },
+      employees: [],
+    }
+
+    const html = renderToStaticMarkup(
+      <ComparisonPanel
+        data={data}
+        pending={false}
+        error={false}
+        retry={() => undefined}
+      />
+    )
+
+    expect(html).toContain('Upah harian')
+    expect(html).toContain('Rp 150.000')
+    expect(html).not.toContain('Hasil produksi')
+  })
 })

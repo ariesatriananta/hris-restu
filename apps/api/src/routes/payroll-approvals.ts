@@ -100,6 +100,7 @@ const periodWorkflowProjection = `SELECT
   pp.id periodId,pp.uid periodUid,pp.status periodStatus,pp.current_run_id currentRunId,
   pp.payroll_basis payrollBasis,pp.pay_frequency payFrequency,
   pp.employee_type_code employeeTypeCode,
+  policy_snapshot.policy_snapshot policySnapshot,
   pp.period_code periodCode,pp.period_name periodName,
   DATE_FORMAT(pp.period_start,'%Y-%m-%d') periodStart,
   DATE_FORMAT(pp.period_end,'%Y-%m-%d') periodEnd,
@@ -116,6 +117,8 @@ const periodWorkflowProjection = `SELECT
   reviewer.full_name reviewedByName,approval.reviewed_by reviewedBy,approval.notes
  FROM payroll_periods pp
  JOIN sites s ON s.id=pp.site_id
+ LEFT JOIN payroll_period_policy_snapshots policy_snapshot
+   ON policy_snapshot.payroll_period_id=pp.id
  LEFT JOIN payroll_runs run ON run.id=pp.current_run_id AND run.payroll_period_id=pp.id
  LEFT JOIN payroll_approvals approval ON approval.payroll_run_id=run.id AND approval.approval_level=1
  LEFT JOIN users requester ON requester.id=approval.requested_by
@@ -146,6 +149,7 @@ async function findApproval(
        pp.id periodId,pp.uid periodUid,pp.status periodStatus,pp.current_run_id currentRunId,
        pp.payroll_basis payrollBasis,pp.pay_frequency payFrequency,
        pp.employee_type_code employeeTypeCode,
+       policy_snapshot.policy_snapshot policySnapshot,
        pp.period_code periodCode,pp.period_name periodName,
        DATE_FORMAT(pp.period_start,'%Y-%m-%d') periodStart,
        DATE_FORMAT(pp.period_end,'%Y-%m-%d') periodEnd,
@@ -162,6 +166,8 @@ async function findApproval(
        reviewer.full_name reviewedByName,approval.reviewed_by reviewedBy,approval.notes
      FROM payroll_approvals approval
      JOIN payroll_periods pp ON pp.id=approval.payroll_period_id
+     LEFT JOIN payroll_period_policy_snapshots policy_snapshot
+       ON policy_snapshot.payroll_period_id=pp.id
      JOIN sites s ON s.id=pp.site_id
      JOIN payroll_runs run ON run.id=approval.payroll_run_id
      LEFT JOIN users requester ON requester.id=approval.requested_by
@@ -204,6 +210,54 @@ async function lockIntegritySources(conn: PoolConnection, row: RowDataPacket) {
      WHERE result.payroll_run_id=? FOR UPDATE`,
     [row.runId]
   )
+  if (row.payrollBasis === 'TIME_BASED') {
+    await conn.query(
+      `SELECT history.id FROM employee_employment_histories history
+        JOIN payroll_employee_results result ON result.employee_id=history.employee_id
+       WHERE result.payroll_run_id=? AND history.site_id=?
+         AND history.effective_from<=? AND (history.effective_to IS NULL OR history.effective_to>=?) FOR UPDATE`,
+      [row.runId,row.siteId,row.periodEnd,row.periodStart]
+    )
+    await conn.query(
+      `SELECT assignment.id FROM employee_shift_assignments assignment
+        JOIN payroll_employee_results result ON result.employee_id=assignment.employee_id
+       WHERE result.payroll_run_id=? AND assignment.effective_from<=?
+         AND (assignment.effective_to IS NULL OR assignment.effective_to>=?) FOR UPDATE`,
+      [row.runId,row.periodEnd,row.periodStart]
+    )
+    await conn.query(
+      `SELECT id FROM attendance_calendar_events
+        WHERE event_date BETWEEN ? AND ? AND cancelled_at IS NULL FOR UPDATE`,
+      [row.periodStart,row.periodEnd]
+    )
+    await conn.query(
+      `SELECT id FROM attendance_calendar_site_rules
+        WHERE site_id=? AND business_date BETWEEN ? AND ? AND cancelled_at IS NULL FOR UPDATE`,
+      [row.siteId,row.periodStart,row.periodEnd]
+    )
+    await conn.query(
+      `SELECT id FROM payroll_period_policy_snapshots WHERE payroll_period_id=? FOR UPDATE`,
+      [row.periodId]
+    )
+    if (row.employeeTypeCode === 'BULANAN') {
+      await conn.query(
+        `SELECT salary.id FROM employee_salary_histories salary
+          JOIN payroll_employee_results result ON result.employee_id=salary.employee_id
+         WHERE result.payroll_run_id=? AND salary.status='ACTIVE'
+           AND salary.effective_from<=? AND (salary.effective_to IS NULL OR salary.effective_to>=?) FOR UPDATE`,
+        [row.runId,row.periodEnd,row.periodStart]
+      )
+    } else {
+      await conn.query(
+        `SELECT rate.id FROM employee_daily_rate_histories rate
+          JOIN payroll_employee_results result ON result.employee_id=rate.employee_id
+         WHERE result.payroll_run_id=? AND rate.site_id=? AND rate.employee_type_code=?
+           AND rate.status='ACTIVE' AND rate.effective_from<=?
+           AND (rate.effective_to IS NULL OR rate.effective_to>=?) FOR UPDATE`,
+        [row.runId,row.siteId,row.employeeTypeCode,row.periodEnd,row.periodStart]
+      )
+    }
+  }
 }
 
 async function assertNoProcessingRun(conn: PoolConnection, periodId: number) {
@@ -290,15 +344,6 @@ function assertCurrentCompletedRun(row: RowDataPacket) {
   }
 }
 
-function assertWorkflowAvailable(row: RowDataPacket) {
-  if (row.payrollBasis === 'TIME_BASED') {
-    throw new ApiError(
-      409,
-      'Simulasi Payroll berbasis waktu belum dapat diajukan, disetujui, atau ditutup. Workflow resmi tersedia pada Milestone 5D.'
-    )
-  }
-}
-
 async function assertIntegrity(conn: PoolConnection, row: RowDataPacket) {
   assertCurrentCompletedRun(row)
   await lockIntegritySources(conn, row)
@@ -308,6 +353,10 @@ async function assertIntegrity(conn: PoolConnection, row: RowDataPacket) {
     siteId: Number(row.siteId),
     periodStart: String(row.periodStart),
     periodEnd: String(row.periodEnd),
+    payrollBasis: row.payrollBasis,
+    payFrequency: row.payFrequency,
+    employeeType: row.employeeTypeCode,
+    policySnapshot: row.policySnapshot,
   })
   if (!integrity.valid) {
     throw new ApiError(
@@ -324,28 +373,23 @@ function capabilities(auth: AuthContext, row: RowDataPacket, integrityValid: boo
   const separatedApprover =
     isSuper(auth) ||
     (Number(row.requestedBy) !== auth.id && Number(row.calculatedBy) !== auth.id)
-  const workflowAvailable = row.payrollBasis !== 'TIME_BASED'
   return {
     canSubmit:
-      workflowAvailable &&
       calculate &&
       row.periodStatus === 'CALCULATED' &&
       row.runStatus === 'COMPLETED' &&
       integrityValid &&
       !row.approvalId,
     canWithdraw:
-      workflowAvailable &&
       calculate &&
       row.approvalStatus === 'PENDING',
     canApprove:
-      workflowAvailable &&
       approve &&
       separatedApprover &&
       row.approvalStatus === 'PENDING' &&
       integrityValid,
-    canReject: workflowAvailable && approve && row.approvalStatus === 'PENDING',
+    canReject: approve && row.approvalStatus === 'PENDING',
     canClose:
-      workflowAvailable &&
       close &&
       row.periodStatus === 'APPROVED' &&
       row.approvalStatus === 'APPROVED' &&
@@ -372,22 +416,17 @@ async function workflowDto(auth: AuthContext, periodUid: string) {
       WHERE action.payroll_period_id=? ORDER BY action.performed_at,action.id`,
     [row.periodId]
   )
-  const integrity = row.payrollBasis === 'TIME_BASED'
-    ? {
-        valid: false,
-        issues: [{
-          code: 'TIME_BASED_WORKFLOW_NOT_AVAILABLE',
-          message: 'Workflow resmi Payroll berbasis waktu tersedia pada Milestone 5D.',
-          count: 1,
-        }],
-      }
-    : row.runId && row.runStatus === 'COMPLETED' && row.periodStatus !== 'CLOSED'
+  const integrity = row.runId && row.runStatus === 'COMPLETED' && row.periodStatus !== 'CLOSED'
       ? await inspectPayrollRunIntegrity(pool, {
           id: Number(row.runId),
           periodId: Number(row.periodId),
           siteId: Number(row.siteId),
           periodStart: String(row.periodStart),
           periodEnd: String(row.periodEnd),
+          payrollBasis: row.payrollBasis,
+          payFrequency: row.payFrequency,
+          employeeType: row.employeeTypeCode,
+          policySnapshot: row.policySnapshot,
         })
       : { valid: row.periodStatus === 'CLOSED', issues: [] }
   const override = historyRows.some(
@@ -571,7 +610,7 @@ payrollApprovalsRouter.post(
       const input = submitInput.parse(req.body)
       await conn.beginTransaction()
       const row = await findPeriod(conn, auth, periodUid)
-      assertWorkflowAvailable(row)
+
       if (
         await replay(conn, input.idempotencyKey, 'SUBMIT', {
           periodId: Number(row.periodId),
@@ -635,7 +674,7 @@ async function reviewHandler(
     const input = action === 'REJECT' ? reasonInput.parse(req.body) : reviewInput.parse(req.body)
     await conn.beginTransaction()
     const row = await findApproval(conn, auth, approvalUid)
-    assertWorkflowAvailable(row)
+
     if (await replay(conn, input.idempotencyKey, action, { approvalId: Number(row.approvalId) })) {
       await conn.commit()
       return res.json({ data: await workflowDto(auth, String(row.periodUid)), meta: { replay: true } })
@@ -714,7 +753,7 @@ payrollApprovalsRouter.post(
       const input = reasonInput.parse(req.body)
       await conn.beginTransaction()
       const row = await findApproval(conn, auth, approvalUid)
-      assertWorkflowAvailable(row)
+
       if (await replay(conn, input.idempotencyKey, 'WITHDRAW', { approvalId: Number(row.approvalId) })) {
         await conn.commit()
         return res.json({ data: await workflowDto(auth, String(row.periodUid)), meta: { replay: true } })
@@ -758,7 +797,7 @@ payrollApprovalsRouter.post(
       const input = idempotent.parse(req.body)
       await conn.beginTransaction()
       const row = await findPeriod(conn, auth, periodUid)
-      assertWorkflowAvailable(row)
+
       if (await replay(conn, input.idempotencyKey, 'CLOSE', { periodId: Number(row.periodId) })) {
         await conn.commit()
         return res.json({ data: await workflowDto(auth, periodUid), meta: { replay: true } })

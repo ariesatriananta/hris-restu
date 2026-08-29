@@ -72,7 +72,7 @@ async function request(path: string, input: { method?: string; body?: unknown; a
 
 describe('Payroll approval API', () => {
   beforeEach(() => {
-    vi.clearAllMocks(); mocks.begin.mockResolvedValue(undefined); mocks.commit.mockResolvedValue(undefined)
+    vi.clearAllMocks(); mocks.integrity.mockReset(); mocks.begin.mockResolvedValue(undefined); mocks.commit.mockResolvedValue(undefined)
     mocks.rollback.mockResolvedValue(undefined); mocks.execute.mockResolvedValue([{ insertId: 11, affectedRows: 1 }])
     mocks.integrity.mockResolvedValue({ valid: true, issues: [] })
   })
@@ -96,7 +96,7 @@ describe('Payroll approval API', () => {
     const response = await request(`/periods/${period.periodUid}/submit`, {
       method: 'POST', body: { idempotencyKey: '33333333-3333-4333-8333-333333333333' },
     })
-    expect(response.status).toBe(201)
+    expect(response.status, await response.clone().text()).toBe(201)
     expect(mocks.integrity).toHaveBeenCalled()
     expect(mocks.execute.mock.calls.some((call) => String(call[0]).includes("'DIRECTOR','PENDING'"))).toBe(true)
   })
@@ -115,19 +115,28 @@ describe('Payroll approval API', () => {
     expect(mocks.rollback).toHaveBeenCalledOnce()
   })
 
-  it('menolak submit TIME_BASED sampai workflow M5D tersedia', async () => {
+  it('membuka submit TIME_BASED melalui integrity checker M5D', async () => {
+    const timePeriod = {
+      ...period,
+      approvalId: undefined,
+      approvalUid: undefined,
+      approvalStatus: undefined,
+      payrollBasis: 'TIME_BASED',
+      payFrequency: 'WEEKLY',
+      employeeTypeCode: 'HARIAN',
+    }
     mutationQueries(
-      { ...period, payrollBasis: 'TIME_BASED', employeeTypeCode: 'HARIAN' },
-      period
+      timePeriod,
+      { ...timePeriod, approvalId: 11, approvalUid: '55555555-5555-4555-8555-555555555555', approvalStatus: 'PENDING' }
     )
     const response = await request(`/periods/${period.periodUid}/submit`, {
       method: 'POST', body: { idempotencyKey: '34333333-3333-4333-8333-333333333333' },
     })
-    const body = await response.json() as { message: string }
-    expect(response.status).toBe(409)
-    expect(body.message).toContain('Milestone 5D')
-    expect(mocks.integrity).not.toHaveBeenCalled()
-    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(response.status, await response.clone().text()).toBe(201)
+    expect(mocks.integrity).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({
+      payrollBasis: 'TIME_BASED', employeeType: 'HARIAN',
+    }))
+    expect(mocks.execute.mock.calls.some((call) => String(call[0]).includes('payroll_approvals'))).toBe(true)
   })
 
   it('retry submit idempotent tidak membuat approval atau audit kedua', async () => {
