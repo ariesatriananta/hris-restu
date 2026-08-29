@@ -1,5 +1,6 @@
 import type { RowDataPacket } from 'mysql2'
 import type { Pool, PoolConnection } from 'mysql2/promise'
+import { ApiError } from './errors.js'
 import { previewTimeBasedPopulation } from './payroll-period-resolver.js'
 
 export type PayrollReadinessStatus = 'READY' | 'ATTENTION' | 'BLOCKED'
@@ -587,7 +588,8 @@ async function evaluateTimeBasedPayrollReadiness(
     employeeType !== 'TRAINING' &&
     employeeType !== 'BULANAN'
   ) {
-    throw new Error(
+    throw new ApiError(
+      409,
       'Periode TIME_BASED wajib memiliki jenis karyawan HARIAN, TRAINING, atau BULANAN.'
     )
   }

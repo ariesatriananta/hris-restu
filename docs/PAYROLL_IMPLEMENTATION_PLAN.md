@@ -432,6 +432,35 @@ kontrak `TRAINING`, sedangkan `BORONGAN`, `HARIAN`, dan `BULANAN` hanya memakai
 - Regression seluruh skema Payroll, unit/integration test, typecheck, lint, dan
   production build lulus tanpa mengubah rumus M5B/M5C.
 
+### Milestone 5E - Operational hardening dan UAT
+
+- Bekukan rumus M5B/M5C. M5E hanya memperkuat validasi, pesan operasional,
+  regression, performa, serta bukti UAT seluruh skema.
+- Sediakan seed development/staging yang parametrik dan idempotent untuk
+  melengkapi tarif HARIAN/TRAINING serta gaji pokok BULANAN yang belum tersedia.
+  Seed tidak membuat periode, run, approval, closing, atau mengubah rekening.
+- Sediakan pemeriksaan read-only untuk policy, populasi, cakupan tarif/gaji,
+  finalisasi Attendance, workflow tertunda, rekening, run stale, konsistensi
+  agregat snapshot, dan indeks utama.
+- UAT wajib mencakup BORONGAN, HARIAN, TRAINING, dan BULANAN; periode mingguan
+  lintas bulan; join/resign parsial; Alpha/Izin; tanpa PRESENT; neto negatif;
+  source drift; site scope; self-approval SUPER_ADMIN; export; dan slip.
+- Data demo hanya boleh disiapkan pada development/staging. Database production
+  tidak boleh menerima seed dan mutation database tetap dijalankan owner.
+- M5E tidak menambah status pembayaran, transfer bank, rekonsiliasi, jurnal
+  Finance, pajak, BPJS, THR, lembur, bonus, atau rumus upah baru.
+
+### Exit criteria Milestone 5E
+
+- Seluruh regression API/frontend, typecheck, lint, dan production build lulus.
+- Check UAT tidak menemukan blocker schema/integritas yang belum dijelaskan.
+- Empat skema dapat menyelesaikan alur readiness, simulasi, approval, closing,
+  export, dan slip sesuai permission serta scope site.
+- Setiap blocker memiliki pesan dan tujuan tindakan yang dapat dipahami user
+  operasional tanpa membuka log teknis.
+- Setelah UAT staging ditandatangani owner, Payroll inti dinyatakan siap rollout;
+  perluasan Finance tetap menjadi scope terpisah.
+
 ### Exit criteria Milestone 5A
 
 - Matriks jenis karyawan-kontrak-skema ditegakkan oleh API dan readiness.

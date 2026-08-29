@@ -28,6 +28,8 @@ describe('Payroll approval integrity', () => {
     expect(sql).toContain('snapshot.id IS NULL')
     expect(sql).toContain('resultDetailMismatch')
     expect(sql).toContain("COALESCE(manual.notes,'')")
+    expect(sql).toContain('payroll_period_policy_snapshots')
+    expect(sql).toContain('policy_snapshot.id IS NULL')
     expect(sql).not.toContain('LATERAL')
     expect((sql.match(/\?/g) ?? []).length).toBe(
       (query.mock.calls[0]?.[1] as unknown[]).length
@@ -57,6 +59,19 @@ describe('Payroll approval integrity', () => {
       'BANK_ACCOUNT_DRIFT',
       'RESULT_DETAIL_MISMATCH',
     ])
+  })
+
+  it('memblokir drift policy pada Payroll BORONGAN', async () => {
+    const query = vi.fn().mockResolvedValue([
+      [{ resultEmployeeCount: 2, policyDrift: 1 }],
+    ])
+    const result = await inspectPayrollRunIntegrity({ query }, run)
+    expect(result.issues).toContainEqual({
+      code: 'POLICY_SNAPSHOT_DRIFT',
+      message:
+        'Policy Payroll berubah atau tidak sesuai snapshot periode. Hitung ulang Payroll.',
+      count: 1,
+    })
   })
 
   it('memblokir readiness BLOCKED dan neto negatif', async () => {

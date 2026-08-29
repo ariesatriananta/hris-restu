@@ -409,3 +409,31 @@ Rekap dan slip menyesuaikan jenis Payroll: hasil produksi untuk Borongan, upah
 harian untuk Harian/Training, serta gaji pokok prorata untuk Bulanan. Walaupun
 sudah ditutup atau dicetak, hasil tersebut belum berarti gaji sudah ditransfer
 atau dibayarkan.
+
+## 23. Pemeriksaan akhir sebelum Payroll diajukan
+
+Sebelum memilih **Ajukan**, lakukan pemeriksaan singkat berikut:
+
+1. Pastikan periode dan jenis karyawan sudah benar.
+2. Pastikan seluruh hari kerja yang seharusnya diproses sudah difinalisasi oleh
+   Attendance.
+3. Selesaikan koreksi Attendance dan pengajuan Izin/Sakit/Cuti yang masih
+   menunggu keputusan.
+4. Pastikan tarif harian, gaji pokok, pekerjaan, dan tarif Produksi mencakup
+   seluruh tanggal karyawan masih bekerja.
+5. Buka beberapa detail karyawan dan cocokkan angka sumber dengan dokumen kerja.
+6. Periksa karyawan tanpa rekening atau dengan neto negatif.
+7. Pastikan hasil yang akan diajukan adalah run terbaru setelah seluruh koreksi.
+
+Jika sistem meminta **Hitung ulang**, jangan melanjutkan menggunakan angka lama.
+Pesan tersebut berarti ada sumber yang berubah setelah simulasi, misalnya
+Attendance, shift, tarif, gaji, komponen, policy, atau rekening. Jalankan hitung
+ulang, periksa selisih pada histori, lalu ajukan current run terbaru.
+
+Untuk periode mingguan yang melewati pergantian bulan, tetap gunakan rentang
+Senin-Minggu yang ditentukan sistem. Jangan memecah periode hanya karena bulan
+kalender berubah.
+
+Untuk karyawan Bulanan yang mulai atau berhenti di tengah periode, periksa
+jumlah hari kalender eligible pada detail simulasi. Untuk Alpha dan Izin,
+periksa jumlah hari kerja terjadwal yang menjadi pembagi potongan.

@@ -282,9 +282,12 @@ export async function createProcessingRun(input: {
       policySnapshot: period.policySnapshot,
     })
     if (readiness.status === 'BLOCKED') {
+      const firstBlocker = readiness.blockers[0]?.message
       throw new ApiError(
         409,
-        'Readiness Payroll masih BLOCKED. Selesaikan seluruh blocker sebelum menghitung.'
+        firstBlocker
+          ? `Readiness Payroll masih BLOCKED: ${firstBlocker} Selesaikan seluruh blocker sebelum menghitung ulang.`
+          : 'Readiness Payroll masih BLOCKED. Selesaikan seluruh blocker sebelum menghitung ulang.'
       )
     }
     if (supportedWeeklyTime || supportedMonthlyTime) {

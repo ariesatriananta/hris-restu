@@ -476,6 +476,25 @@ export async function inspectPayrollRunIntegrity(
           live.holidayDays<>snapshot.holiday_days OR live.lateMinutes<>snapshot.late_minutes OR
           live.earlyLeaveMinutes<>snapshot.early_leave_minutes OR live.workedMinutes<>snapshot.worked_minutes
         )) attendanceDrift,
+       (SELECT COUNT(*) FROM payroll_periods integrity_period
+         LEFT JOIN payroll_period_policy_snapshots policy_snapshot
+           ON policy_snapshot.payroll_period_id=integrity_period.id
+         LEFT JOIN payroll_policy_versions policy
+           ON policy.id=policy_snapshot.payroll_policy_version_id
+        WHERE integrity_period.id=? AND (
+          policy_snapshot.id IS NULL OR policy.id IS NULL OR policy.status<>'ACTIVE' OR
+          policy.site_id<>? OR
+          NOT (policy.employee_type_code<=>JSON_UNQUOTE(JSON_EXTRACT(policy_snapshot.policy_snapshot,'$.employeeType'))) OR
+          NOT (policy.wage_basis<=>JSON_UNQUOTE(JSON_EXTRACT(policy_snapshot.policy_snapshot,'$.wageBasis'))) OR
+          NOT (policy.pay_frequency<=>JSON_UNQUOTE(JSON_EXTRACT(policy_snapshot.policy_snapshot,'$.payFrequency'))) OR
+          NOT (policy.cutoff_type<=>JSON_UNQUOTE(JSON_EXTRACT(policy_snapshot.policy_snapshot,'$.cutoffType'))) OR
+          NOT (policy.prorate_basis<=>JSON_UNQUOTE(JSON_EXTRACT(policy_snapshot.policy_snapshot,'$.prorateBasis'))) OR
+          NOT (policy.attendance_pay_rule<=>JSON_UNQUOTE(JSON_EXTRACT(policy_snapshot.policy_snapshot,'$.attendancePayRule'))) OR
+          NOT (policy.deduction_divisor<=>JSON_UNQUOTE(JSON_EXTRACT(policy_snapshot.policy_snapshot,'$.deductionDivisor'))) OR
+          NOT (policy.rounding_mode<=>JSON_UNQUOTE(JSON_EXTRACT(policy_snapshot.policy_snapshot,'$.roundingMode'))) OR
+          NOT (policy.rounding_scale<=>CAST(JSON_UNQUOTE(JSON_EXTRACT(policy_snapshot.policy_snapshot,'$.roundingScale')) AS UNSIGNED)) OR
+          NOT (policy.currency<=>JSON_UNQUOTE(JSON_EXTRACT(policy_snapshot.policy_snapshot,'$.currency')))
+        )) policyDrift,
        (SELECT COUNT(*) FROM payroll_employee_results result
          LEFT JOIN (
            SELECT detail.payroll_employee_result_id resultId,COUNT(*) transactionCount,
@@ -531,6 +550,8 @@ export async function inspectPayrollRunIntegrity(
       run.periodStart,
       run.periodId,
       run.id,
+      run.periodId,
+      run.siteId,
       run.id,
     ]
   )

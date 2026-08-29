@@ -131,6 +131,7 @@ describe('Payroll simulation service', () => {
     mocks.readiness.mockResolvedValueOnce({
       status: 'BLOCKED',
       evaluatedAt: '2026-08-28T00:00:00Z',
+      blockers: [{ message: 'Finalisasi Attendance belum lengkap.' }],
     })
     mocks.query
       .mockResolvedValueOnce([[period]])
@@ -143,7 +144,11 @@ describe('Payroll simulation service', () => {
         periodUid: 'period',
         idempotencyKey: 'blocked-key',
       })
-    ).rejects.toMatchObject({ status: 409 })
+    ).rejects.toMatchObject({
+      status: 409,
+      message:
+        'Readiness Payroll masih BLOCKED: Finalisasi Attendance belum lengkap. Selesaikan seluruh blocker sebelum menghitung ulang.',
+    })
     expect(mocks.execute).not.toHaveBeenCalled()
   })
 
@@ -413,6 +418,54 @@ describe('Payroll simulation service', () => {
     expect(statements.some((sql) => sql.includes("'RECURRING'"))).toBe(false)
     expect(statements.some((sql) => sql.includes('UPDATE production_transactions'))).toBe(false)
     expect(mocks.commit).toHaveBeenCalledOnce()
+  })
+
+  it('TIME_BASED mingguan tetap menyimpan pekerja tanpa PRESENT dan memperlihatkan neto negatif', async () => {
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const statement = String(sql)
+      if (statement.includes('FROM payroll_runs pr JOIN payroll_periods')) {
+        return [[{
+          id: 21,
+          uid: 'run',
+          status: 'PROCESSING',
+          periodId: 10,
+          siteId: 2,
+          periodStatus: 'DRAFT',
+          payrollBasis: 'TIME_BASED',
+          payFrequency: 'WEEKLY',
+          employeeType: 'HARIAN',
+          policySnapshot: {},
+          periodStart: '2026-08-31',
+          periodEnd: '2026-09-06',
+        }]]
+      }
+      if (statement.includes('COUNT(*) total FROM payroll_employee_results'))
+        return [[{ total: 1 }]]
+      if (statement.includes('COUNT(DISTINCT component.id) total'))
+        return [[{ total: 0 }]]
+      return [[]]
+    })
+    mocks.execute.mockResolvedValue([{}])
+
+    await calculatePayrollRun(21, auth)
+
+    const statements = mocks.execute.mock.calls.map((call) => String(call[0]))
+    const resultInsert = statements.find((sql) =>
+      sql.includes('INSERT INTO payroll_employee_results')
+    )
+    const dailyInsert = statements.find((sql) =>
+      sql.includes('INSERT INTO payroll_time_details')
+    )
+    const resultUpdate = statements.find((sql) =>
+      sql.includes('UPDATE payroll_employee_results result')
+    )
+    expect(resultInsert).not.toContain("attendance_status='PRESENT'")
+    expect(dailyInsert).toContain('SELECT CAST(? AS DATE) business_date')
+    expect(dailyInsert).toContain('FROM dates WHERE business_date<?')
+    expect(resultUpdate).toContain(
+      'COALESCE(time_detail.baseAmount,0)+COALESCE(component.earnings,0)-COALESCE(component.deductions,0)'
+    )
+    expect(resultUpdate).not.toContain('GREATEST(0')
   })
 
   it('membuat run strategy TIME_BASED bulanan dengan calculation version M5C', async () => {

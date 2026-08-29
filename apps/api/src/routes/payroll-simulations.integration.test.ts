@@ -141,6 +141,29 @@ describe('Payroll simulation API', () => {
     expect(response.status).toBe(403)
     expect(mocks.createRun).not.toHaveBeenCalled()
   })
+  it('user site lain tidak dapat membuka hasil Payroll di luar aksesnya', async () => {
+    mocks.query.mockResolvedValueOnce([
+      [
+        {
+          id: 21,
+          uid: '77777777-7777-4777-8777-777777777777',
+          siteId: 3,
+          siteCode: 'KLATEN',
+          status: 'COMPLETED',
+        },
+      ],
+    ])
+
+    const response = await request(
+      '/runs/77777777-7777-4777-8777-777777777777/employees'
+    )
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({
+      message: 'Akses site Payroll ditolak.',
+    })
+    expect(mocks.query).toHaveBeenCalledOnce()
+  })
   it('menolak nominal manual nol', async () => {
     mocks.query.mockResolvedValueOnce([
       [

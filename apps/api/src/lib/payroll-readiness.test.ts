@@ -13,6 +13,21 @@ const period = {
 }
 
 describe('Payroll readiness', () => {
+  it('mengembalikan konflik bisnis untuk identitas TIME_BASED yang rusak', async () => {
+    await expect(
+      evaluatePayrollReadiness(executor([]) as never, {
+        ...period,
+        payrollBasis: 'TIME_BASED',
+        payFrequency: 'WEEKLY',
+        employeeType: 'BORONGAN',
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      message:
+        'Periode TIME_BASED wajib memiliki jenis karyawan HARIAN, TRAINING, atau BULANAN.',
+    })
+  })
+
   it('READY bila periode selesai dan seluruh integritas terpenuhi', async () => {
     const db = executor([
       [
@@ -258,5 +273,70 @@ describe('Payroll readiness', () => {
       ])
     )
     expect(result.facts.invalidSalarySegmentEmployees).toBe(1)
+  })
+
+  it('periode mingguan lintas bulan tetap memakai seluruh rentang Senin-Minggu', async () => {
+    const db = executor([
+      [
+        {
+          employeeUid: '33333333-3333-4333-8333-333333333333',
+          employeeNumber: 'JPR-003',
+          fullName: 'Lintas Bulan',
+          employeeType: 'HARIAN',
+          eligibleFrom: '2026-08-31',
+          eligibleTo: '2026-09-06',
+          payablePresentDays: 7,
+          offdayPresentDays: 2,
+          alphaDays: 0,
+          permissionDays: 0,
+          missingBaseDays: 0,
+          ambiguousBaseDays: 0,
+          invalidContractDays: 0,
+          duplicateAttendanceDays: 0,
+          missingAttendanceDays: 0,
+          unsupportedCurrencyDays: 0,
+          rateSegmentCount: 1,
+          baseAmount: '700000',
+          currency: 'IDR',
+          bankAccountComplete: 1,
+          manualComponentCount: 0,
+        },
+      ],
+      [
+        {
+          dbToday: '2026-09-07',
+          pendingCorrections: 0,
+          pendingClassifications: 0,
+          ambiguousEmployment: 0,
+          unsupportedFormula: 0,
+          recurringComponents: 0,
+          activeManualComponents: 0,
+        },
+      ],
+      [{ expectedDays: 5, finalizedDays: 5, runningDays: 0 }],
+    ])
+    const result = await evaluatePayrollReadiness(db as never, {
+      ...period,
+      periodStart: '2026-08-31',
+      periodEnd: '2026-09-06',
+      payrollBasis: 'TIME_BASED',
+      payFrequency: 'WEEKLY',
+      employeeType: 'HARIAN',
+      policySnapshot: {
+        employeeType: 'HARIAN',
+        wageBasis: 'TIME_BASED',
+        payFrequency: 'WEEKLY',
+      },
+    })
+
+    expect(result.status).toBe('ATTENTION')
+    expect(result.blockers).toEqual([])
+    expect(result.facts).toMatchObject({
+      payablePresentDays: 7,
+      offdayPresentDays: 2,
+    })
+    expect(db.query.mock.calls[1]?.[1]).toEqual(
+      expect.arrayContaining(['2026-08-31', '2026-09-06'])
+    )
   })
 })
