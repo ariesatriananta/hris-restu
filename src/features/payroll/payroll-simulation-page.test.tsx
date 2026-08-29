@@ -141,7 +141,9 @@ describe('Payroll simulation page', () => {
     await expect
       .element(screen.getByText('Upah dasar', { exact: true }))
       .toBeInTheDocument()
-    await expect.element(screen.getByText('5 hari dibayar')).toBeInTheDocument()
+    await expect
+      .element(screen.getByText('5 hari dibayar').first())
+      .toBeInTheDocument()
     await expect
       .element(screen.getByText('1 hari nonkerja', { exact: true }).first())
       .toBeInTheDocument()

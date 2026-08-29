@@ -1,6 +1,12 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
 import { format, parseISO } from 'date-fns'
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+} from '@tanstack/react-table'
 import { id } from 'date-fns/locale'
 import {
   AlertTriangle,
@@ -12,7 +18,6 @@ import {
   LoaderCircle,
   Plus,
   RefreshCcw,
-  Search,
   ShieldAlert,
   Users,
   WalletCards,
@@ -49,7 +54,20 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  DataTableActionButton,
+  DataTablePagination,
+  DataTableToolbar,
+} from '@/components/data-table'
 import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
 import { formatIdAmountInput, normalizeIdAmount } from './amount-input'
@@ -578,60 +596,191 @@ function EmployeeResults({
   onPatch: (value: SearchState) => void
 }) {
   const monthly = payrollBasis === 'TIME_BASED' && payFrequency === 'MONTHLY'
+  const columns = useMemo<ColumnDef<PayrollEmployeeResultSummary>[]>(
+    () => [
+      {
+        accessorKey: 'fullName',
+        header: 'Karyawan',
+        cell: ({ row }) => <EmployeeIdentity item={row.original} />,
+      },
+      {
+        id: 'baseAmount',
+        header: monthly
+          ? 'Gaji & Prorata'
+          : payrollBasis === 'TIME_BASED'
+            ? 'Hari & Upah Dasar'
+            : 'Produksi',
+        cell: ({ row }) => (
+          <PayrollBaseAmount
+            item={row.original}
+            payrollBasis={payrollBasis}
+            payFrequency={payFrequency}
+          />
+        ),
+      },
+      {
+        accessorKey: 'additionalEarnings',
+        header: 'Tambahan',
+        cell: ({ row }) => amount(row.original.additionalEarnings),
+      },
+      {
+        accessorKey: 'totalDeductions',
+        header: 'Potongan',
+        cell: ({ row }) => amount(row.original.totalDeductions),
+      },
+      {
+        accessorKey: 'netPay',
+        header: 'Neto',
+        cell: ({ row }) => (
+          <span className='font-bold'>{amount(row.original.netPay)}</span>
+        ),
+      },
+      {
+        id: 'issues',
+        accessorFn: (row) => row.issues,
+        header: 'Kondisi',
+      },
+      {
+        id: 'actions',
+        header: () => <span className='sr-only'>Aksi</span>,
+        cell: ({ row }) => (
+          <DataTableActionButton
+            label={`Lihat detail ${row.original.fullName}`}
+            onClick={() => onPatch({ employeeUid: row.original.uid })}
+          >
+            <Eye />
+          </DataTableActionButton>
+        ),
+        enableHiding: false,
+      },
+    ],
+    [monthly, onPatch, payFrequency, payrollBasis]
+  )
+  // TanStack Table sengaja mengembalikan fungsi stateful; ini pola resmi starter.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const table = useReactTable({
+    data,
+    columns,
+    state: {
+      globalFilter: filter,
+      columnFilters: issue ? [{ id: 'issues', value: [issue] }] : [],
+      pagination: { pageIndex: Math.max(0, page - 1), pageSize },
+      columnVisibility: { issues: false },
+    },
+    manualFiltering: true,
+    manualPagination: true,
+    pageCount: Math.max(1, Math.ceil(total / pageSize)),
+    onGlobalFilterChange: (updater) => {
+      const next =
+        typeof updater === 'function' ? updater(filter) : String(updater ?? '')
+      onPatch({ filter: next || undefined, page: undefined })
+    },
+    onColumnFiltersChange: (updater) => {
+      const current = issue ? [{ id: 'issues', value: [issue] }] : []
+      const next = typeof updater === 'function' ? updater(current) : updater
+      const issueValue = next.find((item) => item.id === 'issues')?.value
+      onPatch({
+        issue:
+          Array.isArray(issueValue) && issueValue.length
+            ? String(issueValue[0])
+            : undefined,
+        page: undefined,
+      })
+    },
+    onPaginationChange: (updater) => {
+      const current = { pageIndex: Math.max(0, page - 1), pageSize }
+      const next = typeof updater === 'function' ? updater(current) : updater
+      onPatch({
+        page: next.pageIndex + 1,
+        pageSize: next.pageSize,
+        employeeUid: undefined,
+      })
+    },
+    getCoreRowModel: getCoreRowModel(),
+  })
   return (
     <section className='space-y-3'>
-      <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
-        <div className='relative flex-1 sm:max-w-sm'>
-          <Search className='absolute top-2.5 left-3 size-4 text-muted-foreground' />
-          <Input
-            className='pl-9'
-            value={filter}
-            onChange={(event) =>
-              onPatch({
-                filter: event.target.value || undefined,
-                page: undefined,
-              })
-            }
-            placeholder='Cari nama atau nomor karyawan...'
-          />
-        </div>
-        <Select
-          value={issue ?? 'ALL'}
-          onValueChange={(value) =>
-            onPatch({
-              issue: value === 'ALL' ? undefined : value,
-              page: undefined,
-            })
-          }
-        >
-          <SelectTrigger className='w-full sm:w-48'>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='ALL'>Semua kondisi</SelectItem>
-            <SelectItem value='MISSING_BANK'>Rekening belum lengkap</SelectItem>
-            <SelectItem value='NEGATIVE_NET'>Neto negatif</SelectItem>
-          </SelectContent>
-        </Select>
+      <DataTableToolbar
+        table={table}
+        searchPlaceholder='Cari nama atau nomor karyawan...'
+        searchDebounceMs={400}
+        filters={[
+          {
+            columnId: 'issues',
+            title: 'Kondisi',
+            options: [
+              { value: 'MISSING_BANK', label: 'Rekening belum lengkap' },
+              { value: 'NEGATIVE_NET', label: 'Neto negatif' },
+            ],
+          },
+        ]}
+      />
+      <div className='hidden overflow-hidden rounded-md border md:block'>
+        <Table className='table-fixed'>
+          <TableHeader>
+            {table.getHeaderGroups().map((group) => (
+              <TableRow key={group.id}>
+                {group.headers.map((header) => (
+                  <TableHead
+                    key={header.id}
+                    className={
+                      header.id === 'actions'
+                        ? 'w-12'
+                        : header.id === 'fullName'
+                          ? 'w-[28%]'
+                          : undefined
+                    }
+                  >
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {pending ? (
+              Array.from({ length: 5 }).map((_, index) => (
+                <TableRow key={index}>
+                  <TableCell colSpan={columns.length}>
+                    <Skeleton className='h-10 w-full' />
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : table.getRowModel().rows.length ? (
+              table.getRowModel().rows.map((row) => (
+                <TableRow key={row.original.uid}>
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell
+                  colSpan={columns.length}
+                  className='h-28 text-center text-muted-foreground'
+                >
+                  Tidak ada hasil karyawan sesuai filter.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
       </div>
-      <div className='overflow-hidden rounded-lg border'>
-        <div className='hidden grid-cols-[minmax(170px,1.4fr)_minmax(130px,1.05fr)_repeat(3,minmax(88px,.8fr))_40px] gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-semibold md:grid'>
-          <span>Karyawan</span>
-          <span>
-            {monthly
-              ? 'Gaji & Prorata'
-              : payrollBasis === 'TIME_BASED'
-                ? 'Hari & Upah Dasar'
-                : 'Produksi'}
-          </span>
-          <span>Tambahan</span>
-          <span>Potongan</span>
-          <span>Neto</span>
-          <span className='sr-only'>Aksi</span>
-        </div>
+      <div className='space-y-2 md:hidden'>
         {pending ? (
-          Array.from({ length: 5 }).map((_, index) => (
-            <Skeleton key={index} className='m-3 h-14' />
+          Array.from({ length: 3 }).map((_, index) => (
+            <Skeleton key={index} className='h-40 rounded-lg' />
           ))
         ) : data.length ? (
           data.map((item) => (
@@ -644,35 +793,83 @@ function EmployeeResults({
             />
           ))
         ) : (
-          <div className='p-10 text-center text-sm text-muted-foreground'>
+          <div className='rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground'>
             Tidak ada hasil karyawan sesuai filter.
           </div>
         )}
       </div>
-      <div className='flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between'>
-        <span>{total.toLocaleString('id-ID')} karyawan</span>
-        <div className='flex items-center gap-2'>
-          <Button
-            variant='outline'
-            size='sm'
-            disabled={page <= 1}
-            onClick={() => onPatch({ page: page - 1 })}
-          >
-            Sebelumnya
-          </Button>
-          <span>Halaman {page}</span>
-          <Button
-            variant='outline'
-            size='sm'
-            disabled={page * pageSize >= total}
-            onClick={() => onPatch({ page: page + 1 })}
-          >
-            Berikutnya
-          </Button>
-        </div>
-      </div>
+      <DataTablePagination
+        table={table}
+        summary={
+          total
+            ? `Menampilkan ${Math.min((page - 1) * pageSize + 1, total)}–${Math.min(page * pageSize, total)} dari ${total.toLocaleString('id-ID')} karyawan`
+            : '0 karyawan'
+        }
+      />
     </section>
   )
+}
+
+function EmployeeIdentity({ item }: { item: PayrollEmployeeResultSummary }) {
+  return (
+    <div className='min-w-0'>
+      <p className='truncate font-semibold' title={item.fullName}>
+        {item.fullName}
+      </p>
+      <p className='truncate text-xs text-muted-foreground'>
+        {item.employeeNumber} · {item.employeeType}
+      </p>
+      <div className='mt-1 flex flex-wrap gap-1'>
+        {item.issues.map((itemIssue) => (
+          <Badge key={itemIssue} variant='destructive' className='text-[10px]'>
+            {itemIssue === 'MISSING_BANK'
+              ? 'Rekening belum lengkap'
+              : 'Neto negatif'}
+          </Badge>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function PayrollBaseAmount({
+  item,
+  payrollBasis,
+  payFrequency,
+}: {
+  item: PayrollEmployeeResultSummary
+  payrollBasis: PayrollWageBasis
+  payFrequency?: PayrollPayFrequency
+}) {
+  const monthly = payrollBasis === 'TIME_BASED' && payFrequency === 'MONTHLY'
+  if (monthly && item.monthly) {
+    return (
+      <div>
+        <p className='font-medium'>{amount(item.basicSalaryAmount)}</p>
+        <p className='text-xs text-muted-foreground'>
+          {item.monthly.eligibleCalendarDays}/{item.monthly.periodCalendarDays}{' '}
+          hari kalender
+        </p>
+        <p className='text-[11px] text-muted-foreground'>
+          Alpha {item.monthly.alphaDays} / Izin {item.monthly.permissionDays}
+        </p>
+      </div>
+    )
+  }
+  if (payrollBasis === 'TIME_BASED') {
+    return (
+      <div>
+        <p className='font-medium'>{amount(item.basicSalaryAmount)}</p>
+        <p className='text-xs text-muted-foreground'>
+          {item.payablePresentDays.toLocaleString('id-ID')} hari dibayar
+          {item.offdayPresentDays > 0
+            ? ` · ${item.offdayPresentDays} hari nonkerja`
+            : ''}
+        </p>
+      </div>
+    )
+  }
+  return <span className='font-medium'>{amount(item.pieceRateAmount)}</span>
 }
 
 function EmployeeResultRow({
@@ -688,7 +885,7 @@ function EmployeeResultRow({
 }) {
   const monthly = payrollBasis === 'TIME_BASED' && payFrequency === 'MONTHLY'
   return (
-    <div className='grid gap-2 border-b p-3 last:border-b-0 md:grid-cols-[minmax(170px,1.4fr)_minmax(130px,1.05fr)_repeat(3,minmax(88px,.8fr))_40px] md:items-center'>
+    <div className='grid gap-2 rounded-lg border bg-card p-3'>
       <div>
         <p className='font-semibold'>{item.fullName}</p>
         <p className='text-xs text-muted-foreground'>
@@ -745,6 +942,7 @@ function EmployeeResultRow({
       <Button
         variant='ghost'
         size='icon'
+        className='justify-self-end'
         aria-label={`Lihat detail ${item.fullName}`}
         onClick={onOpen}
       >
@@ -1467,7 +1665,7 @@ function ManualComponentDialog({
   }
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className='sm:max-w-xl'>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-xl'>
         <DialogHeader>
           <DialogTitle>
             {editUid ? 'Koreksi Komponen Manual' : 'Tambah Komponen Manual'}

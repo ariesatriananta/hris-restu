@@ -72,7 +72,6 @@ import {
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
-import { periodForDate } from './payroll-period-policy'
 import {
   useCancelPayrollPeriod,
   useCreatePayrollPeriod,
@@ -91,6 +90,7 @@ import type {
   PayrollPeriodsResult,
   PayrollReadinessStatus,
 } from './domain'
+import { periodForDate } from './payroll-period-policy'
 
 const statusLabels: Record<PayrollPeriodStatus, string> = {
   DRAFT: 'Draft',
@@ -751,7 +751,7 @@ function CreatePeriodDialog({
   }
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className='sm:max-w-2xl'>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-2xl'>
         <DialogHeader>
           <DialogTitle>Buat Periode Payroll</DialogTitle>
           <DialogDescription>
@@ -1549,7 +1549,7 @@ function CancelPeriodDialog({
   }
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle>Batalkan Periode Payroll?</DialogTitle>
           <DialogDescription>

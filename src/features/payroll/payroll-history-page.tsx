@@ -220,7 +220,7 @@ export function PayrollHistoryPage({
               resetPage({ siteCode: value === 'ALL' ? undefined : value })
             }
           >
-            <SelectTrigger aria-label='Filter site'>
+            <SelectTrigger className='w-full' aria-label='Filter site'>
               <SelectValue placeholder='Semua site' />
             </SelectTrigger>
             <SelectContent>
@@ -238,7 +238,7 @@ export function PayrollHistoryPage({
               resetPage({ status: value === 'ALL' ? undefined : value })
             }
           >
-            <SelectTrigger aria-label='Filter status'>
+            <SelectTrigger className='w-full' aria-label='Filter status'>
               <SelectValue placeholder='Semua status' />
             </SelectTrigger>
             <SelectContent>

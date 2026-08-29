@@ -220,7 +220,10 @@ export function PayrollPayslipsPage({
               })
             }
           >
-            <SelectTrigger aria-label='Pilih periode Payroll'>
+            <SelectTrigger
+              className='w-full'
+              aria-label='Pilih periode Payroll'
+            >
               <SelectValue placeholder='Pilih periode Payroll' />
             </SelectTrigger>
             <SelectContent>
@@ -246,7 +249,7 @@ export function PayrollPayslipsPage({
               })
             }
           >
-            <SelectTrigger aria-label='Pilih run Payroll'>
+            <SelectTrigger className='w-full' aria-label='Pilih run Payroll'>
               <SelectValue placeholder='Pilih run' />
             </SelectTrigger>
             <SelectContent>

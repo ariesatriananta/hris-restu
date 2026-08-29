@@ -379,9 +379,18 @@ function Filters({
   onChange: (value: SearchState) => void
 }) {
   return (
-    <div className='grid gap-2 sm:grid-cols-2 lg:flex'>
+    <div
+      className={cn(
+        'grid min-w-0 flex-1 gap-2 sm:grid-cols-2',
+        query !== undefined && showEmployeeType
+          ? 'lg:grid-cols-[minmax(240px,1fr)_repeat(3,minmax(150px,190px))]'
+          : query !== undefined
+            ? 'lg:grid-cols-[minmax(240px,1fr)_repeat(2,minmax(150px,190px))]'
+            : 'lg:grid-cols-3'
+      )}
+    >
       {query !== undefined && (
-        <div className='relative min-w-0 lg:w-72'>
+        <div className='relative min-w-0'>
           <Search className='absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground' />
           <Input
             value={query}
@@ -399,7 +408,7 @@ function Filters({
           onChange({ site: value === 'ALL' ? undefined : value })
         }
       >
-        <SelectTrigger className='lg:w-44' aria-label='Filter site'>
+        <SelectTrigger className='w-full' aria-label='Filter site'>
           <SelectValue placeholder='Semua site' />
         </SelectTrigger>
         <SelectContent>
@@ -418,7 +427,7 @@ function Filters({
             onChange({ employeeType: value === 'ALL' ? undefined : value })
           }
         >
-          <SelectTrigger className='lg:w-44' aria-label='Filter jenis karyawan'>
+          <SelectTrigger className='w-full' aria-label='Filter jenis karyawan'>
             <SelectValue placeholder='Semua jenis' />
           </SelectTrigger>
           <SelectContent>
@@ -439,7 +448,7 @@ function Filters({
           onChange({ status: value === 'ALL' ? undefined : value })
         }
       >
-        <SelectTrigger className='lg:w-40' aria-label='Filter status'>
+        <SelectTrigger className='w-full' aria-label='Filter status'>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -656,7 +665,7 @@ function PolicyDialog({
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-w-2xl'>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-2xl'>
         <DialogHeader>
           <DialogTitle>Buat Versi Policy</DialogTitle>
           <DialogDescription>
@@ -667,7 +676,7 @@ function PolicyDialog({
         <div className='grid gap-4 sm:grid-cols-2'>
           <Field label='Site'>
             <Select value={siteUid} onValueChange={setSiteUid}>
-              <SelectTrigger>
+              <SelectTrigger className='w-full'>
                 <SelectValue placeholder='Pilih site' />
               </SelectTrigger>
               <SelectContent>
@@ -686,7 +695,7 @@ function PolicyDialog({
                 setEmployeeType(value as PayrollEmployeeType)
               }
             >
-              <SelectTrigger>
+              <SelectTrigger className='w-full'>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -720,7 +729,7 @@ function PolicyDialog({
                     setCutoffType(value as 'LAST_DAY' | 'DAY_OF_MONTH')
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className='w-full'>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1029,7 +1038,7 @@ function RateDialog({
   }
   return (
     <Dialog open={Boolean(state)} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle>
             {mode === 'create'
@@ -1063,7 +1072,7 @@ function RateDialog({
                 {resource === 'daily-rates' && (
                   <Field label='Site'>
                     <Select value={siteUid} onValueChange={setSiteUid}>
-                      <SelectTrigger>
+                      <SelectTrigger className='w-full'>
                         <SelectValue placeholder='Pilih site' />
                       </SelectTrigger>
                       <SelectContent>
@@ -1371,7 +1380,7 @@ function RateDrawer({
 }) {
   return (
     <Sheet open={Boolean(rate)} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className='w-full sm:max-w-lg'>
+      <SheetContent className='w-full overflow-y-auto sm:max-w-lg'>
         <SheetHeader>
           <SheetTitle>Detail Histori Nominal</SheetTitle>
           <SheetDescription>

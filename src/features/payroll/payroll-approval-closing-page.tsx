@@ -221,7 +221,7 @@ export function PayrollApprovalClosingPage({
               })
             }
           >
-            <SelectTrigger aria-label='Filter site'>
+            <SelectTrigger className='w-full' aria-label='Filter site'>
               <SelectValue placeholder='Semua site' />
             </SelectTrigger>
             <SelectContent>
@@ -239,7 +239,7 @@ export function PayrollApprovalClosingPage({
               patch({ status: value, page: undefined, periodUid: undefined })
             }
           >
-            <SelectTrigger aria-label='Filter status'>
+            <SelectTrigger className='w-full' aria-label='Filter status'>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
