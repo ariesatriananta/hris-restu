@@ -171,6 +171,7 @@ export const sidebarData: SidebarData = {
               title: 'User & Hak Akses',
               url: '/administrasi/user-hak-akses',
               icon: UserRoundCog,
+              superAdminOnly: true,
             },
             {
               title: 'Master Data',

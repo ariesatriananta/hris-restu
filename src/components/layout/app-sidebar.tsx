@@ -1,4 +1,5 @@
 import { useAuthStore } from '@/stores/auth-store'
+import { COMPANY_NAME } from '@/lib/app-branding'
 import { useLayout } from '@/context/layout-provider'
 import {
   Sidebar,
@@ -12,12 +13,37 @@ import { AppBrand } from '@/components/app-brand'
 import { hasAnyPermission } from '@/features/auth/permissions'
 import { sidebarData } from './data/sidebar-data'
 import { NavGroup } from './nav-group'
-import { NavUser } from './nav-user'
 import type { NavGroup as NavGroupType, NavItem } from './types'
 
 function SidebarBrand() {
   const { state } = useSidebar()
   return <AppBrand compact={state === 'collapsed'} className='px-1 py-1.5' />
+}
+
+function SidebarCopyright() {
+  const { state } = useSidebar()
+  const year = new Date().getFullYear()
+
+  if (state === 'collapsed') {
+    return (
+      <div
+        className='py-2 text-center text-xs font-medium text-muted-foreground'
+        title={`© ${year} ${COMPANY_NAME}`}
+        aria-label={`Hak cipta ${year} ${COMPANY_NAME}`}
+      >
+        ©
+      </div>
+    )
+  }
+
+  return (
+    <div className='border-t px-2 pt-3 pb-2 text-center text-[11px] leading-relaxed text-muted-foreground'>
+      <p>
+        © {year} {COMPANY_NAME}
+      </p>
+      <p>Seluruh hak cipta dilindungi.</p>
+    </div>
+  )
 }
 
 export function AppSidebar() {
@@ -35,7 +61,7 @@ export function AppSidebar() {
         ))}
       </SidebarContent>
       <SidebarFooter>
-        <NavUser />
+        <SidebarCopyright />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

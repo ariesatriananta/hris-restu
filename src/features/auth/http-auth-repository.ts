@@ -14,7 +14,10 @@ const read = (): AuthSession | null => {
     const session = JSON.parse(raw) as Partial<AuthSession>
     // Session lama belum membawa permission. Paksa refresh /auth/me agar
     // sidebar dan route guard tidak memakai authorization context yang basi.
-    return session.user && Array.isArray(session.permissions)
+    return session.user &&
+      Array.isArray(session.permissions) &&
+      Array.isArray(session.user.roles) &&
+      typeof session.user.mustChangePassword === 'boolean'
       ? (session as AuthSession)
       : null
   } catch {

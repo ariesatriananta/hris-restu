@@ -26,7 +26,9 @@ export interface AuthUser {
   email: string | null
   role: UserRole
   roleLabel: string
+  roles: UserRole[]
   siteAccess: SiteAccess[]
+  mustChangePassword: boolean
 }
 
 export interface AuthSession {

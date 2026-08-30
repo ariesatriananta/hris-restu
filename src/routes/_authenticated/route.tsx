@@ -6,13 +6,20 @@ export const Route = createFileRoute('/_authenticated')({
   beforeLoad: async ({ location }) => {
     const { session, refreshSession } = useAuthStore.getState()
     if (!session) await refreshSession()
-    if (!useAuthStore.getState().session) {
+    const currentSession = useAuthStore.getState().session
+    if (!currentSession) {
       throw redirect({
         to: '/sign-in',
         search: {
           redirect: location.href.startsWith('/') ? location.href : '/',
         },
       })
+    }
+    if (
+      currentSession.user.mustChangePassword &&
+      location.pathname !== '/profil-saya'
+    ) {
+      throw redirect({ to: '/profil-saya' })
     }
   },
   component: AuthenticatedLayout,

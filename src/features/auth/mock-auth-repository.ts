@@ -16,7 +16,9 @@ const administrator = {
   email: DEMO_EMAIL,
   role: 'SUPER_ADMIN',
   roleLabel: 'Super Admin',
+  roles: ['SUPER_ADMIN'],
   siteAccess: ['JEPARA', 'SEMARANG', 'KLATEN'],
+  mustChangePassword: false,
 } as const
 
 function readSession(): AuthSession | null {
@@ -54,7 +56,11 @@ export const mockAuthRepository: AuthRepository = {
     }
 
     const session: AuthSession = {
-      user: { ...administrator, siteAccess: [...administrator.siteAccess] },
+      user: {
+        ...administrator,
+        roles: [...administrator.roles],
+        siteAccess: [...administrator.siteAccess],
+      },
       permissions: [
         'attendance.view',
         'attendance.scan',

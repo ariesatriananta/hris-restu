@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as AuthenticatedProfilSayaRouteImport } from './routes/_authenticated/profil-saya'
 import { Route as AuthenticatedPanduanRouteImport } from './routes/_authenticated/panduan'
 import { Route as AuthenticatedLaporanRouteImport } from './routes/_authenticated/laporan'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
@@ -75,6 +76,11 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedProfilSayaRoute = AuthenticatedProfilSayaRouteImport.update({
+  id: '/profil-saya',
+  path: '/profil-saya',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedPanduanRoute = AuthenticatedPanduanRouteImport.update({
@@ -416,6 +422,7 @@ export interface FileRoutesByFullPath {
   '/503': typeof errors503Route
   '/laporan': typeof AuthenticatedLaporanRoute
   '/panduan': typeof AuthenticatedPanduanRouteWithChildren
+  '/profil-saya': typeof AuthenticatedProfilSayaRoute
   '/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
   '/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
   '/administrasi/monitoring-cron': typeof AuthenticatedAdministrasiMonitoringCronRoute
@@ -474,6 +481,7 @@ export interface FileRoutesByTo {
   '/503': typeof errors503Route
   '/laporan': typeof AuthenticatedLaporanRoute
   '/panduan': typeof AuthenticatedPanduanRouteWithChildren
+  '/profil-saya': typeof AuthenticatedProfilSayaRoute
   '/': typeof AuthenticatedIndexRoute
   '/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
   '/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
@@ -535,6 +543,7 @@ export interface FileRoutesById {
   '/(errors)/503': typeof errors503Route
   '/_authenticated/laporan': typeof AuthenticatedLaporanRoute
   '/_authenticated/panduan': typeof AuthenticatedPanduanRouteWithChildren
+  '/_authenticated/profil-saya': typeof AuthenticatedProfilSayaRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
   '/_authenticated/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
@@ -597,6 +606,7 @@ export interface FileRouteTypes {
     | '/503'
     | '/laporan'
     | '/panduan'
+    | '/profil-saya'
     | '/administrasi/audit-trail'
     | '/administrasi/master-data'
     | '/administrasi/monitoring-cron'
@@ -655,6 +665,7 @@ export interface FileRouteTypes {
     | '/503'
     | '/laporan'
     | '/panduan'
+    | '/profil-saya'
     | '/'
     | '/administrasi/audit-trail'
     | '/administrasi/master-data'
@@ -715,6 +726,7 @@ export interface FileRouteTypes {
     | '/(errors)/503'
     | '/_authenticated/laporan'
     | '/_authenticated/panduan'
+    | '/_authenticated/profil-saya'
     | '/_authenticated/'
     | '/_authenticated/administrasi/audit-trail'
     | '/_authenticated/administrasi/master-data'
@@ -790,6 +802,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/profil-saya': {
+      id: '/_authenticated/profil-saya'
+      path: '/profil-saya'
+      fullPath: '/profil-saya'
+      preLoaderRoute: typeof AuthenticatedProfilSayaRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/panduan': {
@@ -1305,6 +1324,7 @@ const AuthenticatedKaryawanDataKaryawanEmployeeUidRouteWithChildren =
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedLaporanRoute: typeof AuthenticatedLaporanRoute
   AuthenticatedPanduanRoute: typeof AuthenticatedPanduanRouteWithChildren
+  AuthenticatedProfilSayaRoute: typeof AuthenticatedProfilSayaRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedAdministrasiAuditTrailRoute: typeof AuthenticatedAdministrasiAuditTrailRoute
   AuthenticatedAdministrasiMasterDataRoute: typeof AuthenticatedAdministrasiMasterDataRoute
@@ -1347,6 +1367,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedLaporanRoute: AuthenticatedLaporanRoute,
   AuthenticatedPanduanRoute: AuthenticatedPanduanRouteWithChildren,
+  AuthenticatedProfilSayaRoute: AuthenticatedProfilSayaRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedAdministrasiAuditTrailRoute:
     AuthenticatedAdministrasiAuditTrailRoute,

@@ -1,5 +1,11 @@
 import { Link } from '@tanstack/react-router'
-import { BookOpenText, LogOut, MapPin, ShieldCheck } from 'lucide-react'
+import {
+  BookOpenText,
+  LogOut,
+  MapPin,
+  ShieldCheck,
+  UserRound,
+} from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
 import useDialogState from '@/hooks/use-dialog-state'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -13,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { SignOutDialog } from '@/components/sign-out-dialog'
+import { getSiteName, getUserInitials } from '@/features/profile/profile-utils'
 
 export function ProfileDropdown() {
   const [open, setOpen] = useDialogState()
@@ -26,11 +33,11 @@ export function ProfileDropdown() {
           <Button
             variant='ghost'
             className='size-9 rounded-full'
-            aria-label='Menu Administrator HRIS'
+            aria-label={`Menu akun ${user.name}`}
           >
             <Avatar className='size-8'>
               <AvatarFallback className='bg-primary text-primary-foreground'>
-                AH
+                {getUserInitials(user.name)}
               </AvatarFallback>
             </Avatar>
           </Button>
@@ -45,9 +52,19 @@ export function ProfileDropdown() {
             <ShieldCheck /> {user.roleLabel}
           </DropdownMenuItem>
           <DropdownMenuItem disabled>
-            <MapPin /> Jepara, Semarang, Klaten
+            <MapPin />
+            {user.role === 'SUPER_ADMIN'
+              ? 'Seluruh site'
+              : user.siteAccess.length > 0
+                ? user.siteAccess.map(getSiteName).join(', ')
+                : 'Tanpa akses site'}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <Link to='/profil-saya'>
+              <UserRound /> Profil Saya
+            </Link>
+          </DropdownMenuItem>
           <DropdownMenuItem asChild>
             <Link to='/panduan'>
               <BookOpenText /> Knowledge Base

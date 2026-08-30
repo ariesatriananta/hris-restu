@@ -10,15 +10,16 @@ import { employeesRouter } from './routes/employees.js'
 import { filesRouter } from './routes/files.js'
 import { healthRouter } from './routes/health.js'
 import { internalRouter } from './routes/internal.js'
-import { payrollPeriodsRouter } from './routes/payroll-periods.js'
 import { payrollApprovalsRouter } from './routes/payroll-approvals.js'
-import { payrollHistoryRouter } from './routes/payroll-history.js'
 import { payrollConfigurationRouter } from './routes/payroll-configuration.js'
+import { payrollHistoryRouter } from './routes/payroll-history.js'
+import { payrollPeriodsRouter } from './routes/payroll-periods.js'
 import { payrollSimulationsRouter } from './routes/payroll-simulations.js'
 import { productionFoundationRouter } from './routes/production-foundation.js'
 import { productionRecapsRouter } from './routes/production-recaps.js'
 import { productionStructureRouter } from './routes/production-structure.js'
 import { productionTransactionsRouter } from './routes/production-transactions.js'
+import { systemUserAccessRouter } from './routes/system-user-access.js'
 import { systemRouter } from './routes/system.js'
 
 export const app = express()
@@ -40,6 +41,7 @@ app.use('/api/payroll', payrollSimulationsRouter)
 app.use('/api/payroll', payrollApprovalsRouter)
 app.use('/api/payroll', payrollHistoryRouter)
 app.use('/api/payroll', payrollConfigurationRouter)
+app.use('/api/system/access-management', systemUserAccessRouter)
 app.use('/api/system', systemRouter)
 app.use('/api/attendance', attendanceRouter)
 app.use('/api', (_req, res) =>

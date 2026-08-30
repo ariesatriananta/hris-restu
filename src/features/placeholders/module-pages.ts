@@ -237,6 +237,7 @@ export type ModulePath = keyof typeof modulePages
 
 export const routeLabels: Record<string, string> = {
   '/': 'Dashboard',
+  '/profil-saya': 'Profil Saya',
   ...Object.fromEntries(
     Object.entries(modulePages).map(([path, page]) => [path, page.title])
   ),

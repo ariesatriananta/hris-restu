@@ -228,3 +228,24 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   sebagai kebijakan read-only selama source engine-nya masih environment atau
   kebijakan tetap; toggle hanya boleh ditampilkan setelah benar-benar dipakai
   oleh engine operasional.
+- Halaman User & Hak Akses hanya dapat dibuka dan digunakan oleh `SUPER_ADMIN`.
+  Pembatasan wajib berlaku pada menu, halaman, dan API; menyembunyikan menu saja
+  tidak dianggap cukup.
+- Setiap akun wajib memiliki minimal satu role aktif. Role operasional selain
+  `SUPER_ADMIN` dan `DIRECTOR` wajib memiliki minimal satu akses site, dan site
+  utama wajib termasuk di dalam daftar akses site akun tersebut.
+- Identitas role bawaan sistem, seperti kode dan nama role, tidak dapat diubah
+  dari halaman User & Hak Akses. Hak akses `SUPER_ADMIN` selalu penuh dan tidak
+  dapat dikurangi, sedangkan permission role sistem lainnya dapat disesuaikan
+  oleh `SUPER_ADMIN` serta wajib tercatat pada audit trail.
+- `SUPER_ADMIN` tidak boleh menonaktifkan, mengunci, atau mencabut role
+  `SUPER_ADMIN` dari akun yang sedang digunakannya. Sistem juga wajib menjaga
+  agar selalu tersedia minimal satu akun `SUPER_ADMIN` aktif.
+- Pembuatan akun dan reset kata sandi oleh administrator memakai kata sandi
+  sementara. Seluruh sesi lama akun tujuan dicabut dan pengguna wajib mengganti
+  kata sandi tersebut melalui Profil Saya sebelum memakai modul lain. Kata
+  sandi asli maupun hash kata sandi tidak boleh disimpan dalam audit trail.
+- Perubahan status, role, akses site, dan permission mencabut sesi yang sudah
+  tidak layak memakai akses lama. Jika `SUPER_ADMIN` mengubah akses akunnya
+  sendiri tanpa melanggar aturan pengaman, sesi yang sedang dipakai tetap
+  dipertahankan agar proses tidak terputus, sedangkan sesi lainnya dicabut.
