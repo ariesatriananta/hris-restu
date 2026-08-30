@@ -19,6 +19,7 @@ import { productionFoundationRouter } from './routes/production-foundation.js'
 import { productionRecapsRouter } from './routes/production-recaps.js'
 import { productionStructureRouter } from './routes/production-structure.js'
 import { productionTransactionsRouter } from './routes/production-transactions.js'
+import { systemAuditTrailRouter } from './routes/system-audit-trail.js'
 import { systemUserAccessRouter } from './routes/system-user-access.js'
 import { systemRouter } from './routes/system.js'
 
@@ -42,6 +43,7 @@ app.use('/api/payroll', payrollApprovalsRouter)
 app.use('/api/payroll', payrollHistoryRouter)
 app.use('/api/payroll', payrollConfigurationRouter)
 app.use('/api/system/access-management', systemUserAccessRouter)
+app.use('/api/system/audit-trail', systemAuditTrailRouter)
 app.use('/api/system', systemRouter)
 app.use('/api/attendance', attendanceRouter)
 app.use('/api', (_req, res) =>

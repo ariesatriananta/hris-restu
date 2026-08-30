@@ -187,6 +187,7 @@ export const sidebarData: SidebarData = {
               title: 'Audit Trail',
               url: '/administrasi/audit-trail',
               icon: Fingerprint,
+              anyOfPermissions: ['audit.view'],
             },
             {
               title: 'Monitoring Cron',

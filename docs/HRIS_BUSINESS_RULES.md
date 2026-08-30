@@ -249,3 +249,15 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   tidak layak memakai akses lama. Jika `SUPER_ADMIN` mengubah akses akunnya
   sendiri tanpa melanggar aturan pengaman, sesi yang sedang dipakai tetap
   dipertahankan agar proses tidak terputus, sedangkan sesi lainnya dicabut.
+- Audit Trail hanya dapat dilihat oleh pengguna dengan permission `audit.view`.
+  `SUPER_ADMIN` dapat melihat catatan lintas site dan catatan sistem yang tidak
+  terikat site. Pengguna lain yang diberi permission tersebut hanya dapat
+  melihat catatan pada site yang termasuk aksesnya; catatan global tanpa site
+  tidak boleh ditampilkan.
+- Audit Trail bersifat baca saja dan diurutkan dari aktivitas terbaru. Respons
+  daftar maupun detail memakai UID publik serta tidak boleh mengekspos ID
+  internal. Kata sandi, hash, token, cookie, secret, credential, API key, dan
+  data sesi wajib disamarkan secara rekursif sebelum dikirim oleh API.
+- Filter atau pencarian Audit Trail tidak boleh mengubah maupun membuat catatan
+  baru. Catatan yang berada di luar cakupan site pengguna harus diperlakukan
+  sebagai tidak ditemukan, termasuk ketika UID catatan diminta langsung.
