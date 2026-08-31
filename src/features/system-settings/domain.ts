@@ -1,9 +1,4 @@
-export type SystemSettingsTab =
-  | 'kontrak'
-  | 'profil-perusahaan'
-  | 'attendance'
-  | 'payroll'
-  | 'notifikasi-integrasi'
+export type SystemSettingsTab = 'profil-perusahaan' | 'kontrak' | 'attendance'
 
 export type ContractFirstPartySettings = {
   companyName: string

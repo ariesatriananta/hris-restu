@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
 import {
-  BellRing,
   BriefcaseBusiness,
   Building2,
   CalendarClock,
@@ -9,11 +8,9 @@ import {
   FileText,
   Info,
   Save,
-  WalletCards,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { useIsMobile } from '@/hooks/use-mobile'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -47,35 +44,10 @@ const tabItems: Array<{
   label: string
   icon: React.ElementType
 }> = [
-  { value: 'kontrak', label: 'Kontrak Karyawan', icon: BriefcaseBusiness },
   { value: 'profil-perusahaan', label: 'Profil Perusahaan', icon: Building2 },
+  { value: 'kontrak', label: 'Kontrak Karyawan', icon: BriefcaseBusiness },
   { value: 'attendance', label: 'Attendance', icon: CalendarClock },
-  { value: 'payroll', label: 'Payroll', icon: WalletCards },
-  {
-    value: 'notifikasi-integrasi',
-    label: 'Notifikasi & Integrasi',
-    icon: BellRing,
-  },
 ]
-
-const placeholders: Record<
-  Exclude<SystemSettingsTab, 'kontrak' | 'profil-perusahaan' | 'attendance'>,
-  { title: string; description: string; scope: string; items: string[] }
-> = {
-  payroll: {
-    title: 'Payroll',
-    description:
-      'Konfigurasi payroll yang tetap mengikuti aturan closing resmi.',
-    scope: 'Per Site',
-    items: ['Periode default', 'Komponen penghasilan', 'Format slip gaji'],
-  },
-  'notifikasi-integrasi': {
-    title: 'Notifikasi & Integrasi',
-    description: 'Pengaturan kanal notifikasi dan integrasi layanan eksternal.',
-    scope: 'Global',
-    items: ['Kanal notifikasi', 'Penerima operasional', 'Status integrasi'],
-  },
-}
 
 type FirstPartyDraft = Omit<
   ContractFirstPartySettings,
@@ -90,8 +62,6 @@ export function SystemSettingsPage({
   tab: SystemSettingsTab
   onTabChange: (tab: SystemSettingsTab) => void
 }) {
-  const isMobile = useIsMobile()
-
   return (
     <Main>
       <div className='space-y-0.5'>
@@ -99,23 +69,23 @@ export function SystemSettingsPage({
           Pengaturan Sistem
         </h1>
         <p className='text-muted-foreground'>
-          Kelola konfigurasi operasional yang berlaku di seluruh aplikasi.
+          Kelola identitas perusahaan dan kebijakan yang benar-benar digunakan
+          aplikasi.
         </p>
       </div>
       <Separator className='my-4 lg:my-6' />
       <Tabs
         value={tab}
-        orientation={isMobile ? 'horizontal' : 'vertical'}
         onValueChange={(value) => onTabChange(value as SystemSettingsTab)}
-        className='gap-6 md:flex-row md:items-start lg:gap-10'
+        className='gap-6'
       >
-        <div className='w-full overflow-x-auto pb-1 md:sticky md:top-4 md:w-64 md:shrink-0 md:overflow-visible'>
-          <TabsList className='h-auto min-w-max justify-start gap-1 bg-transparent p-0 md:flex md:w-full md:min-w-0 md:flex-col md:items-stretch'>
+        <div className='w-full overflow-x-auto pb-1'>
+          <TabsList className='h-auto min-w-max justify-start gap-1 bg-transparent p-0'>
             {tabItems.map((item) => (
               <TabsTrigger
                 key={item.value}
                 value={item.value}
-                className='h-10 flex-none justify-start px-4 data-[state=active]:bg-muted data-[state=active]:shadow-none md:w-full'
+                className='h-10 flex-none px-4 data-[state=active]:bg-muted data-[state=active]:shadow-none'
               >
                 <item.icon />
                 {item.label}
@@ -124,24 +94,17 @@ export function SystemSettingsPage({
           </TabsList>
         </div>
 
+        <TabsContent value='profil-perusahaan' className='min-w-0 flex-1'>
+          <CompanyProfileSettingsContent />
+        </TabsContent>
         <TabsContent value='kontrak' className='min-w-0 flex-1'>
           <ContractSettingsContent
             onOpenCompanyProfile={() => onTabChange('profil-perusahaan')}
           />
         </TabsContent>
-        <TabsContent value='profil-perusahaan' className='min-w-0 flex-1'>
-          <CompanyProfileSettingsContent />
-        </TabsContent>
         <TabsContent value='attendance' className='min-w-0 flex-1'>
           <AttendanceSettingsContent />
         </TabsContent>
-        {(Object.keys(placeholders) as Array<keyof typeof placeholders>).map(
-          (value) => (
-            <TabsContent key={value} value={value} className='min-w-0 flex-1'>
-              <SettingsPlaceholder {...placeholders[value]} />
-            </TabsContent>
-          )
-        )}
       </Tabs>
     </Main>
   )
@@ -454,46 +417,6 @@ function ContractSettingsContent({
         handleConfirm={submit}
       />
     </div>
-  )
-}
-
-function SettingsPlaceholder({
-  title,
-  description,
-  scope,
-  items,
-}: {
-  title: string
-  description: string
-  scope: string
-  items: string[]
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <div className='flex flex-wrap items-center gap-2'>
-          <CardTitle>{title}</CardTitle>
-          <Badge variant='secondary'>Belum tersedia</Badge>
-        </div>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent className='space-y-4'>
-        <div className='flex items-center gap-2 text-sm'>
-          <span className='text-muted-foreground'>Cakupan:</span>
-          <Badge variant='outline'>{scope}</Badge>
-        </div>
-        <div className='rounded-md border border-dashed p-4'>
-          <p className='mb-3 text-sm font-medium'>Rencana konfigurasi</p>
-          <ul className='space-y-2 text-sm text-muted-foreground'>
-            {items.map((item) => (
-              <li key={item} className='flex items-center gap-2'>
-                <FileText className='size-4' /> {item}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </CardContent>
-    </Card>
   )
 }
 

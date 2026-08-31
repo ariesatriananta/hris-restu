@@ -32,6 +32,9 @@ import { Route as AuthenticatedPayrollRiwayatRouteImport } from './routes/_authe
 import { Route as AuthenticatedPayrollPeriodeRouteImport } from './routes/_authenticated/payroll/periode'
 import { Route as AuthenticatedPayrollApprovalClosingRouteImport } from './routes/_authenticated/payroll/approval-closing'
 import { Route as AuthenticatedPanduanAttendanceRouteImport } from './routes/_authenticated/panduan/attendance'
+import { Route as AuthenticatedLaporanKontrakRouteImport } from './routes/_authenticated/laporan/kontrak'
+import { Route as AuthenticatedLaporanKaryawanRouteImport } from './routes/_authenticated/laporan/karyawan'
+import { Route as AuthenticatedLaporanAttendanceRouteImport } from './routes/_authenticated/laporan/attendance'
 import { Route as AuthenticatedKaryawanTambahKaryawanRouteImport } from './routes/_authenticated/karyawan/tambah-karyawan'
 import { Route as AuthenticatedKaryawanRiwayatMutasiRouteImport } from './routes/_authenticated/karyawan/riwayat-mutasi'
 import { Route as AuthenticatedKaryawanPkwtDokumenRouteImport } from './routes/_authenticated/karyawan/pkwt-dokumen'
@@ -194,6 +197,24 @@ const AuthenticatedPanduanAttendanceRoute =
     id: '/attendance',
     path: '/attendance',
     getParentRoute: () => AuthenticatedPanduanRoute,
+  } as any)
+const AuthenticatedLaporanKontrakRoute =
+  AuthenticatedLaporanKontrakRouteImport.update({
+    id: '/kontrak',
+    path: '/kontrak',
+    getParentRoute: () => AuthenticatedLaporanRoute,
+  } as any)
+const AuthenticatedLaporanKaryawanRoute =
+  AuthenticatedLaporanKaryawanRouteImport.update({
+    id: '/karyawan',
+    path: '/karyawan',
+    getParentRoute: () => AuthenticatedLaporanRoute,
+  } as any)
+const AuthenticatedLaporanAttendanceRoute =
+  AuthenticatedLaporanAttendanceRouteImport.update({
+    id: '/attendance',
+    path: '/attendance',
+    getParentRoute: () => AuthenticatedLaporanRoute,
   } as any)
 const AuthenticatedKaryawanTambahKaryawanRoute =
   AuthenticatedKaryawanTambahKaryawanRouteImport.update({
@@ -420,7 +441,7 @@ export interface FileRoutesByFullPath {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
-  '/laporan': typeof AuthenticatedLaporanRoute
+  '/laporan': typeof AuthenticatedLaporanRouteWithChildren
   '/panduan': typeof AuthenticatedPanduanRouteWithChildren
   '/profil-saya': typeof AuthenticatedProfilSayaRoute
   '/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
@@ -446,6 +467,9 @@ export interface FileRoutesByFullPath {
   '/karyawan/pkwt-dokumen': typeof AuthenticatedKaryawanPkwtDokumenRoute
   '/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
   '/karyawan/tambah-karyawan': typeof AuthenticatedKaryawanTambahKaryawanRoute
+  '/laporan/attendance': typeof AuthenticatedLaporanAttendanceRoute
+  '/laporan/karyawan': typeof AuthenticatedLaporanKaryawanRoute
+  '/laporan/kontrak': typeof AuthenticatedLaporanKontrakRoute
   '/panduan/attendance': typeof AuthenticatedPanduanAttendanceRoute
   '/payroll/approval-closing': typeof AuthenticatedPayrollApprovalClosingRoute
   '/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
@@ -479,7 +503,7 @@ export interface FileRoutesByTo {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
-  '/laporan': typeof AuthenticatedLaporanRoute
+  '/laporan': typeof AuthenticatedLaporanRouteWithChildren
   '/panduan': typeof AuthenticatedPanduanRouteWithChildren
   '/profil-saya': typeof AuthenticatedProfilSayaRoute
   '/': typeof AuthenticatedIndexRoute
@@ -506,6 +530,9 @@ export interface FileRoutesByTo {
   '/karyawan/pkwt-dokumen': typeof AuthenticatedKaryawanPkwtDokumenRoute
   '/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
   '/karyawan/tambah-karyawan': typeof AuthenticatedKaryawanTambahKaryawanRoute
+  '/laporan/attendance': typeof AuthenticatedLaporanAttendanceRoute
+  '/laporan/karyawan': typeof AuthenticatedLaporanKaryawanRoute
+  '/laporan/kontrak': typeof AuthenticatedLaporanKontrakRoute
   '/panduan/attendance': typeof AuthenticatedPanduanAttendanceRoute
   '/payroll/approval-closing': typeof AuthenticatedPayrollApprovalClosingRoute
   '/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
@@ -541,7 +568,7 @@ export interface FileRoutesById {
   '/(errors)/404': typeof errors404Route
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
-  '/_authenticated/laporan': typeof AuthenticatedLaporanRoute
+  '/_authenticated/laporan': typeof AuthenticatedLaporanRouteWithChildren
   '/_authenticated/panduan': typeof AuthenticatedPanduanRouteWithChildren
   '/_authenticated/profil-saya': typeof AuthenticatedProfilSayaRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
@@ -568,6 +595,9 @@ export interface FileRoutesById {
   '/_authenticated/karyawan/pkwt-dokumen': typeof AuthenticatedKaryawanPkwtDokumenRoute
   '/_authenticated/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
   '/_authenticated/karyawan/tambah-karyawan': typeof AuthenticatedKaryawanTambahKaryawanRoute
+  '/_authenticated/laporan/attendance': typeof AuthenticatedLaporanAttendanceRoute
+  '/_authenticated/laporan/karyawan': typeof AuthenticatedLaporanKaryawanRoute
+  '/_authenticated/laporan/kontrak': typeof AuthenticatedLaporanKontrakRoute
   '/_authenticated/panduan/attendance': typeof AuthenticatedPanduanAttendanceRoute
   '/_authenticated/payroll/approval-closing': typeof AuthenticatedPayrollApprovalClosingRoute
   '/_authenticated/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
@@ -630,6 +660,9 @@ export interface FileRouteTypes {
     | '/karyawan/pkwt-dokumen'
     | '/karyawan/riwayat-mutasi'
     | '/karyawan/tambah-karyawan'
+    | '/laporan/attendance'
+    | '/laporan/karyawan'
+    | '/laporan/kontrak'
     | '/panduan/attendance'
     | '/payroll/approval-closing'
     | '/payroll/periode'
@@ -690,6 +723,9 @@ export interface FileRouteTypes {
     | '/karyawan/pkwt-dokumen'
     | '/karyawan/riwayat-mutasi'
     | '/karyawan/tambah-karyawan'
+    | '/laporan/attendance'
+    | '/laporan/karyawan'
+    | '/laporan/kontrak'
     | '/panduan/attendance'
     | '/payroll/approval-closing'
     | '/payroll/periode'
@@ -751,6 +787,9 @@ export interface FileRouteTypes {
     | '/_authenticated/karyawan/pkwt-dokumen'
     | '/_authenticated/karyawan/riwayat-mutasi'
     | '/_authenticated/karyawan/tambah-karyawan'
+    | '/_authenticated/laporan/attendance'
+    | '/_authenticated/laporan/karyawan'
+    | '/_authenticated/laporan/kontrak'
     | '/_authenticated/panduan/attendance'
     | '/_authenticated/payroll/approval-closing'
     | '/_authenticated/payroll/periode'
@@ -950,6 +989,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/panduan/attendance'
       preLoaderRoute: typeof AuthenticatedPanduanAttendanceRouteImport
       parentRoute: typeof AuthenticatedPanduanRoute
+    }
+    '/_authenticated/laporan/kontrak': {
+      id: '/_authenticated/laporan/kontrak'
+      path: '/kontrak'
+      fullPath: '/laporan/kontrak'
+      preLoaderRoute: typeof AuthenticatedLaporanKontrakRouteImport
+      parentRoute: typeof AuthenticatedLaporanRoute
+    }
+    '/_authenticated/laporan/karyawan': {
+      id: '/_authenticated/laporan/karyawan'
+      path: '/karyawan'
+      fullPath: '/laporan/karyawan'
+      preLoaderRoute: typeof AuthenticatedLaporanKaryawanRouteImport
+      parentRoute: typeof AuthenticatedLaporanRoute
+    }
+    '/_authenticated/laporan/attendance': {
+      id: '/_authenticated/laporan/attendance'
+      path: '/attendance'
+      fullPath: '/laporan/attendance'
+      preLoaderRoute: typeof AuthenticatedLaporanAttendanceRouteImport
+      parentRoute: typeof AuthenticatedLaporanRoute
     }
     '/_authenticated/karyawan/tambah-karyawan': {
       id: '/_authenticated/karyawan/tambah-karyawan'
@@ -1206,6 +1266,21 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthenticatedLaporanRouteChildren {
+  AuthenticatedLaporanAttendanceRoute: typeof AuthenticatedLaporanAttendanceRoute
+  AuthenticatedLaporanKaryawanRoute: typeof AuthenticatedLaporanKaryawanRoute
+  AuthenticatedLaporanKontrakRoute: typeof AuthenticatedLaporanKontrakRoute
+}
+
+const AuthenticatedLaporanRouteChildren: AuthenticatedLaporanRouteChildren = {
+  AuthenticatedLaporanAttendanceRoute: AuthenticatedLaporanAttendanceRoute,
+  AuthenticatedLaporanKaryawanRoute: AuthenticatedLaporanKaryawanRoute,
+  AuthenticatedLaporanKontrakRoute: AuthenticatedLaporanKontrakRoute,
+}
+
+const AuthenticatedLaporanRouteWithChildren =
+  AuthenticatedLaporanRoute._addFileChildren(AuthenticatedLaporanRouteChildren)
+
 interface AuthenticatedPanduanRouteChildren {
   AuthenticatedPanduanAttendanceRoute: typeof AuthenticatedPanduanAttendanceRoute
 }
@@ -1322,7 +1397,7 @@ const AuthenticatedKaryawanDataKaryawanEmployeeUidRouteWithChildren =
   )
 
 interface AuthenticatedRouteRouteChildren {
-  AuthenticatedLaporanRoute: typeof AuthenticatedLaporanRoute
+  AuthenticatedLaporanRoute: typeof AuthenticatedLaporanRouteWithChildren
   AuthenticatedPanduanRoute: typeof AuthenticatedPanduanRouteWithChildren
   AuthenticatedProfilSayaRoute: typeof AuthenticatedProfilSayaRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
@@ -1365,7 +1440,7 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
-  AuthenticatedLaporanRoute: AuthenticatedLaporanRoute,
+  AuthenticatedLaporanRoute: AuthenticatedLaporanRouteWithChildren,
   AuthenticatedPanduanRoute: AuthenticatedPanduanRouteWithChildren,
   AuthenticatedProfilSayaRoute: AuthenticatedProfilSayaRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,

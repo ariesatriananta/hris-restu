@@ -19,6 +19,7 @@ import { productionFoundationRouter } from './routes/production-foundation.js'
 import { productionRecapsRouter } from './routes/production-recaps.js'
 import { productionStructureRouter } from './routes/production-structure.js'
 import { productionTransactionsRouter } from './routes/production-transactions.js'
+import { reportsRouter } from './routes/reports.js'
 import { systemAuditTrailRouter } from './routes/system-audit-trail.js'
 import { systemUserAccessRouter } from './routes/system-user-access.js'
 import { systemRouter } from './routes/system.js'
@@ -37,6 +38,7 @@ app.use('/api/production-structure', productionFoundationRouter)
 app.use('/api/production-structure', productionStructureRouter)
 app.use('/api/production', productionTransactionsRouter)
 app.use('/api/production', productionRecapsRouter)
+app.use('/api/reports', reportsRouter)
 app.use('/api/payroll', payrollPeriodsRouter)
 app.use('/api/payroll', payrollSimulationsRouter)
 app.use('/api/payroll', payrollApprovalsRouter)

@@ -5,13 +5,7 @@ import type { SystemSettingsTab } from '@/features/system-settings/domain'
 import { SystemSettingsPage } from '@/features/system-settings/system-settings-page'
 
 const tabSchema = z
-  .enum([
-    'kontrak',
-    'profil-perusahaan',
-    'attendance',
-    'payroll',
-    'notifikasi-integrasi',
-  ])
+  .enum(['profil-perusahaan', 'kontrak', 'attendance'])
   .optional()
   .catch(undefined)
 
@@ -33,13 +27,13 @@ export const Route = createFileRoute('/_authenticated/administrasi/pengaturan')(
 function RouteComponent() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
-  const tab: SystemSettingsTab = search.tab ?? 'kontrak'
+  const tab: SystemSettingsTab = search.tab ?? 'profil-perusahaan'
   return (
     <SystemSettingsPage
       tab={tab}
       onTabChange={(next) =>
         void navigate({
-          search: { tab: next === 'kontrak' ? undefined : next },
+          search: { tab: next === 'profil-perusahaan' ? undefined : next },
         })
       }
     />

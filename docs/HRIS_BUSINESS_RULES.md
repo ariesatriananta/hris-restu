@@ -261,3 +261,34 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Filter atau pencarian Audit Trail tidak boleh mengubah maupun membuat catatan
   baru. Catatan yang berada di luar cakupan site pengguna harus diperlakukan
   sebagai tidak ditemukan, termasuk ketika UID catatan diminta langsung.
+- Pusat Laporan hanya dapat dibuka oleh pengguna dengan permission
+  `reports.view`. Setiap laporan tetap wajib memeriksa permission modul sumber;
+  Laporan Karyawan membutuhkan `employees.view` dan Laporan Attendance
+  membutuhkan `attendance.view`.
+- Cakupan site pada laporan wajib dibatasi oleh `user_site_access` di API.
+  Menyembunyikan pilihan site pada tampilan tidak dianggap sebagai pengamanan.
+- Laporan Karyawan per tanggal menggunakan histori employment yang efektif pada
+  tanggal pilihan. Site, jenis, status, jabatan, serta bagian produksi saat ini
+  tidak boleh dipakai untuk menggantikan kondisi historis tersebut.
+- Laporan Attendance menggunakan proyeksi dan aturan yang sama dengan Rekap
+  Attendance. Laporan hanya berstatus `Resmi` bila seluruh kombinasi site dan
+  tanggal dalam periode telah memenuhi syarat finalisasi; selain itu harus
+  ditampilkan sebagai `Sementara` beserta alasan ketidaklengkapannya.
+- Laporan umum tidak boleh memuat NIK, nomor rekening, rincian gaji, atau data
+  pribadi sensitif lain yang tidak diperlukan untuk tujuan laporan.
+- Laporan Kontrak membutuhkan `reports.view` dan `employees.view`. Site kontrak
+  diambil dari snapshot kontrak; bila snapshot lama belum dapat dikenali, sistem
+  boleh memakai histori kerja yang efektif pada tanggal mulai kontrak. Site
+  karyawan saat ini tidak boleh menggantikan kedua sumber historis tersebut.
+- Status kontrak pada Laporan Kontrak harus mengikuti riwayat status yang sudah
+  berlaku sampai tanggal acuan. Kontrak lama yang tidak mempunyai riwayat yang
+  dapat dipastikan harus ditandai `Belum dapat ditentukan`, bukan ditebak dari
+  status kontrak saat ini.
+- Ekspor Excel Laporan Karyawan dan Laporan Kontrak wajib memakai filter serta
+  cakupan site yang sama dengan hasil di layar. Ekspor Attendance hanya boleh
+  memakai ekspor Rekap Attendance resmi dan membutuhkan permission
+  `attendance.export`; data yang belum memenuhi syarat finalisasi tidak boleh
+  diekspor sebagai laporan resmi.
+- Setiap ekspor laporan wajib dicatat pada audit trail per site yang tercakup,
+  disertai identitas permintaan dan checksum berkas. Berkas ekspor tidak boleh
+  memuat data sensitif yang tidak ditampilkan pada laporan sumber.

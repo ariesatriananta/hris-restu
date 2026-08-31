@@ -8,7 +8,6 @@ import {
   Fingerprint,
   IdCard,
   LayoutDashboard,
-  ReceiptText,
   ScanLine,
   ServerCog,
   Settings,
@@ -162,7 +161,12 @@ export const sidebarData: SidebarData = {
     {
       title: 'Kontrol',
       items: [
-        { title: 'Laporan', url: '/laporan', icon: FileBarChart },
+        {
+          title: 'Laporan',
+          url: '/laporan',
+          icon: FileBarChart,
+          anyOfPermissions: ['reports.view'],
+        },
         {
           title: 'Administrasi Sistem',
           icon: Settings,
@@ -177,11 +181,6 @@ export const sidebarData: SidebarData = {
               title: 'Master Data',
               url: '/administrasi/master-data',
               icon: Database,
-            },
-            {
-              title: 'Template Dokumen',
-              url: '/administrasi/template-dokumen',
-              icon: ReceiptText,
             },
             {
               title: 'Audit Trail',
