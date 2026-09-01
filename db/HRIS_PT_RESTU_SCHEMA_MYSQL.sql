@@ -1619,7 +1619,7 @@ CREATE TABLE payroll_periods (
     OR (employee_type_code='BULANAN' AND payroll_basis='TIME_BASED' AND pay_frequency='MONTHLY')
   ),
   CONSTRAINT chk_payroll_period_status CHECK (status IN ('DRAFT', 'CALCULATED', 'APPROVED', 'CLOSED', 'CANCELLED')),
-  CONSTRAINT chk_payroll_period_cancellation CHECK ((status='CANCELLED' AND cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL AND CHAR_LENGTH(TRIM(cancellation_reason))>=5) OR (status<>'CANCELLED' AND cancelled_at IS NULL AND cancelled_by IS NULL AND cancellation_reason IS NULL)),
+  CONSTRAINT chk_payroll_period_cancellation CHECK ((status='CANCELLED' AND cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL AND CHAR_LENGTH(TRIM(cancellation_reason))>=5) OR (status<>'CANCELLED' AND cancelled_at IS NULL AND cancellation_reason IS NULL)),
   CONSTRAINT fk_payroll_period_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_payroll_period_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users (id) ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1667,7 +1667,7 @@ CREATE TABLE payroll_period_manual_components (
   CONSTRAINT chk_payroll_manual_component_amount CHECK (amount>=0),
   CONSTRAINT chk_payroll_manual_component_status CHECK (status IN ('ACTIVE','CANCELLED')),
   CONSTRAINT chk_payroll_manual_component_slot CHECK ((status='ACTIVE' AND active_slot=1) OR (status='CANCELLED' AND active_slot IS NULL)),
-  CONSTRAINT chk_payroll_manual_component_cancel CHECK ((status='ACTIVE' AND cancelled_at IS NULL AND cancelled_by IS NULL AND cancellation_reason IS NULL) OR (status='CANCELLED' AND active_slot IS NULL AND cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL AND CHAR_LENGTH(TRIM(cancellation_reason))>=5)),
+  CONSTRAINT chk_payroll_manual_component_cancel CHECK ((status='ACTIVE' AND cancelled_at IS NULL AND cancellation_reason IS NULL) OR (status='CANCELLED' AND active_slot IS NULL AND cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL AND CHAR_LENGTH(TRIM(cancellation_reason))>=5)),
   CONSTRAINT fk_payroll_manual_component_period FOREIGN KEY (payroll_period_id) REFERENCES payroll_periods(id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_payroll_manual_component_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_payroll_manual_component_type FOREIGN KEY (payroll_component_type_id) REFERENCES payroll_component_types(id) ON UPDATE CASCADE ON DELETE RESTRICT,

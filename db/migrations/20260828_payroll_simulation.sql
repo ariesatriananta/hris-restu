@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS payroll_period_manual_components (
   CONSTRAINT chk_payroll_manual_component_amount CHECK (amount>=0),
   CONSTRAINT chk_payroll_manual_component_status CHECK (status IN ('ACTIVE','CANCELLED')),
   CONSTRAINT chk_payroll_manual_component_slot CHECK ((status='ACTIVE' AND active_slot=1) OR (status='CANCELLED' AND active_slot IS NULL)),
-  CONSTRAINT chk_payroll_manual_component_cancel CHECK ((status='ACTIVE' AND cancelled_at IS NULL AND cancelled_by IS NULL AND cancellation_reason IS NULL) OR (status='CANCELLED' AND active_slot IS NULL AND cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL AND CHAR_LENGTH(TRIM(cancellation_reason))>=5)),
+  -- cancelled_by tidak dimasukkan ke CHECK karena FK dapat mengubah nilainya
+  -- melalui ON UPDATE CASCADE / ON DELETE SET NULL pada MariaDB.
+  CONSTRAINT chk_payroll_manual_component_cancel CHECK ((status='ACTIVE' AND cancelled_at IS NULL AND cancellation_reason IS NULL) OR (status='CANCELLED' AND active_slot IS NULL AND cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL AND CHAR_LENGTH(TRIM(cancellation_reason))>=5)),
   CONSTRAINT fk_payroll_manual_component_period FOREIGN KEY (payroll_period_id) REFERENCES payroll_periods(id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_payroll_manual_component_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_payroll_manual_component_type FOREIGN KEY (payroll_component_type_id) REFERENCES payroll_component_types(id) ON UPDATE CASCADE ON DELETE RESTRICT,
