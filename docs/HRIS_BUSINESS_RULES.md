@@ -29,6 +29,30 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Penugasan Shift pertama boleh dimundurkan paling awal ke tanggal terbesar antara go-live Attendance dan awal histori employment `ACTIVE` yang eligible pada site Shift. Karyawan yang pernah memiliki assignment hanya dapat memakai form penugasan biasa mulai hari ini atau masa depan.
 - Kesalahan assignment Shift yang sudah berlaku diperbaiki melalui Koreksi Penugasan Shift historis, bukan dengan menimpa atau menghapus histori. Koreksi diterapkan langsung oleh pengguna berizin `attendance.manage_shift`, wajib memiliki alasan dan preview dampak, menyusun ulang timeline tanpa overlap, merekonsiliasi snapshot Attendance tanpa mengubah scan mentah, serta menginvalidasi finalisasi terdampak. Koreksi diblokir untuk setoran produksi `POSTED`, payroll yang sudah dihitung/disetujui/ditutup, atau finalisasi yang sedang berjalan.
 - Koreksi Penugasan Shift dapat dibuat berlaku seterusnya hanya untuk assignment paling akhir. Karyawan wajib masih `ACTIVE`, eligible Attendance, dan tetap berada pada site Shift; tidak boleh ada assignment, mutasi, atau perubahan status terjadwal setelahnya. Rentang terbuka disimpan dengan `effective_to=NULL`, sedangkan rekonsiliasi Attendance dan invalidasi finalisasi hanya diproses sampai tanggal hari ini.
+- Laporan Penugasan Shift merupakan snapshot baca-saja per tanggal acuan untuk
+  seluruh karyawan yang eligible Attendance. Laporan memilih penugasan efektif
+  secara deterministik; bila tidak ada, penugasan terakhir atau terdekat tetap
+  ditampilkan agar kondisi berakhir atau belum mulai dapat dipahami. Riwayat
+  kerja atau penugasan efektif yang bertumpang-tindih, site Shift yang berbeda,
+  Shift nonaktif, serta hari kerja kosong wajib ditandai sebagai kondisi yang
+  perlu diperiksa dan tidak boleh disamarkan sebagai penugasan siap.
+- Laporan Perangkat dan Aktivitas Scan merupakan ringkasan baca-saja per
+  perangkat dan periode. Kondisi aktivitas hanya dihitung dari
+  `attendance_scan_events`; perangkat nonaktif, belum diaktivasi untuk
+  Attendance, tanpa aktivitas, atau memiliki scan `REJECTED`/`ERROR` wajib
+  dibedakan dengan bahasa yang mudah dipahami. `scan_devices.last_seen_at`
+  dapat diperbarui oleh Attendance maupun Produksi sehingga hanya boleh
+  ditampilkan sebagai waktu koneksi umum, bukan bukti kesehatan Attendance.
+- Laporan Audit Aktivitas Pengguna membutuhkan `reports.view` dan `audit.view`,
+  memakai rentang maksimal 366 hari, serta mengikuti cakupan site akun di API.
+  Pengguna non-Super Admin tidak boleh melihat aktivitas global atau site di
+  luar aksesnya. Ringkasan hanya menghitung tindakan yang benar-benar tersimpan
+  pada `audit_logs`; laporan tidak boleh menebak status berhasil atau gagal
+  karena status tersebut tidak tersedia pada sumber data.
+- Ekspor Laporan Audit Aktivitas Pengguna memakai filter yang sama dengan layar
+  dan tidak boleh memuat alamat IP, user agent, maupun isi `before_data` dan
+  `after_data`. Ekspor tetap mencatat identitas permintaan, jumlah baris, dan
+  checksum berkas pada Audit Trail.
 - Klasifikasi Attendance `APPROVED` yang salah dibatalkan melalui reversal oleh pengguna berizin `attendance.approve`, bukan melalui Koreksi Attendance. Reversal wajib memiliki alasan, mempertahankan histori detail sebagai `REVERSED`, mengembalikan hari yang pernah diterapkan menjadi `ABSENT`, dan menginvalidasi finalisasi terkait. Reversal ditolak bila fakta Attendance sudah berubah, memiliki scan sukses atau setoran produksi `POSTED`, maupun sudah masuk perhitungan atau snapshot Payroll.
 - Attendance merupakan syarat setoran produksi pada business date yang sama.
 - Pekerja borongan dibayar berdasarkan hasil produksi, bukan durasi kerja.
@@ -274,6 +298,55 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   Attendance. Laporan hanya berstatus `Resmi` bila seluruh kombinasi site dan
   tanggal dalam periode telah memenuhi syarat finalisasi; selain itu harus
   ditampilkan sebagai `Sementara` beserta alasan ketidaklengkapannya.
+- Laporan Cuti, Sakit & Izin membutuhkan `reports.view` dan `attendance.view`.
+  Periode pilihan maksimal 366 hari dan memuat pengajuan yang rentang
+  tanggalnya bersinggungan dengan periode pilihan. Site mengikuti site pada
+  pengajuan, sedangkan jenis karyawan dan bagian produksi mengikuti tepat satu
+  histori kerja yang efektif pada tanggal mulai pengajuan. Histori yang hilang
+  atau tumpang-tindih harus ditandai untuk diperiksa dan tidak boleh
+  menggandakan baris pengajuan.
+- Laporan Cuti, Sakit & Izin hanya menampilkan status alur dan ringkasan hasil
+  penerapan per hari. Alasan pengajuan, catatan pemeriksaan, catatan detail,
+  serta metadata atau berkas lampiran tidak boleh dikirim oleh API maupun
+  dimasukkan ke Excel karena dapat memuat informasi pribadi atau kesehatan.
+  Ekspor membutuhkan `attendance.export`, memakai filter dan cakupan site yang
+  sama dengan hasil layar, serta dicatat pada audit trail per site.
+- Laporan Koreksi Attendance membutuhkan `reports.view` dan `attendance.view`.
+  Periode pilihan maksimal 366 hari berdasarkan tanggal kerja pada record
+  Attendance, bukan tanggal pengajuan koreksi. Setiap pengajuan koreksi hanya
+  boleh muncul satu kali. Site mengikuti record Attendance, sedangkan jenis
+  karyawan dan bagian produksi mengikuti histori kerja yang efektif pada
+  tanggal kerja. Histori yang hilang, berbeda site, atau tumpang-tindih harus
+  ditandai untuk diperiksa dan tidak boleh menggandakan baris koreksi.
+- Laporan Koreksi Attendance menampilkan nilai sebelum dan sesudah, status
+  pemeriksaan, pengaju, pemeriksa, dan waktu penerapan. Alasan koreksi serta
+  catatan pemeriksaan tidak boleh dikirim oleh API maupun dimasukkan ke Excel
+  karena dapat memuat informasi pribadi. Ekspor membutuhkan
+  `attendance.export`, memakai filter dan cakupan site yang sama dengan hasil
+  layar, serta dicatat pada audit trail per site dengan checksum berkas.
+- Laporan Produksi Borongan membutuhkan `reports.view` dan `production.view`,
+  serta wajib memakai proyeksi resmi Rekap Produksi. Laporan bersifat live,
+  hanya menghitung transaksi `POSTED`, dan periode pilihan maksimal 31 hari.
+  Kuantitas tetap dipisahkan per satuan, sedangkan nilai bruto boleh
+  dijumlahkan lintas pekerjaan karena menggunakan IDR.
+- Identitas penempatan pada Laporan Produksi mengikuti histori kerja yang
+  efektif pada tanggal transaksi. Kelompok kerja mengikuti snapshot transaksi,
+  sehingga mutasi atau perubahan kelompok setelah setoran tidak mengubah fakta
+  laporan lama.
+- Laporan Payroll Final membutuhkan `reports.view` dan `payroll.view`. Laporan
+  hanya memuat periode `CLOSED` beserta current run `FINAL` yang berstatus
+  `COMPLETED`; run simulasi, run lama, dan periode yang belum ditutup tidak
+  boleh dicampurkan sebagai hasil resmi. Rentang tanggal akhir periode yang
+  dipilih maksimal 366 hari.
+- Identitas, penempatan, skema, dan nominal Laporan Payroll Final wajib memakai
+  snapshot `payroll_employee_results` pada current run tersebut. Laporan tidak
+  boleh menghitung ulang nominal dari master terbaru, tidak boleh menampilkan
+  ID internal, dan nomor rekening hanya boleh ditampilkan sebagai nama bank
+  beserta empat digit terakhir. Status `CLOSED` tetap tidak menyatakan gaji
+  sudah dibayar atau diterima karyawan.
+- Ekspor Laporan Payroll Final membutuhkan `payroll.export`, memakai filter dan
+  cakupan site yang sama dengan hasil di layar, mempertahankan penyamaran nomor
+  rekening, serta dicatat pada audit trail per site yang tercakup.
 - Laporan umum tidak boleh memuat NIK, nomor rekening, rincian gaji, atau data
   pribadi sensitif lain yang tidak diperlukan untuk tujuan laporan.
 - Laporan Kontrak membutuhkan `reports.view` dan `employees.view`. Site kontrak
@@ -284,11 +357,68 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   berlaku sampai tanggal acuan. Kontrak lama yang tidak mempunyai riwayat yang
   dapat dipastikan harus ditandai `Belum dapat ditentukan`, bukan ditebak dari
   status kontrak saat ini.
+- Laporan Mutasi Karyawan membutuhkan `reports.view` dan `employees.view`.
+  Periode pilihan maksimal 366 hari dan selalu memakai tanggal efektif
+  perubahan, bukan tanggal data dicatat atau diproses.
+- Mutasi yang sudah berlaku bersumber dari `employee_employment_histories`
+  selain histori awal. Mutasi terjadwal, gagal, atau dibatalkan bersumber dari
+  `scheduled_employee_mutations`; jadwal berstatus `APPLIED` tidak ditampilkan
+  lagi karena hasilnya sudah menjadi histori kerja dan akan menyebabkan data
+  ganda.
+- Kondisi sebelum mutasi wajib memakai histori kerja sebelumnya atau histori
+  dasar jadwal, sedangkan kondisi sesudah memakai histori atau target jadwal.
+  Data current pada tabel karyawan tidak boleh menggantikan kedua sumber
+  historis tersebut. Cakupan akses laporan mengikuti site tujuan mutasi.
+- Status `STATUS_CHANGE` pada Laporan Mutasi hanya menunjukkan riwayat status
+  yang tercatat sebagai baris histori tersendiri; angka tersebut tidak boleh
+  dianggap sebagai seluruh perubahan status karyawan.
 - Ekspor Excel Laporan Karyawan dan Laporan Kontrak wajib memakai filter serta
   cakupan site yang sama dengan hasil di layar. Ekspor Attendance hanya boleh
   memakai ekspor Rekap Attendance resmi dan membutuhkan permission
   `attendance.export`; data yang belum memenuhi syarat finalisasi tidak boleh
   diekspor sebagai laporan resmi.
+- Ekspor Laporan Produksi memakai ekspor resmi Rekap Produksi, membutuhkan
+  `production.export`, mengikuti filter dan cakupan site yang sama dengan hasil
+  di layar, serta mempertahankan riwayat koreksi dan void untuk keperluan audit.
+- Ekspor Laporan Mutasi wajib memakai filter dan cakupan site yang sama dengan
+  hasil di layar serta menampilkan kondisi sebelum dan sesudah dengan bahasa
+  yang mudah dipahami pengguna.
+- Laporan Perubahan Jumlah Karyawan membutuhkan `reports.view` dan
+  `employees.view`. Periode pilihan maksimal 366 hari. Jumlah aktif awal
+  memakai kondisi sehari sebelum tanggal mulai, sedangkan jumlah aktif akhir
+  memakai kondisi pada tanggal akhir. Hanya karyawan dengan tepat satu histori
+  kerja efektif berstatus Aktif yang dihitung; histori yang hilang atau
+  tumpang-tindih wajib ditandai dan tidak boleh masuk ke jumlah aktif.
+- Karyawan masuk hanya berasal dari histori awal berstatus Aktif. Perpindahan
+  site dihitung sebagai Mutasi Keluar pada site asal dan Mutasi Masuk pada site
+  tujuan, sehingga tidak dihitung sebagai karyawan baru. Resign dipisahkan dari
+  perubahan status lainnya. Filter site pada detail mengikuti site tempat
+  perubahan tersebut dihitung.
+- Laporan Perubahan Jumlah Karyawan hanya memakai histori kerja yang sudah
+  berlaku. Perubahan yang masih terjadwal, gagal, atau dibatalkan tidak boleh
+  masuk sebelum benar-benar menghasilkan histori kerja. Jumlah aktif mengikuti
+  filter site, jenis karyawan, dan bagian produksi; filter pencarian dan jenis
+  perubahan hanya menyaring rincian perubahannya.
+- Ekspor Laporan Perubahan Jumlah Karyawan wajib memakai filter dan cakupan
+  site yang sama dengan hasil layar, tidak memuat alasan atau catatan pribadi,
+  serta dicatat pada audit trail per site dengan checksum berkas.
+- Laporan Masa Kerja & Turnover membutuhkan `reports.view` dan
+  `employees.view`. Masa kerja memakai `join_date` sebagai tanggal mulai dan
+  dihitung sampai tanggal akhir periode untuk karyawan yang masih Aktif, atau
+  sampai tanggal resign untuk karyawan yang keluar dalam periode.
+- Jumlah aktif awal memakai kondisi sehari sebelum tanggal mulai dan jumlah
+  aktif akhir memakai kondisi pada tanggal akhir. Hanya karyawan dengan tepat
+  satu histori kerja efektif berstatus Aktif yang dihitung. Histori yang hilang
+  atau tumpang-tindih wajib ditandai dan dikeluarkan dari jumlah aktif.
+- Turnover hanya menghitung perubahan histori dari Aktif menjadi Resign yang
+  sudah berlaku. Rumus turnover adalah jumlah kejadian resign dalam periode
+  dibagi rata-rata jumlah karyawan aktif awal dan akhir, lalu dikali 100 persen.
+  Nonaktif sementara, jadwal yang belum berlaku, jadwal gagal, dan jadwal
+  dibatalkan tidak dihitung sebagai turnover.
+- Site dan jenis karyawan pada kejadian resign mengikuti penempatan terakhir
+  sebelum resign. Ekspor memuat lembar Masa Kerja Aktif dan Karyawan Resign,
+  memakai filter serta cakupan site yang sama dengan layar, tidak memuat alasan
+  resign atau catatan pribadi, dan dicatat pada audit trail per site.
 - Setiap ekspor laporan wajib dicatat pada audit trail per site yang tercakup,
   disertai identitas permintaan dan checksum berkas. Berkas ekspor tidak boleh
   memuat data sensitif yang tidak ditampilkan pada laporan sumber.

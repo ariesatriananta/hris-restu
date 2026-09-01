@@ -22,6 +22,16 @@ vi.mock('../lib/attendance-recap.js', () => ({
   aggregateAttendanceRecap: mocks.aggregateAttendanceRecap,
 }))
 vi.mock('../middleware/authenticate.js', () => ({
+  authenticate: (
+    _req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    if (!res.locals.auth) {
+      return res.status(401).json({ message: 'Sesi tidak tersedia.' })
+    }
+    next()
+  },
   requirePermission:
     (permission: string) =>
     (
@@ -50,12 +60,14 @@ const hr: AuthContext = {
   siteAccess: ['JEPARA'],
 }
 
-async function request(path: string, auth: AuthContext = hr) {
+async function request(path: string, auth: AuthContext | null = hr) {
   const app = express()
-  app.use((_req, res, next) => {
-    res.locals.auth = auth
-    next()
-  })
+  if (auth) {
+    app.use((_req, res, next) => {
+      res.locals.auth = auth
+      next()
+    })
+  }
   app.use('/api/reports', reportsRouter)
   app.use(errorHandler)
   const server = app.listen(0)
@@ -76,6 +88,13 @@ describe('Reports API', () => {
     mocks.loadAttendanceRecapProjection.mockReset()
     mocks.summarizeAttendanceRecap.mockReset()
     mocks.aggregateAttendanceRecap.mockReset()
+  })
+
+  it('mewajibkan sesi login sebelum memuat laporan', async () => {
+    const response = await request('/employees?asOf=2026-08-31', null)
+
+    expect(response.status).toBe(401)
+    expect(mocks.query).not.toHaveBeenCalled()
   })
 
   it('mewajibkan reports.view sebelum permission domain', async () => {

@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs'
+import { safeSpreadsheetText } from './payroll-output.js'
 
 export type ProductionPayrollStatus = 'NONE' | 'PARTIAL' | 'SNAPSHOTTED'
 
@@ -277,13 +278,13 @@ export async function buildProductionRecapWorkbook(input: {
   input.projection.employees.forEach((row, index) =>
     employees.addRow([
       index + 1,
-      row.employee.employeeNumber,
-      row.employee.fullName,
-      row.site.name,
-      row.placement.employeeType.name,
-      row.placement.position?.name ?? '',
-      row.placement.productionSection?.name ?? '',
-      row.placement.workGroup?.name ?? '',
+      safeSpreadsheetText(row.employee.employeeNumber),
+      safeSpreadsheetText(row.employee.fullName),
+      safeSpreadsheetText(row.site.name),
+      safeSpreadsheetText(row.placement.employeeType.name),
+      safeSpreadsheetText(row.placement.position?.name),
+      safeSpreadsheetText(row.placement.productionSection?.name),
+      safeSpreadsheetText(row.placement.workGroup?.name),
       row.placementChanged ? 'Ya' : 'Tidak',
       row.transactionCount,
       row.jobCount,
@@ -304,12 +305,12 @@ export async function buildProductionRecapWorkbook(input: {
         jobIndex += 1
         jobs.addRow([
           jobIndex,
-          employee.employee.employeeNumber,
-          employee.employee.fullName,
-          employee.site.name,
-          job.job.code,
-          job.job.name,
-          quantity.unit.code,
+          safeSpreadsheetText(employee.employee.employeeNumber),
+          safeSpreadsheetText(employee.employee.fullName),
+          safeSpreadsheetText(employee.site.name),
+          safeSpreadsheetText(job.job.code),
+          safeSpreadsheetText(job.job.name),
+          safeSpreadsheetText(quantity.unit.code),
           Number(quantity.quantity),
           job.transactionCount,
           Number(job.grossAmount),
@@ -330,17 +331,17 @@ export async function buildProductionRecapWorkbook(input: {
       index + 1,
       row.businessDate,
       row.transactionAt,
-      row.transactionNumber,
-      row.employee.employeeNumber,
-      row.employee.fullName,
-      row.site.name,
-      row.job.name,
-      row.unit.code,
+      safeSpreadsheetText(row.transactionNumber),
+      safeSpreadsheetText(row.employee.employeeNumber),
+      safeSpreadsheetText(row.employee.fullName),
+      safeSpreadsheetText(row.site.name),
+      safeSpreadsheetText(row.job.name),
+      safeSpreadsheetText(row.unit.code),
       Number(row.quantity),
       Number(row.rateSnapshot),
       Number(row.grossAmount),
       row.payrollSnapshotted ? 'SNAPSHOTTED' : 'NONE',
-      row.correctionSource?.transactionNumber ?? '',
+      safeSpreadsheetText(row.correctionSource?.transactionNumber),
     ])
   )
 
@@ -353,20 +354,20 @@ export async function buildProductionRecapWorkbook(input: {
   input.revisions.forEach((row, index) =>
     revisions.addRow([
       index + 1,
-      row.revisionType,
+      safeSpreadsheetText(row.revisionType),
       row.revisionNumber,
       row.revisedAt,
-      row.revisedBy,
-      row.reason,
-      row.sourceTransactionNumber,
-      row.replacementTransactionNumber ?? '',
+      safeSpreadsheetText(row.revisedBy),
+      safeSpreadsheetText(row.reason),
+      safeSpreadsheetText(row.sourceTransactionNumber),
+      safeSpreadsheetText(row.replacementTransactionNumber),
       row.businessDate,
-      row.employeeNumber,
-      row.employeeName,
-      row.site,
-      row.jobName,
-      row.beforeData,
-      row.afterData ?? '',
+      safeSpreadsheetText(row.employeeNumber),
+      safeSpreadsheetText(row.employeeName),
+      safeSpreadsheetText(row.site),
+      safeSpreadsheetText(row.jobName),
+      safeSpreadsheetText(row.beforeData),
+      safeSpreadsheetText(row.afterData),
     ])
   )
 

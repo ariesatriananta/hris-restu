@@ -89,9 +89,15 @@ import {
 export function ProductionRecapPage({
   search,
   navigate,
+  presentation,
 }: {
   search: Record<string, unknown>
   navigate: NavigateFn
+  presentation?: {
+    eyebrow: string
+    title: string
+    description: string
+  }
 }) {
   const defaults = productionRecapDefaultPeriod()
   const dateFrom = stringValue(search.dateFrom) ?? defaults.dateFrom
@@ -105,6 +111,7 @@ export function ProductionRecapPage({
     jobUid: arrayValue(search.jobUid),
     employeeType: arrayValue(search.employeeType),
     productionSectionUid: arrayValue(search.productionSectionUid),
+    workGroupUid: arrayValue(search.workGroupUid),
     page: numberValue(search.page, 1),
     pageSize: numberValue(search.pageSize, 50),
   }
@@ -139,6 +146,7 @@ export function ProductionRecapPage({
         jobUid: undefined,
         employeeType: undefined,
         productionSectionUid: undefined,
+        workGroupUid: undefined,
         page: undefined,
       }),
     })
@@ -179,6 +187,7 @@ export function ProductionRecapPage({
         jobUid: params.jobUid,
         employeeType: params.employeeType,
         productionSectionUid: params.productionSectionUid,
+        workGroupUid: params.workGroupUid,
       },
       {
         onSuccess: ({ blob, fileName }) => {
@@ -201,7 +210,7 @@ export function ProductionRecapPage({
         <div className='min-w-0'>
           <div className='flex flex-wrap items-center gap-2'>
             <p className='text-sm font-medium text-primary'>
-              Produksi Borongan
+              {presentation?.eyebrow ?? 'Produksi Borongan'}
             </p>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -222,11 +231,11 @@ export function ProductionRecapPage({
             </Tooltip>
           </div>
           <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
-            Rekap Produksi
+            {presentation?.title ?? 'Rekap Produksi'}
           </h1>
           <p className='max-w-2xl text-sm text-muted-foreground'>
-            Baca hasil kerja, pekerjaan, dan nilai bruto tercatat tanpa
-            mencampurkan kuantitas dari satuan berbeda.
+            {presentation?.description ??
+              'Baca hasil kerja, pekerjaan, dan nilai bruto tercatat tanpa mencampurkan kuantitas dari satuan berbeda.'}
           </p>
         </div>
 
@@ -596,6 +605,10 @@ function EmployeeLedger({
         id: 'productionSectionUid',
         accessorFn: (row) => row.placement.productionSection?.uid,
       },
+      {
+        id: 'workGroupUid',
+        accessorFn: (row) => row.placement.workGroup?.uid,
+      },
     ],
     [onDetail]
   )
@@ -612,6 +625,7 @@ function EmployeeLedger({
         searchKey: 'productionSectionUid',
         type: 'array',
       },
+      { columnId: 'workGroupUid', searchKey: 'workGroupUid', type: 'array' },
     ],
   })
   // TanStack Table mengembalikan fungsi stateful; ini pola starter.
@@ -630,6 +644,7 @@ function EmployeeLedger({
         employeeType: false,
         jobUid: false,
         productionSectionUid: false,
+        workGroupUid: false,
       },
     },
     manualFiltering: true,
@@ -667,6 +682,11 @@ function EmployeeLedger({
             columnId: 'productionSectionUid',
             title: 'Bagian produksi',
             options: filters?.productionSections ?? [],
+          },
+          {
+            columnId: 'workGroupUid',
+            title: 'Grup kerja',
+            options: filters?.workGroups ?? [],
           },
         ]}
       />
@@ -809,6 +829,10 @@ function JobGrid({
         id: 'productionSectionUid',
         accessorFn: (row) => row.placement.productionSection?.uid,
       },
+      {
+        id: 'workGroupUid',
+        accessorFn: (row) => row.placement.workGroup?.uid,
+      },
     ],
     []
   )
@@ -825,6 +849,7 @@ function JobGrid({
         searchKey: 'productionSectionUid',
         type: 'array',
       },
+      { columnId: 'workGroupUid', searchKey: 'workGroupUid', type: 'array' },
     ],
   })
   // TanStack Table mengembalikan fungsi stateful; ini pola starter.
@@ -842,6 +867,7 @@ function JobGrid({
         jobUid: false,
         employeeType: false,
         productionSectionUid: false,
+        workGroupUid: false,
       },
     },
     manualFiltering: true,
@@ -871,6 +897,11 @@ function JobGrid({
           columnId: 'productionSectionUid',
           title: 'Bagian produksi',
           options: data?.facets.productionSections ?? [],
+        },
+        {
+          columnId: 'workGroupUid',
+          title: 'Grup kerja',
+          options: data?.facets.workGroups ?? [],
         },
       ]}
     />
@@ -1098,6 +1129,7 @@ function RecapDetailSheet({
     jobUid: params.jobUid,
     employeeType: params.employeeType,
     productionSectionUid: params.productionSectionUid,
+    workGroupUid: params.workGroupUid,
   }
   const employee = useProductionEmployeeRecap(
     type === 'employee' ? uid : undefined,
@@ -1524,7 +1556,8 @@ function hasFilters(params: ProductionRecapParams) {
     params.site?.length ||
     params.jobUid?.length ||
     params.employeeType?.length ||
-    params.productionSectionUid?.length
+    params.productionSectionUid?.length ||
+    params.workGroupUid?.length
   )
 }
 function hasFiltersFromSearch(search: Record<string, unknown>) {
@@ -1534,6 +1567,7 @@ function hasFiltersFromSearch(search: Record<string, unknown>) {
     'jobUid',
     'employeeType',
     'productionSectionUid',
+    'workGroupUid',
   ].some((key) =>
     Array.isArray(search[key])
       ? (search[key] as unknown[]).length > 0

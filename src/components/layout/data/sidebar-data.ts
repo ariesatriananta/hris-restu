@@ -163,9 +163,75 @@ export const sidebarData: SidebarData = {
       items: [
         {
           title: 'Laporan',
-          url: '/laporan',
           icon: FileBarChart,
           anyOfPermissions: ['reports.view'],
+          items: [
+            {
+              title: 'Karyawan',
+              url: '/laporan/karyawan',
+              anyOfPermissions: ['employees.view'],
+            },
+            {
+              title: 'Attendance',
+              url: '/laporan/attendance',
+              anyOfPermissions: ['attendance.view'],
+            },
+            {
+              title: 'Cuti, Sakit & Izin',
+              url: '/laporan/cuti-sakit-izin',
+              anyOfPermissions: ['attendance.view'],
+            },
+            {
+              title: 'Koreksi Attendance',
+              url: '/laporan/koreksi-attendance',
+              anyOfPermissions: ['attendance.view'],
+            },
+            {
+              title: 'Penugasan Shift',
+              url: '/laporan/penugasan-shift',
+              anyOfPermissions: ['attendance.view'],
+            },
+            {
+              title: 'Perangkat & Aktivitas Scan',
+              url: '/laporan/perangkat-scan',
+              anyOfPermissions: ['attendance.view'],
+            },
+            {
+              title: 'Kontrak',
+              url: '/laporan/kontrak',
+              anyOfPermissions: ['employees.view'],
+            },
+            {
+              title: 'Mutasi Karyawan',
+              url: '/laporan/mutasi',
+              anyOfPermissions: ['employees.view'],
+            },
+            {
+              title: 'Perubahan Jumlah Karyawan',
+              url: '/laporan/perubahan-karyawan',
+              anyOfPermissions: ['employees.view'],
+            },
+            {
+              title: 'Masa Kerja & Turnover',
+              url: '/laporan/masa-kerja-turnover',
+              anyOfPermissions: ['employees.view'],
+            },
+            {
+              title: 'Payroll Final',
+              url: '/laporan/payroll-final',
+              anyOfPermissions: ['payroll.view'],
+            },
+            {
+              title: 'Produksi Borongan',
+              url: '/laporan/produksi-borongan',
+              anyOfPermissions: ['production.view'],
+            },
+            {
+              title: 'Audit Aktivitas Pengguna',
+              url: '/laporan/audit-aktivitas',
+              anyOfPermissions: ['audit.view'],
+            },
+          ],
         },
         {
           title: 'Administrasi Sistem',

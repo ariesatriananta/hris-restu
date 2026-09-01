@@ -30,6 +30,16 @@ vi.mock('../config.js', () => ({
   env: { ATTENDANCE_GO_LIVE_DATE: '2026-08-01' },
 }))
 vi.mock('../middleware/authenticate.js', () => ({
+  authenticate: (
+    _req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    if (!res.locals.auth) {
+      return res.status(401).json({ message: 'Sesi tidak tersedia.' })
+    }
+    next()
+  },
   requirePermission:
     (permission: string) =>
     (
@@ -225,6 +235,58 @@ describe('Reports contract dan export API', () => {
     expect(mocks.begin).toHaveBeenCalledOnce()
     expect(mocks.commit).toHaveBeenCalledOnce()
     expect(mocks.audit).toHaveBeenCalledOnce()
+    expect(mocks.audit.mock.calls[0]?.[0]).toMatchObject({
+      action: 'EXPORT',
+      module: 'REPORTS',
+      table: 'employee_employment_histories',
+      siteId: 11,
+    })
+  })
+
+  it('mengekspor laporan mutasi dengan scope dan audit site tujuan', async () => {
+    mocks.query
+      .mockResolvedValueOnce([
+        [
+          {
+            mutationUid: 'mutation-public-uid',
+            recordSource: 'HISTORY',
+            employeeUid: 'employee-public-uid',
+            employeeNumber: 'PKDS-001',
+            employeeName: 'Siti',
+            effectiveDate: '2026-08-08',
+            changeType: 'TRANSFER',
+            mutationStatus: 'APPLIED',
+            sourceSiteUid: 'source-site-uid',
+            sourceSiteCode: 'KLATEN',
+            sourceSiteName: 'Site Klaten',
+            targetSiteUid: 'target-site-uid',
+            targetSiteCode: 'JEPARA',
+            targetSiteName: 'Site Jepara',
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([[
+        { id: 11, code: 'JEPARA', name: 'Site Jepara' },
+      ]])
+    mocks.audit.mockResolvedValue(undefined)
+
+    const response = await request('/mutations/export', {
+      method: 'POST',
+      body: {
+        dateFrom: '2026-08-01',
+        dateTo: '2026-08-31',
+        site: ['JEPARA'],
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('spreadsheetml')
+    expect(mocks.begin).toHaveBeenCalledOnce()
+    expect(mocks.commit).toHaveBeenCalledOnce()
+    expect(mocks.audit).toHaveBeenCalledOnce()
+    expect(String(mocks.query.mock.calls[0]?.[0])).toContain(
+      "sm.status<>'APPLIED'"
+    )
     expect(mocks.audit.mock.calls[0]?.[0]).toMatchObject({
       action: 'EXPORT',
       module: 'REPORTS',

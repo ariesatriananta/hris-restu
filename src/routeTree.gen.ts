@@ -20,6 +20,7 @@ import { Route as errors404RouteImport } from './routes/(errors)/404'
 import { Route as errors403RouteImport } from './routes/(errors)/403'
 import { Route as errors401RouteImport } from './routes/(errors)/401'
 import { Route as authSignInRouteImport } from './routes/(auth)/sign-in'
+import { Route as AuthenticatedLaporanIndexRouteImport } from './routes/_authenticated/laporan/index'
 import { Route as AuthenticatedProduksiTransaksiRouteImport } from './routes/_authenticated/produksi/transaksi'
 import { Route as AuthenticatedProduksiTerminalSetoranRouteImport } from './routes/_authenticated/produksi/terminal-setoran'
 import { Route as AuthenticatedProduksiTarifSiteRouteImport } from './routes/_authenticated/produksi/tarif-site'
@@ -32,8 +33,18 @@ import { Route as AuthenticatedPayrollRiwayatRouteImport } from './routes/_authe
 import { Route as AuthenticatedPayrollPeriodeRouteImport } from './routes/_authenticated/payroll/periode'
 import { Route as AuthenticatedPayrollApprovalClosingRouteImport } from './routes/_authenticated/payroll/approval-closing'
 import { Route as AuthenticatedPanduanAttendanceRouteImport } from './routes/_authenticated/panduan/attendance'
+import { Route as AuthenticatedLaporanProduksiBoronganRouteImport } from './routes/_authenticated/laporan/produksi-borongan'
+import { Route as AuthenticatedLaporanPerubahanKaryawanRouteImport } from './routes/_authenticated/laporan/perubahan-karyawan'
+import { Route as AuthenticatedLaporanPerangkatScanRouteImport } from './routes/_authenticated/laporan/perangkat-scan'
+import { Route as AuthenticatedLaporanPenugasanShiftRouteImport } from './routes/_authenticated/laporan/penugasan-shift'
+import { Route as AuthenticatedLaporanPayrollFinalRouteImport } from './routes/_authenticated/laporan/payroll-final'
+import { Route as AuthenticatedLaporanMutasiRouteImport } from './routes/_authenticated/laporan/mutasi'
+import { Route as AuthenticatedLaporanMasaKerjaTurnoverRouteImport } from './routes/_authenticated/laporan/masa-kerja-turnover'
+import { Route as AuthenticatedLaporanKoreksiAttendanceRouteImport } from './routes/_authenticated/laporan/koreksi-attendance'
 import { Route as AuthenticatedLaporanKontrakRouteImport } from './routes/_authenticated/laporan/kontrak'
 import { Route as AuthenticatedLaporanKaryawanRouteImport } from './routes/_authenticated/laporan/karyawan'
+import { Route as AuthenticatedLaporanCutiSakitIzinRouteImport } from './routes/_authenticated/laporan/cuti-sakit-izin'
+import { Route as AuthenticatedLaporanAuditAktivitasRouteImport } from './routes/_authenticated/laporan/audit-aktivitas'
 import { Route as AuthenticatedLaporanAttendanceRouteImport } from './routes/_authenticated/laporan/attendance'
 import { Route as AuthenticatedKaryawanTambahKaryawanRouteImport } from './routes/_authenticated/karyawan/tambah-karyawan'
 import { Route as AuthenticatedKaryawanRiwayatMutasiRouteImport } from './routes/_authenticated/karyawan/riwayat-mutasi'
@@ -126,6 +137,12 @@ const authSignInRoute = authSignInRouteImport.update({
   path: '/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedLaporanIndexRoute =
+  AuthenticatedLaporanIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedLaporanRoute,
+  } as any)
 const AuthenticatedProduksiTransaksiRoute =
   AuthenticatedProduksiTransaksiRouteImport.update({
     id: '/produksi/transaksi',
@@ -198,6 +215,54 @@ const AuthenticatedPanduanAttendanceRoute =
     path: '/attendance',
     getParentRoute: () => AuthenticatedPanduanRoute,
   } as any)
+const AuthenticatedLaporanProduksiBoronganRoute =
+  AuthenticatedLaporanProduksiBoronganRouteImport.update({
+    id: '/produksi-borongan',
+    path: '/produksi-borongan',
+    getParentRoute: () => AuthenticatedLaporanRoute,
+  } as any)
+const AuthenticatedLaporanPerubahanKaryawanRoute =
+  AuthenticatedLaporanPerubahanKaryawanRouteImport.update({
+    id: '/perubahan-karyawan',
+    path: '/perubahan-karyawan',
+    getParentRoute: () => AuthenticatedLaporanRoute,
+  } as any)
+const AuthenticatedLaporanPerangkatScanRoute =
+  AuthenticatedLaporanPerangkatScanRouteImport.update({
+    id: '/perangkat-scan',
+    path: '/perangkat-scan',
+    getParentRoute: () => AuthenticatedLaporanRoute,
+  } as any)
+const AuthenticatedLaporanPenugasanShiftRoute =
+  AuthenticatedLaporanPenugasanShiftRouteImport.update({
+    id: '/penugasan-shift',
+    path: '/penugasan-shift',
+    getParentRoute: () => AuthenticatedLaporanRoute,
+  } as any)
+const AuthenticatedLaporanPayrollFinalRoute =
+  AuthenticatedLaporanPayrollFinalRouteImport.update({
+    id: '/payroll-final',
+    path: '/payroll-final',
+    getParentRoute: () => AuthenticatedLaporanRoute,
+  } as any)
+const AuthenticatedLaporanMutasiRoute =
+  AuthenticatedLaporanMutasiRouteImport.update({
+    id: '/mutasi',
+    path: '/mutasi',
+    getParentRoute: () => AuthenticatedLaporanRoute,
+  } as any)
+const AuthenticatedLaporanMasaKerjaTurnoverRoute =
+  AuthenticatedLaporanMasaKerjaTurnoverRouteImport.update({
+    id: '/masa-kerja-turnover',
+    path: '/masa-kerja-turnover',
+    getParentRoute: () => AuthenticatedLaporanRoute,
+  } as any)
+const AuthenticatedLaporanKoreksiAttendanceRoute =
+  AuthenticatedLaporanKoreksiAttendanceRouteImport.update({
+    id: '/koreksi-attendance',
+    path: '/koreksi-attendance',
+    getParentRoute: () => AuthenticatedLaporanRoute,
+  } as any)
 const AuthenticatedLaporanKontrakRoute =
   AuthenticatedLaporanKontrakRouteImport.update({
     id: '/kontrak',
@@ -208,6 +273,18 @@ const AuthenticatedLaporanKaryawanRoute =
   AuthenticatedLaporanKaryawanRouteImport.update({
     id: '/karyawan',
     path: '/karyawan',
+    getParentRoute: () => AuthenticatedLaporanRoute,
+  } as any)
+const AuthenticatedLaporanCutiSakitIzinRoute =
+  AuthenticatedLaporanCutiSakitIzinRouteImport.update({
+    id: '/cuti-sakit-izin',
+    path: '/cuti-sakit-izin',
+    getParentRoute: () => AuthenticatedLaporanRoute,
+  } as any)
+const AuthenticatedLaporanAuditAktivitasRoute =
+  AuthenticatedLaporanAuditAktivitasRouteImport.update({
+    id: '/audit-aktivitas',
+    path: '/audit-aktivitas',
     getParentRoute: () => AuthenticatedLaporanRoute,
   } as any)
 const AuthenticatedLaporanAttendanceRoute =
@@ -468,8 +545,18 @@ export interface FileRoutesByFullPath {
   '/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
   '/karyawan/tambah-karyawan': typeof AuthenticatedKaryawanTambahKaryawanRoute
   '/laporan/attendance': typeof AuthenticatedLaporanAttendanceRoute
+  '/laporan/audit-aktivitas': typeof AuthenticatedLaporanAuditAktivitasRoute
+  '/laporan/cuti-sakit-izin': typeof AuthenticatedLaporanCutiSakitIzinRoute
   '/laporan/karyawan': typeof AuthenticatedLaporanKaryawanRoute
   '/laporan/kontrak': typeof AuthenticatedLaporanKontrakRoute
+  '/laporan/koreksi-attendance': typeof AuthenticatedLaporanKoreksiAttendanceRoute
+  '/laporan/masa-kerja-turnover': typeof AuthenticatedLaporanMasaKerjaTurnoverRoute
+  '/laporan/mutasi': typeof AuthenticatedLaporanMutasiRoute
+  '/laporan/payroll-final': typeof AuthenticatedLaporanPayrollFinalRoute
+  '/laporan/penugasan-shift': typeof AuthenticatedLaporanPenugasanShiftRoute
+  '/laporan/perangkat-scan': typeof AuthenticatedLaporanPerangkatScanRoute
+  '/laporan/perubahan-karyawan': typeof AuthenticatedLaporanPerubahanKaryawanRoute
+  '/laporan/produksi-borongan': typeof AuthenticatedLaporanProduksiBoronganRoute
   '/panduan/attendance': typeof AuthenticatedPanduanAttendanceRoute
   '/payroll/approval-closing': typeof AuthenticatedPayrollApprovalClosingRoute
   '/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
@@ -482,6 +569,7 @@ export interface FileRoutesByFullPath {
   '/produksi/tarif-site': typeof AuthenticatedProduksiTarifSiteRoute
   '/produksi/terminal-setoran': typeof AuthenticatedProduksiTerminalSetoranRoute
   '/produksi/transaksi': typeof AuthenticatedProduksiTransaksiRoute
+  '/laporan/': typeof AuthenticatedLaporanIndexRoute
   '/karyawan/data-karyawan/tambah': typeof AuthenticatedKaryawanDataKaryawanTambahRoute
   '/karyawan/data-karyawan/$employeeUid': typeof AuthenticatedKaryawanDataKaryawanEmployeeUidRouteWithChildren
   '/karyawan/dokumen/$documentUid': typeof AuthenticatedKaryawanDokumenDocumentUidRouteWithChildren
@@ -503,7 +591,6 @@ export interface FileRoutesByTo {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
-  '/laporan': typeof AuthenticatedLaporanRouteWithChildren
   '/panduan': typeof AuthenticatedPanduanRouteWithChildren
   '/profil-saya': typeof AuthenticatedProfilSayaRoute
   '/': typeof AuthenticatedIndexRoute
@@ -531,8 +618,18 @@ export interface FileRoutesByTo {
   '/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
   '/karyawan/tambah-karyawan': typeof AuthenticatedKaryawanTambahKaryawanRoute
   '/laporan/attendance': typeof AuthenticatedLaporanAttendanceRoute
+  '/laporan/audit-aktivitas': typeof AuthenticatedLaporanAuditAktivitasRoute
+  '/laporan/cuti-sakit-izin': typeof AuthenticatedLaporanCutiSakitIzinRoute
   '/laporan/karyawan': typeof AuthenticatedLaporanKaryawanRoute
   '/laporan/kontrak': typeof AuthenticatedLaporanKontrakRoute
+  '/laporan/koreksi-attendance': typeof AuthenticatedLaporanKoreksiAttendanceRoute
+  '/laporan/masa-kerja-turnover': typeof AuthenticatedLaporanMasaKerjaTurnoverRoute
+  '/laporan/mutasi': typeof AuthenticatedLaporanMutasiRoute
+  '/laporan/payroll-final': typeof AuthenticatedLaporanPayrollFinalRoute
+  '/laporan/penugasan-shift': typeof AuthenticatedLaporanPenugasanShiftRoute
+  '/laporan/perangkat-scan': typeof AuthenticatedLaporanPerangkatScanRoute
+  '/laporan/perubahan-karyawan': typeof AuthenticatedLaporanPerubahanKaryawanRoute
+  '/laporan/produksi-borongan': typeof AuthenticatedLaporanProduksiBoronganRoute
   '/panduan/attendance': typeof AuthenticatedPanduanAttendanceRoute
   '/payroll/approval-closing': typeof AuthenticatedPayrollApprovalClosingRoute
   '/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
@@ -545,6 +642,7 @@ export interface FileRoutesByTo {
   '/produksi/tarif-site': typeof AuthenticatedProduksiTarifSiteRoute
   '/produksi/terminal-setoran': typeof AuthenticatedProduksiTerminalSetoranRoute
   '/produksi/transaksi': typeof AuthenticatedProduksiTransaksiRoute
+  '/laporan': typeof AuthenticatedLaporanIndexRoute
   '/karyawan/data-karyawan/tambah': typeof AuthenticatedKaryawanDataKaryawanTambahRoute
   '/karyawan/data-karyawan/$employeeUid': typeof AuthenticatedKaryawanDataKaryawanEmployeeUidRouteWithChildren
   '/karyawan/dokumen/$documentUid': typeof AuthenticatedKaryawanDokumenDocumentUidRouteWithChildren
@@ -596,8 +694,18 @@ export interface FileRoutesById {
   '/_authenticated/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
   '/_authenticated/karyawan/tambah-karyawan': typeof AuthenticatedKaryawanTambahKaryawanRoute
   '/_authenticated/laporan/attendance': typeof AuthenticatedLaporanAttendanceRoute
+  '/_authenticated/laporan/audit-aktivitas': typeof AuthenticatedLaporanAuditAktivitasRoute
+  '/_authenticated/laporan/cuti-sakit-izin': typeof AuthenticatedLaporanCutiSakitIzinRoute
   '/_authenticated/laporan/karyawan': typeof AuthenticatedLaporanKaryawanRoute
   '/_authenticated/laporan/kontrak': typeof AuthenticatedLaporanKontrakRoute
+  '/_authenticated/laporan/koreksi-attendance': typeof AuthenticatedLaporanKoreksiAttendanceRoute
+  '/_authenticated/laporan/masa-kerja-turnover': typeof AuthenticatedLaporanMasaKerjaTurnoverRoute
+  '/_authenticated/laporan/mutasi': typeof AuthenticatedLaporanMutasiRoute
+  '/_authenticated/laporan/payroll-final': typeof AuthenticatedLaporanPayrollFinalRoute
+  '/_authenticated/laporan/penugasan-shift': typeof AuthenticatedLaporanPenugasanShiftRoute
+  '/_authenticated/laporan/perangkat-scan': typeof AuthenticatedLaporanPerangkatScanRoute
+  '/_authenticated/laporan/perubahan-karyawan': typeof AuthenticatedLaporanPerubahanKaryawanRoute
+  '/_authenticated/laporan/produksi-borongan': typeof AuthenticatedLaporanProduksiBoronganRoute
   '/_authenticated/panduan/attendance': typeof AuthenticatedPanduanAttendanceRoute
   '/_authenticated/payroll/approval-closing': typeof AuthenticatedPayrollApprovalClosingRoute
   '/_authenticated/payroll/periode': typeof AuthenticatedPayrollPeriodeRoute
@@ -610,6 +718,7 @@ export interface FileRoutesById {
   '/_authenticated/produksi/tarif-site': typeof AuthenticatedProduksiTarifSiteRoute
   '/_authenticated/produksi/terminal-setoran': typeof AuthenticatedProduksiTerminalSetoranRoute
   '/_authenticated/produksi/transaksi': typeof AuthenticatedProduksiTransaksiRoute
+  '/_authenticated/laporan/': typeof AuthenticatedLaporanIndexRoute
   '/_authenticated/karyawan/data-karyawan/tambah': typeof AuthenticatedKaryawanDataKaryawanTambahRoute
   '/_authenticated/karyawan/data-karyawan_/$employeeUid': typeof AuthenticatedKaryawanDataKaryawanEmployeeUidRouteWithChildren
   '/_authenticated/karyawan/dokumen/$documentUid': typeof AuthenticatedKaryawanDokumenDocumentUidRouteWithChildren
@@ -661,8 +770,18 @@ export interface FileRouteTypes {
     | '/karyawan/riwayat-mutasi'
     | '/karyawan/tambah-karyawan'
     | '/laporan/attendance'
+    | '/laporan/audit-aktivitas'
+    | '/laporan/cuti-sakit-izin'
     | '/laporan/karyawan'
     | '/laporan/kontrak'
+    | '/laporan/koreksi-attendance'
+    | '/laporan/masa-kerja-turnover'
+    | '/laporan/mutasi'
+    | '/laporan/payroll-final'
+    | '/laporan/penugasan-shift'
+    | '/laporan/perangkat-scan'
+    | '/laporan/perubahan-karyawan'
+    | '/laporan/produksi-borongan'
     | '/panduan/attendance'
     | '/payroll/approval-closing'
     | '/payroll/periode'
@@ -675,6 +794,7 @@ export interface FileRouteTypes {
     | '/produksi/tarif-site'
     | '/produksi/terminal-setoran'
     | '/produksi/transaksi'
+    | '/laporan/'
     | '/karyawan/data-karyawan/tambah'
     | '/karyawan/data-karyawan/$employeeUid'
     | '/karyawan/dokumen/$documentUid'
@@ -696,7 +816,6 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
-    | '/laporan'
     | '/panduan'
     | '/profil-saya'
     | '/'
@@ -724,8 +843,18 @@ export interface FileRouteTypes {
     | '/karyawan/riwayat-mutasi'
     | '/karyawan/tambah-karyawan'
     | '/laporan/attendance'
+    | '/laporan/audit-aktivitas'
+    | '/laporan/cuti-sakit-izin'
     | '/laporan/karyawan'
     | '/laporan/kontrak'
+    | '/laporan/koreksi-attendance'
+    | '/laporan/masa-kerja-turnover'
+    | '/laporan/mutasi'
+    | '/laporan/payroll-final'
+    | '/laporan/penugasan-shift'
+    | '/laporan/perangkat-scan'
+    | '/laporan/perubahan-karyawan'
+    | '/laporan/produksi-borongan'
     | '/panduan/attendance'
     | '/payroll/approval-closing'
     | '/payroll/periode'
@@ -738,6 +867,7 @@ export interface FileRouteTypes {
     | '/produksi/tarif-site'
     | '/produksi/terminal-setoran'
     | '/produksi/transaksi'
+    | '/laporan'
     | '/karyawan/data-karyawan/tambah'
     | '/karyawan/data-karyawan/$employeeUid'
     | '/karyawan/dokumen/$documentUid'
@@ -788,8 +918,18 @@ export interface FileRouteTypes {
     | '/_authenticated/karyawan/riwayat-mutasi'
     | '/_authenticated/karyawan/tambah-karyawan'
     | '/_authenticated/laporan/attendance'
+    | '/_authenticated/laporan/audit-aktivitas'
+    | '/_authenticated/laporan/cuti-sakit-izin'
     | '/_authenticated/laporan/karyawan'
     | '/_authenticated/laporan/kontrak'
+    | '/_authenticated/laporan/koreksi-attendance'
+    | '/_authenticated/laporan/masa-kerja-turnover'
+    | '/_authenticated/laporan/mutasi'
+    | '/_authenticated/laporan/payroll-final'
+    | '/_authenticated/laporan/penugasan-shift'
+    | '/_authenticated/laporan/perangkat-scan'
+    | '/_authenticated/laporan/perubahan-karyawan'
+    | '/_authenticated/laporan/produksi-borongan'
     | '/_authenticated/panduan/attendance'
     | '/_authenticated/payroll/approval-closing'
     | '/_authenticated/payroll/periode'
@@ -802,6 +942,7 @@ export interface FileRouteTypes {
     | '/_authenticated/produksi/tarif-site'
     | '/_authenticated/produksi/terminal-setoran'
     | '/_authenticated/produksi/transaksi'
+    | '/_authenticated/laporan/'
     | '/_authenticated/karyawan/data-karyawan/tambah'
     | '/_authenticated/karyawan/data-karyawan_/$employeeUid'
     | '/_authenticated/karyawan/dokumen/$documentUid'
@@ -906,6 +1047,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authSignInRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/laporan/': {
+      id: '/_authenticated/laporan/'
+      path: '/'
+      fullPath: '/laporan/'
+      preLoaderRoute: typeof AuthenticatedLaporanIndexRouteImport
+      parentRoute: typeof AuthenticatedLaporanRoute
+    }
     '/_authenticated/produksi/transaksi': {
       id: '/_authenticated/produksi/transaksi'
       path: '/produksi/transaksi'
@@ -990,6 +1138,62 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPanduanAttendanceRouteImport
       parentRoute: typeof AuthenticatedPanduanRoute
     }
+    '/_authenticated/laporan/produksi-borongan': {
+      id: '/_authenticated/laporan/produksi-borongan'
+      path: '/produksi-borongan'
+      fullPath: '/laporan/produksi-borongan'
+      preLoaderRoute: typeof AuthenticatedLaporanProduksiBoronganRouteImport
+      parentRoute: typeof AuthenticatedLaporanRoute
+    }
+    '/_authenticated/laporan/perubahan-karyawan': {
+      id: '/_authenticated/laporan/perubahan-karyawan'
+      path: '/perubahan-karyawan'
+      fullPath: '/laporan/perubahan-karyawan'
+      preLoaderRoute: typeof AuthenticatedLaporanPerubahanKaryawanRouteImport
+      parentRoute: typeof AuthenticatedLaporanRoute
+    }
+    '/_authenticated/laporan/perangkat-scan': {
+      id: '/_authenticated/laporan/perangkat-scan'
+      path: '/perangkat-scan'
+      fullPath: '/laporan/perangkat-scan'
+      preLoaderRoute: typeof AuthenticatedLaporanPerangkatScanRouteImport
+      parentRoute: typeof AuthenticatedLaporanRoute
+    }
+    '/_authenticated/laporan/penugasan-shift': {
+      id: '/_authenticated/laporan/penugasan-shift'
+      path: '/penugasan-shift'
+      fullPath: '/laporan/penugasan-shift'
+      preLoaderRoute: typeof AuthenticatedLaporanPenugasanShiftRouteImport
+      parentRoute: typeof AuthenticatedLaporanRoute
+    }
+    '/_authenticated/laporan/payroll-final': {
+      id: '/_authenticated/laporan/payroll-final'
+      path: '/payroll-final'
+      fullPath: '/laporan/payroll-final'
+      preLoaderRoute: typeof AuthenticatedLaporanPayrollFinalRouteImport
+      parentRoute: typeof AuthenticatedLaporanRoute
+    }
+    '/_authenticated/laporan/mutasi': {
+      id: '/_authenticated/laporan/mutasi'
+      path: '/mutasi'
+      fullPath: '/laporan/mutasi'
+      preLoaderRoute: typeof AuthenticatedLaporanMutasiRouteImport
+      parentRoute: typeof AuthenticatedLaporanRoute
+    }
+    '/_authenticated/laporan/masa-kerja-turnover': {
+      id: '/_authenticated/laporan/masa-kerja-turnover'
+      path: '/masa-kerja-turnover'
+      fullPath: '/laporan/masa-kerja-turnover'
+      preLoaderRoute: typeof AuthenticatedLaporanMasaKerjaTurnoverRouteImport
+      parentRoute: typeof AuthenticatedLaporanRoute
+    }
+    '/_authenticated/laporan/koreksi-attendance': {
+      id: '/_authenticated/laporan/koreksi-attendance'
+      path: '/koreksi-attendance'
+      fullPath: '/laporan/koreksi-attendance'
+      preLoaderRoute: typeof AuthenticatedLaporanKoreksiAttendanceRouteImport
+      parentRoute: typeof AuthenticatedLaporanRoute
+    }
     '/_authenticated/laporan/kontrak': {
       id: '/_authenticated/laporan/kontrak'
       path: '/kontrak'
@@ -1002,6 +1206,20 @@ declare module '@tanstack/react-router' {
       path: '/karyawan'
       fullPath: '/laporan/karyawan'
       preLoaderRoute: typeof AuthenticatedLaporanKaryawanRouteImport
+      parentRoute: typeof AuthenticatedLaporanRoute
+    }
+    '/_authenticated/laporan/cuti-sakit-izin': {
+      id: '/_authenticated/laporan/cuti-sakit-izin'
+      path: '/cuti-sakit-izin'
+      fullPath: '/laporan/cuti-sakit-izin'
+      preLoaderRoute: typeof AuthenticatedLaporanCutiSakitIzinRouteImport
+      parentRoute: typeof AuthenticatedLaporanRoute
+    }
+    '/_authenticated/laporan/audit-aktivitas': {
+      id: '/_authenticated/laporan/audit-aktivitas'
+      path: '/audit-aktivitas'
+      fullPath: '/laporan/audit-aktivitas'
+      preLoaderRoute: typeof AuthenticatedLaporanAuditAktivitasRouteImport
       parentRoute: typeof AuthenticatedLaporanRoute
     }
     '/_authenticated/laporan/attendance': {
@@ -1268,14 +1486,44 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedLaporanRouteChildren {
   AuthenticatedLaporanAttendanceRoute: typeof AuthenticatedLaporanAttendanceRoute
+  AuthenticatedLaporanAuditAktivitasRoute: typeof AuthenticatedLaporanAuditAktivitasRoute
+  AuthenticatedLaporanCutiSakitIzinRoute: typeof AuthenticatedLaporanCutiSakitIzinRoute
   AuthenticatedLaporanKaryawanRoute: typeof AuthenticatedLaporanKaryawanRoute
   AuthenticatedLaporanKontrakRoute: typeof AuthenticatedLaporanKontrakRoute
+  AuthenticatedLaporanKoreksiAttendanceRoute: typeof AuthenticatedLaporanKoreksiAttendanceRoute
+  AuthenticatedLaporanMasaKerjaTurnoverRoute: typeof AuthenticatedLaporanMasaKerjaTurnoverRoute
+  AuthenticatedLaporanMutasiRoute: typeof AuthenticatedLaporanMutasiRoute
+  AuthenticatedLaporanPayrollFinalRoute: typeof AuthenticatedLaporanPayrollFinalRoute
+  AuthenticatedLaporanPenugasanShiftRoute: typeof AuthenticatedLaporanPenugasanShiftRoute
+  AuthenticatedLaporanPerangkatScanRoute: typeof AuthenticatedLaporanPerangkatScanRoute
+  AuthenticatedLaporanPerubahanKaryawanRoute: typeof AuthenticatedLaporanPerubahanKaryawanRoute
+  AuthenticatedLaporanProduksiBoronganRoute: typeof AuthenticatedLaporanProduksiBoronganRoute
+  AuthenticatedLaporanIndexRoute: typeof AuthenticatedLaporanIndexRoute
 }
 
 const AuthenticatedLaporanRouteChildren: AuthenticatedLaporanRouteChildren = {
   AuthenticatedLaporanAttendanceRoute: AuthenticatedLaporanAttendanceRoute,
+  AuthenticatedLaporanAuditAktivitasRoute:
+    AuthenticatedLaporanAuditAktivitasRoute,
+  AuthenticatedLaporanCutiSakitIzinRoute:
+    AuthenticatedLaporanCutiSakitIzinRoute,
   AuthenticatedLaporanKaryawanRoute: AuthenticatedLaporanKaryawanRoute,
   AuthenticatedLaporanKontrakRoute: AuthenticatedLaporanKontrakRoute,
+  AuthenticatedLaporanKoreksiAttendanceRoute:
+    AuthenticatedLaporanKoreksiAttendanceRoute,
+  AuthenticatedLaporanMasaKerjaTurnoverRoute:
+    AuthenticatedLaporanMasaKerjaTurnoverRoute,
+  AuthenticatedLaporanMutasiRoute: AuthenticatedLaporanMutasiRoute,
+  AuthenticatedLaporanPayrollFinalRoute: AuthenticatedLaporanPayrollFinalRoute,
+  AuthenticatedLaporanPenugasanShiftRoute:
+    AuthenticatedLaporanPenugasanShiftRoute,
+  AuthenticatedLaporanPerangkatScanRoute:
+    AuthenticatedLaporanPerangkatScanRoute,
+  AuthenticatedLaporanPerubahanKaryawanRoute:
+    AuthenticatedLaporanPerubahanKaryawanRoute,
+  AuthenticatedLaporanProduksiBoronganRoute:
+    AuthenticatedLaporanProduksiBoronganRoute,
+  AuthenticatedLaporanIndexRoute: AuthenticatedLaporanIndexRoute,
 }
 
 const AuthenticatedLaporanRouteWithChildren =

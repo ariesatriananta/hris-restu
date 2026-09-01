@@ -34,6 +34,7 @@
     "test:smoke": "node scripts/smoke-frontend.mjs",
     "test:smoke:production": "node --env-file=apps/api/.env scripts/smoke-production-server.mjs",
     "test:smoke:employees": "node scripts/smoke-employees.mjs",
+    "uat:reports": "node --env-file=apps/api/.env scripts/uat-reports-center.mjs",
     "test:coverage": "vitest run --coverage --browser.headless",
     "test:browser:install": "playwright install chromium --with-deps"
   },

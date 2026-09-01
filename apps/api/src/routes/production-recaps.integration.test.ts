@@ -130,6 +130,9 @@ describe('Production recaps API', () => {
       if (statement.includes('FROM production_transactions pt')) {
         return [[transactionRow]]
       }
+      if (statement.includes('SELECT s.id,s.code,s.name FROM sites s')) {
+        return [[{ id: 1, code: 'JEPARA', name: 'Site Jepara' }]]
+      }
       if (statement.includes('FROM sites s')) {
         return [[{ value: 'JEPARA', label: 'Site Jepara' }]]
       }
@@ -198,6 +201,74 @@ describe('Production recaps API', () => {
     })
     expect(response.status).toBe(403)
     expect(mocks.query).not.toHaveBeenCalled()
+  })
+
+  it('menerapkan semua filter laporan dan ekspor resmi mencatat audit per site', async () => {
+    const sectionUid = '55555555-5555-4555-8555-555555555555'
+    const workGroupUid = '66666666-6666-4666-8666-666666666666'
+    const filtered = await request(
+      `/recaps?dateFrom=2026-08-21&dateTo=2026-08-21&site=JEPARA&jobUid=${transactionRow.jobUid}&employeeType=BORONGAN&productionSectionUid=${sectionUid}&workGroupUid=${workGroupUid}&query=Budi`
+    )
+    expect(filtered.status).toBe(200)
+    const filteredValues = mocks.query.mock.calls[0]?.[1] as unknown[]
+    expect(filteredValues).toEqual([
+      '2026-08-21',
+      '2026-08-21',
+      'JEPARA',
+      'JEPARA',
+      '%Budi%',
+      '%Budi%',
+      transactionRow.jobUid,
+      'BORONGAN',
+      sectionUid,
+      workGroupUid,
+    ])
+
+    vi.clearAllMocks()
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const statement = String(sql)
+      if (statement.includes('FROM production_transactions pt')) {
+        return [[transactionRow]]
+      }
+      if (statement.includes('SELECT s.id,s.code,s.name FROM sites s')) {
+        return [[{ id: 1, code: 'JEPARA', name: 'Site Jepara' }]]
+      }
+      return [[]]
+    })
+    const exported = await request('/recaps/export', {
+      method: 'POST',
+      auth: auth({
+        permissions: ['production.view', 'production.export'],
+      }),
+      body: {
+        dateFrom: '2026-08-21',
+        dateTo: '2026-08-21',
+        site: ['JEPARA'],
+        workGroupUid: [workGroupUid],
+      },
+    })
+    expect(exported.status).toBe(200)
+    expect(exported.headers.get('content-type')).toContain('spreadsheetml')
+    expect(exported.headers.get('x-request-id')).toBeTruthy()
+    expect(mocks.beginTransaction).toHaveBeenCalledOnce()
+    expect(mocks.commit).toHaveBeenCalledOnce()
+    expect(mocks.audit).toHaveBeenCalledOnce()
+    expect(mocks.audit.mock.calls[0]?.[0]).toMatchObject({
+      module: 'PRODUCTION',
+      siteId: 1,
+      action: 'EXPORT',
+      table: 'production_transactions',
+      afterData: expect.objectContaining({
+        dateFrom: '2026-08-21',
+        dateTo: '2026-08-21',
+        transactionRows: 1,
+        checksumSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    })
+    const revisionSql = mocks.query.mock.calls
+      .map(([sql]) => String(sql))
+      .find((sql) => sql.includes('FROM production_transaction_revisions pr'))
+    expect(revisionSql).toContain('wg.id=pt.work_group_id')
   })
 
   it('menyediakan drawer pekerjaan dengan kontribusi dan kronologi POSTED', async () => {

@@ -73,8 +73,14 @@ describe('Production recap projection', () => {
     ]
     const result = aggregateProductionRecap(rows)
     expect(result.quantityTotals).toEqual([
-      expect.objectContaining({ quantity: '0.125', unit: expect.objectContaining({ code: 'KG' }) }),
-      expect.objectContaining({ quantity: '34', unit: expect.objectContaining({ code: 'PCS' }) }),
+      expect.objectContaining({
+        quantity: '0.125',
+        unit: expect.objectContaining({ code: 'KG' }),
+      }),
+      expect.objectContaining({
+        quantity: '34',
+        unit: expect.objectContaining({ code: 'PCS' }),
+      }),
     ])
     expect(result.summary).toEqual({
       employeeCount: 1,
@@ -107,5 +113,76 @@ describe('Production recap projection', () => {
       'Riwayat Revisi',
     ])
     expect(workbook.getWorksheet('Transaksi POSTED')?.rowCount).toBe(2)
+  })
+
+  it('mengamankan seluruh teks bebas dari formula spreadsheet', async () => {
+    const transaction: ProductionRecapTransaction = {
+      id: 1,
+      uid: 'transaction-public-uid',
+      transactionNumber: '=PRD-001',
+      businessDate: '2026-08-21',
+      transactionAt: '2026-08-21T08:00:00+07:00',
+      quantity: '10.0000',
+      rateSnapshot: '1000.0000',
+      grossAmount: '10000.00',
+      payrollSnapshotted: false,
+      employee: {
+        id: 7,
+        uid: 'employee-public-uid',
+        employeeNumber: '=CMD',
+        fullName: '+SUM(1,1)',
+      },
+      site: { id: 11, code: 'JEPARA', name: '@Site Jepara' },
+      job: { uid: 'job-public-uid', code: '-JOB', name: '=Linting' },
+      unit: {
+        uid: 'unit-public-uid',
+        code: '+PCS',
+        name: 'Pcs',
+        decimalPrecision: 0,
+      },
+      placement: {
+        employeeType: { code: 'BORONGAN', name: '=Borongan' },
+        position: null,
+        department: null,
+        productionSection: null,
+        workGroup: null,
+      },
+      correctionSource: null,
+    }
+    const workbookBuffer = await buildProductionRecapWorkbook({
+      projection: aggregateProductionRecap([transaction]),
+      transactions: [transaction],
+      revisions: [
+        {
+          revisionUid: 'revision-public-uid',
+          revisionType: 'CORRECTION',
+          revisionNumber: 1,
+          reason: '@Alasan',
+          revisedAt: '2026-08-22T09:00:00+07:00',
+          revisedBy: '=Admin',
+          sourceTransactionNumber: '=PRD-001',
+          replacementTransactionNumber: '+PRD-002',
+          employeeNumber: '=CMD',
+          employeeName: '+SUM(1,1)',
+          site: '@Site Jepara',
+          businessDate: '2026-08-21',
+          jobName: '=Linting',
+          beforeData: '=JSON',
+          afterData: '+JSON',
+        },
+      ],
+      dateFrom: '2026-08-21',
+      dateTo: '2026-08-21',
+      generatedAt: '2026-08-31T10:00:00+07:00',
+      generatedBy: 'Admin',
+    })
+
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(Uint8Array.from(workbookBuffer).buffer)
+    expect(workbook.getWorksheet('Ringkasan Karyawan')!.getCell('B2').value).toBe("'=CMD")
+    expect(workbook.getWorksheet('Rincian Pekerjaan')!.getCell('E2').value).toBe("'-JOB")
+    expect(workbook.getWorksheet('Transaksi POSTED')!.getCell('D2').value).toBe("'=PRD-001")
+    expect(workbook.getWorksheet('Riwayat Revisi')!.getCell('F2').value).toBe("'@Alasan")
+    expect(workbook.getWorksheet('Riwayat Revisi')!.getCell('O2').value).toBe("'+JSON")
   })
 })

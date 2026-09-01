@@ -450,7 +450,7 @@ async function loadRevisionRows(auth: AuthContext, input: RecapInput) {
            ORDER BY history.effective_from DESC,history.id DESC LIMIT 1
          )
        LEFT JOIN employee_types et ON et.id=eh.employee_type_id
-       LEFT JOIN work_groups wg ON wg.id=eh.work_group_id
+       LEFT JOIN work_groups wg ON wg.id=pt.work_group_id
        LEFT JOIN production_module_sections pms ON pms.id=eh.production_module_section_id
        LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
       WHERE ${filter.sql}
