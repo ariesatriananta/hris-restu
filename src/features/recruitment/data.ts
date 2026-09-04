@@ -107,6 +107,17 @@ export function useRecruitmentConversionPrefill(uid?: string) {
   })
 }
 
+export function useRecruitmentFileBlob(
+  candidateUid?: string,
+  fileUid?: string
+) {
+  return useQuery({
+    queryKey: ['recruitment', 'file-preview', candidateUid, fileUid],
+    queryFn: () => getRecruitmentFile(candidateUid!, fileUid!),
+    enabled: Boolean(candidateUid && fileUid),
+  })
+}
+
 function useInvalidateRecruitment() {
   const queryClient = useQueryClient()
   return () => queryClient.invalidateQueries({ queryKey: keys.all })

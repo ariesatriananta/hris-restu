@@ -4,7 +4,7 @@ import { requirePermission } from '@/features/auth/permissions'
 import { RecruitmentConversionPage } from '@/features/recruitment/recruitment-conversion-page'
 
 export const Route = createFileRoute(
-  '/_authenticated/karyawan/rekrutmen/$candidateUid/lengkapi'
+  '/_authenticated/karyawan/rekrutmen_/$candidateUid/lengkapi'
 )({
   beforeLoad: () => requirePermission('recruitment.manage'),
   validateSearch: z.object({ returnTo: z.string().optional() }),

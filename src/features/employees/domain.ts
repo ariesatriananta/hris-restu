@@ -268,6 +268,7 @@ export interface MutationInput {
 }
 export interface RegistrationCorrectionInput {
   site: SiteCode
+  joinDate: string
   department?: string
   position?: string
   workGroup?: string

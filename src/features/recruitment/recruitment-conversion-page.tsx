@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { isAxiosError } from 'axios'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft, LoaderCircle, RefreshCcw, ShieldCheck } from 'lucide-react'
@@ -7,10 +7,13 @@ import { safeInternalReturnTo } from '@/lib/list-return-to'
 import { Button } from '@/components/ui/button'
 import { Main } from '@/components/layout/main'
 import { EmployeeForm } from '@/features/employees/components/employee-form'
+import type { MockFileAttachment } from '@/features/employees/domain'
 import {
   useConvertRecruitmentCandidate,
   useRecruitmentConversionPrefill,
+  useRecruitmentFileBlob,
 } from './data'
+import type { RecruitmentCandidateFile } from './domain'
 import {
   recruitmentConversionInput,
   recruitmentEmployeeDefaults,
@@ -28,6 +31,16 @@ export function RecruitmentConversionPage({
   const convert = useConvertRecruitmentCandidate()
   const idempotencyKey = useRef(crypto.randomUUID())
   const listReturnTo = safeInternalReturnTo(returnTo, '/karyawan/rekrutmen')
+  const candidateFiles = prefill.data?.candidate.files ?? []
+  const photoMeta = candidateFiles.find((file) => file.kind === 'PHOTO')
+  const ktpMeta = candidateFiles.find((file) => file.kind === 'KTP')
+  const kkMeta = candidateFiles.find((file) => file.kind === 'KK')
+  const photoBlob = useRecruitmentFileBlob(candidateUid, photoMeta?.uid)
+  const ktpBlob = useRecruitmentFileBlob(candidateUid, ktpMeta?.uid)
+  const kkBlob = useRecruitmentFileBlob(candidateUid, kkMeta?.uid)
+  const photoAttachment = usePrivateFilePreview(photoMeta, photoBlob.data)
+  const ktpAttachment = usePrivateFilePreview(ktpMeta, ktpBlob.data)
+  const kkAttachment = usePrivateFilePreview(kkMeta, kkBlob.data)
 
   if (prefill.isPending) {
     return (
@@ -61,6 +74,50 @@ export function RecruitmentConversionPage({
   }
 
   const source = prefill.data
+  const previewQueries = [photoBlob, ktpBlob, kkBlob]
+  const previewPending =
+    previewQueries.some((query) => query.isPending) ||
+    !photoAttachment ||
+    !ktpAttachment ||
+    !kkAttachment
+  const previewError = previewQueries.some((query) => query.isError)
+
+  if (previewError) {
+    return (
+      <Main className='grid min-h-72 place-items-center text-center'>
+        <div className='space-y-3'>
+          <p className='text-muted-foreground'>
+            Foto pelamar belum berhasil dibuka. Muat ulang foto sebelum
+            melengkapi data karyawan.
+          </p>
+          <div className='flex justify-center gap-2'>
+            <Button
+              variant='outline'
+              onClick={() =>
+                void Promise.all(previewQueries.map((query) => query.refetch()))
+              }
+            >
+              <RefreshCcw /> Muat ulang foto
+            </Button>
+            <Button asChild>
+              <Link to={listReturnTo}>Kembali ke Rekrutmen</Link>
+            </Button>
+          </div>
+        </div>
+      </Main>
+    )
+  }
+
+  if (previewPending) {
+    return (
+      <Main className='grid min-h-72 place-items-center'>
+        <p className='flex items-center gap-2 text-muted-foreground'>
+          <LoaderCircle className='animate-spin' /> Membuka foto pelamar...
+        </p>
+      </Main>
+    )
+  }
+
   const createDefaults = recruitmentEmployeeDefaults(source.employeeInput)
 
   return (
@@ -97,6 +154,11 @@ export function RecruitmentConversionPage({
         inheritedRecruitmentDocuments={source.candidate.files.map(
           (file) => file.kind
         )}
+        inheritedRecruitmentAttachments={{
+          PHOTO: photoAttachment,
+          KTP: ktpAttachment,
+          KK: kkAttachment,
+        }}
         isPending={convert.isPending}
         submitLabel='Buat karyawan dari pelamar'
         onSubmit={async (input) => {
@@ -132,4 +194,32 @@ export function RecruitmentConversionPage({
       />
     </Main>
   )
+}
+
+function usePrivateFilePreview(file?: RecruitmentCandidateFile, blob?: Blob) {
+  const attachment = useMemo<MockFileAttachment | undefined>(() => {
+    if (!file || !blob) return undefined
+    return {
+      uid: file.uid,
+      originalName: file.originalName,
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
+      extension: file.originalName.split('.').pop(),
+      // URL ini dimiliki halaman konversi. Jangan tandai sebagai temporaryUrl
+      // milik EmployeeForm karena cleanup Strict Mode dapat mencabutnya saat
+      // komponen form baru dipasang.
+      url: URL.createObjectURL(blob),
+    }
+  }, [blob, file])
+
+  useEffect(
+    () => () => {
+      if (attachment?.url) {
+        URL.revokeObjectURL(attachment.url)
+      }
+    },
+    [attachment]
+  )
+
+  return attachment
 }

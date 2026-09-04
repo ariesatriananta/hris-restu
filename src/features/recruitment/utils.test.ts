@@ -13,6 +13,9 @@ describe('Rekrutmen internal', () => {
   it('memetakan status dan dokumen ke bahasa operasional', () => {
     expect(recruitmentStatusLabel('IN_PROGRESS')).toBe('Diproses')
     expect(recruitmentActionLabel('REJECTED')).toBe('Nyatakan tidak lolos')
+    expect(recruitmentActionLabel('IN_PROGRESS', 'PASSED')).toBe(
+      'Kembalikan ke Diproses'
+    )
     expect(recruitmentFileLabel('KTP')).toBe('Foto KTP')
   })
 

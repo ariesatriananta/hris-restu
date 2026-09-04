@@ -5,6 +5,9 @@ import { userEvent } from 'vitest/browser'
 import type { Employee } from '../domain'
 import { EmployeeForm } from './employee-form'
 
+const inheritedImageUrl =
+  'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="2" height="2"%3E%3Crect width="2" height="2" fill="green"/%3E%3C/svg%3E'
+
 vi.mock('@/hooks/use-unsaved-changes', () => ({
   useUnsavedChanges: () => ({ confirmation: null }),
 }))
@@ -42,6 +45,9 @@ describe('EmployeeForm', () => {
     await expect
       .element(screen.getByLabelText('Employee ID'))
       .toHaveValue('PSMG-2607-11001')
+    await expect
+      .element(screen.getByLabelText('Tanggal bergabung'))
+      .toBeDisabled()
     await userEvent.clear(screen.getByLabelText('Nama lengkap'))
     await userEvent.fill(screen.getByLabelText('Nama lengkap'), 'Budi Santoso')
     await userEvent.fill(
@@ -95,6 +101,29 @@ describe('EmployeeForm', () => {
           }}
           lockCreateSite
           inheritedRecruitmentDocuments={['PHOTO', 'KTP', 'KK']}
+          inheritedRecruitmentAttachments={{
+            PHOTO: {
+              uid: 'photo-recruitment',
+              originalName: 'foto-pelamar.jpg',
+              mimeType: 'image/jpeg',
+              sizeBytes: 1_024,
+              url: inheritedImageUrl,
+            },
+            KTP: {
+              uid: 'ktp-recruitment',
+              originalName: 'ktp-pelamar.jpg',
+              mimeType: 'image/jpeg',
+              sizeBytes: 1_024,
+              url: inheritedImageUrl,
+            },
+            KK: {
+              uid: 'kk-recruitment',
+              originalName: 'kk-pelamar.jpg',
+              mimeType: 'image/jpeg',
+              sizeBytes: 1_024,
+              url: inheritedImageUrl,
+            },
+          }}
           submitLabel='Buat karyawan dari pelamar'
           onSubmit={() => {}}
           onCancel={() => {}}
@@ -107,9 +136,10 @@ describe('EmployeeForm', () => {
       .element(screen.getByLabelText('Nama lengkap'))
       .toHaveValue('SITI AMINAH')
     await expect.element(screen.getByLabelText('Site')).toBeDisabled()
-    await expect
-      .element(screen.getByText('Foto pelamar siap disalin dari pendaftaran.'))
-      .toBeVisible()
+    await expect.element(screen.getByText('foto-pelamar.jpg')).toBeVisible()
+    await expect.element(screen.getByAltText('Foto karyawan')).toBeVisible()
+    await expect.element(screen.getByAltText('Foto KTP')).toBeVisible()
+    await expect.element(screen.getByAltText('Foto KK')).toBeVisible()
     await expect
       .element(
         screen.getByRole('button', { name: 'Buat karyawan dari pelamar' })

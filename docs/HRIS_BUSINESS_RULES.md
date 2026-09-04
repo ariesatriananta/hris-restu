@@ -20,6 +20,13 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   Produksi. Hasil Produksi Training hanya menjadi fakta monitoring dan tidak
   menjadi sumber nominal Payroll.
 - Semua jenis karyawan wajib memiliki penempatan Modul dan Bagian produksi pada registrasi dan mutasi.
+- Tanggal bergabung karyawan yang sudah tersimpan tidak boleh diubah melalui
+  form Edit Karyawan biasa. Selama data registrasi masih memenuhi syarat
+  Koreksi Data Registrasi, perubahan tanggal wajib sekaligus memperbarui
+  `employees.join_date`, tanggal efektif histori `INITIAL`, dan Employee ID
+  yang memuat tanggal bergabung. Koreksi ditolak bila data sudah dipakai pada
+  kontrak, mutasi, penugasan Shift/pekerjaan, Attendance, Produksi, Payroll,
+  atau proses operasional lain.
 - Data pelamar disimpan terpisah dari Master Karyawan. Pengiriman Form Data
   Pelamar tidak boleh membuat nomor karyawan, histori kerja, kontrak, maupun
   data operasional karyawan.

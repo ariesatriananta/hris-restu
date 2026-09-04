@@ -22,7 +22,13 @@ export function recruitmentFileLabel(kind: RecruitmentFileKind) {
   return { PHOTO: 'Foto pelamar', KTP: 'Foto KTP', KK: 'Foto KK' }[kind]
 }
 
-export function recruitmentActionLabel(status: RecruitmentStatus) {
+export function recruitmentActionLabel(
+  status: RecruitmentStatus,
+  currentStatus?: RecruitmentStatus
+) {
+  if (currentStatus === 'PASSED' && status === 'IN_PROGRESS') {
+    return 'Kembalikan ke Diproses'
+  }
   return {
     NEW: 'Kembalikan ke Baru',
     IN_PROGRESS: 'Mulai proses',

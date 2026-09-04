@@ -171,6 +171,7 @@ export function EmployeeForm({
   identityDocuments,
   lockCreateSite = false,
   inheritedRecruitmentDocuments,
+  inheritedRecruitmentAttachments,
   onSubmit,
   onCancel,
   isPending,
@@ -182,6 +183,9 @@ export function EmployeeForm({
   identityDocuments?: Partial<Record<'KTP' | 'KK', EmployeeDocument>>
   lockCreateSite?: boolean
   inheritedRecruitmentDocuments?: Array<'PHOTO' | 'KTP' | 'KK'>
+  inheritedRecruitmentAttachments?: Partial<
+    Record<'PHOTO' | 'KTP' | 'KK', MockFileAttachment>
+  >
   onSubmit: (
     input: EmployeeInput,
     files: { photo?: File; nationalId?: File; familyCard?: File }
@@ -193,16 +197,16 @@ export function EmployeeForm({
 }) {
   const initial = employee ?? createDefaults
   const [photo, setPhoto] = useState<MockFileAttachment | undefined>(
-    initial?.photo
+    initial?.photo ?? inheritedRecruitmentAttachments?.PHOTO
   )
   const [photoFile, setPhotoFile] = useState<File>()
   const [nationalIdPhoto, setNationalIdPhoto] = useState<
     MockFileAttachment | undefined
-  >(identityDocuments?.KTP?.file)
+  >(identityDocuments?.KTP?.file ?? inheritedRecruitmentAttachments?.KTP)
   const [nationalIdFile, setNationalIdFile] = useState<File>()
   const [familyCardPhoto, setFamilyCardPhoto] = useState<
     MockFileAttachment | undefined
-  >(identityDocuments?.KK?.file)
+  >(identityDocuments?.KK?.file ?? inheritedRecruitmentAttachments?.KK)
   const [familyCardFile, setFamilyCardFile] = useState<File>()
   const [isUploading, setIsUploading] = useState(false)
   const lookups = useEmployeeLookups(!disableLookupQuery)
@@ -600,7 +604,18 @@ export function EmployeeForm({
                 </Field>
               </>
             )}
-            {textField('joinDate', 'Tanggal bergabung', 'date')}
+            {employee ? (
+              <Field label='Tanggal bergabung'>
+                <FormDatePicker
+                  control={form.control}
+                  name='joinDate'
+                  setValue={form.setValue}
+                  disabled
+                />
+              </Field>
+            ) : (
+              textField('joinDate', 'Tanggal bergabung', 'date')
+            )}
             {textField('permanentDate', 'Tanggal tetap', 'date')}
             {select('gender', 'Jenis kelamin', genderOptions)}
             {select('maritalStatus', 'Status perkawinan', maritalStatusOptions)}
@@ -609,7 +624,8 @@ export function EmployeeForm({
             <p className='rounded-md bg-muted p-3 text-xs text-muted-foreground'>
               Penempatan dan jenis karyawan dikelola melalui Catat Mutasi.
               Status kerja serta data resign dikelola melalui lifecycle kontrak.
-              Tanggal bergabung dapat dikoreksi tanpa mengubah Employee ID.
+              Tanggal bergabung hanya dapat diubah melalui Koreksi Data
+              Registrasi agar histori awal dan Employee ID tetap sesuai.
             </p>
           )}
         </section>
@@ -777,14 +793,17 @@ function FormDatePicker({
   control,
   name,
   setValue,
+  disabled = false,
 }: {
   control: ReturnType<typeof useForm<Values>>['control']
   name: keyof Values
   setValue: UseFormSetValue<Values>
+  disabled?: boolean
 }) {
   const value = useWatch({ control, name })
   return (
     <DatePicker
+      disabled={disabled}
       selected={dateFromInput(value)}
       onSelect={(date) =>
         setValue(name, dateToInput(date), {

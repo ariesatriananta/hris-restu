@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import {
   ArrowRight,
   CheckCircle2,
@@ -108,6 +108,7 @@ export function RecruitmentDetailSheet({
   const result = useRecruitmentCandidate(open ? uid : undefined)
   const detail = result.data
   const [transition, setTransition] = useState<RecruitmentStatus>()
+  const navigate = useNavigate()
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -229,11 +230,37 @@ export function RecruitmentDetailSheet({
               </ol>
             </Section>
 
+            {detail.canManage &&
+              detail.status === 'PASSED' &&
+              !detail.employeeUid && (
+                <div className='rounded-lg border border-positive/30 bg-positive/5 p-4'>
+                  <p className='font-semibold text-positive'>
+                    Kandidat lolos - lanjutkan ke Master Karyawan
+                  </p>
+                  <p className='mt-1 text-sm text-muted-foreground'>
+                    Lengkapi data penempatan. Karyawan akan dibuat Nonaktif dan
+                    baru diaktifkan melalui proses kontrak.
+                  </p>
+                  <Button
+                    className='mt-3'
+                    onClick={() =>
+                      void navigate({
+                        to: '/karyawan/rekrutmen/$candidateUid/lengkapi',
+                        params: { candidateUid: detail.uid },
+                        search: { returnTo },
+                      })
+                    }
+                  >
+                    <UserRoundCheck /> Lengkapi data & buat karyawan
+                  </Button>
+                </div>
+              )}
+
             {visibleRecruitmentActions(
               detail.canManage,
               detail.allowedTransitions
             ).length > 0 && (
-              <Section title='Tindakan berikutnya'>
+              <Section title='Ubah status kandidat'>
                 <div className='flex flex-wrap gap-2'>
                   {visibleRecruitmentActions(
                     detail.canManage,
@@ -242,39 +269,17 @@ export function RecruitmentDetailSheet({
                     <Button
                       key={status}
                       variant={
-                        status === 'REJECTED' ? 'destructive' : 'default'
+                        status === 'REJECTED' ? 'destructive' : 'outline'
                       }
                       onClick={() => setTransition(status)}
                     >
-                      {transitionIcon(status)} {recruitmentActionLabel(status)}
+                      {transitionIcon(status)}{' '}
+                      {recruitmentActionLabel(status, detail.status)}
                     </Button>
                   ))}
                 </div>
               </Section>
             )}
-
-            {detail.canManage &&
-              detail.status === 'PASSED' &&
-              !detail.employeeUid && (
-                <div className='rounded-lg border border-dashed p-4'>
-                  <p className='font-medium'>
-                    Siap dilengkapi menjadi karyawan
-                  </p>
-                  <p className='mt-1 text-sm text-muted-foreground'>
-                    Lengkapi data penempatan. Karyawan akan dibuat Nonaktif dan
-                    baru diaktifkan melalui proses kontrak.
-                  </p>
-                  <Button className='mt-3' asChild>
-                    <Link
-                      to='/karyawan/rekrutmen/$candidateUid/lengkapi'
-                      params={{ candidateUid: detail.uid }}
-                      search={{ returnTo }}
-                    >
-                      <UserRoundCheck /> Lengkapi data karyawan
-                    </Link>
-                  </Button>
-                </div>
-              )}
             {detail.employeeUid && (
               <Button variant='outline' asChild>
                 <Link
@@ -472,7 +477,9 @@ function TransitionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg'>
         <DialogHeader>
-          <DialogTitle>{recruitmentActionLabel(target)}?</DialogTitle>
+          <DialogTitle>
+            {recruitmentActionLabel(target, detail.status)}?
+          </DialogTitle>
           <DialogDescription>
             Status {detail.fullName} akan berubah dari{' '}
             {recruitmentStatusLabel(detail.status)} menjadi{' '}

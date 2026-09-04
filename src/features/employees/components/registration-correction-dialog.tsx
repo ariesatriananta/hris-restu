@@ -1,6 +1,6 @@
 import { useEffect, type ChangeEvent, type ComponentProps } from 'react'
-import { isAxiosError } from 'axios'
 import { z } from 'zod'
+import { isAxiosError } from 'axios'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
+import { DatePicker } from '@/components/date-picker'
 import { useCorrectRegistration, useEmployeeLookups } from '../data/queries'
 import type { Employee, RegistrationCorrectionInput } from '../domain'
 import { statusLabel } from '../utils'
@@ -20,6 +21,7 @@ import { statusLabel } from '../utils'
 const schema = z
   .object({
     site: z.enum(['JEPARA', 'SEMARANG', 'KLATEN']),
+    joinDate: z.string().date('Tanggal bergabung wajib diisi.'),
     department: z.string().optional(),
     position: z.string().optional(),
     workGroup: z.string().optional(),
@@ -28,13 +30,10 @@ const schema = z
     employeeType: z.enum(['BORONGAN', 'HARIAN', 'TRAINING', 'BULANAN']),
     reason: z.string().trim().min(3, 'Alasan koreksi wajib diisi.'),
   })
-  .refine(
-    (value) => Boolean(value.productionModuleSectionUid),
-    {
-      path: ['productionModuleSectionUid'],
-      message: 'Bagian produksi wajib dipilih.',
-    }
-  )
+  .refine((value) => Boolean(value.productionModuleSectionUid), {
+    path: ['productionModuleSectionUid'],
+    message: 'Bagian produksi wajib dipilih.',
+  })
 
 export function RegistrationCorrectionDialog({
   employee,
@@ -58,6 +57,10 @@ export function RegistrationCorrectionDialog({
   }, [employee, form, open])
 
   const selectedSite = useWatch({ control: form.control, name: 'site' })
+  const selectedJoinDate = useWatch({
+    control: form.control,
+    name: 'joinDate',
+  })
   const selectedDepartment = useWatch({
     control: form.control,
     name: 'department',
@@ -126,7 +129,8 @@ export function RegistrationCorrectionDialog({
           <DialogTitle>Koreksi Data Registrasi</DialogTitle>
           <DialogDescription>
             Gunakan hanya untuk salah input awal sebelum karyawan dipakai di
-            kontrak, attendance, produksi, payroll, atau jadwal perubahan.
+            kontrak, penugasan, attendance, produksi, payroll, atau jadwal
+            perubahan.
           </DialogDescription>
         </DialogHeader>
         <form className='grid gap-3' onSubmit={form.handleSubmit(submit)}>
@@ -135,6 +139,32 @@ export function RegistrationCorrectionDialog({
             value={employee?.fullName ?? '-'}
             description={employee?.employeeNumber}
           />
+          <label className='grid gap-1 text-sm'>
+            <span>Tanggal bergabung</span>
+            <DatePicker
+              selected={dateFromInput(selectedJoinDate)}
+              onSelect={(date) =>
+                form.setValue('joinDate', dateToInput(date), {
+                  shouldDirty: true,
+                  shouldValidate: true,
+                })
+              }
+              aria-invalid={Boolean(form.formState.errors.joinDate)}
+            />
+            {form.formState.errors.joinDate?.message ? (
+              <span className='text-xs text-destructive'>
+                {form.formState.errors.joinDate.message}
+              </span>
+            ) : selectedJoinDate !== employee?.joinDate ? (
+              <span className='text-xs text-amber-700 dark:text-amber-400'>
+                Histori awal dan Employee ID akan disesuaikan otomatis.
+              </span>
+            ) : (
+              <span className='text-xs text-muted-foreground'>
+                Tanggal ini juga menjadi awal histori penempatan karyawan.
+              </span>
+            )}
+          </label>
           <SelectField
             label='Site'
             error={form.formState.errors.site?.message}
@@ -200,26 +230,28 @@ export function RegistrationCorrectionDialog({
                       shouldValidate: true,
                     })
                 )}
-            >
-              <option value=''>Pilih modul produksi</option>
-              {currentOption(
-                employee?.productionModuleUid,
-                productionModules.some(
-                  (item) => item.uid === employee?.productionModuleUid
-                ),
-                employee?.productionModule
-                  ? `${statusLabel(employee.site)} - ${employee.productionModule}`
-                  : undefined
-              )}
-              {productionModules.map((item) => (
-                <option key={item.uid} value={item.uid}>
-                  {statusLabel(item.siteCode)} - {item.name}
+              >
+                <option value=''>Pilih modul produksi</option>
+                {currentOption(
+                  employee?.productionModuleUid,
+                  productionModules.some(
+                    (item) => item.uid === employee?.productionModuleUid
+                  ),
+                  employee?.productionModule
+                    ? `${statusLabel(employee.site)} - ${employee.productionModule}`
+                    : undefined
+                )}
+                {productionModules.map((item) => (
+                  <option key={item.uid} value={item.uid}>
+                    {statusLabel(item.siteCode)} - {item.name}
                   </option>
                 ))}
               </SelectField>
               <SelectField
                 label='Bagian produksi'
-                error={form.formState.errors.productionModuleSectionUid?.message}
+                error={
+                  form.formState.errors.productionModuleSectionUid?.message
+                }
                 disabled={!selectedProductionModuleUid}
                 {...controlledSelect(
                   'productionModuleSectionUid',
@@ -230,8 +262,7 @@ export function RegistrationCorrectionDialog({
                 {currentOption(
                   employee?.productionModuleSectionUid,
                   productionModuleSections.some(
-                    (item) =>
-                      item.uid === employee?.productionModuleSectionUid
+                    (item) => item.uid === employee?.productionModuleSectionUid
                   ),
                   employee?.productionSection
                 )}
@@ -276,6 +307,7 @@ export function RegistrationCorrectionDialog({
 function emptyValues(employee?: Employee): RegistrationCorrectionInput {
   return {
     site: employee?.site ?? 'JEPARA',
+    joinDate: employee?.joinDate ?? '',
     department: employee?.department ?? '',
     position: employee?.position ?? '',
     workGroup: employee?.workGroup ?? '',
@@ -297,6 +329,7 @@ function normalizeCorrectionInput(
 ): RegistrationCorrectionInput {
   return {
     site: employee.site,
+    joinDate: input.joinDate,
     department: input.department || employee.department || undefined,
     position: input.position || employee.position || undefined,
     workGroup: input.workGroup || employee.workGroup || undefined,
@@ -309,6 +342,20 @@ function normalizeCorrectionInput(
     employeeType: input.employeeType || employee.employeeType,
     reason: input.reason.trim(),
   }
+}
+
+function dateFromInput(value?: string) {
+  if (!value) return undefined
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+function dateToInput(value?: Date) {
+  if (!value) return ''
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function Field({
@@ -359,8 +406,7 @@ function SelectField({
 function correctionErrorMessage(error: unknown) {
   if (isAxiosError(error)) {
     return (
-      error.response?.data?.message ??
-      'Koreksi data registrasi gagal disimpan.'
+      error.response?.data?.message ?? 'Koreksi data registrasi gagal disimpan.'
     )
   }
   return 'Koreksi data registrasi gagal disimpan.'
