@@ -20,6 +20,33 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   Produksi. Hasil Produksi Training hanya menjadi fakta monitoring dan tidak
   menjadi sumber nominal Payroll.
 - Semua jenis karyawan wajib memiliki penempatan Modul dan Bagian produksi pada registrasi dan mutasi.
+- Data pelamar disimpan terpisah dari Master Karyawan. Pengiriman Form Data
+  Pelamar tidak boleh membuat nomor karyawan, histori kerja, kontrak, maupun
+  data operasional karyawan.
+- Form Data Pelamar memakai tautan atau QR berbeda untuk setiap site. Site
+  tujuan ditentukan oleh tautan, tetap ditampilkan kepada pelamar, dan tidak
+  boleh diganti menjadi site lain dari form tersebut.
+- Data minimal pelamar adalah nama sesuai KTP, NIK, nomor KK, jenis kelamin,
+  tempat dan tanggal lahir, alamat sesuai KTP, nomor HP/WhatsApp, serta foto
+  diri, KTP, dan KK. Nomor HP/WhatsApp wajib, sedangkan email bersifat opsional.
+- Tahap rekrutmen manual hanya `NEW`, `IN_PROGRESS`, `PASSED`, dan `REJECTED`.
+  Status `CONVERTED` ditetapkan sistem setelah kandidat berhasil dibuat menjadi
+  karyawan, bukan dipilih langsung oleh pengguna.
+- Kandidat yang dinyatakan Lolos belum menjadi karyawan. HR wajib melengkapi
+  form registrasi Master Karyawan terlebih dahulu; nomor karyawan dan histori
+  awal hanya dibuat setelah registrasi lengkap berhasil disimpan.
+- Kandidat Tidak Lolos boleh mendaftar kembali. Sistem harus memberi tahu
+  pelamar bahwa ada lamaran terdahulu beserta alasan yang memang ditulis untuk
+  pelamar. Catatan internal HR tidak boleh ditampilkan pada halaman publik.
+- Data kandidat Tidak Lolos dipertahankan sebagai arsip dan tidak dihapus
+  otomatis. Hanya satu lamaran yang belum selesai boleh aktif untuk NIK yang
+  sama pada satu waktu.
+- Foto diri, KTP, dan KK kandidat merupakan data privat. Berkas tidak boleh
+  memiliki alamat publik permanen dan hanya boleh dibuka oleh pengguna internal
+  yang memiliki permission Rekrutmen serta akses ke site kandidat.
+- HR Officer hanya dapat melihat dan mengelola kandidat pada site aksesnya,
+  sedangkan Super Admin dapat mengelola seluruh site. Pembatasan ini wajib
+  berlaku di API, bukan hanya pada menu atau tampilan.
 - Kombinasi jenis kontrak dan jenis karyawan berlaku ketat: kontrak `TRAINING`
   hanya untuk jenis karyawan `TRAINING`, sedangkan `PKWT`/`PKWTT` hanya untuk
   `BORONGAN`, `HARIAN`, atau `BULANAN`.

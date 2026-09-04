@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as FormDataPelamarSiteTokenRouteImport } from './routes/form-data-pelamar.$siteToken'
 import { Route as AuthenticatedProfilSayaRouteImport } from './routes/_authenticated/profil-saya'
 import { Route as AuthenticatedPanduanRouteImport } from './routes/_authenticated/panduan'
 import { Route as AuthenticatedLaporanRouteImport } from './routes/_authenticated/laporan'
@@ -92,6 +93,12 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const FormDataPelamarSiteTokenRoute =
+  FormDataPelamarSiteTokenRouteImport.update({
+    id: '/form-data-pelamar/$siteToken',
+    path: '/form-data-pelamar/$siteToken',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AuthenticatedProfilSayaRoute = AuthenticatedProfilSayaRouteImport.update({
   id: '/profil-saya',
   path: '/profil-saya',
@@ -521,6 +528,7 @@ export interface FileRoutesByFullPath {
   '/laporan': typeof AuthenticatedLaporanRouteWithChildren
   '/panduan': typeof AuthenticatedPanduanRouteWithChildren
   '/profil-saya': typeof AuthenticatedProfilSayaRoute
+  '/form-data-pelamar/$siteToken': typeof FormDataPelamarSiteTokenRoute
   '/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
   '/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
   '/administrasi/monitoring-cron': typeof AuthenticatedAdministrasiMonitoringCronRoute
@@ -593,6 +601,7 @@ export interface FileRoutesByTo {
   '/503': typeof errors503Route
   '/panduan': typeof AuthenticatedPanduanRouteWithChildren
   '/profil-saya': typeof AuthenticatedProfilSayaRoute
+  '/form-data-pelamar/$siteToken': typeof FormDataPelamarSiteTokenRoute
   '/': typeof AuthenticatedIndexRoute
   '/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
   '/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
@@ -669,6 +678,7 @@ export interface FileRoutesById {
   '/_authenticated/laporan': typeof AuthenticatedLaporanRouteWithChildren
   '/_authenticated/panduan': typeof AuthenticatedPanduanRouteWithChildren
   '/_authenticated/profil-saya': typeof AuthenticatedProfilSayaRoute
+  '/form-data-pelamar/$siteToken': typeof FormDataPelamarSiteTokenRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/administrasi/audit-trail': typeof AuthenticatedAdministrasiAuditTrailRoute
   '/_authenticated/administrasi/master-data': typeof AuthenticatedAdministrasiMasterDataRoute
@@ -746,6 +756,7 @@ export interface FileRouteTypes {
     | '/laporan'
     | '/panduan'
     | '/profil-saya'
+    | '/form-data-pelamar/$siteToken'
     | '/administrasi/audit-trail'
     | '/administrasi/master-data'
     | '/administrasi/monitoring-cron'
@@ -818,6 +829,7 @@ export interface FileRouteTypes {
     | '/503'
     | '/panduan'
     | '/profil-saya'
+    | '/form-data-pelamar/$siteToken'
     | '/'
     | '/administrasi/audit-trail'
     | '/administrasi/master-data'
@@ -893,6 +905,7 @@ export interface FileRouteTypes {
     | '/_authenticated/laporan'
     | '/_authenticated/panduan'
     | '/_authenticated/profil-saya'
+    | '/form-data-pelamar/$siteToken'
     | '/_authenticated/'
     | '/_authenticated/administrasi/audit-trail'
     | '/_authenticated/administrasi/master-data'
@@ -966,6 +979,7 @@ export interface RootRouteChildren {
   errors404Route: typeof errors404Route
   errors500Route: typeof errors500Route
   errors503Route: typeof errors503Route
+  FormDataPelamarSiteTokenRoute: typeof FormDataPelamarSiteTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -983,6 +997,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/form-data-pelamar/$siteToken': {
+      id: '/form-data-pelamar/$siteToken'
+      path: '/form-data-pelamar/$siteToken'
+      fullPath: '/form-data-pelamar/$siteToken'
+      preLoaderRoute: typeof FormDataPelamarSiteTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_authenticated/profil-saya': {
       id: '/_authenticated/profil-saya'
@@ -1762,6 +1783,7 @@ const rootRouteChildren: RootRouteChildren = {
   errors404Route: errors404Route,
   errors500Route: errors500Route,
   errors503Route: errors503Route,
+  FormDataPelamarSiteTokenRoute: FormDataPelamarSiteTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

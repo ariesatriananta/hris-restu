@@ -19,6 +19,7 @@ import { productionFoundationRouter } from './routes/production-foundation.js'
 import { productionRecapsRouter } from './routes/production-recaps.js'
 import { productionStructureRouter } from './routes/production-structure.js'
 import { productionTransactionsRouter } from './routes/production-transactions.js'
+import { publicRecruitmentRouter } from './routes/public-recruitment.js'
 import { reportsRouter } from './routes/reports.js'
 import { systemAuditTrailRouter } from './routes/system-audit-trail.js'
 import { systemUserAccessRouter } from './routes/system-user-access.js'
@@ -30,6 +31,9 @@ app.use(cors({ origin: env.FRONTEND_ORIGIN, credentials: true }))
 app.use(express.json({ limit: '1mb' }))
 app.use(cookieParser())
 app.use('/api/health', healthRouter)
+// Hanya route ini yang publik. Endpoint pengelolaan Rekrutmen tetap akan
+// memakai autentikasi dan permission pada milestone internal berikutnya.
+app.use('/api/public/recruitment', publicRecruitmentRouter)
 app.use('/api/auth', authRouter)
 app.use('/api/files', filesRouter)
 app.use('/api/employees', employeesRouter)
