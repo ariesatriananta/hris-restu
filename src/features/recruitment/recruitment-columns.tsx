@@ -125,14 +125,11 @@ export function RecruitmentStatusBadge({
   status: RecruitmentStatus
 }) {
   const className = {
-    NEW: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300',
-    IN_PROGRESS:
-      'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300',
-    PASSED:
-      'border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300',
-    REJECTED:
-      'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300',
-    CONVERTED: 'border-primary/30 bg-primary/10 text-primary',
+    NEW: 'border-primary/30 bg-primary/10 text-primary',
+    IN_PROGRESS: 'border-warning/40 bg-warning/10 text-warning-foreground',
+    PASSED: 'border-positive/40 bg-positive/10 text-positive',
+    REJECTED: 'border-destructive/40 bg-destructive/10 text-destructive',
+    CONVERTED: 'border-border bg-muted text-foreground',
   }[status]
   return (
     <Badge variant='outline' className={className}>

@@ -1,5 +1,5 @@
 import { format } from 'date-fns'
-import { id } from 'date-fns/locale'
+import { id as idLocale } from 'date-fns/locale'
 import { Calendar as CalendarIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/popover'
 
 type DatePickerProps = {
+  id?: string
   selected: Date | undefined
   onSelect: (date: Date | undefined) => void
   placeholder?: string
@@ -19,9 +20,12 @@ type DatePickerProps = {
   toYear?: number
   disabledDates?: (date: Date) => boolean
   triggerClassName?: string
+  'aria-invalid'?: boolean
+  'aria-describedby'?: string
 }
 
 export function DatePicker({
+  id,
   selected,
   onSelect,
   placeholder = 'Pilih tanggal',
@@ -30,21 +34,26 @@ export function DatePicker({
   toYear = new Date().getFullYear() + 20,
   disabledDates,
   triggerClassName,
+  'aria-invalid': ariaInvalid,
+  'aria-describedby': ariaDescribedBy,
 }: DatePickerProps) {
   return (
     <Popover>
       <PopoverTrigger asChild>
         <Button
+          id={id}
           variant='outline'
           disabled={disabled}
           data-empty={!selected}
+          aria-invalid={ariaInvalid}
+          aria-describedby={ariaDescribedBy}
           className={cn(
             'w-full justify-start text-start font-normal data-[empty=true]:text-muted-foreground',
             triggerClassName
           )}
         >
           {selected ? (
-            format(selected, 'd MMMM yyyy', { locale: id })
+            format(selected, 'd MMMM yyyy', { locale: idLocale })
           ) : (
             <span>{placeholder}</span>
           )}

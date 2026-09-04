@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { format } from 'date-fns'
 import {
   AlertCircle,
   ArrowLeft,
@@ -25,6 +24,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Textarea } from '@/components/ui/textarea'
+import { DatePicker } from '@/components/date-picker'
+import {
+  dateOnlyFromInput,
+  dateOnlyToInput,
+} from '@/features/recruitment/date-only'
 import type {
   RecruitmentEligibility,
   RecruitmentFiles,
@@ -89,9 +93,11 @@ function FormField({
       <Label htmlFor={id}>
         {label}
         {required ? (
-          <span className='text-destructive'>*</span>
+          <span className='ml-1 text-destructive'>*</span>
         ) : (
-          <span className='font-normal text-muted-foreground'>(opsional)</span>
+          <span className='ml-1 font-normal text-muted-foreground'>
+            (opsional)
+          </span>
         )}
       </Label>
       {children}
@@ -399,18 +405,6 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
 
         {step === 'IDENTITY' && (
           <form onSubmit={checkIdentity} className='space-y-5' noValidate>
-            <div className='rounded-xl border bg-muted/25 p-4'>
-              <div className='flex gap-3'>
-                <ShieldCheck className='mt-0.5 size-5 shrink-0 text-positive' />
-                <div>
-                  <p className='text-sm font-semibold'>Pemeriksaan awal</p>
-                  <p className='mt-1 text-xs leading-5 text-muted-foreground'>
-                    Data ini digunakan untuk memastikan tidak ada proses lamaran
-                    aktif yang sama.
-                  </p>
-                </div>
-              </div>
-            </div>
             <FormField
               id='nationalIdNumber'
               label='NIK'
@@ -464,12 +458,15 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
               label='Tanggal lahir'
               error={errors.birthDate}
             >
-              <Input
+              <DatePicker
                 id='birthDate'
-                type='date'
-                max={format(new Date(), 'yyyy-MM-dd')}
-                value={values.birthDate}
-                onChange={(e) => updateValue('birthDate', e.target.value)}
+                selected={dateOnlyFromInput(values.birthDate)}
+                onSelect={(date) =>
+                  updateValue('birthDate', dateOnlyToInput(date))
+                }
+                placeholder='Pilih tanggal lahir'
+                toYear={new Date().getFullYear()}
+                disabledDates={(date) => date > new Date()}
                 aria-invalid={!!errors.birthDate}
                 aria-describedby={
                   errors.birthDate ? 'birthDate-error' : undefined
@@ -492,7 +489,7 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
             {eligibility && !eligibility.canSubmit && (
               <Alert variant='destructive'>
                 <AlertCircle />
-                <AlertTitle>Pendaftaran belum dapat dilanjutkan</AlertTitle>
+                <AlertTitle>Data belum dapat diproses</AlertTitle>
                 <AlertDescription>{eligibility.message}</AlertDescription>
               </Alert>
             )}
@@ -556,6 +553,9 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
                   value={values.fullName}
                   onChange={(e) => updateValue('fullName', e.target.value)}
                   aria-invalid={!!errors.fullName}
+                  aria-describedby={
+                    errors.fullName ? 'fullName-error' : undefined
+                  }
                 />
               </FormField>
               <div className='space-y-2'>
@@ -564,6 +564,8 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
                 </Label>
                 <RadioGroup
                   aria-labelledby='gender-label'
+                  aria-invalid={!!errors.gender}
+                  aria-describedby={errors.gender ? 'gender-error' : undefined}
                   value={values.gender}
                   onValueChange={(value) =>
                     updateValue('gender', value as 'MALE' | 'FEMALE')
@@ -589,7 +591,9 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
                   </Label>
                 </RadioGroup>
                 {errors.gender && (
-                  <p className='text-xs text-destructive'>{errors.gender}</p>
+                  <p id='gender-error' className='text-xs text-destructive'>
+                    {errors.gender}
+                  </p>
                 )}
               </div>
               <div className='grid gap-5 sm:grid-cols-2'>
@@ -605,13 +609,16 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
                     value={values.birthPlace}
                     onChange={(e) => updateValue('birthPlace', e.target.value)}
                     aria-invalid={!!errors.birthPlace}
+                    aria-describedby={
+                      errors.birthPlace ? 'birthPlace-error' : undefined
+                    }
                   />
                 </FormField>
                 <FormField id='birthDateLocked' label='Tanggal lahir'>
-                  <Input
+                  <DatePicker
                     id='birthDateLocked'
-                    type='date'
-                    value={values.birthDate}
+                    selected={dateOnlyFromInput(values.birthDate)}
+                    onSelect={() => undefined}
                     disabled
                   />
                 </FormField>
@@ -629,6 +636,9 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
                   value={values.address}
                   onChange={(e) => updateValue('address', e.target.value)}
                   aria-invalid={!!errors.address}
+                  aria-describedby={
+                    errors.address ? 'address-error' : undefined
+                  }
                 />
               </FormField>
               <div className='grid gap-5 sm:grid-cols-2'>
@@ -647,6 +657,7 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
                     value={values.phone}
                     onChange={(e) => updateValue('phone', e.target.value)}
                     aria-invalid={!!errors.phone}
+                    aria-describedby={errors.phone ? 'phone-error' : undefined}
                   />
                 </FormField>
                 <FormField
@@ -665,6 +676,7 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
                     value={values.email}
                     onChange={(e) => updateValue('email', e.target.value)}
                     aria-invalid={!!errors.email}
+                    aria-describedby={errors.email ? 'email-error' : undefined}
                   />
                 </FormField>
               </div>
@@ -722,6 +734,9 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
                     updateValue('privacyConsent', checked === true)
                   }
                   aria-invalid={!!errors.privacyConsent}
+                  aria-describedby={
+                    errors.privacyConsent ? 'privacyConsent-error' : undefined
+                  }
                 />
                 <div className='space-y-1'>
                   <Label htmlFor='privacyConsent' className='leading-5'>
@@ -733,7 +748,10 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
                     digunakan oleh petugas yang berwenang.
                   </p>
                   {errors.privacyConsent && (
-                    <p className='text-xs text-destructive'>
+                    <p
+                      id='privacyConsent-error'
+                      className='text-xs text-destructive'
+                    >
                       {errors.privacyConsent}
                     </p>
                   )}

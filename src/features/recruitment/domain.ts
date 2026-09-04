@@ -42,6 +42,15 @@ export interface RecruitmentMeta {
   statuses: Array<{ value: RecruitmentStatus; label: string }>
 }
 
+export interface RecruitmentPublicLink {
+  site: RecruitmentSite
+  url: string | null
+}
+
+export interface RecruitmentPublicLinksResult {
+  data: RecruitmentPublicLink[]
+}
+
 export interface RecruitmentCandidateFile {
   uid: string
   kind: RecruitmentFileKind

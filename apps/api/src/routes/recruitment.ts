@@ -16,6 +16,7 @@ import {
   putEmployeeRecruitmentObject,
 } from '../lib/recruitment-conversion-storage.js'
 import { getPrivateRecruitmentObject } from '../lib/recruitment-internal-storage.js'
+import { recruitmentPublicTokensBySite } from '../lib/recruitment-public-config.js'
 import {
   authenticate,
   requirePermission,
@@ -351,6 +352,36 @@ recruitmentRouter.get('/meta', async (_req, res, next) => {
         value,
         label: statusLabels[value],
       })),
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+recruitmentRouter.get('/public-links', async (_req, res, next) => {
+  try {
+    const auth = res.locals.auth as AuthContext
+    const access = siteScope(auth)
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT s.uid,s.code,s.name FROM sites s WHERE s.is_active=1 AND ${access.sql} ORDER BY s.name`,
+      access.params
+    )
+    const tokensBySite = recruitmentPublicTokensBySite()
+    res.setHeader('Cache-Control', 'private, no-store')
+    res.json({
+      data: rows.map((row) => {
+        const token = tokensBySite.get(String(row.code))
+        return {
+          site: {
+            uid: String(row.uid),
+            code: String(row.code),
+            name: String(row.name),
+          },
+          url: token
+            ? `/form-data-pelamar/${encodeURIComponent(token)}`
+            : null,
+        }
+      }),
     })
   } catch (error) {
     next(error)

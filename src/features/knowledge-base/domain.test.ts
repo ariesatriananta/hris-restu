@@ -20,9 +20,10 @@ describe('artikel Knowledge Base Produksi', () => {
 })
 
 describe('artikel Knowledge Base Karyawan', () => {
-  it('menyediakan tiga panduan Karyawan yang terpisah', () => {
+  it('menyediakan empat panduan Karyawan yang terpisah', () => {
     expect(knowledgeArticleValues).toEqual(
       expect.arrayContaining([
+        'karyawan-rekrutmen',
         'karyawan-master',
         'karyawan-kontrak',
         'karyawan-mutasi',

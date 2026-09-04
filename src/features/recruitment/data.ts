@@ -12,6 +12,7 @@ import type {
   RecruitmentListParams,
   RecruitmentListResult,
   RecruitmentMeta,
+  RecruitmentPublicLinksResult,
   RecruitmentStatus,
 } from './domain'
 
@@ -40,6 +41,29 @@ export function useRecruitmentMeta() {
     queryKey: ['recruitment', 'meta'],
     queryFn: async () =>
       (await apiClient.get<RecruitmentMeta>('/recruitment/meta')).data,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+export function useRecruitmentPublicLinks(enabled: boolean) {
+  return useQuery({
+    queryKey: ['recruitment', 'public-links'],
+    queryFn: async () => {
+      const result = (
+        await apiClient.get<RecruitmentPublicLinksResult>(
+          '/recruitment/public-links'
+        )
+      ).data
+      return {
+        data: result.data.map((link) => ({
+          ...link,
+          url: link.url
+            ? new URL(link.url, window.location.origin).toString()
+            : null,
+        })),
+      }
+    },
+    enabled,
     staleTime: 5 * 60 * 1000,
   })
 }

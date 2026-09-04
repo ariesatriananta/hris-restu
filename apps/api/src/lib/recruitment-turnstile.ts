@@ -7,17 +7,23 @@ type TurnstileResponse = {
   action?: string
 }
 
+export function recruitmentTurnstileEnabled() {
+  return env.NODE_ENV === 'production'
+}
+
 export async function verifyRecruitmentTurnstile(input: {
   token?: string
   remoteIp?: string
   expectedAction: 'recruitment-check' | 'recruitment-submit'
 }) {
+  // Pengembangan lokal tetap memakai seluruh validasi form, rate limit,
+  // idempotency, dan validasi berkas. Hanya panggilan ke Cloudflare yang
+  // dilewati agar form dapat diuji tanpa domain publik.
+  if (!recruitmentTurnstileEnabled()) return
+
   const secret = env.RECRUITMENT_TURNSTILE_SECRET_KEY
   if (!secret) {
-    if (env.NODE_ENV === 'production') {
-      throw new ApiError(503, 'Form Data Pelamar belum siap digunakan.')
-    }
-    return
+    throw new ApiError(503, 'Form Data Pelamar belum siap digunakan.')
   }
   if (!input.token) {
     throw new ApiError(422, 'Silakan ulangi verifikasi keamanan.')

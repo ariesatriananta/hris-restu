@@ -10,9 +10,13 @@ import {
   putPrivateRecruitmentObject,
   recruitmentObjectKey,
 } from './recruitment-private-storage.js'
+import { recruitmentTurnstileEnabled } from './recruitment-turnstile.js'
 
 export type PublicSite = { id: number; uid: string; code: string; name: string }
 export type RecruitmentFileKind = 'PHOTO' | 'KTP' | 'KK'
+
+const activeIdentityMessage =
+  'Data identitas yang Anda masukkan sudah tercatat atau masih digunakan dalam proses yang sedang berjalan. Periksa kembali data Anda. Jika sudah benar, silakan hubungi HR site tujuan untuk mendapatkan bantuan.'
 
 export async function findPublicRecruitmentSite(siteCode: string) {
   const [rows] = await pool.query<RowDataPacket[]>(
@@ -87,7 +91,9 @@ export async function publicRecruitmentConfig(site: PublicSite) {
     company: { name: companyName, logoUrl },
     site: { uid: site.uid, code: site.code, name: site.name },
     privacyNoticeVersion: 'recruitment-privacy-v1',
-    turnstileSiteKey: env.RECRUITMENT_TURNSTILE_SITE_KEY ?? null,
+    turnstileSiteKey: recruitmentTurnstileEnabled()
+      ? env.RECRUITMENT_TURNSTILE_SITE_KEY ?? null
+      : null,
     limits: {
       imageTypes: ['image/jpeg', 'image/png', 'image/webp'],
       maxImageBytes: 5 * 1024 * 1024,
@@ -116,8 +122,7 @@ export async function checkRecruitmentEligibility(input: {
   if (blockingEmployees[0] || activeApplications[0]) {
     return {
       canSubmit: false,
-      message:
-        'Pendaftaran belum dapat dilanjutkan. Silakan hubungi HR site tujuan.',
+      message: activeIdentityMessage,
       priorRejectedApplication: null,
     }
   }
@@ -284,10 +289,7 @@ export async function createRecruitmentSubmission(input: {
       [input.submission.nationalIdNumber]
     )
     if (employeeRows[0] || activeRows[0]) {
-      throw new ApiError(
-        409,
-        'Pendaftaran belum dapat dilanjutkan. Silakan hubungi HR site tujuan.'
-      )
+      throw new ApiError(409, activeIdentityMessage)
     }
 
     const candidateUid = randomUUID()

@@ -48,6 +48,7 @@ export function ImageUploadField({
           error && 'border-destructive'
         )}
         aria-describedby={`${id}-description ${error ? `${id}-error` : ''}`}
+        aria-invalid={!!error}
       >
         {previewUrl ? (
           <>

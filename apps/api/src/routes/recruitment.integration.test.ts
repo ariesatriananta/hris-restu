@@ -19,6 +19,13 @@ vi.mock('../lib/audit.js', () => ({ writeAudit: mocks.writeAudit }))
 vi.mock('../lib/recruitment-internal-storage.js', () => ({
   getPrivateRecruitmentObject: mocks.getPrivateObject,
 }))
+vi.mock('../lib/recruitment-public-config.js', () => ({
+  recruitmentPublicTokensBySite: () =>
+    new Map([
+      ['JEPARA', 'token-publik-jepara-yang-aman'],
+      ['SEMARANG', 'token-publik-semarang-yang-aman'],
+    ]),
+}))
 vi.mock('../lib/recruitment-conversion-storage.js', () => ({
   employeeRecruitmentObjectKey: vi.fn(),
   putEmployeeRecruitmentObject: vi.fn(),
@@ -176,6 +183,33 @@ describe('Recruitment internal API', () => {
     })
     expect(response.status).toBe(403)
     expect(mocks.query).not.toHaveBeenCalled()
+  })
+
+  it('memberikan tautan form hanya untuk site yang dapat diakses pengguna', async () => {
+    mocks.query.mockResolvedValueOnce([
+      [{ uid: 'site-jepara', code: 'JEPARA', name: 'Site Jepara' }],
+    ])
+
+    const response = await request('/public-links')
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    expect(await response.json()).toEqual({
+      data: [
+        {
+          site: {
+            uid: 'site-jepara',
+            code: 'JEPARA',
+            name: 'Site Jepara',
+          },
+          url: expect.stringMatching(
+            /\/form-data-pelamar\/token-publik-jepara-yang-aman$/
+          ),
+        },
+      ],
+    })
+    expect(String(mocks.query.mock.calls[0][0])).toContain('s.code IN (?)')
+    expect(mocks.query.mock.calls[0][1]).toEqual(['JEPARA'])
   })
 
   it('menerapkan cakupan site, filter, pagination, sort, dan menyamarkan NIK pada daftar', async () => {

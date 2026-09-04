@@ -4,10 +4,7 @@ import { ApiError } from './errors.js'
 let cachedSource: string | undefined
 let cachedTokens = new Map<string, string>()
 
-export function recruitmentSiteCodeFromToken(token: string) {
-  const normalizedToken = token.trim()
-  if (!/^[A-Za-z0-9_-]{24,100}$/.test(normalizedToken)) return null
-
+function recruitmentSiteTokens() {
   if (cachedSource !== env.RECRUITMENT_SITE_TOKENS_JSON) {
     cachedSource = env.RECRUITMENT_SITE_TOKENS_JSON
     cachedTokens = new Map<string, string>()
@@ -31,7 +28,21 @@ export function recruitmentSiteCodeFromToken(token: string) {
       }
     }
   }
-  return cachedTokens.get(normalizedToken) ?? null
+  return cachedTokens
+}
+
+export function recruitmentSiteCodeFromToken(token: string) {
+  const normalizedToken = token.trim()
+  if (!/^[A-Za-z0-9_-]{24,100}$/.test(normalizedToken)) return null
+  return recruitmentSiteTokens().get(normalizedToken) ?? null
+}
+
+export function recruitmentPublicTokensBySite() {
+  const tokensBySite = new Map<string, string>()
+  for (const [token, siteCode] of recruitmentSiteTokens()) {
+    if (!tokensBySite.has(siteCode)) tokensBySite.set(siteCode, token)
+  }
+  return tokensBySite
 }
 
 export function privateRecruitmentBucket() {

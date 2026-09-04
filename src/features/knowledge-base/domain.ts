@@ -1,4 +1,5 @@
 export const knowledgeArticleValues = [
+  'karyawan-rekrutmen',
   'karyawan-master',
   'karyawan-kontrak',
   'karyawan-mutasi',

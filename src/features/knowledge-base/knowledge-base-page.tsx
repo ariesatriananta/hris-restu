@@ -10,6 +10,7 @@ import {
   GitBranchPlus,
   Landmark,
   LayoutGrid,
+  UserRoundSearch,
   UsersRound,
 } from 'lucide-react'
 import ReactMarkdown, { type Components } from 'react-markdown'
@@ -26,6 +27,7 @@ import attendanceRecap from '../../../docs/kbase/attendance/KBASE_REKAP_ATTENDAN
 import employeeMaster from '../../../docs/kbase/karyawan/KBASE_MASTER_KARYAWAN.md?raw'
 import employeeContracts from '../../../docs/kbase/karyawan/KBASE_PENGELOLAAN_KONTRAK.md?raw'
 import employeeMutations from '../../../docs/kbase/karyawan/KBASE_PENGELOLAAN_MUTASI.md?raw'
+import employeeRecruitment from '../../../docs/kbase/karyawan/KBASE_REKRUTMEN.md?raw'
 import productionMaster from '../../../docs/kbase/production/KBASE_MASTER_PRODUKSI.md?raw'
 import productionRecap from '../../../docs/kbase/production/KBASE_REKAP_PRODUKSI.md?raw'
 import productionTransactions from '../../../docs/kbase/production/KBASE_TRANSAKSI_SETORAN_PRODUKSI.md?raw'
@@ -44,10 +46,20 @@ type ArticleDefinition = {
 
 const articles: ArticleDefinition[] = [
   {
+    value: 'karyawan-rekrutmen',
+    group: 'Karyawan',
+    label: 'Rekrutmen',
+    description: 'Form pelamar, seleksi kandidat, dan pembuatan data karyawan',
+    icon: UserRoundSearch,
+    sourceName: 'KBASE_REKRUTMEN.md',
+    content: employeeRecruitment,
+    status: 'Aktif',
+  },
+  {
     value: 'karyawan-master',
     group: 'Karyawan',
     label: 'Master Karyawan',
-    description: 'Tambah, periksa, ubah, impor, dokumen, ID Card, dan barcode',
+    description: 'Data karyawan, impor, dokumen, ID Card, dan barcode',
     icon: UsersRound,
     sourceName: 'KBASE_MASTER_KARYAWAN.md',
     content: employeeMaster,

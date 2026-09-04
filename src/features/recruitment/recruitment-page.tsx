@@ -15,6 +15,7 @@ import {
 import { currentListReturnTo } from '@/lib/list-return-to'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
 import {
   Table,
   TableBody,
@@ -24,14 +25,17 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { DataTablePagination, DataTableToolbar } from '@/components/data-table'
+import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
 import { useRecruitmentCandidates, useRecruitmentMeta } from './data'
+import { dateOnlyFromInput, dateOnlyToInput } from './date-only'
 import type { RecruitmentSortBy, RecruitmentStatus } from './domain'
 import { createRecruitmentColumns } from './recruitment-columns'
 import {
   RecruitmentCandidateCard,
   RecruitmentDetailSheet,
 } from './recruitment-detail'
+import { RecruitmentPublicLinksDialog } from './recruitment-public-links-dialog'
 import { buildRecruitmentListParams } from './utils'
 
 export type RecruitmentSearch = {
@@ -134,14 +138,17 @@ export function RecruitmentPage({
   const summary = result.data?.summary
   return (
     <Main>
-      <div className='mb-5'>
-        <p className='text-sm font-medium text-primary'>Master Karyawan</p>
-        <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
-          Rekrutmen
-        </h1>
-        <p className='text-muted-foreground'>
-          Periksa data pelamar dan lanjutkan proses rekrutmen per site.
-        </p>
+      <div className='mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between'>
+        <div>
+          <p className='text-sm font-medium text-primary'>Master Karyawan</p>
+          <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
+            Rekrutmen
+          </h1>
+          <p className='text-muted-foreground'>
+            Periksa data pelamar dan lanjutkan proses rekrutmen per site.
+          </p>
+        </div>
+        <RecruitmentPublicLinksDialog />
       </div>
 
       <div className='mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3'>
@@ -159,82 +166,101 @@ export function RecruitmentPage({
       </div>
 
       <div className='space-y-4'>
-        <div className='overflow-x-auto pb-1'>
-          <div className='min-w-max sm:min-w-0'>
-            <DataTableToolbar
-              table={table}
-              searchPlaceholder='Cari nama, NIK, nomor, atau HP...'
-              searchDebounceMs={500}
-              filters={[
-                {
-                  columnId: 'site',
-                  title: 'Site',
-                  options: (meta.data?.sites ?? []).map((site) => ({
-                    value: site.code,
-                    label: site.name,
-                  })),
-                },
-                {
-                  columnId: 'status',
-                  title: 'Status',
-                  options: meta.data?.statuses ?? [],
-                },
-              ]}
-              additionalFilters={
-                <>
-                  <label className='flex h-8 items-center gap-2 rounded-md border px-2 text-xs font-medium'>
+        <div>
+          <DataTableToolbar
+            table={table}
+            searchPlaceholder='Cari nama, NIK, nomor, atau HP...'
+            searchDebounceMs={500}
+            className='flex-col sm:flex-row'
+            controlsClassName='w-full flex-col sm:flex-row'
+            searchInputClassName='w-full sm:w-56 lg:w-64'
+            filters={[
+              {
+                columnId: 'site',
+                title: 'Site',
+                options: (meta.data?.sites ?? []).map((site) => ({
+                  value: site.code,
+                  label: site.name,
+                })),
+              },
+              {
+                columnId: 'status',
+                title: 'Status',
+                options: meta.data?.statuses ?? [],
+              },
+            ]}
+            additionalFilters={
+              <>
+                <div className='flex items-center gap-1.5'>
+                  <Label
+                    htmlFor='recruitment-date-from'
+                    className='text-xs whitespace-nowrap'
+                  >
                     Dari
-                    <input
-                      aria-label='Tanggal pendaftaran awal'
-                      type='date'
-                      className='w-31 bg-transparent outline-none'
-                      value={search.dateFrom ?? ''}
-                      max={search.dateTo}
-                      onChange={(event) =>
-                        navigate({
-                          search: (previous) => ({
-                            ...previous,
-                            dateFrom: event.target.value || undefined,
-                            page: undefined,
-                          }),
-                        })
-                      }
-                    />
-                  </label>
-                  <label className='flex h-8 items-center gap-2 rounded-md border px-2 text-xs font-medium'>
+                  </Label>
+                  <DatePicker
+                    id='recruitment-date-from'
+                    selected={dateOnlyFromInput(search.dateFrom)}
+                    onSelect={(date) =>
+                      navigate({
+                        search: (previous) => ({
+                          ...previous,
+                          dateFrom: dateOnlyToInput(date) || undefined,
+                          page: undefined,
+                        }),
+                      })
+                    }
+                    placeholder='Tanggal awal'
+                    toYear={new Date().getFullYear() + 1}
+                    disabledDates={(date) => {
+                      const maximum = dateOnlyFromInput(search.dateTo)
+                      return maximum ? date > maximum : false
+                    }}
+                    triggerClassName='h-8 w-40 text-xs'
+                  />
+                </div>
+                <div className='flex items-center gap-1.5'>
+                  <Label
+                    htmlFor='recruitment-date-to'
+                    className='text-xs whitespace-nowrap'
+                  >
                     Sampai
-                    <input
-                      aria-label='Tanggal pendaftaran akhir'
-                      type='date'
-                      className='w-31 bg-transparent outline-none'
-                      value={search.dateTo ?? ''}
-                      min={search.dateFrom}
-                      onChange={(event) =>
-                        navigate({
-                          search: (previous) => ({
-                            ...previous,
-                            dateTo: event.target.value || undefined,
-                            page: undefined,
-                          }),
-                        })
-                      }
-                    />
-                  </label>
-                </>
-              }
-              hasAdditionalFilters={hasDates}
-              onResetAdditionalFilters={() =>
-                navigate({
-                  search: (previous) => ({
-                    ...previous,
-                    dateFrom: undefined,
-                    dateTo: undefined,
-                    page: undefined,
-                  }),
-                })
-              }
-            />
-          </div>
+                  </Label>
+                  <DatePicker
+                    id='recruitment-date-to'
+                    selected={dateOnlyFromInput(search.dateTo)}
+                    onSelect={(date) =>
+                      navigate({
+                        search: (previous) => ({
+                          ...previous,
+                          dateTo: dateOnlyToInput(date) || undefined,
+                          page: undefined,
+                        }),
+                      })
+                    }
+                    placeholder='Tanggal akhir'
+                    toYear={new Date().getFullYear() + 1}
+                    disabledDates={(date) => {
+                      const minimum = dateOnlyFromInput(search.dateFrom)
+                      return minimum ? date < minimum : false
+                    }}
+                    triggerClassName='h-8 w-40 text-xs'
+                  />
+                </div>
+              </>
+            }
+            hasAdditionalFilters={hasDates}
+            onResetAdditionalFilters={() =>
+              navigate({
+                search: (previous) => ({
+                  ...previous,
+                  dateFrom: undefined,
+                  dateTo: undefined,
+                  page: undefined,
+                }),
+              })
+            }
+          />
         </div>
 
         {result.isFetching && !result.isPending && (
