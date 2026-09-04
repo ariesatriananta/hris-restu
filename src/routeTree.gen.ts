@@ -49,6 +49,7 @@ import { Route as AuthenticatedLaporanAuditAktivitasRouteImport } from './routes
 import { Route as AuthenticatedLaporanAttendanceRouteImport } from './routes/_authenticated/laporan/attendance'
 import { Route as AuthenticatedKaryawanTambahKaryawanRouteImport } from './routes/_authenticated/karyawan/tambah-karyawan'
 import { Route as AuthenticatedKaryawanRiwayatMutasiRouteImport } from './routes/_authenticated/karyawan/riwayat-mutasi'
+import { Route as AuthenticatedKaryawanRekrutmenRouteImport } from './routes/_authenticated/karyawan/rekrutmen'
 import { Route as AuthenticatedKaryawanPkwtDokumenRouteImport } from './routes/_authenticated/karyawan/pkwt-dokumen'
 import { Route as AuthenticatedKaryawanPkwtRouteImport } from './routes/_authenticated/karyawan/pkwt'
 import { Route as AuthenticatedKaryawanDokumenRouteImport } from './routes/_authenticated/karyawan/dokumen'
@@ -79,6 +80,7 @@ import { Route as AuthenticatedKaryawanDokumenTambahRouteImport } from './routes
 import { Route as AuthenticatedKaryawanDokumenDocumentUidRouteImport } from './routes/_authenticated/karyawan/dokumen.$documentUid'
 import { Route as AuthenticatedKaryawanDataKaryawanEmployeeUidRouteImport } from './routes/_authenticated/karyawan/data-karyawan_.$employeeUid'
 import { Route as AuthenticatedKaryawanDataKaryawanTambahRouteImport } from './routes/_authenticated/karyawan/data-karyawan.tambah'
+import { Route as AuthenticatedKaryawanRekrutmenCandidateUidLengkapiRouteImport } from './routes/_authenticated/karyawan/rekrutmen.$candidateUid.lengkapi'
 import { Route as AuthenticatedKaryawanPkwtContractUidUbahRouteImport } from './routes/_authenticated/karyawan/pkwt.$contractUid.ubah'
 import { Route as AuthenticatedKaryawanPkwtContractUidCetakRouteImport } from './routes/_authenticated/karyawan/pkwt.$contractUid.cetak'
 import { Route as AuthenticatedKaryawanDokumenDocumentUidUbahRouteImport } from './routes/_authenticated/karyawan/dokumen.$documentUid.ubah'
@@ -312,6 +314,12 @@ const AuthenticatedKaryawanRiwayatMutasiRoute =
     path: '/karyawan/riwayat-mutasi',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedKaryawanRekrutmenRoute =
+  AuthenticatedKaryawanRekrutmenRouteImport.update({
+    id: '/karyawan/rekrutmen',
+    path: '/karyawan/rekrutmen',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedKaryawanPkwtDokumenRoute =
   AuthenticatedKaryawanPkwtDokumenRouteImport.update({
     id: '/karyawan/pkwt-dokumen',
@@ -492,6 +500,12 @@ const AuthenticatedKaryawanDataKaryawanTambahRoute =
     path: '/tambah',
     getParentRoute: () => AuthenticatedKaryawanDataKaryawanRoute,
   } as any)
+const AuthenticatedKaryawanRekrutmenCandidateUidLengkapiRoute =
+  AuthenticatedKaryawanRekrutmenCandidateUidLengkapiRouteImport.update({
+    id: '/$candidateUid/lengkapi',
+    path: '/$candidateUid/lengkapi',
+    getParentRoute: () => AuthenticatedKaryawanRekrutmenRoute,
+  } as any)
 const AuthenticatedKaryawanPkwtContractUidUbahRoute =
   AuthenticatedKaryawanPkwtContractUidUbahRouteImport.update({
     id: '/ubah',
@@ -550,6 +564,7 @@ export interface FileRoutesByFullPath {
   '/karyawan/dokumen': typeof AuthenticatedKaryawanDokumenRouteWithChildren
   '/karyawan/pkwt': typeof AuthenticatedKaryawanPkwtRouteWithChildren
   '/karyawan/pkwt-dokumen': typeof AuthenticatedKaryawanPkwtDokumenRoute
+  '/karyawan/rekrutmen': typeof AuthenticatedKaryawanRekrutmenRouteWithChildren
   '/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
   '/karyawan/tambah-karyawan': typeof AuthenticatedKaryawanTambahKaryawanRoute
   '/laporan/attendance': typeof AuthenticatedLaporanAttendanceRoute
@@ -591,6 +606,7 @@ export interface FileRoutesByFullPath {
   '/karyawan/dokumen/$documentUid/ubah': typeof AuthenticatedKaryawanDokumenDocumentUidUbahRoute
   '/karyawan/pkwt/$contractUid/cetak': typeof AuthenticatedKaryawanPkwtContractUidCetakRoute
   '/karyawan/pkwt/$contractUid/ubah': typeof AuthenticatedKaryawanPkwtContractUidUbahRoute
+  '/karyawan/rekrutmen/$candidateUid/lengkapi': typeof AuthenticatedKaryawanRekrutmenCandidateUidLengkapiRoute
 }
 export interface FileRoutesByTo {
   '/sign-in': typeof authSignInRoute
@@ -624,6 +640,7 @@ export interface FileRoutesByTo {
   '/karyawan/dokumen': typeof AuthenticatedKaryawanDokumenRouteWithChildren
   '/karyawan/pkwt': typeof AuthenticatedKaryawanPkwtRouteWithChildren
   '/karyawan/pkwt-dokumen': typeof AuthenticatedKaryawanPkwtDokumenRoute
+  '/karyawan/rekrutmen': typeof AuthenticatedKaryawanRekrutmenRouteWithChildren
   '/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
   '/karyawan/tambah-karyawan': typeof AuthenticatedKaryawanTambahKaryawanRoute
   '/laporan/attendance': typeof AuthenticatedLaporanAttendanceRoute
@@ -665,6 +682,7 @@ export interface FileRoutesByTo {
   '/karyawan/dokumen/$documentUid/ubah': typeof AuthenticatedKaryawanDokumenDocumentUidUbahRoute
   '/karyawan/pkwt/$contractUid/cetak': typeof AuthenticatedKaryawanPkwtContractUidCetakRoute
   '/karyawan/pkwt/$contractUid/ubah': typeof AuthenticatedKaryawanPkwtContractUidUbahRoute
+  '/karyawan/rekrutmen/$candidateUid/lengkapi': typeof AuthenticatedKaryawanRekrutmenCandidateUidLengkapiRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -701,6 +719,7 @@ export interface FileRoutesById {
   '/_authenticated/karyawan/dokumen': typeof AuthenticatedKaryawanDokumenRouteWithChildren
   '/_authenticated/karyawan/pkwt': typeof AuthenticatedKaryawanPkwtRouteWithChildren
   '/_authenticated/karyawan/pkwt-dokumen': typeof AuthenticatedKaryawanPkwtDokumenRoute
+  '/_authenticated/karyawan/rekrutmen': typeof AuthenticatedKaryawanRekrutmenRouteWithChildren
   '/_authenticated/karyawan/riwayat-mutasi': typeof AuthenticatedKaryawanRiwayatMutasiRoute
   '/_authenticated/karyawan/tambah-karyawan': typeof AuthenticatedKaryawanTambahKaryawanRoute
   '/_authenticated/laporan/attendance': typeof AuthenticatedLaporanAttendanceRoute
@@ -742,6 +761,7 @@ export interface FileRoutesById {
   '/_authenticated/karyawan/dokumen/$documentUid/ubah': typeof AuthenticatedKaryawanDokumenDocumentUidUbahRoute
   '/_authenticated/karyawan/pkwt/$contractUid/cetak': typeof AuthenticatedKaryawanPkwtContractUidCetakRoute
   '/_authenticated/karyawan/pkwt/$contractUid/ubah': typeof AuthenticatedKaryawanPkwtContractUidUbahRoute
+  '/_authenticated/karyawan/rekrutmen/$candidateUid/lengkapi': typeof AuthenticatedKaryawanRekrutmenCandidateUidLengkapiRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -778,6 +798,7 @@ export interface FileRouteTypes {
     | '/karyawan/dokumen'
     | '/karyawan/pkwt'
     | '/karyawan/pkwt-dokumen'
+    | '/karyawan/rekrutmen'
     | '/karyawan/riwayat-mutasi'
     | '/karyawan/tambah-karyawan'
     | '/laporan/attendance'
@@ -819,6 +840,7 @@ export interface FileRouteTypes {
     | '/karyawan/dokumen/$documentUid/ubah'
     | '/karyawan/pkwt/$contractUid/cetak'
     | '/karyawan/pkwt/$contractUid/ubah'
+    | '/karyawan/rekrutmen/$candidateUid/lengkapi'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/sign-in'
@@ -852,6 +874,7 @@ export interface FileRouteTypes {
     | '/karyawan/dokumen'
     | '/karyawan/pkwt'
     | '/karyawan/pkwt-dokumen'
+    | '/karyawan/rekrutmen'
     | '/karyawan/riwayat-mutasi'
     | '/karyawan/tambah-karyawan'
     | '/laporan/attendance'
@@ -893,6 +916,7 @@ export interface FileRouteTypes {
     | '/karyawan/dokumen/$documentUid/ubah'
     | '/karyawan/pkwt/$contractUid/cetak'
     | '/karyawan/pkwt/$contractUid/ubah'
+    | '/karyawan/rekrutmen/$candidateUid/lengkapi'
   id:
     | '__root__'
     | '/_authenticated'
@@ -928,6 +952,7 @@ export interface FileRouteTypes {
     | '/_authenticated/karyawan/dokumen'
     | '/_authenticated/karyawan/pkwt'
     | '/_authenticated/karyawan/pkwt-dokumen'
+    | '/_authenticated/karyawan/rekrutmen'
     | '/_authenticated/karyawan/riwayat-mutasi'
     | '/_authenticated/karyawan/tambah-karyawan'
     | '/_authenticated/laporan/attendance'
@@ -969,6 +994,7 @@ export interface FileRouteTypes {
     | '/_authenticated/karyawan/dokumen/$documentUid/ubah'
     | '/_authenticated/karyawan/pkwt/$contractUid/cetak'
     | '/_authenticated/karyawan/pkwt/$contractUid/ubah'
+    | '/_authenticated/karyawan/rekrutmen/$candidateUid/lengkapi'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1264,6 +1290,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedKaryawanRiwayatMutasiRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/karyawan/rekrutmen': {
+      id: '/_authenticated/karyawan/rekrutmen'
+      path: '/karyawan/rekrutmen'
+      fullPath: '/karyawan/rekrutmen'
+      preLoaderRoute: typeof AuthenticatedKaryawanRekrutmenRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/karyawan/pkwt-dokumen': {
       id: '/_authenticated/karyawan/pkwt-dokumen'
       path: '/karyawan/pkwt-dokumen'
@@ -1474,6 +1507,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedKaryawanDataKaryawanTambahRouteImport
       parentRoute: typeof AuthenticatedKaryawanDataKaryawanRoute
     }
+    '/_authenticated/karyawan/rekrutmen/$candidateUid/lengkapi': {
+      id: '/_authenticated/karyawan/rekrutmen/$candidateUid/lengkapi'
+      path: '/$candidateUid/lengkapi'
+      fullPath: '/karyawan/rekrutmen/$candidateUid/lengkapi'
+      preLoaderRoute: typeof AuthenticatedKaryawanRekrutmenCandidateUidLengkapiRouteImport
+      parentRoute: typeof AuthenticatedKaryawanRekrutmenRoute
+    }
     '/_authenticated/karyawan/pkwt/$contractUid/ubah': {
       id: '/_authenticated/karyawan/pkwt/$contractUid/ubah'
       path: '/ubah'
@@ -1650,6 +1690,21 @@ const AuthenticatedKaryawanPkwtRouteWithChildren =
     AuthenticatedKaryawanPkwtRouteChildren,
   )
 
+interface AuthenticatedKaryawanRekrutmenRouteChildren {
+  AuthenticatedKaryawanRekrutmenCandidateUidLengkapiRoute: typeof AuthenticatedKaryawanRekrutmenCandidateUidLengkapiRoute
+}
+
+const AuthenticatedKaryawanRekrutmenRouteChildren: AuthenticatedKaryawanRekrutmenRouteChildren =
+  {
+    AuthenticatedKaryawanRekrutmenCandidateUidLengkapiRoute:
+      AuthenticatedKaryawanRekrutmenCandidateUidLengkapiRoute,
+  }
+
+const AuthenticatedKaryawanRekrutmenRouteWithChildren =
+  AuthenticatedKaryawanRekrutmenRoute._addFileChildren(
+    AuthenticatedKaryawanRekrutmenRouteChildren,
+  )
+
 interface AuthenticatedKaryawanDataKaryawanEmployeeUidRouteChildren {
   AuthenticatedKaryawanDataKaryawanEmployeeUidEditRoute: typeof AuthenticatedKaryawanDataKaryawanEmployeeUidEditRoute
 }
@@ -1691,6 +1746,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedKaryawanDokumenRoute: typeof AuthenticatedKaryawanDokumenRouteWithChildren
   AuthenticatedKaryawanPkwtRoute: typeof AuthenticatedKaryawanPkwtRouteWithChildren
   AuthenticatedKaryawanPkwtDokumenRoute: typeof AuthenticatedKaryawanPkwtDokumenRoute
+  AuthenticatedKaryawanRekrutmenRoute: typeof AuthenticatedKaryawanRekrutmenRouteWithChildren
   AuthenticatedKaryawanRiwayatMutasiRoute: typeof AuthenticatedKaryawanRiwayatMutasiRoute
   AuthenticatedKaryawanTambahKaryawanRoute: typeof AuthenticatedKaryawanTambahKaryawanRoute
   AuthenticatedPayrollApprovalClosingRoute: typeof AuthenticatedPayrollApprovalClosingRoute
@@ -1748,6 +1804,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedKaryawanDokumenRouteWithChildren,
   AuthenticatedKaryawanPkwtRoute: AuthenticatedKaryawanPkwtRouteWithChildren,
   AuthenticatedKaryawanPkwtDokumenRoute: AuthenticatedKaryawanPkwtDokumenRoute,
+  AuthenticatedKaryawanRekrutmenRoute:
+    AuthenticatedKaryawanRekrutmenRouteWithChildren,
   AuthenticatedKaryawanRiwayatMutasiRoute:
     AuthenticatedKaryawanRiwayatMutasiRoute,
   AuthenticatedKaryawanTambahKaryawanRoute:

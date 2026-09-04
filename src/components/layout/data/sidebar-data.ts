@@ -30,14 +30,32 @@ export const sidebarData: SidebarData = {
         {
           title: 'Karyawan',
           icon: Users,
-          anyOfPermissions: ['employees.view'],
+          anyOfPermissions: ['employees.view', 'recruitment.view'],
           items: [
-            { title: 'Data Karyawan', url: '/karyawan/data-karyawan' },
-            { title: 'Mutasi Karyawan', url: '/karyawan/riwayat-mutasi' },
-            { title: 'Kontrak Karyawan', url: '/karyawan/pkwt-dokumen' },
+            {
+              title: 'Data Karyawan',
+              url: '/karyawan/data-karyawan',
+              anyOfPermissions: ['employees.view'],
+            },
+            {
+              title: 'Rekrutmen',
+              url: '/karyawan/rekrutmen',
+              anyOfPermissions: ['recruitment.view'],
+            },
+            {
+              title: 'Mutasi Karyawan',
+              url: '/karyawan/riwayat-mutasi',
+              anyOfPermissions: ['employees.view'],
+            },
+            {
+              title: 'Kontrak Karyawan',
+              url: '/karyawan/pkwt-dokumen',
+              anyOfPermissions: ['employees.view'],
+            },
             {
               title: 'ID Card & Label Barcode',
               url: '/karyawan/cetak-id-card',
+              anyOfPermissions: ['employees.view'],
             },
           ],
         },

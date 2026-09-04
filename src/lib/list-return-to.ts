@@ -31,6 +31,7 @@ export function returnToLabel(returnTo: string, fallback: string) {
   const pathname = new URL(returnTo, 'http://localhost').pathname
   const labels: Record<string, string> = {
     '/karyawan/data-karyawan': 'Data Karyawan',
+    '/karyawan/rekrutmen': 'Rekrutmen',
     '/karyawan/riwayat-mutasi': 'Mutasi Karyawan',
     '/karyawan/pkwt-dokumen': 'Kontrak Karyawan',
     '/attendance/master-shift': 'Master Shift',

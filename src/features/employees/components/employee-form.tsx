@@ -86,13 +86,10 @@ const schema = z
     bpjsEmploymentNumber: optionalText,
     notes: optionalText,
   })
-  .refine(
-    (value) => Boolean(value.productionModuleSectionUid),
-    {
-      path: ['productionModuleSectionUid'],
-      message: 'Bagian produksi wajib dipilih.',
-    }
-  )
+  .refine((value) => Boolean(value.productionModuleSectionUid), {
+    path: ['productionModuleSectionUid'],
+    message: 'Bagian produksi wajib dipilih.',
+  })
 
 type Values = z.infer<typeof schema>
 const formFieldNames = new Set<keyof Values>(schema.keyof().options)
@@ -170,24 +167,33 @@ const uppercaseFields = new Set<keyof Values>([
 
 export function EmployeeForm({
   employee,
+  createDefaults,
   identityDocuments,
+  lockCreateSite = false,
+  inheritedRecruitmentDocuments,
   onSubmit,
   onCancel,
   isPending,
+  submitLabel,
   disableLookupQuery = false,
 }: {
   employee?: Employee
+  createDefaults?: Partial<Employee>
   identityDocuments?: Partial<Record<'KTP' | 'KK', EmployeeDocument>>
+  lockCreateSite?: boolean
+  inheritedRecruitmentDocuments?: Array<'PHOTO' | 'KTP' | 'KK'>
   onSubmit: (
     input: EmployeeInput,
     files: { photo?: File; nationalId?: File; familyCard?: File }
   ) => void | Promise<void>
   onCancel: () => void
   isPending?: boolean
+  submitLabel?: string
   disableLookupQuery?: boolean
 }) {
+  const initial = employee ?? createDefaults
   const [photo, setPhoto] = useState<MockFileAttachment | undefined>(
-    employee?.photo
+    initial?.photo
   )
   const [photoFile, setPhotoFile] = useState<File>()
   const [nationalIdPhoto, setNationalIdPhoto] = useState<
@@ -203,46 +209,46 @@ export function EmployeeForm({
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: {
-      fullName: employee?.fullName ?? '',
-      nickname: employee?.nickname ?? '',
-      employeeType: employee?.employeeType ?? 'BORONGAN',
-      employeeStatus: employee?.employeeStatus ?? 'INACTIVE',
-      site: employee?.site ?? 'JEPARA',
-      department: employee?.department ?? '',
-      position: employee?.position ?? '',
-      workGroup: employee?.workGroup ?? '',
-      productionModuleUid: employee?.productionModuleUid ?? '',
-      productionModuleSectionUid: employee?.productionModuleSectionUid ?? '',
-      joinDate: dateInput(employee?.joinDate),
-      permanentDate: dateInput(employee?.permanentDate),
-      resignDate: dateInput(employee?.resignDate),
-      resignReason: employee?.resignReason ?? '',
-      gender: employee?.gender ?? 'LAKI-LAKI',
-      birthPlace: employee?.birthPlace ?? '',
-      birthDate: dateInput(employee?.birthDate),
-      maritalStatus: employee?.maritalStatus ?? '',
-      religion: employee?.religion ?? '',
-      address: employee?.address ?? '',
-      rtrw: employee?.rtrw ?? '',
-      kelurahan: employee?.kelurahan ?? '',
-      kecamatan: employee?.kecamatan ?? '',
-      city: employee?.city ?? '',
-      province: employee?.province ?? '',
-      postalCode: employee?.postalCode ?? '',
-      phone: employee?.phone ?? '',
-      email: employee?.email ?? '',
-      emergencyContactName: employee?.emergencyContactName ?? '',
-      emergencyContactPhone: employee?.emergencyContactPhone ?? '',
-      emergencyContactRelation: employee?.emergencyContactRelation ?? '',
-      nationalIdNumber: employee?.nationalIdNumber ?? '',
-      familyCardNumber: employee?.familyCardNumber ?? '',
-      taxNumber: employee?.taxNumber ?? '',
-      bankName: employee?.bankName ?? '',
-      bankAccountNumber: employee?.bankAccountNumber ?? '',
-      bankAccountName: employee?.bankAccountName ?? '',
-      bpjsHealthNumber: employee?.bpjsHealthNumber ?? '',
-      bpjsEmploymentNumber: employee?.bpjsEmploymentNumber ?? '',
-      notes: employee?.notes ?? '',
+      fullName: initial?.fullName ?? '',
+      nickname: initial?.nickname ?? '',
+      employeeType: initial?.employeeType ?? 'BORONGAN',
+      employeeStatus: initial?.employeeStatus ?? 'INACTIVE',
+      site: initial?.site ?? 'JEPARA',
+      department: initial?.department ?? '',
+      position: initial?.position ?? '',
+      workGroup: initial?.workGroup ?? '',
+      productionModuleUid: initial?.productionModuleUid ?? '',
+      productionModuleSectionUid: initial?.productionModuleSectionUid ?? '',
+      joinDate: dateInput(initial?.joinDate),
+      permanentDate: dateInput(initial?.permanentDate),
+      resignDate: dateInput(initial?.resignDate),
+      resignReason: initial?.resignReason ?? '',
+      gender: initial?.gender ?? 'LAKI-LAKI',
+      birthPlace: initial?.birthPlace ?? '',
+      birthDate: dateInput(initial?.birthDate),
+      maritalStatus: initial?.maritalStatus ?? '',
+      religion: initial?.religion ?? '',
+      address: initial?.address ?? '',
+      rtrw: initial?.rtrw ?? '',
+      kelurahan: initial?.kelurahan ?? '',
+      kecamatan: initial?.kecamatan ?? '',
+      city: initial?.city ?? '',
+      province: initial?.province ?? '',
+      postalCode: initial?.postalCode ?? '',
+      phone: initial?.phone ?? '',
+      email: initial?.email ?? '',
+      emergencyContactName: initial?.emergencyContactName ?? '',
+      emergencyContactPhone: initial?.emergencyContactPhone ?? '',
+      emergencyContactRelation: initial?.emergencyContactRelation ?? '',
+      nationalIdNumber: initial?.nationalIdNumber ?? '',
+      familyCardNumber: initial?.familyCardNumber ?? '',
+      taxNumber: initial?.taxNumber ?? '',
+      bankName: initial?.bankName ?? '',
+      bankAccountNumber: initial?.bankAccountNumber ?? '',
+      bankAccountName: initial?.bankAccountName ?? '',
+      bpjsHealthNumber: initial?.bpjsHealthNumber ?? '',
+      bpjsEmploymentNumber: initial?.bpjsEmploymentNumber ?? '',
+      notes: initial?.notes ?? '',
     },
   })
   const { confirmation } = useUnsavedChanges(form.formState.isDirty)
@@ -522,7 +528,7 @@ export function EmployeeForm({
               'site',
               'Site',
               sites.map((item) => ({ value: item.code, label: item.name })),
-              !!employee
+              !!employee || lockCreateSite
             )}
             {select(
               'department',
@@ -636,6 +642,13 @@ export function EmployeeForm({
 
         <section className='space-y-3 border-t pt-5'>
           <h3 className='font-semibold'>Foto karyawan dan identitas</h3>
+          {inheritedRecruitmentDocuments?.length ? (
+            <p className='rounded-md border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground'>
+              Foto pelamar, KTP, dan KK dari pendaftaran akan disalin otomatis
+              saat data karyawan dibuat. Setelah tersimpan, dokumen dapat
+              diperbarui dari detail karyawan.
+            </p>
+          ) : null}
           <div className='flex flex-col gap-4 rounded-lg border bg-muted/30 p-4 sm:flex-row sm:items-center'>
             <Avatar className='size-28 rounded-xl border bg-background shadow-sm'>
               <AvatarImage
@@ -652,12 +665,15 @@ export function EmployeeForm({
                 <p className='font-medium'>Foto karyawan</p>
                 <p className='text-sm text-muted-foreground'>
                   {photo?.originalName ??
-                    'Belum ada foto. Pilih foto wajah yang jelas.'}
+                    (inheritedRecruitmentDocuments?.includes('PHOTO')
+                      ? 'Foto pelamar siap disalin dari pendaftaran.'
+                      : 'Belum ada foto. Pilih foto wajah yang jelas.')}
                 </p>
               </div>
               <Input
                 type='file'
                 accept='image/png,image/jpeg,image/webp'
+                disabled={Boolean(inheritedRecruitmentDocuments?.length)}
                 onChange={(event) => {
                   const file = event.target.files?.[0]
                   if (!file) return
@@ -676,7 +692,7 @@ export function EmployeeForm({
                 <span>
                   PNG, JPG, atau WebP. Foto diunggah saat form disimpan.
                 </span>
-                {photo && (
+                {photo && !inheritedRecruitmentDocuments?.length && (
                   <Button
                     type='button'
                     variant='ghost'
@@ -698,6 +714,8 @@ export function EmployeeForm({
               label='Foto KTP'
               description='Foto atau scan KTP yang terbaca jelas.'
               attachment={nationalIdPhoto}
+              disabled={Boolean(inheritedRecruitmentDocuments?.length)}
+              inherited={inheritedRecruitmentDocuments?.includes('KTP')}
               onSelect={(file) => {
                 setNationalIdFile(file)
                 setNationalIdPhoto(attachmentFromFile(file))
@@ -707,6 +725,8 @@ export function EmployeeForm({
               label='Foto KK'
               description='Foto atau scan Kartu Keluarga yang terbaca jelas.'
               attachment={familyCardPhoto}
+              disabled={Boolean(inheritedRecruitmentDocuments?.length)}
+              inherited={inheritedRecruitmentDocuments?.includes('KK')}
               onSelect={(file) => {
                 setFamilyCardFile(file)
                 setFamilyCardPhoto(attachmentFromFile(file))
@@ -725,7 +745,9 @@ export function EmployeeForm({
       <FormActionBar
         formId='employee-form'
         isPending={isPending || isUploading}
-        submitLabel={employee ? 'Simpan perubahan' : 'Tambah karyawan'}
+        submitLabel={
+          submitLabel ?? (employee ? 'Simpan perubahan' : 'Tambah karyawan')
+        }
         onCancel={onCancel}
       />
       {confirmation}
@@ -877,11 +899,15 @@ function ImageUploadCard({
   label,
   description,
   attachment,
+  disabled = false,
+  inherited = false,
   onSelect,
 }: {
   label: string
   description: string
   attachment?: MockFileAttachment
+  disabled?: boolean
+  inherited?: boolean
   onSelect: (file: File) => void
 }) {
   const url = attachment?.temporaryUrl ?? attachment?.url
@@ -892,7 +918,9 @@ function ImageUploadCard({
           <img src={url} alt={label} className='size-full object-cover' />
         ) : (
           <div className='flex size-full items-center justify-center px-6 text-center text-sm text-muted-foreground'>
-            Belum ada {label.toLowerCase()}.
+            {inherited
+              ? `${label} siap disalin dari pendaftaran.`
+              : `Belum ada ${label.toLowerCase()}.`}
           </div>
         )}
       </div>
@@ -904,6 +932,7 @@ function ImageUploadCard({
         <Input
           type='file'
           accept='image/png,image/jpeg,image/webp'
+          disabled={disabled}
           onChange={(event) => {
             const file = event.target.files?.[0]
             if (file) onSelect(file)

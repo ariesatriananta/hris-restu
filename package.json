@@ -35,6 +35,7 @@
     "test:smoke:production": "node --env-file=apps/api/.env scripts/smoke-production-server.mjs",
     "test:smoke:employees": "node scripts/smoke-employees.mjs",
     "uat:reports": "node --env-file=apps/api/.env scripts/uat-reports-center.mjs",
+    "uat:recruitment": "node --env-file=apps/api/.env scripts/uat-recruitment.mjs && node --env-file=apps/api/.env --import tsx scripts/uat-recruitment-api.mjs && pnpm --filter @hris-restu/api test && pnpm exec vitest run src/features/recruitment-public/validation.test.ts src/features/recruitment-public/public-api.test.ts src/features/recruitment/utils.test.ts src/features/employees/components/employee-form.test.tsx --browser.headless",
     "test:coverage": "vitest run --coverage --browser.headless",
     "test:browser:install": "playwright install chromium --with-deps"
   },

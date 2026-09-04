@@ -77,4 +77,43 @@ describe('EmployeeForm', () => {
       email: 'karyawan.fiktif@example.test',
     })
   })
+
+  it('menampilkan data awal rekrutmen tanpa membuka perubahan site dan berkas', async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const screen = await render(
+      <QueryClientProvider client={client}>
+        <EmployeeForm
+          createDefaults={{
+            fullName: 'SITI AMINAH',
+            employeeType: 'BORONGAN',
+            employeeStatus: 'INACTIVE',
+            site: 'KLATEN',
+            joinDate: '2026-09-04',
+            gender: 'PEREMPUAN',
+          }}
+          lockCreateSite
+          inheritedRecruitmentDocuments={['PHOTO', 'KTP', 'KK']}
+          submitLabel='Buat karyawan dari pelamar'
+          onSubmit={() => {}}
+          onCancel={() => {}}
+          disableLookupQuery
+        />
+      </QueryClientProvider>
+    )
+
+    await expect
+      .element(screen.getByLabelText('Nama lengkap'))
+      .toHaveValue('SITI AMINAH')
+    await expect.element(screen.getByLabelText('Site')).toBeDisabled()
+    await expect
+      .element(screen.getByText('Foto pelamar siap disalin dari pendaftaran.'))
+      .toBeVisible()
+    await expect
+      .element(
+        screen.getByRole('button', { name: 'Buat karyawan dari pelamar' })
+      )
+      .toBeVisible()
+  })
 })

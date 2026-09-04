@@ -20,6 +20,7 @@ import { productionRecapsRouter } from './routes/production-recaps.js'
 import { productionStructureRouter } from './routes/production-structure.js'
 import { productionTransactionsRouter } from './routes/production-transactions.js'
 import { publicRecruitmentRouter } from './routes/public-recruitment.js'
+import { recruitmentRouter } from './routes/recruitment.js'
 import { reportsRouter } from './routes/reports.js'
 import { systemAuditTrailRouter } from './routes/system-audit-trail.js'
 import { systemUserAccessRouter } from './routes/system-user-access.js'
@@ -37,6 +38,7 @@ app.use('/api/public/recruitment', publicRecruitmentRouter)
 app.use('/api/auth', authRouter)
 app.use('/api/files', filesRouter)
 app.use('/api/employees', employeesRouter)
+app.use('/api/recruitment', recruitmentRouter)
 app.use('/api/internal', internalRouter)
 app.use('/api/production-structure', productionFoundationRouter)
 app.use('/api/production-structure', productionStructureRouter)

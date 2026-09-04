@@ -247,7 +247,7 @@ Validasi source M3:
 
 ### M4 - Halaman Rekrutmen internal
 
-Status: **Belum dikerjakan**
+Status: **Selesai di source code; menunggu UAT operasional dengan data nyata**
 
 - Menu **Karyawan > Rekrutmen**.
 - DataTable standar dengan URL-backed search, filter site, status, dan tanggal.
@@ -256,9 +256,42 @@ Status: **Belum dikerjakan**
 - Aksi Mulai proses, Nyatakan lolos, Tidak lolos, dan Lengkapi data karyawan.
 - Permission, pembatasan site, audit, responsive mobile, dan `returnTo`.
 
+Artefak dan perilaku M4:
+
+- Menu **Karyawan > Rekrutmen** hanya terlihat bagi pengguna dengan izin
+  `recruitment.view` dan membuka route internal `/karyawan/rekrutmen`.
+- Daftar kandidat memakai pencarian, filter site, status, rentang tanggal,
+  pengurutan, serta pagination yang tersimpan pada URL. NIK pada daftar
+  disamarkan; identitas lengkap hanya dimuat saat detail dibuka.
+- Ringkasan menampilkan jumlah kandidat Baru, Diproses, dan Lolos yang belum
+  menjadi karyawan sesuai cakupan site pengguna dan filter tanggal aktif.
+- Detail kandidat memuat biodata, histori status, catatan internal HR, dan
+  pratinjau foto melalui API terautentikasi. Alamat bucket maupun lokasi objek
+  tidak pernah dikirim ke frontend.
+- HR dapat menjalankan perpindahan status yang diizinkan dan menyimpan catatan
+  internal. Alasan Tidak Lolos untuk pelamar dipisahkan dari catatan internal.
+- Perubahan status memakai transaksi, pemeriksaan status terbaru, serta kunci
+  pengulangan agar klik ganda tidak membuat histori ganda. Pembukaan dokumen,
+  perubahan status, dan perubahan catatan dicatat pada Audit Trail.
+- Super Admin dapat melihat seluruh site. Pengguna lain hanya dapat membuka,
+  mengubah, dan melihat dokumen kandidat pada site yang diberikan kepadanya.
+  Percobaan membuka kandidat site lain dikembalikan sebagai tidak ditemukan.
+- Tampilan menggunakan tabel standar pada desktop dan kartu ringkas pada layar
+  kecil. Panel detail serta dialog tindakan aman digulir pada layar pendek.
+- Tombol **Lengkapi data karyawan** tersedia untuk kandidat Lolos dan membuka
+  proses konversi M5.
+
+Validasi source M4:
+
+- Tes integrasi API internal Rekrutmen: 13 skenario lulus.
+- ESLint file Rekrutmen internal lulus.
+- Build TypeScript API dan build frontend lulus.
+- UAT dokumen privat dan alur status dengan akun HR tiap site tetap dilakukan
+  pada M6 menggunakan data pendaftaran nyata.
+
 ### M5 - Konversi ke Master Karyawan
 
-Status: **Belum dikerjakan**
+Status: **Selesai di source code; menunggu UAT end-to-end M6**
 
 - Prefill form Master Karyawan dari data kandidat.
 - HR melengkapi jenis karyawan, penempatan, tanggal bergabung, dan data wajib.
@@ -268,9 +301,38 @@ Status: **Belum dikerjakan**
 - Tandai kandidat `CONVERTED` hanya setelah seluruh proses berhasil.
 - Kontrak dan aktivasi tetap memakai alur existing.
 
+Implementasi M5:
+
+- `GET /api/recruitment/candidates/:uid/conversion-prefill` menyiapkan biodata
+  pelamar, site pendaftaran, daftar berkas, dan pilihan penempatan yang boleh
+  dipakai oleh HR.
+- `POST /api/recruitment/candidates/:uid/convert` membuat karyawan Nonaktif,
+  nomor karyawan, penempatan awal, foto, dokumen KTP dan KK, lalu menandai
+  kandidat sebagai Sudah Menjadi Karyawan dalam satu proses terjaga.
+- Site awal dikunci sesuai QR pendaftaran. Jenis karyawan, bagian produksi,
+  jabatan, kelompok kerja, dan tanggal bergabung tetap dilengkapi oleh HR.
+- NIK dan email diperiksa ulang sebelum penyimpanan. Perubahan kandidat oleh
+  pengguna lain akan menghentikan proses dan meminta HR memuat ulang data.
+- Klik atau pengiriman ulang dengan isi yang sama tidak membuat karyawan ganda.
+  Pengiriman lain terhadap kandidat yang sudah selesai ditolak dengan pesan
+  yang mudah dipahami.
+- Berkas asli pendaftaran tetap menjadi arsip privat. Salinan terpisah dibuat
+  untuk foto profil serta dokumen KTP dan KK milik karyawan.
+- Pembuatan karyawan dan perubahan kandidat sama-sama dicatat pada Audit Trail.
+
+Validasi source M5:
+
+- Tes API Rekrutmen gabungan: 25 skenario lulus, termasuk 6 skenario khusus
+  konversi kandidat.
+- Tes frontend Rekrutmen dan form Master Karyawan: 6 skenario lulus.
+- Seluruh tes API: 457 skenario lulus.
+- ESLint, build TypeScript API, dan build frontend lulus.
+- Tidak ada migration baru dan tidak ada perubahan database yang dijalankan
+  oleh proses implementasi ini.
+
 ### M6 - UAT end-to-end
 
-Status: **Belum dikerjakan**
+Status: **UAT otomatis lulus; menunggu UAT browser nyata dengan data percobaan**
 
 - Uji desktop dan HP, termasuk penggunaan kamera.
 - Uji QR ketiga site dan pembatasan akses lintas site.
@@ -278,6 +340,22 @@ Status: **Belum dikerjakan**
 - Uji file rusak, ekstensi palsu, file besar, retry, dan orphan file.
 - Uji histori, audit, konversi, kegagalan transaksi, dan klik ganda.
 - Pastikan dokumen privat tidak dapat dibuka tanpa login dan permission.
+
+Perangkat UAT M6:
+
+- `pnpm uat:recruitment` menjalankan preflight environment, pemeriksaan
+  database baca-saja, smoke API ketiga site, seluruh 460 skenario API, dan 11
+  skenario frontend Rekrutmen.
+- `docs/RECRUITMENT_UAT_GUIDE.md` menjadi checklist UAT desktop, HP/kamera,
+  ketiga site, pembatasan akses, pendaftaran ulang, dan konversi karyawan.
+- Preflight database aktif lokal menemukan struktur, permission, dan integritas
+  Rekrutmen dalam kondisi baik. Database belum memiliki kandidat nyata.
+- Ketiga token site sudah lolos aturan panjang 24-100 karakter. Endpoint
+  konfigurasi Form Data Pelamar untuk Semarang, Klaten, dan Jepara masing-masing
+  merespons sukses dengan site yang tepat tanpa membocorkan lokasi berkas.
+- Turnstile menggunakan konfigurasi domain publik, bukan test key localhost.
+  UAT widget, kamera, submit nyata, dan proses HR sampai konversi final harus
+  dijalankan pada hostname publik yang didaftarkan dengan identitas percobaan.
 
 ## Di luar scope versi pertama
 

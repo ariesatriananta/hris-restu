@@ -208,6 +208,7 @@ export async function createRecruitmentSubmission(input: {
   )
   let lockName: string | null = null
   let committed = false
+  let commitAttempted = false
   try {
     lockName = await acquireNationalIdLock(
       conn,
@@ -265,6 +266,7 @@ export async function createRecruitmentSubmission(input: {
       ) {
         throw new ApiError(409, 'Kiriman yang sama tidak dapat digunakan kembali.')
       }
+      commitAttempted = true
       await conn.commit()
       committed = true
       return { applicationNumber: String(existing.applicationNumber), replayed: true }
@@ -371,12 +373,16 @@ export async function createRecruitmentSubmission(input: {
         `submission:${scopedIdempotencyKey}`,
       ]
     )
+    commitAttempted = true
     await conn.commit()
     committed = true
     return { applicationNumber: number, replayed: false }
   } catch (error) {
     if (!committed) await conn.rollback()
-    if (uploadedKeys.length) {
+    // Bila koneksi putus saat COMMIT, hasil database tidak dapat dipastikan.
+    // Pertahankan objek agar transaksi yang ternyata sudah commit tidak
+    // menghasilkan kandidat dengan dokumen yang hilang.
+    if (!commitAttempted && uploadedKeys.length) {
       await Promise.allSettled(uploadedKeys.map(deletePrivateRecruitmentObject))
     }
     throw error

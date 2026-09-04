@@ -107,6 +107,37 @@ describe('public recruitment service', () => {
     expect(result.message).not.toContain('NIK')
   })
 
+  it('menolak NIK yang sudah menjadi karyawan tanpa membocorkan data', async () => {
+    mocks.poolQuery
+      .mockResolvedValueOnce([[{ id: 10 }]])
+      .mockResolvedValueOnce([[]])
+    const result = await checkRecruitmentEligibility({
+      siteId: site.id,
+      nationalIdNumber: submission.nationalIdNumber,
+      familyCardNumber: submission.familyCardNumber,
+      birthDate: submission.birthDate,
+    })
+    expect(result.canSubmit).toBe(false)
+    expect(result.message).not.toContain('NIK')
+    expect(result).not.toHaveProperty('employee')
+  })
+
+  it('menolak submit bersamaan ketika NIK sedang diproses', async () => {
+    mocks.query.mockResolvedValueOnce([[{ acquired: 0 }]])
+    await expect(
+      createRecruitmentSubmission({
+        site,
+        submission,
+        files: { PHOTO: image, KTP: image, KK: image },
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      message: 'Pendaftaran sedang diproses. Silakan coba kembali beberapa saat lagi.',
+    })
+    expect(mocks.begin).not.toHaveBeenCalled()
+    expect(mocks.put).not.toHaveBeenCalled()
+  })
+
   it('mengembalikan receipt lama hanya jika payload dan checksum sama', async () => {
     const checksum = createHash('sha256').update(image.buffer).digest('hex')
     mocks.query
@@ -161,6 +192,28 @@ describe('public recruitment service', () => {
     ).rejects.toThrow('database down')
     expect(mocks.put).toHaveBeenCalledTimes(3)
     expect(mocks.remove).toHaveBeenCalledTimes(3)
+    expect(mocks.rollback).toHaveBeenCalledOnce()
+  })
+
+  it('mempertahankan berkas bila hasil commit tidak dapat dipastikan', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[{ acquired: 1 }]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[{ released: 1 }]])
+    mocks.execute.mockResolvedValue([{ insertId: 41 }])
+    mocks.commit.mockRejectedValueOnce(new Error('connection lost during commit'))
+
+    await expect(
+      createRecruitmentSubmission({
+        site,
+        submission,
+        files: { PHOTO: image, KTP: image, KK: image },
+      })
+    ).rejects.toThrow('connection lost during commit')
+    expect(mocks.put).toHaveBeenCalledTimes(3)
+    expect(mocks.remove).not.toHaveBeenCalled()
     expect(mocks.rollback).toHaveBeenCalledOnce()
   })
 })
