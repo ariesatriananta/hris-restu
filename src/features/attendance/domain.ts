@@ -133,6 +133,12 @@ export interface AttendanceRepository {
   runFinalization(
     input: AttendanceFinalizationRunInput
   ): Promise<AttendanceFinalization>
+  previewBulkFinalization(
+    input: AttendanceBulkFinalizationInput
+  ): Promise<AttendanceBulkFinalizationPreview>
+  runBulkFinalization(
+    input: AttendanceBulkFinalizationRunInput
+  ): Promise<AttendanceBulkFinalizationResult>
   listRecaps(input: AttendanceRecapListParams): Promise<AttendanceRecapResult>
   listRecapDays(
     employeeUid: string,
@@ -790,6 +796,76 @@ export interface AttendanceFinalizationRunInput {
   siteCode: AttendanceSiteCode
   businessDate: string
   reason: string
+}
+
+export type AttendanceBulkFinalizationMode = 'RANGE' | 'ALL_PENDING'
+
+export type AttendanceBulkFinalizationPreviewStatus =
+  | 'READY'
+  | 'BLOCKED'
+  | 'SKIPPED'
+
+export type AttendanceBulkFinalizationPreviewCode =
+  | 'READY'
+  | 'STRUCTURAL_ISSUE'
+  | 'PENDING_FOLLOW_UP'
+  | 'PAYROLL_LOCKED'
+  | 'NOT_DUE'
+  | 'RUNNING'
+  | 'NOT_REQUIRED'
+  | 'ALREADY_FINALIZED'
+
+export interface AttendanceBulkFinalizationInput {
+  siteCode: AttendanceSiteCode
+  mode: AttendanceBulkFinalizationMode
+  dateFrom?: string
+  dateTo?: string
+}
+
+export interface AttendanceBulkFinalizationPreviewItem {
+  businessDate: string
+  status: AttendanceBulkFinalizationPreviewStatus
+  code: AttendanceBulkFinalizationPreviewCode
+  message: string
+}
+
+export interface AttendanceBulkFinalizationPreview {
+  site: AttendanceSiteCode
+  mode: AttendanceBulkFinalizationMode
+  dateFrom: string
+  dateTo: string
+  maxReadyDates: number
+  defaultReason: string
+  truncated: boolean
+  summary: {
+    ready: number
+    blocked: number
+    skipped: number
+  }
+  items: AttendanceBulkFinalizationPreviewItem[]
+  executableDates: string[]
+}
+
+export interface AttendanceBulkFinalizationRunInput extends AttendanceBulkFinalizationInput {
+  confirmedDates: string[]
+}
+
+export interface AttendanceBulkFinalizationResultItem {
+  businessDate: string
+  status: 'SUCCEEDED' | 'FAILED' | 'SKIPPED'
+  message: string
+  finalization?: AttendanceFinalization
+}
+
+export interface AttendanceBulkFinalizationResult {
+  site: AttendanceSiteCode
+  mode: AttendanceBulkFinalizationMode
+  requested: number
+  processed: number
+  succeeded: number
+  failed: number
+  skipped: number
+  results: AttendanceBulkFinalizationResultItem[]
 }
 
 export type AttendanceCorrectionType =

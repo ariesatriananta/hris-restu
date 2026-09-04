@@ -218,6 +218,8 @@ export function AttendanceMonitoringPage({
         <MonitoringFinalizationPanel
           businessDate={businessDate}
           sites={selectedSites}
+          availableSites={foundation.data?.sites ?? []}
+          goLiveDate={goLiveDate}
           canFinalize={canFinalize}
         />
       </div>
@@ -727,13 +729,13 @@ function MonitoringTable({
             {canCorrect &&
               !row.original.pendingCorrectionUid &&
               !row.original.hasAppliedClassification && (
-              <DataTableActionButton
-                label='Ajukan koreksi'
-                onClick={() => onCorrect(row.original)}
-              >
-                <Clock3 />
-              </DataTableActionButton>
-            )}
+                <DataTableActionButton
+                  label='Ajukan koreksi'
+                  onClick={() => onCorrect(row.original)}
+                >
+                  <Clock3 />
+                </DataTableActionButton>
+              )}
             {canClassify && row.original.attendanceStatus === 'ABSENT' && (
               <DataTableActionButton
                 label='Ajukan klasifikasi'
@@ -1039,14 +1041,14 @@ function MobileRecord({
       {canCorrect &&
         !item.pendingCorrectionUid &&
         !item.hasAppliedClassification && (
-        <Button
-          variant='outline'
-          className='w-full'
-          onClick={() => onCorrect(item)}
-        >
-          <Clock3 /> Ajukan koreksi
-        </Button>
-      )}
+          <Button
+            variant='outline'
+            className='w-full'
+            onClick={() => onCorrect(item)}
+          >
+            <Clock3 /> Ajukan koreksi
+          </Button>
+        )}
       {canClassify && item.attendanceStatus === 'ABSENT' && (
         <Button
           variant='outline'

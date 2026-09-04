@@ -32,6 +32,8 @@ import type {
   HistoricalShiftAssignmentApplyInput,
   HistoricalShiftAssignmentInput,
   AttendanceBulkReviewInput,
+  AttendanceBulkFinalizationInput,
+  AttendanceBulkFinalizationRunInput,
 } from '../domain'
 import { httpAttendanceRepository } from './http-attendance-repository'
 
@@ -223,6 +225,17 @@ export const useAttendanceFinalizations = (
 export const useRunAttendanceFinalization = () =>
   useAttendanceMutation((input: AttendanceFinalizationRunInput) =>
     httpAttendanceRepository.runFinalization(input)
+  )
+
+export const usePreviewBulkAttendanceFinalization = () =>
+  useMutation({
+    mutationFn: (input: AttendanceBulkFinalizationInput) =>
+      httpAttendanceRepository.previewBulkFinalization(input),
+  })
+
+export const useRunBulkAttendanceFinalization = () =>
+  useAttendanceMutation((input: AttendanceBulkFinalizationRunInput) =>
+    httpAttendanceRepository.runBulkFinalization(input)
   )
 
 export const useAttendanceRecaps = (

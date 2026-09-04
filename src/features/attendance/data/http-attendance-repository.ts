@@ -34,6 +34,10 @@ import type {
   AttendanceRecapResult,
   HistoricalShiftAssignmentApplyResult,
   HistoricalShiftAssignmentPreview,
+  AttendanceBulkFinalizationInput,
+  AttendanceBulkFinalizationPreview,
+  AttendanceBulkFinalizationRunInput,
+  AttendanceBulkFinalizationResult,
 } from '../domain'
 
 const listParams = (
@@ -206,6 +210,22 @@ export const httpAttendanceRepository: AttendanceRepository = {
     return (
       await apiClient.post<AttendanceFinalization>(
         '/attendance/finalizations/run',
+        input
+      )
+    ).data
+  },
+  async previewBulkFinalization(input: AttendanceBulkFinalizationInput) {
+    return (
+      await apiClient.post<AttendanceBulkFinalizationPreview>(
+        '/attendance/finalizations/bulk/preview',
+        input
+      )
+    ).data
+  },
+  async runBulkFinalization(input: AttendanceBulkFinalizationRunInput) {
+    return (
+      await apiClient.post<AttendanceBulkFinalizationResult>(
+        '/attendance/finalizations/bulk/run',
         input
       )
     ).data

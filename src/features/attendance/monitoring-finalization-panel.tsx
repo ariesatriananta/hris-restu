@@ -3,6 +3,7 @@ import { isAxiosError } from 'axios'
 import {
   AlertTriangle,
   Ban,
+  CalendarRange,
   CheckCircle2,
   ChevronDown,
   CircleDashed,
@@ -35,6 +36,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { BulkFinalizationDialog } from './bulk-finalization-dialog'
 import {
   useAttendanceFinalizations,
   useRunAttendanceFinalization,
@@ -42,21 +44,27 @@ import {
 import type {
   AttendanceFinalization,
   AttendanceFinalizationStatus,
+  AttendanceSite,
   AttendanceSiteCode,
 } from './domain'
 
 export function MonitoringFinalizationPanel({
   businessDate,
   sites,
+  availableSites,
+  goLiveDate,
   canFinalize,
 }: {
   businessDate: string
   sites?: AttendanceSiteCode[]
+  availableSites: AttendanceSite[]
+  goLiveDate?: string
   canFinalize: boolean
 }) {
   const result = useAttendanceFinalizations({ businessDate, site: sites })
   const [selected, setSelected] = useState<AttendanceFinalization>()
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [bulkOpen, setBulkOpen] = useState(false)
 
   if (result.isPending) {
     return (
@@ -171,6 +179,15 @@ export function MonitoringFinalizationPanel({
                   : `Ulangi ${siteLabel(firstRunnable.site).replace('Site ', '')}`}
               </Button>
             )}
+            {canFinalize && availableSites.length > 0 && (
+              <Button
+                size='sm'
+                variant='outline'
+                onClick={() => setBulkOpen(true)}
+              >
+                <CalendarRange /> Finalisasi periode
+              </Button>
+            )}
             <CollapsibleTrigger asChild>
               <Button size='sm' variant='ghost' className='group'>
                 Rincian
@@ -203,6 +220,14 @@ export function MonitoringFinalizationPanel({
           onOpenChange={(open) => !open && setSelected(undefined)}
         />
       )}
+      <BulkFinalizationDialog
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        sites={availableSites}
+        selectedSites={sites ?? []}
+        businessDate={businessDate}
+        goLiveDate={goLiveDate}
+      />
     </section>
   )
 }

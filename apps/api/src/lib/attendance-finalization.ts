@@ -65,7 +65,7 @@ export async function getAttendanceFinalizationRequirement(input: {
   const [rows] = await executor.query<RowDataPacket[]>(
     `SELECT e.id employeeId,es.allows_attendance allowsAttendance,
             esa.id assignmentId,esa.work_days_json workDays,
-            sh.site_id shiftSiteId,
+            sh.site_id shiftSiteId,sh.is_active shiftActive,
             (SELECT COUNT(*) FROM employee_employment_histories allh
               WHERE allh.employee_id=e.id AND allh.effective_from<=?
                 AND (allh.effective_to IS NULL OR allh.effective_to>=?)) employmentCount,
@@ -119,6 +119,7 @@ export async function getAttendanceFinalizationRequirement(input: {
       Number(row.assignmentCount) !== 1 ||
       !row.assignmentId ||
       Number(row.shiftSiteId) !== input.siteId ||
+      Number(row.shiftActive) !== 1 ||
       workDays.length === 0
     ) {
       unresolvedTargets += 1
@@ -174,6 +175,43 @@ export async function hasDueAttendanceShift(input: {
   )
 }
 
+export async function getAttendanceShiftDueState(input: {
+  siteId: number
+  businessDate: string
+  now?: Date
+}) {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT DISTINCT sh.end_time endTime,sh.crosses_midnight crossesMidnight
+       FROM employee_employment_histories h
+       JOIN employee_statuses es ON es.id=h.employee_status_id AND es.allows_attendance=1
+       JOIN employee_shift_assignments esa ON esa.employee_id=h.employee_id
+        AND esa.effective_from<=? AND (esa.effective_to IS NULL OR esa.effective_to>=?)
+       JOIN shifts sh ON sh.id=esa.shift_id AND sh.site_id=h.site_id AND sh.is_active=1
+      WHERE h.site_id=? AND h.effective_from<=?
+        AND (h.effective_to IS NULL OR h.effective_to>=?)`,
+    [
+      input.businessDate,
+      input.businessDate,
+      input.siteId,
+      input.businessDate,
+      input.businessDate,
+    ]
+  )
+  const asOfJakarta = jakartaDateTime(input.now)
+  const due = rows.map((row) =>
+    isShiftFinalizationDue({
+      businessDate: input.businessDate,
+      endTime: String(row.endTime),
+      crossesMidnight: Number(row.crossesMidnight) === 1,
+      asOfJakarta,
+    })
+  )
+  return {
+    hasEligibleShift: due.length > 0,
+    allDue: due.length > 0 && due.every(Boolean),
+  }
+}
+
 const emptyCounts = (): AttendanceFinalizationCounts => ({
   eligible: 0,
   absent: 0,
@@ -199,6 +237,8 @@ export async function finalizeAttendanceDay(input: {
   actor?: AuthContext
   request?: Request
   now?: Date
+  blockPendingFollowUps?: boolean
+  requireCompleteStructureAndDue?: boolean
 }): Promise<AttendanceFinalizationResult> {
   const conn = await pool.getConnection()
   const asOfJakarta = jakartaDateTime(input.now)
@@ -250,6 +290,32 @@ export async function finalizeAttendanceDay(input: {
     runId = createdRun.insertId
     await conn.beginTransaction()
 
+    if (input.blockPendingFollowUps) {
+      const [pendingCorrections] = await conn.query<RowDataPacket[]>(
+        `SELECT ac.id
+           FROM attendance_corrections ac
+           JOIN attendance_records ar ON ar.id=ac.attendance_record_id
+          WHERE ar.site_id=? AND ar.business_date=?
+            AND ac.approval_status='PENDING'
+          LIMIT 1 FOR UPDATE`,
+        [site.id, input.businessDate]
+      )
+      const [pendingClassifications] = await conn.query<RowDataPacket[]>(
+        `SELECT id
+           FROM attendance_classification_requests
+          WHERE site_id=? AND approval_status='PENDING'
+            AND start_date<=? AND end_date>=?
+          LIMIT 1 FOR UPDATE`,
+        [site.id, input.businessDate, input.businessDate]
+      )
+      if (pendingCorrections[0] || pendingClassifications[0]) {
+        throw new ApiError(
+          409,
+          'Masih ada koreksi atau klasifikasi yang menunggu keputusan.'
+        )
+      }
+    }
+
     await assertAttendancePayrollUnlocked(conn, {
       siteId: Number(site.id),
       dateFrom: input.businessDate,
@@ -261,7 +327,7 @@ export async function finalizeAttendanceDay(input: {
               h.id historyId,es.allows_attendance allowsAttendance,
               esa.id assignmentId,esa.work_days_json workDays,
               sh.id shiftId,sh.site_id shiftSiteId,sh.end_time endTime,
-              sh.crosses_midnight crossesMidnight,
+              sh.crosses_midnight crossesMidnight,sh.is_active shiftActive,
               (SELECT COUNT(*) FROM employee_employment_histories allh
                 WHERE allh.employee_id=e.id AND allh.effective_from<=?
                   AND (allh.effective_to IS NULL OR allh.effective_to>=?)) employmentCount,
@@ -282,6 +348,42 @@ export async function finalizeAttendanceDay(input: {
     const employeeRows = new Map<number, RowDataPacket>()
     for (const row of rows) {
       if (!employeeRows.has(Number(row.employeeId))) employeeRows.set(Number(row.employeeId), row)
+    }
+    if (input.requireCompleteStructureAndDue) {
+      for (const row of employeeRows.values()) {
+        if (Number(row.employmentCount) !== 1) {
+          throw new ApiError(
+            409,
+            'Histori kerja pada tanggal ini perlu diperbaiki terlebih dahulu.'
+          )
+        }
+        if (Number(row.allowsAttendance) !== 1) continue
+        if (
+          Number(row.assignmentCount) !== 1 ||
+          !row.assignmentId ||
+          Number(row.shiftSiteId) !== Number(site.id) ||
+          Number(row.shiftActive) !== 1 ||
+          parseWorkDays(row.workDays).length === 0
+        ) {
+          throw new ApiError(
+            409,
+            'Penugasan shift pada tanggal ini perlu diperbaiki terlebih dahulu.'
+          )
+        }
+        if (
+          !isShiftFinalizationDue({
+            businessDate: input.businessDate,
+            endTime: String(row.endTime),
+            crossesMidnight: Number(row.crossesMidnight) === 1,
+            asOfJakarta,
+          })
+        ) {
+          throw new ApiError(
+            409,
+            'Belum seluruh shift melewati batas waktu finalisasi.'
+          )
+        }
+      }
     }
     const employeeIds = [...employeeRows.keys()]
     const existing = new Set<number>()
