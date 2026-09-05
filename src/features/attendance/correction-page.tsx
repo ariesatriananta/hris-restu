@@ -132,6 +132,7 @@ export function AttendanceCorrectionPage({
         navigate={navigate}
         siteOptions={scopedSiteOptions}
         productionSectionOptions={productionSectionOptions}
+        goLiveDate={foundation.data?.configuration.goLiveDate}
         canApprove={canApprove}
         bulkSite={bulkSite}
         onOpen={setSelected}
@@ -153,6 +154,7 @@ function CorrectionTable({
   navigate,
   siteOptions,
   productionSectionOptions,
+  goLiveDate,
   canApprove,
   bulkSite,
   onOpen,
@@ -162,6 +164,7 @@ function CorrectionTable({
   navigate: NavigateFn
   siteOptions: { value: string; label: string }[]
   productionSectionOptions: { value: string; label: string }[]
+  goLiveDate?: string
   canApprove: boolean
   bulkSite?: AttendanceSiteCode
   onOpen: (item: AttendanceCorrection) => void
@@ -369,6 +372,10 @@ function CorrectionTable({
             selected={dateOnlyFromInput(businessDate)}
             placeholder='Tanggal kerja'
             triggerClassName='h-8 w-full sm:w-auto sm:min-w-40'
+            disabledDates={(date) => {
+              const value = dateOnlyToInput(date)
+              return Boolean(value && goLiveDate && value < goLiveDate)
+            }}
             onSelect={(date) =>
               navigate({
                 search: (previous) => ({

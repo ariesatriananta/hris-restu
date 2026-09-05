@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
 import { Link, useNavigate } from '@tanstack/react-router'
 import {
@@ -65,7 +65,11 @@ import {
   useAttendanceMonitoring,
   useCreateAttendanceCorrection,
 } from './data/queries'
-import { dateOnlyFromInput, dateOnlyToInput } from './date-only'
+import {
+  clampAttendanceBusinessDate,
+  dateOnlyFromInput,
+  dateOnlyToInput,
+} from './date-only'
 import type {
   AttendanceCorrectionInput,
   AttendanceCorrectionType,
@@ -99,25 +103,44 @@ export function AttendanceMonitoringPage({
     (session?.user.role === 'HR_OFFICER' ||
       session?.user.role === 'SUPER_ADMIN')
   const foundation = useAttendanceFoundation()
-  const businessDate =
+  const requestedBusinessDate =
     typeof search.businessDate === 'string' ? search.businessDate : today()
-  const result = useAttendanceMonitoring({
-    businessDate,
-    query: stringValue(search.filter),
-    site: arrayValue(search.site),
-    employeeType: arrayValue(search.employeeType),
-    productionSection: arrayValue(search.productionSection),
-    attendanceStatus: arrayValue(search.attendanceStatus),
-    qualityStatus: arrayValue(search.qualityStatus),
-    abnormalReason: arrayValue(search.abnormalReason),
-    page: numberValue(search.page, 1),
-    pageSize: numberValue(search.pageSize, 50),
-  })
+  const goLiveDate = foundation.data?.configuration.goLiveDate
+  const businessDate = clampAttendanceBusinessDate(
+    requestedBusinessDate,
+    goLiveDate
+  )
+  const result = useAttendanceMonitoring(
+    {
+      businessDate,
+      query: stringValue(search.filter),
+      site: arrayValue(search.site),
+      employeeType: arrayValue(search.employeeType),
+      productionSection: arrayValue(search.productionSection),
+      attendanceStatus: arrayValue(search.attendanceStatus),
+      qualityStatus: arrayValue(search.qualityStatus),
+      abnormalReason: arrayValue(search.abnormalReason),
+      page: numberValue(search.page, 1),
+      pageSize: numberValue(search.pageSize, 50),
+    },
+    Boolean(goLiveDate)
+  )
   const [selected, setSelected] = useState<AttendanceMonitoringRecord>()
   const [reviewCorrectionUid, setReviewCorrectionUid] = useState<string>()
   const [timelineUid, setTimelineUid] = useState<string>()
-  const goLiveDate = foundation.data?.configuration.goLiveDate
   const selectedSites = arrayValue<AttendanceSiteCode>(search.site)
+
+  useEffect(() => {
+    if (!goLiveDate || requestedBusinessDate >= goLiveDate) return
+    navigate({
+      replace: true,
+      search: (previous) => ({
+        ...previous,
+        businessDate: goLiveDate === today() ? undefined : goLiveDate,
+        page: undefined,
+      }),
+    })
+  }, [goLiveDate, navigate, requestedBusinessDate])
   const setBusinessDate = (value: string) =>
     navigate({
       search: (previous) => ({

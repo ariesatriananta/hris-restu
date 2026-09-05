@@ -10,7 +10,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../db.js', () => ({ pool: { getConnection: mocks.getConnection } }))
 vi.mock('../config.js', () => ({
-  env: { R2_PUBLIC_BASE_URL: 'https://files.example.test' },
+  env: {
+    ATTENDANCE_GO_LIVE_DATE: '2026-08-01',
+    R2_PUBLIC_BASE_URL: 'https://files.example.test',
+  },
 }))
 vi.mock('../lib/audit.js', () => ({ writeAudit: mocks.writeAudit }))
 vi.mock('../lib/attendance-calendar.js', () => ({
@@ -46,7 +49,11 @@ function auth() {
   }
 }
 
-function connection(uid: string, approvalStatus: 'PENDING' | 'APPROVED') {
+function connection(
+  uid: string,
+  approvalStatus: 'PENDING' | 'APPROVED',
+  startDate = '2026-08-08'
+) {
   const conn = {
     beginTransaction: vi.fn().mockResolvedValue(undefined),
     query: vi.fn(),
@@ -66,10 +73,10 @@ function connection(uid: string, approvalStatus: 'PENDING' | 'APPROVED') {
         classification_type: 'SICK',
         reason: 'Kondisi kesehatan.',
         approval_status: approvalStatus,
-        start_date: '2026-08-08',
-        end_date: '2026-08-08',
-        startDate: '2026-08-08',
-        endDate: '2026-08-08',
+        start_date: startDate,
+        end_date: startDate,
+        startDate,
+        endDate: startDate,
         employeeUid: '66666666-6666-4666-8666-666666666666',
         employeeName: 'Karyawan Demo',
         employeeNumber: 'KRY-001',
@@ -163,5 +170,31 @@ describe('Attendance classification bulk approval API', () => {
       expect.objectContaining({ recordUid: firstUid, requestId: expect.any(String) }),
       successful
     )
+  })
+
+  it('menolak approval klasifikasi sebelum tanggal go-live', async () => {
+    const historical = connection(firstUid, 'PENDING', '2026-07-31')
+    mocks.getConnection.mockResolvedValueOnce(historical)
+
+    const response = await post({
+      site: 'JEPARA',
+      uids: [firstUid],
+      decision: 'APPROVED',
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      requested: 1,
+      approved: 0,
+      failed: 1,
+      failures: [
+        {
+          uid: firstUid,
+          message: 'Attendance operasional hanya berlaku mulai 2026-08-01.',
+        },
+      ],
+    })
+    expect(historical.execute).not.toHaveBeenCalled()
+    expect(historical.rollback).toHaveBeenCalledOnce()
   })
 })

@@ -118,6 +118,7 @@ export function AttendanceClassificationPage({
   const canCreate = hasPermission(session, 'attendance.correct')
   const canApprove = hasPermission(session, 'attendance.approve')
   const foundation = useAttendanceFoundation()
+  const goLiveDate = foundation.data?.configuration.goLiveDate
   const [createOpen, setCreateOpen] = useState(
     typeof search.employeeUid === 'string' && Boolean(search.employeeUid)
   )
@@ -198,6 +199,7 @@ export function AttendanceClassificationPage({
           <DateFilter
             label='Dari tanggal'
             value={stringValue(search.dateFrom) ?? ''}
+            minimumDate={goLiveDate}
             onChange={(dateFrom) =>
               navigate({
                 search: (previous) => ({
@@ -211,6 +213,7 @@ export function AttendanceClassificationPage({
           <DateFilter
             label='Sampai tanggal'
             value={stringValue(search.dateTo) ?? ''}
+            minimumDate={goLiveDate}
             onChange={(dateTo) =>
               navigate({
                 search: (previous) => ({
@@ -258,6 +261,7 @@ export function AttendanceClassificationPage({
             | undefined
         }
         initialDate={stringValue(search.businessDate)}
+        goLiveDate={goLiveDate}
       />
       <ClassificationDetailDialog
         key={selectedUid ?? 'closed'}
@@ -814,6 +818,7 @@ function CreateClassificationDialog({
   initialEmployeeSite,
   initialEmployeeType,
   initialDate,
+  goLiveDate,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -828,6 +833,7 @@ function CreateClassificationDialog({
   initialEmployeeSite?: AttendanceSiteCode
   initialEmployeeType?: AttendanceClassificationEmployee['employeeType']
   initialDate?: string
+  goLiveDate?: string
 }) {
   const create = useCreateAttendanceClassification()
   const [employee, setEmployee] = useState<
@@ -848,8 +854,12 @@ function CreateClassificationDialog({
       : undefined
   )
   const [employeeUid, setEmployeeUid] = useState(initialEmployeeUid ?? '')
-  const [startDate, setStartDate] = useState(initialDate ?? today())
-  const [endDate, setEndDate] = useState(initialDate ?? today())
+  const initialOperationalDate =
+    goLiveDate && initialDate && initialDate < goLiveDate
+      ? goLiveDate
+      : (initialDate ?? today())
+  const [startDate, setStartDate] = useState(initialOperationalDate)
+  const [endDate, setEndDate] = useState(initialOperationalDate)
   const [type, setType] = useState<AttendanceClassificationType>('LEAVE')
   const [reason, setReason] = useState('')
   const [file, setFile] = useState<File>()
@@ -857,6 +867,7 @@ function CreateClassificationDialog({
   const valid =
     employeeUid &&
     startDate &&
+    (!goLiveDate || startDate >= goLiveDate) &&
     endDate >= startDate &&
     reason.trim().length >= 5 &&
     (!file || file.size <= 10 * 1024 * 1024)
@@ -910,6 +921,10 @@ function CreateClassificationDialog({
             <Field label='Tanggal mulai'>
               <DatePicker
                 selected={dateOnlyFromInput(startDate)}
+                disabledDates={(date) => {
+                  const value = dateOnlyToInput(date)
+                  return Boolean(value && goLiveDate && value < goLiveDate)
+                }}
                 onSelect={(date) => {
                   const next = dateOnlyToInput(date)
                   if (!next) return
@@ -927,7 +942,11 @@ function CreateClassificationDialog({
                 }}
                 disabledDates={(date) => {
                   const minimum = dateOnlyFromInput(startDate)
-                  return Boolean(minimum && date < minimum)
+                  const value = dateOnlyToInput(date)
+                  return Boolean(
+                    (minimum && date < minimum) ||
+                    (value && goLiveDate && value < goLiveDate)
+                  )
                 }}
               />
             </Field>
@@ -1509,10 +1528,12 @@ function OutcomeBadge({
 function DateFilter({
   label,
   value,
+  minimumDate,
   onChange,
 }: {
   label: string
   value: string
+  minimumDate?: string
   onChange: (value: string) => void
 }) {
   return (
@@ -1521,6 +1542,12 @@ function DateFilter({
       <DatePicker
         selected={dateOnlyFromInput(value)}
         placeholder='Semua tanggal'
+        disabledDates={(date) => {
+          const selectedDate = dateOnlyToInput(date)
+          return Boolean(
+            selectedDate && minimumDate && selectedDate < minimumDate
+          )
+        }}
         onSelect={(date) => onChange(dateOnlyToInput(date))}
       />
     </label>

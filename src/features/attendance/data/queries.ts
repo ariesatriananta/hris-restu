@@ -187,12 +187,14 @@ export const useAttendanceScan = () =>
   })
 
 export const useAttendanceMonitoring = (
-  params: AttendanceMonitoringListParams
+  params: AttendanceMonitoringListParams,
+  enabled = true
 ) =>
   useQuery({
     queryKey: attendanceKeys.monitoring(params),
     queryFn: () => httpAttendanceRepository.listMonitoring(params),
     placeholderData: keepPreviousData,
+    enabled,
   })
 
 export const useAttendanceReadiness = (

@@ -11,7 +11,10 @@ vi.mock('../db.js', () => ({
   pool: { getConnection: mocks.getConnection },
 }))
 vi.mock('../config.js', () => ({
-  env: { R2_PUBLIC_BASE_URL: 'https://files.example.test' },
+  env: {
+    ATTENDANCE_GO_LIVE_DATE: '2026-08-01',
+    R2_PUBLIC_BASE_URL: 'https://files.example.test',
+  },
 }))
 vi.mock('../lib/audit.js', () => ({ writeAudit: mocks.writeAudit }))
 vi.mock('../middleware/authenticate.js', () => ({

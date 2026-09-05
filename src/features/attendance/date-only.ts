@@ -18,3 +18,10 @@ export function dateOnlyToInput(value?: Date) {
   const day = String(value.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
+
+export function clampAttendanceBusinessDate(
+  businessDate: string,
+  goLiveDate?: string
+) {
+  return goLiveDate && businessDate < goLiveDate ? goLiveDate : businessDate
+}

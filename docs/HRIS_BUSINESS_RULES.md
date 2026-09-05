@@ -89,6 +89,13 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   checksum berkas pada Audit Trail.
 - Klasifikasi Attendance `APPROVED` yang salah dibatalkan melalui reversal oleh pengguna berizin `attendance.approve`, bukan melalui Koreksi Attendance. Reversal wajib memiliki alasan, mempertahankan histori detail sebagai `REVERSED`, mengembalikan hari yang pernah diterapkan menjadi `ABSENT`, dan menginvalidasi finalisasi terkait. Reversal ditolak bila fakta Attendance sudah berubah, memiliki scan sukses atau setoran produksi `POSTED`, maupun sudah masuk perhitungan atau snapshot Payroll.
 - Attendance merupakan syarat setoran produksi pada business date yang sama.
+- Tanggal go-live Attendance adalah batas inklusif fakta operasional resmi.
+  Monitoring Harian, Kesiapan Attendance, serta antrean aktif Koreksi dan
+  Klasifikasi hanya memproses tanggal sejak go-live. Histori sebelum go-live
+  tetap dipertahankan untuk audit dan laporan, tetapi tidak dihitung sebagai
+  perhatian, pekerjaan tertunda, atau target finalisasi. Request lama sebelum
+  go-live tetap boleh ditolak atau dibatalkan, tetapi tidak boleh disetujui dan
+  diterapkan.
 - Finalisasi periode Attendance dijalankan dari Monitoring Harian untuk tepat
   satu site dalam satu proses. Pengguna dapat memilih rentang maksimal 31 hari
   kalender atau maksimal 31 tanggal tertunda paling lama sejak tanggal go-live.

@@ -3,6 +3,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { PoolConnection } from 'mysql2/promise'
 import { z } from 'zod'
+import { env } from '../config.js'
 import { pool } from '../db.js'
 import {
   attendanceAbnormalReasons,
@@ -28,6 +29,7 @@ import {
 import { ApiError } from '../lib/errors.js'
 import { attendanceFinalizationLockName } from '../lib/attendance-finalization.js'
 import { assertAttendancePayrollUnlocked } from '../lib/attendance-payroll-lock.js'
+import { assertAttendanceOperationalDate } from '../lib/attendance-operational-policy.js'
 import {
   requirePermission,
   type AuthContext,
@@ -202,6 +204,10 @@ async function approveCorrection(
   if (correction.approvalStatus !== 'PENDING') {
     throw new ApiError(409, 'Koreksi Attendance ini sudah ditinjau.')
   }
+  assertAttendanceOperationalDate(
+    String(correction.businessDate),
+    env.ATTENDANCE_GO_LIVE_DATE
+  )
 
   await assertAttendanceHasNoAppliedClassification(
     conn,
@@ -365,6 +371,10 @@ attendanceCorrectionsRouter.get(
     try {
       const auth = res.locals.auth as AuthContext
       const businessDate = parseBusinessDate(req.query.businessDate)
+      assertAttendanceOperationalDate(
+        businessDate,
+        env.ATTENDANCE_GO_LIVE_DATE
+      )
       const { page, pageSize } = pageParams(req.query.page, req.query.pageSize)
       const baseWhere = ['ar.business_date=?']
       const baseValues: unknown[] = [businessDate]
@@ -534,8 +544,8 @@ attendanceCorrectionsRouter.get(
     try {
       const auth = res.locals.auth as AuthContext
       const { page, pageSize } = pageParams(req.query.page, req.query.pageSize)
-      const where = ['1=1']
-      const values: unknown[] = []
+      const where = ['ar.business_date>=?']
+      const values: unknown[] = [env.ATTENDANCE_GO_LIVE_DATE]
       const query = String(req.query.query ?? '').trim()
       if (query) {
         where.push('(e.full_name LIKE ? OR e.employee_number LIKE ?)')
@@ -695,6 +705,10 @@ attendanceCorrectionsRouter.post(
       const attendance = rows[0]
       if (!attendance) throw new ApiError(404, 'Attendance tidak ditemukan.')
       enforceSite(auth, attendance.site)
+      assertAttendanceOperationalDate(
+        String(attendance.businessDate),
+        env.ATTENDANCE_GO_LIVE_DATE
+      )
       await assertAttendanceHasNoAppliedClassification(
         conn,
         Number(attendance.id)

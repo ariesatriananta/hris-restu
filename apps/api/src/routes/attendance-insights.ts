@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import type { RowDataPacket } from 'mysql2'
+import { env } from '../config.js'
 import { pool } from '../db.js'
 import { getAttendanceFinalizationRequirement } from '../lib/attendance-finalization.js'
 import { jakartaBusinessDate } from '../lib/attendance-shift-policy.js'
@@ -151,7 +152,7 @@ attendanceInsightsRouter.get(
           const [rerunRows] = await pool.query<RowDataPacket[]>(
             `SELECT DATE_FORMAT(latest.business_date,'%Y-%m-%d') businessDate
                FROM attendance_daily_finalization_runs latest
-              WHERE latest.site_id=? AND latest.business_date<=?
+               WHERE latest.site_id=? AND latest.business_date BETWEEN ? AND ?
                 AND latest.id=(SELECT MAX(previous.id)
                   FROM attendance_daily_finalization_runs previous
                  WHERE previous.site_id=latest.site_id
@@ -163,16 +164,23 @@ attendanceInsightsRouter.get(
                   OR JSON_UNQUOTE(JSON_EXTRACT(latest.summary,'$.invalidatedByAttendanceCorrection'))='true'
                   OR JSON_UNQUOTE(JSON_EXTRACT(latest.summary,'$.invalidatedByClassificationReversal'))='true')
               ORDER BY latest.business_date DESC`,
-            [site.id, today]
+            [site.id, env.ATTENDANCE_GO_LIVE_DATE, today]
           )
           const [pendingRows] = await pool.query<RowDataPacket[]>(
             `SELECT
                  (SELECT COUNT(*) FROM attendance_corrections ac
                    JOIN attendance_records ar ON ar.id=ac.attendance_record_id
-                  WHERE ar.site_id=? AND ac.approval_status='PENDING') pendingCorrectionCount,
-                 (SELECT COUNT(*) FROM attendance_classification_requests acr
-                  WHERE acr.site_id=? AND acr.approval_status='PENDING') pendingClassificationCount`,
-            [site.id, site.id]
+                   WHERE ar.site_id=? AND ar.business_date>=?
+                     AND ac.approval_status='PENDING') pendingCorrectionCount,
+                  (SELECT COUNT(*) FROM attendance_classification_requests acr
+                   WHERE acr.site_id=? AND acr.end_date>=?
+                     AND acr.approval_status='PENDING') pendingClassificationCount`,
+            [
+              site.id,
+              env.ATTENDANCE_GO_LIVE_DATE,
+              site.id,
+              env.ATTENDANCE_GO_LIVE_DATE,
+            ]
           )
           const pendingCorrectionCount = Number(
             pendingRows[0]?.pendingCorrectionCount ?? 0

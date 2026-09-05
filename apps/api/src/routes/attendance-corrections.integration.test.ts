@@ -11,6 +11,10 @@ vi.mock('../db.js', () => ({
   pool: { getConnection: mocks.getConnection },
 }))
 
+vi.mock('../config.js', () => ({
+  env: { ATTENDANCE_GO_LIVE_DATE: '2026-08-01' },
+}))
+
 vi.mock('../lib/audit.js', () => ({
   writeAudit: mocks.writeAudit,
 }))
@@ -46,6 +50,7 @@ type FakeConnection = {
 }
 
 type TestState = {
+  businessDate?: string
   attendanceStatus: 'ABSENT' | 'PRESENT' | 'LEAVE' | 'SICK' | 'PERMISSION'
   clockInAt: string | null
   clockOutAt: string | null
@@ -98,7 +103,7 @@ function connection(state: TestState): FakeConnection {
         uid: attendanceUid,
         employeeId: 20,
         siteId: 1,
-        businessDate: '2026-08-07',
+        businessDate: state.businessDate ?? '2026-08-07',
         attendanceStatus: state.attendanceStatus,
         clockInAt: state.clockInAt,
         clockOutAt: state.clockOutAt,
@@ -121,7 +126,7 @@ function connection(state: TestState): FakeConnection {
         approvalStatus: state.correctionStatus,
         attendanceUid,
         siteId: 1,
-        businessDate: '2026-08-07',
+        businessDate: state.businessDate ?? '2026-08-07',
         attendanceStatus: state.attendanceStatus,
         clockInAt: state.clockInAt,
         clockOutAt: state.clockOutAt,
@@ -263,6 +268,61 @@ describe('Attendance correction API integration', () => {
       'SELECT RELEASE_LOCK(?)',
       ['hris:attendance:finalize:1:2026-08-07']
     )
+  })
+
+  it('menolak pengajuan koreksi sebelum tanggal go-live', async () => {
+    const conn = connection({
+      businessDate: '2026-07-31',
+      attendanceStatus: 'ABSENT',
+      clockInAt: null,
+      clockOutAt: null,
+      correctionUid: null,
+      correctionStatus: null,
+      correctionNewStatus: null,
+    })
+    mocks.getConnection.mockResolvedValue(conn)
+
+    const response = await post('/corrections', {
+      attendanceUid,
+      correctionType: 'STATUS',
+      newStatus: 'PRESENT',
+      reason: 'Mencoba mengoreksi histori pra-go-live.',
+    })
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({
+      message: 'Attendance operasional hanya berlaku mulai 2026-08-01.',
+    })
+    expect(conn.execute).not.toHaveBeenCalled()
+    expect(conn.rollback).toHaveBeenCalledOnce()
+  })
+
+  it('menolak approval koreksi sebelum tanggal go-live', async () => {
+    const uid = '22222222-2222-4222-8222-222222222222'
+    const conn = connection({
+      businessDate: '2026-07-31',
+      attendanceStatus: 'ABSENT',
+      clockInAt: null,
+      clockOutAt: null,
+      correctionUid: uid,
+      correctionStatus: 'PENDING',
+      correctionNewStatus: 'PRESENT',
+    })
+    mocks.getConnection.mockResolvedValue(conn)
+
+    const response = await post(`/corrections/${uid}/review`, {
+      decision: 'APPROVED',
+    })
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({
+      message: 'Attendance operasional hanya berlaku mulai 2026-08-01.',
+    })
+    expect(conn.query).not.toHaveBeenCalledWith(
+      'SELECT GET_LOCK(?,0) acquired',
+      expect.any(Array)
+    )
+    expect(conn.rollback).toHaveBeenCalledOnce()
   })
 
   it('menolak approval saat finalisasi tanggal-site sedang berjalan', async () => {

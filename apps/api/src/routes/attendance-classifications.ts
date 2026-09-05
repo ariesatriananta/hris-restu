@@ -29,6 +29,7 @@ import { ApiError } from '../lib/errors.js'
 import { resolveAttendanceCalendarDay } from '../lib/attendance-calendar.js'
 import { assertAttendancePayrollUnlocked } from '../lib/attendance-payroll-lock.js'
 import { attendanceFinalizationLockName } from '../lib/attendance-finalization.js'
+import { assertAttendanceOperationalDate } from '../lib/attendance-operational-policy.js'
 import {
   requirePermission,
   type AuthContext,
@@ -257,6 +258,10 @@ async function approveClassification(
   if (classification.approval_status !== 'PENDING') {
     throw new ApiError(409, 'Klasifikasi Attendance ini sudah ditinjau.')
   }
+  assertAttendanceOperationalDate(
+    String(classification.startDate),
+    env.ATTENDANCE_GO_LIVE_DATE
+  )
 
   await conn.query('SELECT id FROM employees WHERE id=? FOR UPDATE', [
     classification.employee_id,
@@ -514,8 +519,8 @@ attendanceClassificationsRouter.get(
     try {
       const auth = res.locals.auth as AuthContext
       const { page, pageSize } = pageParams(req.query.page, req.query.pageSize)
-      const where = ['1=1']
-      const values: unknown[] = []
+      const where = ['acr.end_date>=?']
+      const values: unknown[] = [env.ATTENDANCE_GO_LIVE_DATE]
       const query = String(req.query.query ?? '').trim()
       if (query) {
         where.push('(e.full_name LIKE ? OR e.employee_number LIKE ?)')
@@ -619,6 +624,10 @@ attendanceClassificationsRouter.post(
     try {
       const auth = res.locals.auth as AuthContext
       const input = attendanceClassificationRequestInput.parse(req.body)
+      assertAttendanceOperationalDate(
+        input.startDate,
+        env.ATTENDANCE_GO_LIVE_DATE
+      )
       const dates = enumerateDates(input.startDate, input.endDate)
       await conn.beginTransaction()
       const [employees] = await conn.query<RowDataPacket[]>(

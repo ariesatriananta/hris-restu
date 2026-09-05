@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../db.js', () => ({ pool: { query: mocks.query } }))
 
+vi.mock('../config.js', () => ({
+  env: { ATTENDANCE_GO_LIVE_DATE: '2026-08-01' },
+}))
+
 vi.mock('../lib/attendance-finalization.js', () => ({
   getAttendanceFinalizationRequirement:
     mocks.getAttendanceFinalizationRequirement,
@@ -171,6 +175,23 @@ describe('Attendance insights API', () => {
     expect(
       mocks.query.mock.calls.some(([sql]) =>
         String(sql).includes('invalidatedByClassificationReversal')
+      )
+    ).toBe(true)
+    expect(
+      mocks.query.mock.calls.some(
+        ([sql, params]) =>
+          String(sql).includes('latest.business_date BETWEEN ? AND ?') &&
+          Array.isArray(params) &&
+          params.includes('2026-08-01')
+      )
+    ).toBe(true)
+    expect(
+      mocks.query.mock.calls.some(
+        ([sql, params]) =>
+          String(sql).includes('ar.business_date>=?') &&
+          String(sql).includes('acr.end_date>=?') &&
+          Array.isArray(params) &&
+          params.filter((value) => value === '2026-08-01').length === 2
       )
     ).toBe(true)
     expect(mocks.getAttendanceFinalizationRequirement).toHaveBeenCalledTimes(2)

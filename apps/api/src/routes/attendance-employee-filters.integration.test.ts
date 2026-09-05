@@ -102,6 +102,16 @@ describe('Attendance historical employee filters API', () => {
     expect(listSql).toContain("candidate.approval_status='PENDING'")
   })
 
+  it('menolak Monitoring Harian sebelum tanggal go-live', async () => {
+    const response = await get('/monitoring?businessDate=2026-07-31')
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({
+      message: 'Attendance operasional hanya berlaku mulai 2026-08-01.',
+    })
+    expect(mocks.query).not.toHaveBeenCalled()
+  })
+
   it('mengambil detail koreksi untuk dialog review sesuai scope site', async () => {
     const correctionUid = '66666666-6666-4666-8666-666666666666'
     mocks.query.mockResolvedValueOnce([[{
@@ -145,7 +155,9 @@ describe('Attendance historical employee filters API', () => {
       const sql = String(sqlValue)
       expect(sql).toContain('JOIN employee_employment_histories eh')
       expect(sql).toContain('eh.effective_from<=ar.business_date')
+      expect(sql).toContain('ar.business_date>=?')
       expect(params).toEqual(expect.arrayContaining(['HARIAN', sectionUid, 'JEPARA']))
+      expect(params).toContain('2026-08-01')
     }
   })
 
@@ -161,7 +173,9 @@ describe('Attendance historical employee filters API', () => {
       expect(sql).toContain('JOIN employee_employment_histories eh')
       expect(sql).toContain('eh.effective_from<=acr.start_date')
       expect(sql).toContain('eh.effective_to>=acr.start_date')
+      expect(sql).toContain('acr.end_date>=?')
       expect(params).toEqual(expect.arrayContaining(['TRAINING', sectionUid, 'JEPARA']))
+      expect(params).toContain('2026-08-01')
     }
   })
 

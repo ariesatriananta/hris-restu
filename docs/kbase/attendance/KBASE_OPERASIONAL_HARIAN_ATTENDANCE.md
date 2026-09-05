@@ -188,7 +188,7 @@ Record Masuk yang masih menunggu jam Pulang tidak langsung dianggap abnormal seb
 
 ### 5.5 Tindak Lanjut Attendance
 
-Menu **Tindak Lanjut Attendance** menyatukan workflow Koreksi dan Klasifikasi dalam dua tab. Badge pada masing-masing tab menunjukkan jumlah request `PENDING` sesuai filter site. Angka `…` berarti pemeriksaan masih berjalan, sedangkan `?` berarti jumlah gagal dimuat; daftar tetap dapat dibuka dan dicoba ulang.
+Menu **Tindak Lanjut Attendance** menyatukan workflow Koreksi dan Klasifikasi dalam dua tab. Badge pada masing-masing tab menunjukkan jumlah request `PENDING` sesuai filter site sejak tanggal go-live Attendance. Request sebelum go-live tetap dipertahankan sebagai histori dan dapat ditelusuri melalui laporan atau detail audit, tetapi tidak menjadi antrean operasional aktif dan tidak dapat disetujui. Angka `…` berarti pemeriksaan masih berjalan, sedangkan `?` berarti jumlah gagal dimuat; daftar tetap dapat dibuka dan dicoba ulang.
 
 ## 6. Koreksi Attendance
 
