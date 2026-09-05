@@ -13,6 +13,7 @@ const validValues = {
   fullName: 'Siti Aminah',
   gender: 'FEMALE' as const,
   birthPlace: 'Jepara',
+  educationLevel: 'SENIOR_SECONDARY' as const,
   address: 'Jalan Melati Nomor 10',
   phone: '081234567890',
   email: '',
@@ -32,12 +33,14 @@ describe('validasi Form Data Pelamar', () => {
       familyCardNumber: 'abc',
       phone: '123',
       email: 'bukan-email',
+      educationLevel: '',
       privacyConsent: false,
     })
     expect(errors.nationalIdNumber).toBeTruthy()
     expect(errors.familyCardNumber).toBeTruthy()
     expect(errors.phone).toBeTruthy()
     expect(errors.email).toBeTruthy()
+    expect(errors.educationLevel).toBeTruthy()
     expect(errors.privacyConsent).toBeTruthy()
   })
 

@@ -34,8 +34,12 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   tujuan ditentukan oleh tautan, tetap ditampilkan kepada pelamar, dan tidak
   boleh diganti menjadi site lain dari form tersebut.
 - Data minimal pelamar adalah nama sesuai KTP, NIK, nomor KK, jenis kelamin,
-  tempat dan tanggal lahir, alamat sesuai KTP, nomor HP/WhatsApp, serta foto
-  diri, KTP, dan KK. Nomor HP/WhatsApp wajib, sedangkan email bersifat opsional.
+  tempat dan tanggal lahir, pendidikan terakhir menurut klasifikasi biodata
+  Dukcapil, alamat sesuai KTP, nomor HP/WhatsApp, serta foto diri, KTP, dan KK.
+  Nomor HP/WhatsApp wajib, sedangkan email bersifat opsional.
+- Pendidikan terakhir wajib dipilih untuk pelamar dan registrasi karyawan baru.
+  Data historis boleh kosong sampai diverifikasi; sistem tidak boleh menebak
+  pendidikan berdasarkan jabatan, jenis karyawan, atau data lain.
 - Tahap rekrutmen manual hanya `NEW`, `IN_PROGRESS`, `PASSED`, dan `REJECTED`.
   Status `CONVERTED` ditetapkan sistem setelah kandidat berhasil dibuat menjadi
   karyawan, bukan dipilih langsung oleh pengguna.

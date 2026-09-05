@@ -76,6 +76,7 @@ export interface RecruitmentCandidateDetail extends RecruitmentCandidateListItem
   gender: 'MALE' | 'FEMALE'
   birthPlace: string
   birthDate: string
+  educationLevel: EducationLevel | null
   address: string
   email: string | null
   internalNotes: string | null
@@ -122,6 +123,7 @@ export interface RecruitmentConversionPrefill {
     gender: 'MALE' | 'FEMALE'
     birthPlace: string | null
     birthDate: string | null
+    educationLevel: EducationLevel | null
     address: string | null
     phone: string | null
     email: string | null
@@ -137,3 +139,4 @@ export interface RecruitmentConversionResult {
   employee: { uid: string; employeeNumber: string }
   replayed: boolean
 }
+import type { EducationLevel } from '@/features/employees/education-level'

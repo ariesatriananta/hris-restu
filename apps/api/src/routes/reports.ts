@@ -4,6 +4,7 @@ import type { RowDataPacket } from 'mysql2'
 import { z } from 'zod'
 import { env } from '../config.js'
 import { pool } from '../db.js'
+import { educationLevelLabel } from '../lib/education-level.js'
 import {
   aggregateAttendanceRecap,
   loadAttendanceRecapProjection,
@@ -604,7 +605,7 @@ const employeeReportFromSql = `FROM (
   LEFT JOIN production_sections ps ON ps.id=pms.production_section_id`
 
 const employeeReportSelectSql = `SELECT e.uid employeeUid,e.employee_number employeeNumber,
-  e.full_name employeeName,
+  e.full_name employeeName,e.education_level educationLevel,
   s.uid siteUid,s.code siteCode,s.name siteName,
   et.uid employeeTypeUid,et.code employeeTypeCode,et.name employeeTypeName,
   es.uid employeeStatusUid,es.code employeeStatusCode,es.name employeeStatusName,
@@ -639,6 +640,7 @@ function mapEmployeeReportRow(row: RowDataPacket) {
     employeeUid: String(row.employeeUid),
     employeeNumber: String(row.employeeNumber),
     employeeName: String(row.employeeName),
+    educationLevel: row.educationLevel ? String(row.educationLevel) : null,
     site: mapReference(row, 'site'),
     employeeType: mapReference(row, 'employeeType'),
     employeeStatus: mapReference(row, 'employeeStatus'),
@@ -1532,6 +1534,7 @@ reportsRouter.post(
             siteName: row.site?.name ?? '',
             employeeTypeName: row.employeeType?.name ?? '',
             employeeStatusName: row.employeeStatus?.name ?? '',
+            educationLevelName: educationLevelLabel(row.educationLevel),
             departmentName: row.department?.name ?? null,
             positionName: row.position?.name ?? null,
             productionModuleName: row.productionModule?.name ?? null,

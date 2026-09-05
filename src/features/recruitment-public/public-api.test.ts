@@ -53,6 +53,7 @@ describe('API Form Data Pelamar', () => {
         fullName: 'Siti Aminah',
         gender: 'FEMALE',
         birthPlace: 'Jepara',
+        educationLevel: 'SENIOR_SECONDARY',
         address: 'Jalan Melati Nomor 10',
         phone: '081234567890',
         email: '',

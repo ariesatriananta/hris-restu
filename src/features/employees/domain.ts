@@ -1,3 +1,5 @@
+import type { EducationLevel } from './education-level'
+
 export type SiteCode = 'JEPARA' | 'SEMARANG' | 'KLATEN'
 export type EmployeeTypeCode = 'BORONGAN' | 'HARIAN' | 'BULANAN' | 'TRAINING'
 export type EmployeeStatusCode = 'ACTIVE' | 'LEAVE' | 'RESIGNED' | 'INACTIVE'
@@ -97,6 +99,7 @@ export interface Employee {
     | 'DIVORCED'
     | 'WIDOWED'
   religion?: string
+  educationLevel?: EducationLevel
   address?: string
   rtrw?: string
   kelurahan?: string
@@ -251,6 +254,7 @@ export interface EmployeeInput extends Omit<
 > {
   photo?: MockFileAttachment
   productionModuleSectionUid?: string
+  educationLevel: EducationLevel
 }
 export interface MutationInput {
   site: SiteCode

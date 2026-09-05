@@ -24,6 +24,7 @@ describe('report workbooks', () => {
           siteName: 'Site Jepara',
           employeeTypeName: 'Borongan',
           employeeStatusName: 'Aktif',
+          educationLevelName: 'SLTA/Sederajat',
           departmentName: null,
           positionName: null,
           productionModuleName: null,
@@ -40,6 +41,8 @@ describe('report workbooks', () => {
     const sheet = workbook.getWorksheet('Posisi Karyawan')!
     expect(sheet.getCell('B2').value).toBe("'=HYPERLINK(\"x\")")
     expect(sheet.getCell('C2').value).toBe("'+CMD")
+    expect(sheet.getCell('G1').value).toBe('Pendidikan Terakhir')
+    expect(sheet.getCell('G2').value).toBe('SLTA/Sederajat')
   })
 
   it('menjelaskan sumber site dan status kontrak yang belum terselesaikan', async () => {

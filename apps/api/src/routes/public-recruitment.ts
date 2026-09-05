@@ -2,6 +2,7 @@ import { Router, type RequestHandler } from 'express'
 import multer, { MulterError } from 'multer'
 import { z } from 'zod'
 import { ApiError } from '../lib/errors.js'
+import { educationLevelSchema } from '../lib/education-level.js'
 import { sanitizeRecruitmentImage } from '../lib/recruitment-images.js'
 import {
   assertPublicRecruitmentConfigured,
@@ -51,6 +52,7 @@ const submissionSchema = identitySchema.omit({ turnstileToken: true }).extend({
   fullName: z.string().trim().min(2).max(150),
   gender: z.enum(['MALE', 'FEMALE']),
   birthPlace: z.string().trim().min(2).max(100),
+  educationLevel: educationLevelSchema,
   address: z.string().trim().min(5).max(2_000),
   phone: z
     .string()

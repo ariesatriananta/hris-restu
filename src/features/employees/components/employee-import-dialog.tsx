@@ -22,6 +22,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { employeeKeys, useEmployeeLookups } from '../data/queries'
+import { educationLevelOptions } from '../education-level'
 import {
   importEmployees,
   previewEmployeeImport,
@@ -45,6 +46,7 @@ const columns = [
   ['BIRTH_DATE', 'birthDate'],
   ['MARITAL_STATUS', 'maritalStatus'],
   ['RELIGION', 'religion'],
+  ['EDUCATION_LEVEL', 'educationLevel'],
   ['NATIONAL_ID_NUMBER', 'nationalIdNumber'],
   ['FAMILY_CARD_NUMBER', 'familyCardNumber'],
   ['ADDRESS', 'address'],
@@ -146,15 +148,17 @@ export function EmployeeImportDialog({
       ...lookups.data.workGroups.map((item) => ['Kelompok kerja', item.siteCode ?? '', item.code, item.name, 'Gunakan pada WORK_GROUP_CODE']),
       ...lookups.data.productionModules.map((item) => ['Modul produksi', item.siteCode, item.code, item.name, 'Gunakan bersama SECTION_CODE']),
       ...lookups.data.productionModuleSections.map((item) => ['Bagian produksi', item.siteCode, item.sectionCode, item.sectionName, `Modul: ${lookups.data.productionModules.find((module) => module.uid === item.moduleUid)?.code ?? '-'}`]),
+      ...educationLevelOptions.map((item) => ['Pendidikan terakhir', '', item.value, item.label, 'Gunakan pada EDUCATION_LEVEL']),
     ]
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(referenceRows), 'Referensi')
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
       ['Panduan Import Karyawan'],
       ['Isi hanya sheet Karyawan. Jangan mengubah nama header.'],
-      ['FULL_NAME, EMPLOYEE_TYPE, SITE_CODE, JOIN_DATE, dan GENDER wajib diisi.'],
+      ['FULL_NAME, EMPLOYEE_TYPE, SITE_CODE, JOIN_DATE, GENDER, dan EDUCATION_LEVEL wajib diisi.'],
       ['EMPLOYEE_TYPE: BORONGAN, HARIAN, BULANAN, atau TRAINING.'],
       ['Semua jenis karyawan wajib mengisi PRODUCTION_MODULE_CODE dan PRODUCTION_SECTION_CODE.'],
       ['Tanggal memakai format YYYY-MM-DD. GENDER: LAKI-LAKI atau PEREMPUAN.'],
+      ['EDUCATION_LEVEL diisi memakai kode pada sheet Referensi.'],
       ['Status selalu dibuat Nonaktif; nomor karyawan dan barcode dibuat otomatis oleh sistem.'],
       ['Maksimal 200 baris. Semua baris harus valid sebelum import dapat dieksekusi.'],
     ]), 'Panduan')

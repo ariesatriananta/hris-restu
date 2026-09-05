@@ -36,6 +36,7 @@ import {
   useScheduledMutations,
 } from '../data/queries'
 import type { Employee, EmployeeContract } from '../domain'
+import { educationLevelLabel } from '../education-level'
 import {
   contractStatusBadgeClassName,
   contractStatusBadgeVariant,
@@ -228,6 +229,10 @@ export function EmployeeDetail({
                 ],
                 ['Status perkawinan', maritalStatusLabel(data.maritalStatus)],
                 ['Agama', data.religion],
+                [
+                  'Pendidikan terakhir',
+                  educationLevelLabel(data.educationLevel),
+                ],
                 ['Alamat', data.address],
                 ['RT/RW', data.rtrw],
                 ['Kelurahan', data.kelurahan],

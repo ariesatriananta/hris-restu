@@ -80,6 +80,7 @@ function candidate(status = 'NEW') {
     gender: 'FEMALE',
     birthPlace: 'Jepara',
     birthDate: '2000-01-02',
+    educationLevel: 'SENIOR_SECONDARY',
     address: 'Alamat sesuai KTP',
     phone: '081234567890',
     email: null,

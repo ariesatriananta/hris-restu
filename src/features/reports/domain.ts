@@ -28,6 +28,7 @@ export interface EmployeeReportItem {
   employeeUid: string
   employeeNumber: string
   employeeName: string
+  educationLevel: string | null
   site: ReportOption
   employeeType: ReportOption
   employeeStatus: ReportOption

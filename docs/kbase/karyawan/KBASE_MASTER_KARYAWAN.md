@@ -61,7 +61,7 @@ Jangan memakai menu ubah data biasa untuk mengganti histori penempatan yang suda
 
 ### Data pribadi
 
-Masukkan nama, nama panggilan, jenis kelamin, tempat dan tanggal lahir, agama, status perkawinan, serta informasi lain sesuai dokumen karyawan. Hindari singkatan yang tidak diperlukan.
+Masukkan nama, nama panggilan, jenis kelamin, tempat dan tanggal lahir, agama, status perkawinan, dan **Pendidikan terakhir**. Pendidikan terakhir wajib dipilih dari daftar standar biodata Dukcapil; jangan mengetik atau menebak tingkat pendidikan sendiri.
 
 ### Alamat dan kontak
 
@@ -87,7 +87,7 @@ Gunakan cara ini jika data yang akan ditambahkan cukup banyak.
 10. Unggah ulang file yang sudah diperbaiki.
 11. Simpan hanya setelah semua baris yang akan dimasukkan dinyatakan siap.
 
-Satu file dapat memuat paling banyak 200 karyawan. Untuk jumlah yang lebih besar, bagi menjadi beberapa file agar pemeriksaannya lebih mudah.
+Satu file dapat memuat paling banyak 200 karyawan. Untuk jumlah yang lebih besar, bagi menjadi beberapa file agar pemeriksaannya lebih mudah. Kolom **EDUCATION_LEVEL** wajib diisi memakai kode yang tersedia pada lembar **Referensi**.
 
 ### Kesalahan impor yang sering terjadi
 
@@ -184,6 +184,7 @@ Perubahan status yang terkait akhir kontrak atau rencana resign sebaiknya dilaku
 - [ ] Modul serta bagian produksi sudah dipilih.
 - [ ] Tanggal bergabung benar.
 - [ ] Identitas, alamat, dan kontak sudah diperiksa.
+- [ ] Pendidikan terakhir sudah sesuai dokumen kependudukan.
 - [ ] Rekening dan data pendukung tidak tertukar.
 - [ ] Detail karyawan sudah dibuka kembali setelah penyimpanan.
 - [ ] Foto, ID Card, dan barcode sudah diperiksa bila diperlukan.

@@ -25,6 +25,7 @@ export type RecruitmentFormValues = RecruitmentIdentity & {
   fullName: string
   gender: 'MALE' | 'FEMALE' | ''
   birthPlace: string
+  educationLevel: EducationLevel | ''
   address: string
   phone: string
   email: string
@@ -41,3 +42,4 @@ export type RecruitmentReceipt = {
   applicationNumber: string
   message: string
 }
+import type { EducationLevel } from '@/features/employees/education-level'

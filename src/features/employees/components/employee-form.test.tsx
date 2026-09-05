@@ -27,6 +27,7 @@ describe('EmployeeForm', () => {
       productionModuleSectionUid: '1514bce8-dab7-4d40-a217-5c6471134aca',
       joinDate: '2026-07-11',
       gender: 'MALE',
+      educationLevel: 'SENIOR_SECONDARY',
     } satisfies Employee
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -81,6 +82,7 @@ describe('EmployeeForm', () => {
       kelurahan: 'KARANGANYAR',
       kecamatan: 'PECANGAAN',
       email: 'karyawan.fiktif@example.test',
+      educationLevel: 'SENIOR_SECONDARY',
     })
   })
 
@@ -98,6 +100,7 @@ describe('EmployeeForm', () => {
             site: 'KLATEN',
             joinDate: '2026-09-04',
             gender: 'PEREMPUAN',
+            educationLevel: 'DIPLOMA_IV_BACHELOR',
           }}
           lockCreateSite
           inheritedRecruitmentDocuments={['PHOTO', 'KTP', 'KK']}
@@ -136,6 +139,9 @@ describe('EmployeeForm', () => {
       .element(screen.getByLabelText('Nama lengkap'))
       .toHaveValue('SITI AMINAH')
     await expect.element(screen.getByLabelText('Site')).toBeDisabled()
+    await expect
+      .element(screen.getByLabelText('Pendidikan terakhir'))
+      .toHaveValue('DIPLOMA_IV_BACHELOR')
     await expect.element(screen.getByText('foto-pelamar.jpg')).toBeVisible()
     await expect.element(screen.getByAltText('Foto karyawan')).toBeVisible()
     await expect.element(screen.getByAltText('Foto KTP')).toBeVisible()

@@ -54,6 +54,7 @@ const payload = {
   gender: 'FEMALE',
   birthPlace: 'Jepara',
   birthDate: '2000-01-01',
+  educationLevel: 'SENIOR_SECONDARY',
   address: 'Alamat lengkap pelamar',
   phone: '081234567890',
   email: '',

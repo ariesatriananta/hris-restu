@@ -76,6 +76,7 @@ describe('Rekrutmen internal', () => {
       site: 'JEPARA',
       joinDate: '2026-09-04',
       gender: 'PEREMPUAN',
+      educationLevel: 'SENIOR_SECONDARY',
       productionModuleSectionUid: '11111111-1111-4111-8111-111111111111',
       photo: {
         uid: '22222222-2222-4222-8222-222222222222',

@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { DatePicker } from '@/components/date-picker'
 import { useEmployeeLookups } from '../data/queries'
+import { educationLevelOptions, educationLevelValues } from '../education-level'
 import type {
   Employee,
   EmployeeDocument,
@@ -64,6 +65,7 @@ const schema = z
       ])
       .optional(),
     religion: optionalText,
+    educationLevel: z.enum(educationLevelValues),
     address: optionalText,
     rtrw: optionalRtrw,
     kelurahan: optionalText,
@@ -232,6 +234,7 @@ export function EmployeeForm({
       birthDate: dateInput(initial?.birthDate),
       maritalStatus: initial?.maritalStatus ?? '',
       religion: initial?.religion ?? '',
+      educationLevel: initial?.educationLevel ?? undefined,
       address: initial?.address ?? '',
       rtrw: initial?.rtrw ?? '',
       kelurahan: initial?.kelurahan ?? '',
@@ -311,6 +314,7 @@ export function EmployeeForm({
           birthDate: empty(values.birthDate),
           maritalStatus: values.maritalStatus || undefined,
           religion: empty(values.religion),
+          educationLevel: values.educationLevel,
           address: empty(values.address),
           rtrw: empty(values.rtrw),
           kelurahan: empty(values.kelurahan),
@@ -636,6 +640,10 @@ export function EmployeeForm({
             {personalFields.map(([name, label, type]) =>
               textField(name, label, type)
             )}
+            {select('educationLevel', 'Pendidikan terakhir', [
+              { value: '', label: 'Pilih pendidikan terakhir', disabled: true },
+              ...educationLevelOptions,
+            ])}
           </div>
         </section>
 

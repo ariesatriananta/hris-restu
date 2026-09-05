@@ -25,6 +25,7 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Textarea } from '@/components/ui/textarea'
 import { DatePicker } from '@/components/date-picker'
+import { educationLevelOptions } from '@/features/employees/education-level'
 import {
   dateOnlyFromInput,
   dateOnlyToInput,
@@ -61,6 +62,7 @@ const emptyValues: RecruitmentFormValues = {
   fullName: '',
   gender: '',
   birthPlace: '',
+  educationLevel: '',
   address: '',
   phone: '',
   email: '',
@@ -398,7 +400,8 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
             Form Data Pelamar
           </h2>
           <p className='mt-1 text-sm leading-6 text-muted-foreground'>
-            Isi data sesuai KTP dan pastikan foto dokumen terlihat jelas.
+            Isi data sesuai dokumen kependudukan dan pastikan foto dokumen
+            terlihat jelas.
           </p>
         </div>
         <StepIndicator step={step} />
@@ -537,7 +540,7 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
               <div className='flex items-center gap-2'>
                 <UserRound className='size-5 text-primary' />
                 <h3 id='biodata-title' className='text-lg font-semibold'>
-                  Biodata sesuai KTP
+                  Biodata kependudukan
                 </h3>
               </div>
               <FormField
@@ -623,6 +626,36 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
                   />
                 </FormField>
               </div>
+              <FormField
+                id='educationLevel'
+                label='Pendidikan terakhir'
+                error={errors.educationLevel}
+              >
+                <select
+                  id='educationLevel'
+                  className='flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+                  value={values.educationLevel}
+                  onChange={(event) =>
+                    updateValue(
+                      'educationLevel',
+                      event.target.value as RecruitmentFormValues['educationLevel']
+                    )
+                  }
+                  aria-invalid={!!errors.educationLevel}
+                  aria-describedby={
+                    errors.educationLevel ? 'educationLevel-error' : undefined
+                  }
+                >
+                  <option value='' disabled>
+                    Pilih pendidikan terakhir
+                  </option>
+                  {educationLevelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
               <FormField
                 id='address'
                 label='Alamat sesuai KTP'

@@ -10,6 +10,7 @@ import {
   reserveEmployeeNumber,
 } from '../lib/employee-number.js'
 import { ApiError } from '../lib/errors.js'
+import { educationLevelSchema } from '../lib/education-level.js'
 import {
   deleteEmployeeRecruitmentObject,
   employeeRecruitmentObjectKey,
@@ -145,6 +146,7 @@ const conversionEmployeeInput = z
     gender: z.enum(['MALE', 'FEMALE', 'LAKI-LAKI', 'PEREMPUAN']),
     birthPlace: z.string().trim().min(1).max(100),
     birthDate: z.string().date(),
+    educationLevel: educationLevelSchema,
     maritalStatus: z
       .enum([
         'BELUM_KAWIN',
@@ -320,7 +322,7 @@ async function conversionReferences(
 const candidateBaseSelect = `SELECT rc.id,rc.site_id siteId,rc.uid,rc.application_number applicationNumber,
   rc.full_name fullName,rc.national_id_number nationalIdNumber,
   rc.family_card_number familyCardNumber,rc.gender,rc.birth_place birthPlace,
-  DATE_FORMAT(rc.birth_date,'%Y-%m-%d') birthDate,rc.address,rc.phone,rc.email,
+  DATE_FORMAT(rc.birth_date,'%Y-%m-%d') birthDate,rc.education_level educationLevel,rc.address,rc.phone,rc.email,
   rc.privacy_notice_version privacyNoticeVersion,
   ${candidateDate('rc', 'privacy_consent_at')} privacyConsentAt,
   rc.status,rc.applicant_rejection_reason applicantRejectionReason,
@@ -491,6 +493,9 @@ recruitmentRouter.get(
           gender: String(candidate.gender),
           birthPlace: String(candidate.birthPlace),
           birthDate: String(candidate.birthDate),
+          educationLevel: candidate.educationLevel
+            ? String(candidate.educationLevel)
+            : null,
           maritalStatus: null,
           religion: null,
           address: String(candidate.address),
@@ -720,13 +725,13 @@ recruitmentRouter.post(
           uid,employee_number,employee_type_id,employee_status_id,current_site_id,
           current_department_id,current_position_id,current_work_group_id,
           current_production_module_section_id,full_name,nickname,national_id_number,
-          family_card_number,gender,birth_place,birth_date,marital_status,religion,
+          family_card_number,gender,birth_place,birth_date,marital_status,religion,education_level,
           address,rtrw,kelurahan,kecamatan,city,province,postal_code,phone,email,
           emergency_contact_name,emergency_contact_phone,emergency_contact_relation,
           bank_name,bank_account_number,bank_account_name,tax_number,
           bpjs_health_number,bpjs_employment_number,join_date,join_date_training,
           join_date_borong,permanent_date,photo_file_id,notes,created_by,updated_by)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           employeeUid,
           employeeNumber,
@@ -746,6 +751,7 @@ recruitmentRouter.post(
           input.birthDate,
           empty(input.maritalStatus),
           empty(input.religion),
+          input.educationLevel,
           input.address,
           empty(input.rtrw),
           empty(input.kelurahan),
@@ -1097,6 +1103,9 @@ recruitmentRouter.get('/candidates/:uid', async (req, res, next) => {
       gender: String(candidate.gender),
       birthPlace: String(candidate.birthPlace),
       birthDate: String(candidate.birthDate),
+      educationLevel: candidate.educationLevel
+        ? String(candidate.educationLevel)
+        : null,
       address: String(candidate.address),
       phone: String(candidate.phone),
       email: candidate.email ? String(candidate.email) : null,

@@ -28,6 +28,8 @@ export function validateRecruitmentForm(values: RecruitmentFormValues) {
   if (!values.gender) errors.gender = 'Pilih jenis kelamin.'
   if (values.birthPlace.trim().length < 2)
     errors.birthPlace = 'Tempat lahir wajib diisi.'
+  if (!values.educationLevel)
+    errors.educationLevel = 'Pilih pendidikan terakhir.'
   if (values.address.trim().length < 5)
     errors.address = 'Alamat sesuai KTP wajib diisi.'
   const phone = values.phone.replace(/[\s().-]/g, '')

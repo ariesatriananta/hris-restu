@@ -31,6 +31,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
+import { educationLevelLabel } from '@/features/employees/education-level'
 import {
   getRecruitmentFile,
   useRecruitmentCandidate,
@@ -157,6 +158,10 @@ export function RecruitmentDetailSheet({
                 <Info
                   label='Tempat, tanggal lahir'
                   value={`${detail.birthPlace}, ${dateLabel(detail.birthDate)}`}
+                />
+                <Info
+                  label='Pendidikan terakhir'
+                  value={educationLevelLabel(detail.educationLevel) ?? '—'}
                 />
                 <Info label='Nomor HP/WhatsApp' value={detail.phone} />
                 <Info label='Email' value={detail.email || 'Tidak diisi'} />

@@ -4,6 +4,7 @@ import type { ResultSetHeader } from 'mysql2'
 import { env } from '../config.js'
 import { pool } from '../db.js'
 import { ApiError } from './errors.js'
+import type { EducationLevel } from './education-level.js'
 import type { RecruitmentImage } from './recruitment-images.js'
 import {
   deletePrivateRecruitmentObject,
@@ -163,6 +164,7 @@ type Submission = {
   gender: 'MALE' | 'FEMALE'
   birthPlace: string
   birthDate: string
+  educationLevel: EducationLevel
   address: string
   phone: string
   email?: string
@@ -225,7 +227,7 @@ export async function createRecruitmentSubmission(input: {
       `SELECT id,application_number applicationNumber,site_id siteId,
               full_name fullName,national_id_number nationalIdNumber,
               family_card_number familyCardNumber,gender,birth_place birthPlace,
-              DATE_FORMAT(birth_date,'%Y-%m-%d') birthDate,address,phone,email,
+              DATE_FORMAT(birth_date,'%Y-%m-%d') birthDate,education_level educationLevel,address,phone,email,
               privacy_notice_version privacyNoticeVersion
          FROM recruitment_candidates
         WHERE idempotency_key=?
@@ -260,6 +262,7 @@ export async function createRecruitmentSubmission(input: {
         existing.gender === input.submission.gender &&
         existing.birthPlace === input.submission.birthPlace &&
         existing.birthDate === input.submission.birthDate &&
+        existing.educationLevel === input.submission.educationLevel &&
         existing.address === input.submission.address &&
         existing.phone === input.submission.phone &&
         (existing.email ?? null) === (input.submission.email ?? null) &&
@@ -319,8 +322,8 @@ export async function createRecruitmentSubmission(input: {
       `INSERT INTO recruitment_candidates
          (uid,application_number,idempotency_key,site_id,full_name,
           national_id_number,family_card_number,gender,birth_place,birth_date,
-          address,phone,email,privacy_consent_at,privacy_notice_version,status)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP(3),?,'NEW')`,
+          education_level,address,phone,email,privacy_consent_at,privacy_notice_version,status)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP(3),?,'NEW')`,
       [
         candidateUid,
         number,
@@ -332,6 +335,7 @@ export async function createRecruitmentSubmission(input: {
         input.submission.gender,
         input.submission.birthPlace,
         input.submission.birthDate,
+        input.submission.educationLevel,
         input.submission.address,
         input.submission.phone,
         input.submission.email ?? null,

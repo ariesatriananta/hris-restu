@@ -7,6 +7,7 @@ export type EmployeeReportExportRow = {
   siteName: string
   employeeTypeName: string
   employeeStatusName: string
+  educationLevelName: string | null
   departmentName: string | null
   positionName: string | null
   productionModuleName: string | null
@@ -280,6 +281,7 @@ export async function buildEmployeeReportWorkbook(input: WorkbookInfo & {
     'Site',
     'Jenis Karyawan',
     'Status Karyawan',
+    'Pendidikan Terakhir',
     'Departemen',
     'Jabatan',
     'Modul Produksi',
@@ -297,6 +299,7 @@ export async function buildEmployeeReportWorkbook(input: WorkbookInfo & {
       safeSpreadsheetText(row.siteName),
       safeSpreadsheetText(row.employeeTypeName),
       safeSpreadsheetText(row.employeeStatusName),
+      safeSpreadsheetText(row.educationLevelName),
       safeSpreadsheetText(row.departmentName),
       safeSpreadsheetText(row.positionName),
       safeSpreadsheetText(row.productionModuleName),
