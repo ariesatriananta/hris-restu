@@ -181,7 +181,8 @@ BEGIN
       WHERE active_device.site_id=eh.site_id
         AND active_device.device_type IN ('USB_SCANNER','TERMINAL')
         AND active_device.is_active=1
-        AND active_device.activated_at IS NOT NULL
+        AND active_device.production_activated_at IS NOT NULL
+        AND active_device.production_token_hash IS NOT NULL
     )
   WHERE (
     SELECT COUNT(*)
@@ -457,7 +458,8 @@ BEGIN
         WHERE device.site_id=attendance.site_id
           AND device.device_type IN ('USB_SCANNER','TERMINAL')
           AND device.is_active=1
-          AND device.activated_at IS NOT NULL
+          AND device.production_activated_at IS NOT NULL
+          AND device.production_token_hash IS NOT NULL
       ) THEN 'Perangkat Produksi aktif dan teraktivasi belum tersedia'
       ELSE 'Pekerjaan utama belum memiliki tepat satu tarif aktif dan satuan aktif'
     END alasan_tidak_diproses

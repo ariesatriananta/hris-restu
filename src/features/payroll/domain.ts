@@ -645,6 +645,7 @@ export interface PayrollWorkflow {
   integrity: {
     valid: boolean
     issues: PayrollWorkflowIssue[]
+    warnings?: PayrollWorkflowIssue[]
   }
   history: Array<{
     uid: string

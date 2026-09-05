@@ -259,8 +259,10 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Pengajuan approval hanya boleh memakai current run `COMPLETED` yang masih
   konsisten dengan snapshot dan sumbernya. Periode tetap `CALCULATED` selama
   pengajuan menunggu keputusan. Readiness `ATTENTION` boleh diajukan, tetapi
-  readiness `BLOCKED`, rekening snapshot tidak lengkap, neto negatif, hasil
-  kosong, atau total tidak konsisten memblokir pengajuan, approval, dan closing.
+  readiness `BLOCKED`, neto negatif, hasil kosong, atau total tidak konsisten
+  memblokir pengajuan, approval, dan closing. Rekening snapshot yang belum
+  lengkap hanya menjadi warning karena tidak memengaruhi hak dan nominal
+  Payroll; kondisi tersebut tidak memblokir submit, approval, maupun closing.
 - Approval awal hanya satu tingkat oleh Direksi. Pengguna selain `SUPER_ADMIN`
   tidak boleh menyetujui run yang dibuat atau diajukannya sendiri.
   `SUPER_ADMIN` boleh menghitung, mengajukan, self-approve, menolak, menarik,
@@ -281,7 +283,10 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   harus berasal dari snapshot masing-masing run.
 - Rekap Payroll selalu menyamarkan rekening. Rekening lengkap hanya boleh ada
   pada Daftar Pembayaran dari current run `FINAL` pada periode `CLOSED`, untuk
-  Payroll Finance sesuai akses site dan `SUPER_ADMIN` lintas site.
+  Payroll Finance sesuai akses site dan `SUPER_ADMIN` lintas site. Daftar
+  Pembayaran wajib menolak pilihan karyawan yang snapshot nama bank, nomor
+  rekening, atau nama pemilik rekeningnya belum lengkap; karyawan lain yang
+  lengkap tetap dapat diekspor sebagai pilihan terpisah.
 - Pengguna `payroll.view` boleh melihat preview slip dengan rekening
   disamarkan. Cetak individual dan massal hanya untuk pengguna berizin
   `payroll.print`; Direksi tidak mendapat akses cetak massal secara default.

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
-import { format, parseISO } from 'date-fns'
+import { addDays, format, parseISO } from 'date-fns'
 import {
   flexRender,
   getCoreRowModel,
@@ -90,7 +90,7 @@ import type {
   PayrollPeriodsResult,
   PayrollReadinessStatus,
 } from './domain'
-import { periodForDate } from './payroll-period-policy'
+import { periodForDate, pieceRatePeriodForDates } from './payroll-period-policy'
 
 const statusLabels: Record<PayrollPeriodStatus, string> = {
   DRAFT: 'Draft',
@@ -684,6 +684,8 @@ function CreatePeriodDialog({
   const [employeeType, setEmployeeType] =
     useState<PayrollEmployeeType>('BORONGAN')
   const [periodAnchor, setPeriodAnchor] = useState<Date>(new Date())
+  const [pieceRateStart, setPieceRateStart] = useState<Date>(new Date())
+  const [pieceRateEnd, setPieceRateEnd] = useState<Date>(new Date())
   const [payment, setPayment] = useState<Date>()
   const [name, setName] = useState('')
   const [notes, setNotes] = useState('')
@@ -697,15 +699,22 @@ function CreatePeriodDialog({
     open && Boolean(selectedSite)
   )
   const anchorDate = inputDate(periodAnchor)!
+  const pieceRatePeriod = pieceRatePeriodForDates(pieceRateStart, pieceRateEnd)
+  const policyDateFrom =
+    employeeType === 'BORONGAN' ? pieceRatePeriod.periodStart : anchorDate
+  const policyDateTo =
+    employeeType === 'BORONGAN' ? pieceRatePeriod.periodEnd : anchorDate
   const policy = policies.data?.data.find(
     (item) =>
       item.employeeType === employeeType &&
       item.status === 'ACTIVE' &&
-      item.effectiveFrom <= anchorDate &&
-      (item.effectiveTo == null || item.effectiveTo >= anchorDate)
+      item.effectiveFrom <= policyDateFrom &&
+      (item.effectiveTo == null || item.effectiveTo >= policyDateTo)
   )
   const selectedPeriod = policy
-    ? periodForDate(periodAnchor, policy)
+    ? employeeType === 'BORONGAN'
+      ? pieceRatePeriod
+      : periodForDate(periodAnchor, policy)
     : undefined
   const previewMatches =
     preview.data?.site.uid === siteUid &&
@@ -725,6 +734,8 @@ function CreatePeriodDialog({
       setSiteUid('')
       setEmployeeType('BORONGAN')
       setPeriodAnchor(new Date())
+      setPieceRateStart(new Date())
+      setPieceRateEnd(new Date())
       setPayment(undefined)
       setName('')
       setNotes('')
@@ -755,8 +766,8 @@ function CreatePeriodDialog({
         <DialogHeader>
           <DialogTitle>Buat Periode Payroll</DialogTitle>
           <DialogDescription>
-            Pilih site dan jenis Payroll. Rentang tanggal mengikuti policy
-            aktif, bukan diisi bebas.
+            Periode Borongan dapat memakai rentang fleksibel maksimal 31 hari.
+            Jenis Payroll lainnya mengikuti policy aktif.
           </DialogDescription>
         </DialogHeader>
         <div className='grid gap-4 sm:grid-cols-2'>
@@ -802,22 +813,61 @@ function CreatePeriodDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className='space-y-2 sm:col-span-2'>
-            <Label>Tanggal acuan periode</Label>
-            <DatePicker
-              selected={periodAnchor}
-              onSelect={(date) => {
-                if (!date) return
-                setPeriodAnchor(date)
-                resetPreview()
-              }}
-            />
-            <p className='text-xs text-muted-foreground'>
-              Pilih satu tanggal di dalam periode yang ingin diproses. Sistem
-              menentukan awal dan akhir periode dari policy yang berlaku saat
-              itu.
-            </p>
-          </div>
+          {employeeType === 'BORONGAN' ? (
+            <div className='grid gap-3 sm:col-span-2 sm:grid-cols-2'>
+              <div className='space-y-2'>
+                <Label>Dari tanggal</Label>
+                <DatePicker
+                  selected={pieceRateStart}
+                  onSelect={(date) => {
+                    if (!date) return
+                    const nextPeriod = pieceRatePeriodForDates(
+                      date,
+                      pieceRateEnd
+                    )
+                    setPieceRateStart(date)
+                    setPieceRateEnd(parseISO(nextPeriod.periodEnd))
+                    resetPreview()
+                  }}
+                />
+              </div>
+              <div className='space-y-2'>
+                <Label>Sampai tanggal</Label>
+                <DatePicker
+                  selected={pieceRateEnd}
+                  onSelect={(date) => {
+                    if (!date) return
+                    setPieceRateEnd(date)
+                    resetPreview()
+                  }}
+                  disabledDates={(date) =>
+                    date < pieceRateStart || date > addDays(pieceRateStart, 30)
+                  }
+                />
+              </div>
+              <p className='text-xs text-muted-foreground sm:col-span-2'>
+                Pilih rentang fakta Produksi yang ingin dibayar, maksimal 31
+                hari termasuk tanggal mulai dan akhir.
+              </p>
+            </div>
+          ) : (
+            <div className='space-y-2 sm:col-span-2'>
+              <Label>Tanggal acuan periode</Label>
+              <DatePicker
+                selected={periodAnchor}
+                onSelect={(date) => {
+                  if (!date) return
+                  setPeriodAnchor(date)
+                  resetPreview()
+                }}
+              />
+              <p className='text-xs text-muted-foreground'>
+                Pilih satu tanggal di dalam periode yang ingin diproses. Sistem
+                menentukan awal dan akhir periode dari policy yang berlaku saat
+                itu.
+              </p>
+            </div>
+          )}
           <div className='space-y-2 sm:col-span-2'>
             <Label>Policy yang digunakan</Label>
             {!siteUid ? (
@@ -855,16 +905,22 @@ function CreatePeriodDialog({
           </div>
           {policy ? (
             <div className='space-y-2 sm:col-span-2'>
-              <Label>Rentang hasil policy</Label>
+              <Label>
+                {employeeType === 'BORONGAN'
+                  ? 'Rentang pilihan'
+                  : 'Rentang hasil policy'}
+              </Label>
               <div className='rounded-lg border bg-muted/30 p-3 text-sm'>
                 <span className='font-semibold'>
                   {dateLabel(selectedPeriod!.periodStart)}–
                   {dateLabel(selectedPeriod!.periodEnd)}
                 </span>
                 <p className='mt-1 text-xs text-muted-foreground'>
-                  {policy.payFrequency === 'WEEKLY'
-                    ? 'Periode mingguan Senin–Minggu.'
-                    : 'Periode bulanan mengikuti cutoff policy.'}
+                  {employeeType === 'BORONGAN'
+                    ? 'Periode Borongan fleksibel mengikuti fakta Produksi.'
+                    : policy.payFrequency === 'WEEKLY'
+                      ? 'Periode mingguan Senin–Minggu.'
+                      : 'Periode bulanan mengikuti cutoff policy.'}
                 </p>
               </div>
             </div>

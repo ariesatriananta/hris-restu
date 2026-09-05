@@ -13,6 +13,7 @@ export type PayrollIntegrityIssue = {
 export type PayrollRunIntegrity = {
   valid: boolean
   issues: PayrollIntegrityIssue[]
+  warnings: PayrollIntegrityIssue[]
 }
 
 type RunScope = {
@@ -36,6 +37,7 @@ function integrityFromFacts(
   facts: RowDataPacket
 ): PayrollRunIntegrity {
   const issues: PayrollIntegrityIssue[] = []
+  const warnings: PayrollIntegrityIssue[] = []
   if (readiness.status === 'BLOCKED')
     issues.push(issue('READINESS_BLOCKED','Readiness Payroll berubah menjadi BLOCKED.',readiness.blockerCount))
   if (Number(facts.resultEmployeeCount ?? 0) === 0)
@@ -43,7 +45,7 @@ function integrityFromFacts(
   if (Number(facts.negativeNetCount ?? 0) > 0)
     issues.push(issue('NEGATIVE_NET_PAY','Terdapat karyawan dengan penerimaan bersih negatif.',facts.negativeNetCount))
   if (Number(facts.missingBankCount ?? 0) > 0)
-    issues.push(issue('MISSING_BANK_ACCOUNT','Snapshot rekening pembayaran belum lengkap.',facts.missingBankCount))
+    warnings.push(issue('MISSING_BANK_ACCOUNT','Snapshot rekening pembayaran belum lengkap. Daftar Pembayaran bank belum dapat dibuat untuk karyawan tersebut.',facts.missingBankCount))
   if (Number(facts.bankDriftCount ?? 0) > 0)
     issues.push(issue('BANK_ACCOUNT_DRIFT','Data rekening karyawan berubah setelah simulasi. Hitung ulang Payroll.',facts.bankDriftCount))
   const productionDrift = Number(facts.productionCountDrift ?? 0) + Number(facts.productionValueDrift ?? 0)
@@ -68,7 +70,7 @@ function integrityFromFacts(
     issues.push(issue('RESULT_DETAIL_MISMATCH','Hasil per karyawan tidak konsisten dengan detail snapshot.',facts.resultDetailMismatch))
   if (Number(facts.populationDrift ?? 0) > 0)
     issues.push(issue('POPULATION_SNAPSHOT_DRIFT','Populasi Payroll berubah setelah simulasi. Hitung ulang Payroll.',facts.populationDrift))
-  return { valid: issues.length === 0, issues }
+  return { valid: issues.length === 0, issues, warnings }
 }
 
 async function inspectTimeBasedRunIntegrity(
@@ -81,6 +83,7 @@ async function inspectTimeBasedRunIntegrity(
     return {
       valid: false,
       issues: [issue('INVALID_PAYROLL_SCHEME','Identitas skema Payroll berbasis waktu tidak valid.',1)],
+      warnings: [],
     }
   }
   const isMonthly = employeeType === 'BULANAN'

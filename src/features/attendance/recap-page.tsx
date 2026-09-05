@@ -463,7 +463,7 @@ function CompletenessPanel({
           {state === 'COMPLETE' ? (
             <ShieldCheck className='mt-0.5 size-4 text-positive' />
           ) : (
-            <FileWarning className='mt-0.5 size-4 text-warning-foreground' />
+            <FileWarning className='mt-0.5 size-4 text-amber-700 dark:text-amber-300' />
           )}
           <div>
             <h2 id='completeness-title' className='text-sm font-semibold'>
@@ -509,7 +509,7 @@ function CompletenessPanel({
       </div>
       <CollapsibleContent className='border-t p-3 text-xs'>
         {data.blockedReasons.length > 0 && (
-          <ul className='mt-2 space-y-1 text-xs text-warning-foreground'>
+          <ul className='mt-2 space-y-1 text-xs text-amber-800 dark:text-amber-300'>
             {data.blockedReasons.map((reason) => (
               <li key={reason}>• {reason}</li>
             ))}
@@ -530,7 +530,10 @@ function CompletenessPanel({
                     {finalizationLabel(item.status)}
                   </p>
                   {item.reasons.map((reason) => (
-                    <p key={reason} className='text-warning-foreground'>
+                    <p
+                      key={reason}
+                      className='text-amber-800 dark:text-amber-300'
+                    >
                       {reason}
                     </p>
                   ))}

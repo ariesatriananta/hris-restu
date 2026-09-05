@@ -236,7 +236,7 @@ export function AttendanceRecapTable({
                     {item.abnormal > 0 && (
                       <Badge
                         variant='outline'
-                        className='border-warning/60 bg-warning/10'
+                        className='border-warning/60 bg-warning/10 text-amber-800 dark:text-amber-300'
                       >
                         {item.abnormal} abnormal
                       </Badge>

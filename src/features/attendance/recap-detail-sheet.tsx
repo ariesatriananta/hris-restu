@@ -235,7 +235,10 @@ function DailyStatus({ item }: { item: AttendanceRecapDay }) {
       {item.virtual && <Badge variant='outline'>Hanya di rekap</Badge>}
       {item.isCorrected && <Badge variant='outline'>Dikoreksi</Badge>}
       {item.qualityStatus === 'ABNORMAL' && (
-        <Badge variant='outline' className='border-warning/60 bg-warning/10'>
+        <Badge
+          variant='outline'
+          className='border-warning/60 bg-warning/10 text-amber-800 dark:text-amber-300'
+        >
           <AlertTriangle className='size-3' /> Abnormal
         </Badge>
       )}

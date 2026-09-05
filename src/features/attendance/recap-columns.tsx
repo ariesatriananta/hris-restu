@@ -169,7 +169,10 @@ export function recapColumns(
       meta: { label: 'Abnormal' },
       cell: ({ row }) =>
         row.original.abnormal ? (
-          <Badge variant='outline' className='border-warning/60 bg-warning/10'>
+          <Badge
+            variant='outline'
+            className='border-warning/60 bg-warning/10 text-amber-800 dark:text-amber-300'
+          >
             {row.original.abnormal}
           </Badge>
         ) : (

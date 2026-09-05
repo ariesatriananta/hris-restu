@@ -74,7 +74,7 @@ describe('Payroll approval API', () => {
   beforeEach(() => {
     vi.clearAllMocks(); mocks.integrity.mockReset(); mocks.begin.mockResolvedValue(undefined); mocks.commit.mockResolvedValue(undefined)
     mocks.rollback.mockResolvedValue(undefined); mocks.execute.mockResolvedValue([{ insertId: 11, affectedRows: 1 }])
-    mocks.integrity.mockResolvedValue({ valid: true, issues: [] })
+    mocks.integrity.mockResolvedValue({ valid: true, issues: [], warnings: [] })
   })
 
   function mutationQueries(initial: Record<string, unknown>, final: Record<string, unknown>) {
@@ -105,7 +105,8 @@ describe('Payroll approval API', () => {
     mutationQueries(period, period)
     mocks.integrity.mockResolvedValueOnce({
       valid: false,
-      issues: [{ code: 'MISSING_BANK_ACCOUNT', message: 'Snapshot rekening pembayaran belum lengkap.', count: 1 }],
+      issues: [{ code: 'AGGREGATE_MISMATCH', message: 'Total run tidak konsisten.', count: 1 }],
+      warnings: [],
     })
     const response = await request(`/periods/${period.periodUid}/submit`, {
       method: 'POST', body: { idempotencyKey: '33333333-3333-4333-8333-333333333333' },
@@ -113,6 +114,36 @@ describe('Payroll approval API', () => {
     expect(response.status).toBe(409)
     expect(mocks.audit).not.toHaveBeenCalled()
     expect(mocks.rollback).toHaveBeenCalledOnce()
+  })
+
+  it('membuka submit ketika rekening kosong hanya menjadi warning', async () => {
+    const unsubmittedPeriod = {
+      ...period,
+      approvalId: undefined,
+      approvalUid: undefined,
+      approvalStatus: undefined,
+    }
+    mutationQueries(unsubmittedPeriod, {
+      ...unsubmittedPeriod,
+      approvalId: 11,
+      approvalUid: '55555555-5555-4555-8555-555555555555',
+      approvalStatus: 'PENDING',
+    })
+    mocks.integrity.mockResolvedValue({
+      valid: true,
+      issues: [],
+      warnings: [{
+        code: 'MISSING_BANK_ACCOUNT',
+        message: 'Snapshot rekening pembayaran belum lengkap.',
+        count: 2,
+      }],
+    })
+    const response = await request(`/periods/${period.periodUid}/submit`, {
+      method: 'POST',
+      body: { idempotencyKey: '35333333-3333-4333-8333-333333333333' },
+    })
+    expect(response.status, await response.clone().text()).toBe(201)
+    expect(mocks.audit).toHaveBeenCalled()
   })
 
   it('membuka submit TIME_BASED melalui integrity checker M5D', async () => {

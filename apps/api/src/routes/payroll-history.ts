@@ -268,7 +268,16 @@ payrollHistoryRouter.post('/runs/:runUid/export',async(req,res,next)=>{try{
   const input=outputInput.parse(req.body),permission=input.type==='PAYMENT'?'payroll.payment_export':'payroll.export',auth=res.locals.auth as AuthContext
   if(!isSuper(auth)&&!auth.permissions.includes(permission)) throw new ApiError(403,'Anda tidak memiliki izin untuk export Payroll ini.')
   const row=await loadRun(auth,uuid.parse(req.params.runUid));assertCompleted(row);if(input.type==='PAYMENT'&&!isOfficial(row)) throw new ApiError(409,'Daftar Pembayaran hanya tersedia dari current run FINAL pada Payroll CLOSED.')
-  const results=await employeeRows(Number(row.runId),{ids:input.employeeResultUids,query:input.query}); const exportRows:PayrollExportRow[]=results.map(result=>({employeeNumber:result.employee_number_snapshot,fullName:result.employee_name_snapshot,
+  const results=await employeeRows(Number(row.runId),{ids:input.employeeResultUids,query:input.query});
+  if(input.type==='PAYMENT'){
+    const missingBankAccounts=results.filter(result=>
+      !String(result.bank_name_snapshot??'').trim()||
+      !String(result.bank_account_number_snapshot??'').trim()||
+      !String(result.bank_account_name_snapshot??'').trim()
+    ).length
+    if(missingBankAccounts>0) throw new ApiError(409,`Daftar Pembayaran belum dapat dibuat: ${missingBankAccounts} rekening karyawan belum lengkap.`)
+  }
+  const exportRows:PayrollExportRow[]=results.map(result=>({employeeNumber:result.employee_number_snapshot,fullName:result.employee_name_snapshot,
     employeeType:result.employee_type_snapshot,departmentName:result.department_name_snapshot,positionName:result.position_name_snapshot,bankName:result.bank_name_snapshot,
     bankAccountNumber:result.bank_account_number_snapshot,bankAccountName:result.bank_account_name_snapshot,pieceRateAmount:money(result.piece_rate_amount),basicSalaryAmount:money(result.basic_salary_amount),additionalEarnings:money(result.additional_earnings),
     grossEarnings:money(result.gross_earnings),totalDeductions:money(result.total_deductions),netPay:money(result.net_pay)}))

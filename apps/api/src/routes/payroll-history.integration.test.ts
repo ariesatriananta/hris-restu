@@ -63,6 +63,31 @@ describe('Payroll M4 history API',()=>{
     expect(notFinal.status).toBe(409)
   })
 
+  it('memblokir payment export bila snapshot rekening pilihan belum lengkap',async()=>{
+    const officialRun={...run,periodStatus:'CLOSED',runType:'FINAL',currentRunId:run.runId}
+    mocks.query.mockImplementation(async(sql:unknown)=>{
+      const statement=String(sql)
+      if(statement.includes('FROM payroll_runs pr JOIN payroll_periods')) return [[officialRun]]
+      if(statement.includes('SELECT result.* FROM payroll_employee_results')) return [[{
+        id:5,uid:'55555555-5555-4555-8555-555555555555',
+        employee_number_snapshot:'PKDS-1',employee_name_snapshot:'AAN',
+        employee_type_snapshot:'BORONGAN',bank_name_snapshot:null,
+        bank_account_number_snapshot:null,bank_account_name_snapshot:null,
+        piece_rate_amount:'100.00',basic_salary_amount:'0.00',
+        additional_earnings:'0.00',gross_earnings:'100.00',
+        total_deductions:'0.00',net_pay:'100.00',
+      }]]
+      return [[]]
+    })
+    const response=await request(`/runs/${run.runUid}/export`,{
+      method:'POST',
+      auth:{...finance,permissions:['payroll.view','payroll.payment_export']},
+      body:{type:'PAYMENT',idempotencyKey:'45444444-4444-4444-8444-444444444444'},
+    })
+    expect(response.status).toBe(409)
+    expect(mocks.begin).not.toHaveBeenCalled()
+  })
+
   it('preview slip hanya mengirim empat digit rekening dan issue perlu izin print',async()=>{
     mocks.query.mockImplementation(async(sql:unknown)=>{
       const statement=String(sql)

@@ -205,4 +205,86 @@ describe('Payroll approval closing page', () => {
       .element(screen.getByText('Override Super Admin'))
       .toBeInTheDocument()
   })
+
+  it('tetap membuka pengajuan ketika rekening belum lengkap hanya warning', async () => {
+    const queryClient = client()
+    queryClient.setQueryData(['payroll-periods', 'detail', periodUid], {
+      uid: periodUid,
+      periodCode: 'PAY-JPR-202608',
+      periodName: 'Payroll Agustus 2026',
+      periodStart: '2026-08-01',
+      periodEnd: '2026-08-31',
+      paymentDate: null,
+      payrollBasis: 'PIECE_RATE',
+      status: 'CALCULATED',
+      notes: null,
+      site: {
+        uid: '44444444-4444-4444-8444-444444444444',
+        code: 'JEPARA',
+        name: 'Jepara',
+      },
+      createdAt: '2026-08-28T08:00:00.000Z',
+      cancelledAt: null,
+      cancellationReason: null,
+      readiness: {
+        status: 'ATTENTION',
+        populationCount: 354,
+        blockers: [],
+        warnings: [],
+      },
+    })
+    queryClient.setQueryData(['payroll-periods', periodUid, 'workflow'], {
+      periodUid,
+      periodStatus: 'CALCULATED',
+      currentRun: {
+        uid: runUid,
+        runNumber: 1,
+        runType: 'SIMULATION',
+        status: 'COMPLETED',
+        employeeCount: 354,
+        totalPieceRateAmount: '62403225.00',
+        totalEarnings: '50000.00',
+        totalDeductions: '100000.00',
+        totalNetPay: '62353225.00',
+      },
+      approval: null,
+      capabilities: {
+        canSubmit: true,
+        canWithdraw: false,
+        canApprove: false,
+        canReject: false,
+        canClose: false,
+      },
+      integrity: {
+        valid: true,
+        issues: [],
+        warnings: [
+          {
+            code: 'MISSING_BANK_ACCOUNT',
+            message: 'Snapshot rekening pembayaran belum lengkap.',
+            count: 354,
+          },
+        ],
+      },
+      history: [],
+    })
+    queryClient.setQueryData(['payroll-periods', 'run', runUid], {
+      uid: runUid,
+      totalPieceRateAmount: '62403225.00',
+      totalEarnings: '50000.00',
+      totalDeductions: '100000.00',
+      totalNetPay: '62353225.00',
+    })
+
+    const screen = await renderPage(queryClient, { periodUid })
+    await expect
+      .element(screen.getByText('Data dapat diproses dengan perhatian'))
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByText('Snapshot rekening pembayaran belum lengkap.'))
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByRole('button', { name: 'Ajukan' }))
+      .toBeInTheDocument()
+  })
 })

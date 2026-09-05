@@ -615,7 +615,8 @@ function PeriodSummary({
 }
 
 function IntegrityPanel({ workflow }: { workflow: PayrollWorkflow }) {
-  if (workflow.integrity.valid) {
+  const warnings = workflow.integrity.warnings ?? []
+  if (workflow.integrity.valid && warnings.length === 0) {
     return (
       <Alert className='border-positive/30 bg-positive/5'>
         <CheckCircle2 className='text-positive' />
@@ -626,26 +627,52 @@ function IntegrityPanel({ workflow }: { workflow: PayrollWorkflow }) {
       </Alert>
     )
   }
+  if (workflow.integrity.valid) {
+    return <IntegrityWarnings warnings={warnings} />
+  }
   const requiresRecalculation = workflow.integrity.issues.some((issue) =>
     isRecalculationIssue(issue.code)
   )
   return (
-    <Alert variant='destructive'>
-      <AlertTriangle />
-      <AlertTitle>
-        {requiresRecalculation ? 'Perlu hitung ulang' : 'Belum dapat diproses'}
-      </AlertTitle>
+    <div className='space-y-3'>
+      <Alert variant='destructive'>
+        <AlertTriangle />
+        <AlertTitle>
+          {requiresRecalculation
+            ? 'Perlu hitung ulang'
+            : 'Belum dapat diproses'}
+        </AlertTitle>
+        <AlertDescription>
+          <ul className='mt-1 list-disc space-y-1 ps-4'>
+            {workflow.integrity.issues.map((issue) => (
+              <li key={issue.code}>
+                {issue.message}
+                {issue.count > 0 ? ` (${issue.count})` : ''}
+              </li>
+            ))}
+          </ul>
+        </AlertDescription>
+      </Alert>
+      {warnings.length > 0 && <IntegrityWarnings warnings={warnings} />}
+    </div>
+  )
+}
+
+function IntegrityWarnings({
+  warnings,
+}: {
+  warnings: PayrollWorkflow['integrity']['issues']
+}) {
+  return (
+    <Alert className='border-warning/40 bg-warning/5'>
+      <AlertTriangle className='text-warning' />
+      <AlertTitle>Data dapat diproses dengan perhatian</AlertTitle>
       <AlertDescription>
         <ul className='mt-1 list-disc space-y-1 ps-4'>
-          {workflow.integrity.issues.map((issue) => (
-            <li key={issue.code}>
-              {issue.message}
-              {issue.count > 0 ? ` (${issue.count})` : ''}
-              {issue.code.includes('BANK') && (
-                <span className='block text-xs'>
-                  Lengkapi rekening karyawan, lalu hitung ulang Payroll.
-                </span>
-              )}
+          {warnings.map((warning) => (
+            <li key={warning.code}>
+              {warning.message}
+              {warning.count > 0 ? ` (${warning.count})` : ''}
             </li>
           ))}
         </ul>

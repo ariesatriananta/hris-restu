@@ -22,7 +22,7 @@ describe('Payroll approval integrity', () => {
       [{ resultEmployeeCount: 2, runEmployeeCount: 2 }],
     ])
     const result = await inspectPayrollRunIntegrity({ query }, run)
-    expect(result).toEqual({ valid: true, issues: [] })
+    expect(result).toEqual({ valid: true, issues: [], warnings: [] })
     const sql = String(query.mock.calls[0]?.[0])
     expect(sql).toContain('WITH live_attendance AS')
     expect(sql).toContain('snapshot.id IS NULL')
@@ -36,16 +36,18 @@ describe('Payroll approval integrity', () => {
     )
   })
 
-  it('memblokir rekening snapshot kosong walau readiness hanya perhatian', async () => {
+  it('menjadikan rekening snapshot kosong sebagai warning', async () => {
     readiness.mockResolvedValue({ status: 'ATTENTION', blockerCount: 0 })
     const query = vi.fn().mockResolvedValue([
       [{ resultEmployeeCount: 2, missingBankCount: 1 }],
     ])
     const result = await inspectPayrollRunIntegrity({ query }, run)
-    expect(result.valid).toBe(false)
-    expect(result.issues).toContainEqual({
+    expect(result.valid).toBe(true)
+    expect(result.issues).toEqual([])
+    expect(result.warnings).toContainEqual({
       code: 'MISSING_BANK_ACCOUNT',
-      message: 'Snapshot rekening pembayaran belum lengkap.',
+      message:
+        'Snapshot rekening pembayaran belum lengkap. Daftar Pembayaran bank belum dapat dibuat untuk karyawan tersebut.',
       count: 1,
     })
   })

@@ -48,3 +48,18 @@ export function periodForDate(anchor: Date, policy: PeriodPolicy) {
     periodEnd: format(periodEnd, 'yyyy-MM-dd'),
   }
 }
+
+export function pieceRatePeriodForDates(periodStart: Date, periodEnd: Date) {
+  const maximumEnd = addDays(periodStart, 30)
+  const boundedEnd =
+    periodEnd < periodStart
+      ? periodStart
+      : periodEnd > maximumEnd
+        ? maximumEnd
+        : periodEnd
+
+  return {
+    periodStart: format(periodStart, 'yyyy-MM-dd'),
+    periodEnd: format(boundedEnd, 'yyyy-MM-dd'),
+  }
+}

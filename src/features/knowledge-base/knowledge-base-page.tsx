@@ -10,6 +10,7 @@ import {
   GitBranchPlus,
   Landmark,
   LayoutGrid,
+  Maximize2,
   UserRoundSearch,
   UsersRound,
 } from 'lucide-react'
@@ -17,10 +18,20 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
 import { Main } from '@/components/layout/main'
 import attendanceOverview from '../../../docs/KBASE_ATTENDANCE.md?raw'
 import payrollOverview from '../../../docs/KBASE_PAYROLL.md?raw'
+import employeeJourneyInfographic from '../../../docs/assets/infografis-alur-karyawan-produksi-borongan.png'
 import attendanceOperations from '../../../docs/kbase/attendance/KBASE_OPERASIONAL_HARIAN_ATTENDANCE.md?raw'
 import attendanceSettings from '../../../docs/kbase/attendance/KBASE_PENGATURAN_ATTENDANCE.md?raw'
 import attendanceRecap from '../../../docs/kbase/attendance/KBASE_REKAP_ATTENDANCE.md?raw'
@@ -392,6 +403,8 @@ function KnowledgeHome({
         </p>
       </div>
 
+      <EmployeeJourneyInfographic />
+
       <div className='grid gap-4 lg:grid-cols-2'>
         {groupOrder.map((group) => {
           const groupArticles = articles.filter(
@@ -447,6 +460,97 @@ function KnowledgeHome({
             </section>
           )
         })}
+      </div>
+    </section>
+  )
+}
+
+function EmployeeJourneyInfographic() {
+  return (
+    <section
+      aria-labelledby='employee-journey-title'
+      className='relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-positive/10 shadow-sm'
+    >
+      <div className='pointer-events-none absolute -top-20 -right-12 size-56 rounded-full bg-positive/10 blur-3xl' />
+      <div className='relative grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,0.72fr)_minmax(20rem,1.28fr)] lg:items-center lg:p-6'>
+        <div className='space-y-4 lg:pl-2'>
+          <Badge className='bg-positive text-white hover:bg-positive/90'>
+            Panduan visual
+          </Badge>
+          <div className='space-y-2'>
+            <h3
+              id='employee-journey-title'
+              className='text-xl font-bold tracking-tight sm:text-2xl'
+            >
+              Alur karyawan produksi borongan
+            </h3>
+            <p className='text-sm leading-6 text-muted-foreground'>
+              Lihat perjalanan lengkap mulai dari pelamar mengisi formulir,
+              penyiapan data kerja dan Attendance, pencatatan setoran produksi,
+              sampai karyawan menerima slip gaji.
+            </p>
+          </div>
+          <div className='flex flex-wrap gap-2 text-xs text-muted-foreground'>
+            <span className='rounded-full border bg-background/80 px-2.5 py-1'>
+              8 tahap utama
+            </span>
+            <span className='rounded-full border bg-background/80 px-2.5 py-1'>
+              Daftar hal yang dipantau
+            </span>
+          </div>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button type='button' className='w-full sm:w-auto'>
+                <Maximize2 /> Lihat infografis lengkap
+              </Button>
+            </DialogTrigger>
+            <DialogContent className='max-h-[92svh] overflow-y-auto p-3 sm:max-w-4xl sm:p-5'>
+              <DialogHeader className='px-1 text-left'>
+                <DialogTitle>Alur karyawan produksi borongan</DialogTitle>
+                <DialogDescription>
+                  Dari Form Data Pelamar sampai Payroll dan slip gaji.
+                </DialogDescription>
+              </DialogHeader>
+              <img
+                src={employeeJourneyInfographic}
+                alt='Infografis delapan tahap alur karyawan produksi borongan dari pelamar sampai menerima slip gaji'
+                className='mx-auto h-auto w-full rounded-xl border bg-white'
+              />
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        <Dialog>
+          <DialogTrigger asChild>
+            <button
+              type='button'
+              aria-label='Buka infografis alur karyawan produksi borongan dalam ukuran penuh'
+              className='group relative overflow-hidden rounded-xl border bg-white p-2 text-left shadow-sm transition outline-none hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring sm:p-3'
+            >
+              <img
+                src={employeeJourneyInfographic}
+                alt='Pratinjau infografis alur karyawan produksi borongan dari pelamar sampai digaji'
+                className='mx-auto max-h-[34rem] w-full object-contain object-top transition duration-300 group-hover:scale-[1.01]'
+              />
+              <span className='absolute right-4 bottom-4 inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-lg'>
+                <Maximize2 className='size-3.5' /> Perbesar
+              </span>
+            </button>
+          </DialogTrigger>
+          <DialogContent className='max-h-[92svh] overflow-y-auto p-3 sm:max-w-4xl sm:p-5'>
+            <DialogHeader className='px-1 text-left'>
+              <DialogTitle>Alur karyawan produksi borongan</DialogTitle>
+              <DialogDescription>
+                Dari Form Data Pelamar sampai Payroll dan slip gaji.
+              </DialogDescription>
+            </DialogHeader>
+            <img
+              src={employeeJourneyInfographic}
+              alt='Infografis delapan tahap alur karyawan produksi borongan dari pelamar sampai menerima slip gaji'
+              className='mx-auto h-auto w-full rounded-xl border bg-white'
+            />
+          </DialogContent>
+        </Dialog>
       </div>
     </section>
   )
