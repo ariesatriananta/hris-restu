@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import {
   BookOpenText,
   BriefcaseBusiness,
@@ -39,6 +39,11 @@ import employeeMaster from '../../../docs/kbase/karyawan/KBASE_MASTER_KARYAWAN.m
 import employeeContracts from '../../../docs/kbase/karyawan/KBASE_PENGELOLAAN_KONTRAK.md?raw'
 import employeeMutations from '../../../docs/kbase/karyawan/KBASE_PENGELOLAAN_MUTASI.md?raw'
 import employeeRecruitment from '../../../docs/kbase/karyawan/KBASE_REKRUTMEN.md?raw'
+import payrollApprovalClosing from '../../../docs/kbase/payroll/KBASE_APPROVAL_DAN_CLOSING_PAYROLL.md?raw'
+import payrollPeriodReadiness from '../../../docs/kbase/payroll/KBASE_PERIODE_DAN_KESIAPAN_PAYROLL.md?raw'
+import payrollHistoryExportPayslip from '../../../docs/kbase/payroll/KBASE_RIWAYAT_EKSPOR_DAN_SLIP_PAYROLL.md?raw'
+import payrollSimulationComponents from '../../../docs/kbase/payroll/KBASE_SIMULASI_DAN_KOMPONEN_PAYROLL.md?raw'
+import payrollSchemeRates from '../../../docs/kbase/payroll/KBASE_SKEMA_UPAH_DAN_TARIF.md?raw'
 import productionMaster from '../../../docs/kbase/production/KBASE_MASTER_PRODUKSI.md?raw'
 import productionRecap from '../../../docs/kbase/production/KBASE_REKAP_PRODUKSI.md?raw'
 import productionTransactions from '../../../docs/kbase/production/KBASE_TRANSAKSI_SETORAN_PRODUKSI.md?raw'
@@ -168,14 +173,67 @@ const articles: ArticleDefinition[] = [
     status: 'Aktif',
   },
   {
-    value: 'payroll',
+    value: 'payroll-ringkasan',
     group: 'Payroll',
-    label: 'Payroll',
-    description: 'Ruang lingkup dan status dokumentasi Payroll',
+    label: 'Ringkasan Payroll',
+    description: 'Peta panduan, alur proses, status, dan prinsip Payroll',
     icon: Landmark,
     sourceName: 'KBASE_PAYROLL.md',
     content: payrollOverview,
-    status: 'Kerangka',
+    status: 'Aktif',
+  },
+  {
+    value: 'payroll-skema-tarif',
+    group: 'Payroll',
+    label: 'Skema Upah & Tarif',
+    description: 'Borongan, Harian, Training, Bulanan, policy, dan tarif',
+    icon: FileCog,
+    sourceName: 'KBASE_SKEMA_UPAH_DAN_TARIF.md',
+    content: payrollSchemeRates,
+    status: 'Aktif',
+  },
+  {
+    value: 'payroll-periode-kesiapan',
+    group: 'Payroll',
+    label: 'Periode & Kesiapan',
+    description:
+      'Membuat periode, membaca readiness, dan menyelesaikan blocker',
+    icon: CalendarCheck2,
+    sourceName: 'KBASE_PERIODE_DAN_KESIAPAN_PAYROLL.md',
+    content: payrollPeriodReadiness,
+    status: 'Aktif',
+  },
+  {
+    value: 'payroll-simulasi-komponen',
+    group: 'Payroll',
+    label: 'Simulasi & Komponen',
+    description:
+      'Perhitungan, komponen manual, hasil karyawan, dan hitung ulang',
+    icon: ClipboardList,
+    sourceName: 'KBASE_SIMULASI_DAN_KOMPONEN_PAYROLL.md',
+    content: payrollSimulationComponents,
+    status: 'Aktif',
+  },
+  {
+    value: 'payroll-approval-closing',
+    group: 'Payroll',
+    label: 'Approval & Closing',
+    description: 'Pengajuan, persetujuan, penolakan, penarikan, dan closing',
+    icon: Landmark,
+    sourceName: 'KBASE_APPROVAL_DAN_CLOSING_PAYROLL.md',
+    content: payrollApprovalClosing,
+    status: 'Aktif',
+  },
+  {
+    value: 'payroll-riwayat-ekspor-slip',
+    group: 'Payroll',
+    label: 'Riwayat, Ekspor & Slip',
+    description:
+      'Run Payroll, perbandingan, rekap, daftar pembayaran, dan slip',
+    icon: FileText,
+    sourceName: 'KBASE_RIWAYAT_EKSPOR_DAN_SLIP_PAYROLL.md',
+    content: payrollHistoryExportPayslip,
+    status: 'Aktif',
   },
 ]
 
@@ -212,14 +270,15 @@ export function KnowledgeBasePage({
     [activeArticle]
   )
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (firstRenderRef.current) {
       firstRenderRef.current = false
       return
     }
     articleTopRef.current?.scrollIntoView({
-      behavior: 'smooth',
+      behavior: 'auto',
       block: 'start',
+      inline: 'nearest',
     })
   }, [article])
 

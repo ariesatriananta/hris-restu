@@ -37,3 +37,22 @@ describe('artikel Knowledge Base Karyawan', () => {
     )
   })
 })
+
+describe('artikel Knowledge Base Payroll', () => {
+  it('menyediakan indeks dan lima panduan Payroll yang terpisah', () => {
+    expect(knowledgeArticleValues).toEqual(
+      expect.arrayContaining([
+        'payroll-ringkasan',
+        'payroll-skema-tarif',
+        'payroll-periode-kesiapan',
+        'payroll-simulasi-komponen',
+        'payroll-approval-closing',
+        'payroll-riwayat-ekspor-slip',
+      ])
+    )
+  })
+
+  it('mengarahkan tautan Payroll lama ke indeks Payroll', () => {
+    expect(normalizeKnowledgeArticle('payroll')).toBe('payroll-ringkasan')
+  })
+})
