@@ -5,9 +5,17 @@ import { errorHandler } from '../lib/errors.js'
 import type { AuthContext } from '../middleware/authenticate.js'
 import { attendanceInsightsRouter } from './attendance-insights.js'
 
-const mocks = vi.hoisted(() => ({ query: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  query: vi.fn(),
+  getAttendanceFinalizationRequirement: vi.fn(),
+}))
 
 vi.mock('../db.js', () => ({ pool: { query: mocks.query } }))
+
+vi.mock('../lib/attendance-finalization.js', () => ({
+  getAttendanceFinalizationRequirement:
+    mocks.getAttendanceFinalizationRequirement,
+}))
 
 vi.mock('../middleware/authenticate.js', () => ({
   requirePermission:
@@ -65,6 +73,13 @@ async function get(path: string, context = auth()) {
 describe('Attendance insights API', () => {
   beforeEach(() => {
     mocks.query.mockReset()
+    mocks.getAttendanceFinalizationRequirement.mockReset()
+    mocks.getAttendanceFinalizationRequirement.mockResolvedValue({
+      required: true,
+      effectiveTargets: 10,
+      resolvedNonWorkdayTargets: 0,
+      unresolvedTargets: 0,
+    })
   })
 
   it('menolak readiness tanpa permission sebelum mengakses database', async () => {
@@ -158,6 +173,64 @@ describe('Attendance insights API', () => {
         String(sql).includes('invalidatedByClassificationReversal')
       )
     ).toBe(true)
+    expect(mocks.getAttendanceFinalizationRequirement).toHaveBeenCalledTimes(2)
+  })
+
+  it('tidak menandai finalisasi ulang bila kondisi terbaru tidak membutuhkannya', async () => {
+    mocks.getAttendanceFinalizationRequirement.mockResolvedValue({
+      required: false,
+      effectiveTargets: 406,
+      resolvedNonWorkdayTargets: 406,
+      unresolvedTargets: 0,
+    })
+    mocks.query.mockImplementation(async (sqlValue: unknown) => {
+      const sql = String(sqlValue)
+      if (sql.includes('FROM sites s')) {
+        return [[{ id: 1, site: 'JEPARA', siteName: 'Site Jepara' }]]
+      }
+      if (sql.includes('FROM attendance_calendar_events')) {
+        return [[{ nationalHolidayCount: 17, collectiveLeaveAvailableCount: 8 }]]
+      }
+      if (sql.includes('FROM employee_employment_histories h')) {
+        return [[{ eligibleEmployeeCount: 406, withoutAssignmentCount: 0, ambiguousAssignmentCount: 0 }]]
+      }
+      if (sql.includes('FROM scan_devices')) {
+        return [[{ totalCount: 1, readyCount: 1, notReadyCount: 0 }]]
+      }
+      if (sql.includes('FROM attendance_calendar_site_rules')) {
+        return [[{ selectedCount: 0 }]]
+      }
+      if (sql.includes('FROM attendance_daily_finalization_runs latest')) {
+        return [[{ businessDate: '2026-08-22' }, { businessDate: '2026-08-23' }]]
+      }
+      if (sql.includes('FROM attendance_corrections ac')) {
+        return [[{ pendingCorrectionCount: 0, pendingClassificationCount: 0 }]]
+      }
+      throw new Error(`Query belum dimock: ${sql.slice(0, 100)}`)
+    })
+
+    const response = await get('/readiness?site=JEPARA')
+    const result = (await response.json()) as {
+      items: Array<{
+        finalization: {
+          rerunRequiredCount: number
+          rerunRequiredDates: string[]
+        }
+        attentionCount: number
+      }>
+      totals: { finalizationRerunCount: number; attentionCount: number }
+    }
+
+    expect(response.status).toBe(200)
+    expect(result.items[0]?.finalization).toEqual({
+      rerunRequiredCount: 0,
+      rerunRequiredDates: [],
+    })
+    expect(result.items[0]?.attentionCount).toBe(0)
+    expect(result.totals).toMatchObject({
+      finalizationRerunCount: 0,
+      attentionCount: 0,
+    })
   })
 
   it('menolak timeline record milik site lain', async () => {

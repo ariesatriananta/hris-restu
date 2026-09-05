@@ -21,6 +21,10 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import { hasAnyPermission, hasPermission } from '@/features/auth/permissions'
+import {
+  getAttendanceAttentionDetails,
+  getAttendanceAttentionLabel,
+} from './attendance-readiness-utils'
 import { useAttendanceReadiness } from './data/queries'
 import type { AttendanceReadinessSite, AttendanceSiteCode } from './domain'
 
@@ -29,10 +33,7 @@ export function AttendanceReadinessPanel({
   onOpenFinalization,
 }: {
   sites?: AttendanceSiteCode[]
-  onOpenFinalization?: (
-    site: AttendanceSiteCode,
-    businessDate?: string
-  ) => void
+  onOpenFinalization?: (site: AttendanceSiteCode, businessDate?: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const result = useAttendanceReadiness({ site: sites })
@@ -44,6 +45,15 @@ export function AttendanceReadinessPanel({
     'attendance.correct',
     'attendance.approve',
   ])
+  const attentionDetails = result.data
+    ? getAttendanceAttentionDetails(result.data.items)
+    : []
+  const attentionLabel = result.data
+    ? getAttendanceAttentionLabel(
+        result.data.totals.attentionCount,
+        attentionDetails
+      )
+    : null
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} className='mb-4'>
@@ -63,7 +73,7 @@ export function AttendanceReadinessPanel({
                 >
                   {result.data.totals.attentionCount === 0
                     ? 'Semua siap'
-                    : `${result.data.totals.attentionCount} perlu perhatian`}
+                    : attentionLabel}
                 </Badge>
               )}
             </div>
@@ -72,6 +82,11 @@ export function AttendanceReadinessPanel({
                 ? `Kondisi operasional per ${dateLabel(result.data.asOfDate)} · kalender ${result.data.calendarYear}`
                 : 'Memeriksa shift, terminal, kalender, finalisasi, dan tindak lanjut.'}
             </p>
+            {result.data && result.data.totals.attentionCount > 0 && (
+              <p className='mt-1 text-xs text-warning-foreground'>
+                Perlu diperiksa: {attentionDetails.join(' · ')}
+              </p>
+            )}
           </div>
           <CollapsibleTrigger asChild>
             <Button
@@ -193,6 +208,7 @@ function ReadinessSiteCard({
   onOpenFinalization?: (businessDate?: string) => void
 }) {
   const ready = item.attentionCount === 0
+  const attentionDetails = getAttendanceAttentionDetails([item])
   return (
     <section className='min-w-0 rounded-lg border bg-background p-3'>
       <div className='mb-3 flex items-center justify-between gap-2'>
@@ -209,7 +225,12 @@ function ReadinessSiteCard({
           }
         >
           {ready ? <CircleCheck /> : <TriangleAlert />}
-          {ready ? 'Siap' : item.attentionCount}
+          {ready
+            ? 'Siap'
+            : getAttendanceAttentionLabel(
+                item.attentionCount,
+                attentionDetails
+              )}
         </Badge>
       </div>
       <div className='space-y-2 text-xs'>
@@ -227,7 +248,7 @@ function ReadinessSiteCard({
           icon={MonitorSmartphone}
           label='Terminal'
           ready={item.devices.hasReadyDevice}
-          detail={`${item.devices.readyCount}/${item.devices.totalCount} siap · ${item.devices.notReadyCount} belum siap`}
+          detail={`${item.devices.readyCount}/${item.devices.totalCount} perangkat siap · ${item.devices.notReadyCount} perangkat belum siap`}
         />
         <ReadinessLine
           icon={CalendarDays}
@@ -250,14 +271,14 @@ function ReadinessSiteCard({
           label='Finalisasi'
           ready={item.finalization.rerunRequiredCount === 0}
           detail={
-            item.finalization.rerunRequiredCount > 0
-              ? (
-                  <FinalizationReadinessDetail
-                    dates={item.finalization.rerunRequiredDates}
-                    onOpen={onOpenFinalization}
-                  />
-                )
-              : 'Tidak ada finalisasi yang perlu diulang'
+            item.finalization.rerunRequiredCount > 0 ? (
+              <FinalizationReadinessDetail
+                dates={item.finalization.rerunRequiredDates}
+                onOpen={onOpenFinalization}
+              />
+            ) : (
+              'Tidak ada finalisasi yang perlu diulang'
+            )
           }
         />
       </div>
@@ -289,9 +310,7 @@ function ReadinessSiteCard({
                 size='sm'
                 variant='outline'
                 onClick={() =>
-                  onOpenFinalization(
-                    item.finalization.rerunRequiredDates[0]
-                  )
+                  onOpenFinalization(item.finalization.rerunRequiredDates[0])
                 }
               >
                 Tinjau finalisasi

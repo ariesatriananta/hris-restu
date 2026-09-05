@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import type { RowDataPacket } from 'mysql2'
 import { pool } from '../db.js'
+import { getAttendanceFinalizationRequirement } from '../lib/attendance-finalization.js'
 import { jakartaBusinessDate } from '../lib/attendance-shift-policy.js'
 import { ApiError } from '../lib/errors.js'
 import {
@@ -11,6 +12,7 @@ import {
 const siteCodes = ['JEPARA', 'SEMARANG', 'KLATEN'] as const
 const routeParam = (value: string | string[]) =>
   Array.isArray(value) ? value[0] : value
+const finalizationRequirementBatchSize = 10
 
 function enforceSite(auth: AuthContext, site: string) {
   if (!auth.roles.includes('SUPER_ADMIN') && !auth.siteAccess.includes(site)) {
@@ -29,6 +31,26 @@ function requestedSites(raw: unknown) {
       )
     ),
   ]
+}
+
+async function requiredRerunDates(siteId: number, dates: string[]) {
+  const requiredDates: string[] = []
+  for (
+    let offset = 0;
+    offset < dates.length;
+    offset += finalizationRequirementBatchSize
+  ) {
+    const batch = dates.slice(offset, offset + finalizationRequirementBatchSize)
+    const requirements = await Promise.all(
+      batch.map((businessDate) =>
+        getAttendanceFinalizationRequirement({ siteId, businessDate })
+      )
+    )
+    batch.forEach((businessDate, index) => {
+      if (requirements[index]?.required) requiredDates.push(businessDate)
+    })
+  }
+  return requiredDates
 }
 
 export const attendanceInsightsRouter = Router()
@@ -158,8 +180,12 @@ attendanceInsightsRouter.get(
           const pendingClassificationCount = Number(
             pendingRows[0]?.pendingClassificationCount ?? 0
           )
-          const rerunRequiredDates = rerunRows.map((row) =>
+          const rerunCandidates = rerunRows.map((row) =>
             String(row.businessDate)
+          )
+          const rerunRequiredDates = await requiredRerunDates(
+            Number(site.id),
+            rerunCandidates
           )
           const rerunRequiredCount = rerunRequiredDates.length
           const calendarConfigured =

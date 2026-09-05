@@ -92,6 +92,11 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Finalisasi periode Attendance dijalankan dari Monitoring Harian untuk tepat
   satu site dalam satu proses. Pengguna dapat memilih rentang maksimal 31 hari
   kalender atau maksimal 31 tanggal tertunda paling lama sejak tanggal go-live.
+- Daftar "perlu finalisasi ulang" pada Kesiapan Attendance wajib memeriksa
+  kebutuhan tanggal berdasarkan histori, Shift, dan kalender terbaru. Penanda
+  invalidasi lama tetap disimpan sebagai jejak audit, tetapi tidak boleh
+  ditampilkan sebagai pekerjaan tertunda bila tanggal tersebut sekarang tidak
+  membutuhkan finalisasi, misalnya seluruh karyawan sedang libur mingguan.
 - Pratinjau finalisasi periode wajib dihitung ulang oleh server. Hanya tanggal
   yang masih siap yang boleh dijalankan; tanggal dengan masalah data, tindak
   lanjut tertunda, proses lain yang sedang berjalan, atau kuncian Payroll harus
