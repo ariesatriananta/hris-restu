@@ -1,9 +1,11 @@
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import {
+  Activity,
   BookOpenText,
   BriefcaseBusiness,
   CalendarCheck2,
   ClipboardList,
+  Database,
   Factory,
   FileCog,
   FileText,
@@ -11,6 +13,9 @@ import {
   Landmark,
   LayoutGrid,
   Maximize2,
+  ScrollText,
+  Settings2,
+  ShieldCheck,
   UserRoundSearch,
   UsersRound,
 } from 'lucide-react'
@@ -29,9 +34,15 @@ import {
 } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
 import { Main } from '@/components/layout/main'
+import administrationOverview from '../../../docs/KBASE_ADMINISTRASI_SISTEM.md?raw'
 import attendanceOverview from '../../../docs/KBASE_ATTENDANCE.md?raw'
 import payrollOverview from '../../../docs/KBASE_PAYROLL.md?raw'
 import employeeJourneyInfographic from '../../../docs/assets/infografis-alur-karyawan-produksi-borongan.png'
+import administrationAuditTrail from '../../../docs/kbase/administrasi-sistem/KBASE_AUDIT_TRAIL.md?raw'
+import administrationMasterData from '../../../docs/kbase/administrasi-sistem/KBASE_MASTER_DATA.md?raw'
+import administrationCronMonitoring from '../../../docs/kbase/administrasi-sistem/KBASE_MONITORING_CRON.md?raw'
+import administrationSettings from '../../../docs/kbase/administrasi-sistem/KBASE_PENGATURAN_SISTEM.md?raw'
+import administrationUserAccess from '../../../docs/kbase/administrasi-sistem/KBASE_USER_DAN_HAK_AKSES.md?raw'
 import attendanceOperations from '../../../docs/kbase/attendance/KBASE_OPERASIONAL_HARIAN_ATTENDANCE.md?raw'
 import attendanceSettings from '../../../docs/kbase/attendance/KBASE_PENGATURAN_ATTENDANCE.md?raw'
 import attendanceRecap from '../../../docs/kbase/attendance/KBASE_REKAP_ATTENDANCE.md?raw'
@@ -51,7 +62,12 @@ import type { KnowledgeArticle } from './domain'
 
 type ArticleDefinition = {
   value: KnowledgeArticle
-  group: 'Karyawan' | 'Attendance' | 'Produksi Borongan' | 'Payroll'
+  group:
+    | 'Karyawan'
+    | 'Attendance'
+    | 'Produksi Borongan'
+    | 'Payroll'
+    | 'Administrasi Sistem'
   label: string
   description: string
   icon: React.ElementType
@@ -235,6 +251,66 @@ const articles: ArticleDefinition[] = [
     content: payrollHistoryExportPayslip,
     status: 'Aktif',
   },
+  {
+    value: 'administrasi-ringkasan',
+    group: 'Administrasi Sistem',
+    label: 'Ringkasan Administrasi',
+    description: 'Peta menu, kewenangan, dan prinsip pengelolaan sistem',
+    icon: ShieldCheck,
+    sourceName: 'KBASE_ADMINISTRASI_SISTEM.md',
+    content: administrationOverview,
+    status: 'Aktif',
+  },
+  {
+    value: 'administrasi-user-hak-akses',
+    group: 'Administrasi Sistem',
+    label: 'User & Hak Akses',
+    description: 'Akun, role, permission, status, dan cakupan site pengguna',
+    icon: UsersRound,
+    sourceName: 'KBASE_USER_DAN_HAK_AKSES.md',
+    content: administrationUserAccess,
+    status: 'Aktif',
+  },
+  {
+    value: 'administrasi-master-data',
+    group: 'Administrasi Sistem',
+    label: 'Master Data',
+    description: 'Departemen, jabatan, struktur, dan mapping produksi',
+    icon: Database,
+    sourceName: 'KBASE_MASTER_DATA.md',
+    content: administrationMasterData,
+    status: 'Aktif',
+  },
+  {
+    value: 'administrasi-audit-trail',
+    group: 'Administrasi Sistem',
+    label: 'Audit Trail',
+    description: 'Penelusuran aktivitas, perubahan data, dan detail audit',
+    icon: ScrollText,
+    sourceName: 'KBASE_AUDIT_TRAIL.md',
+    content: administrationAuditTrail,
+    status: 'Aktif',
+  },
+  {
+    value: 'administrasi-monitoring-cron',
+    group: 'Administrasi Sistem',
+    label: 'Monitoring Cron',
+    description: 'Status proses terjadwal, riwayat, dan tindakan manual',
+    icon: Activity,
+    sourceName: 'KBASE_MONITORING_CRON.md',
+    content: administrationCronMonitoring,
+    status: 'Aktif',
+  },
+  {
+    value: 'administrasi-pengaturan',
+    group: 'Administrasi Sistem',
+    label: 'Pengaturan Sistem',
+    description: 'Profil perusahaan, kontrak, dan konfigurasi Attendance',
+    icon: Settings2,
+    sourceName: 'KBASE_PENGATURAN_SISTEM.md',
+    content: administrationSettings,
+    status: 'Aktif',
+  },
 ]
 
 const groupOrder: ArticleDefinition['group'][] = [
@@ -242,6 +318,7 @@ const groupOrder: ArticleDefinition['group'][] = [
   'Attendance',
   'Produksi Borongan',
   'Payroll',
+  'Administrasi Sistem',
 ]
 
 const articleByFileName = Object.fromEntries(
@@ -628,7 +705,8 @@ function groupIcon(group: ArticleDefinition['group']) {
   if (group === 'Karyawan') return UsersRound
   if (group === 'Attendance') return CalendarCheck2
   if (group === 'Produksi Borongan') return Factory
-  return Landmark
+  if (group === 'Payroll') return Landmark
+  return ShieldCheck
 }
 
 function createMarkdownComponents(

@@ -1,5 +1,13 @@
 # Panduan Rekrutmen Karyawan
 
+> Modul: Karyawan
+>
+> Audiens: HR Officer, Super Admin, pelamar pada form publik, dan tim support HRIS
+>
+> Terakhir diverifikasi: 7 September 2026
+>
+> Status: aktif, sesuai perilaku aplikasi saat dokumen ini dibuat
+
 ## Tujuan panduan
 
 Panduan ini membantu petugas HR menerima data pelamar, memeriksa dokumen, mencatat proses seleksi, menentukan hasil, dan mengubah kandidat yang lolos menjadi data karyawan.
@@ -32,6 +40,7 @@ Pelamar diminta mengisi:
 - NIK dan nomor KK, masing-masing 16 angka;
 - jenis kelamin;
 - tempat dan tanggal lahir;
+- pendidikan terakhir sesuai pilihan standar biodata Dukcapil;
 - alamat sesuai KTP;
 - nomor HP atau WhatsApp;
 - email jika tersedia;
@@ -88,7 +97,8 @@ Status **Sudah menjadi karyawan** dibuat otomatis oleh sistem dan tidak dipilih 
 1. Buka **Karyawan > Rekrutmen**.
 2. Gunakan filter **Baru** jika daftar kandidat cukup banyak.
 3. Buka detail kandidat.
-4. Cocokkan nama, NIK, nomor KK, tempat dan tanggal lahir, alamat, nomor HP, serta email jika ada.
+4. Cocokkan nama, NIK, nomor KK, tempat dan tanggal lahir, pendidikan terakhir,
+   alamat, nomor HP, serta email jika ada.
 5. Buka Foto Pelamar, Foto KTP, dan Foto KK satu per satu.
 6. Pastikan foto terbaca, tidak tertukar, dan sesuai dengan biodata.
 7. Isi **Catatan internal HR** jika ada informasi yang perlu diketahui petugas lain.
@@ -131,7 +141,9 @@ Kandidat Tidak Lolos tetap disimpan sebagai arsip dan tidak perlu dihapus. Kandi
 
 1. Buka kandidat berstatus **Lolos**.
 2. Pilih **Lengkapi data karyawan**.
-3. Periksa biodata yang berasal dari Form Data Pelamar.
+3. Periksa biodata yang berasal dari Form Data Pelamar, termasuk Pendidikan
+   terakhir. Nilai ini wajib tersedia dan diteruskan ke Master Karyawan; jangan
+   menebak atau menggantinya berdasarkan jabatan.
 4. Pastikan site sudah sesuai. Site berasal dari pendaftaran dan tidak dapat diganti pada proses ini.
 5. Pilih jenis karyawan, bagian, jabatan, kelompok kerja, modul atau bagian produksi, dan tanggal bergabung sesuai keputusan HR.
 6. Lengkapi data pribadi, rekening, BPJS, atau kontak darurat jika informasinya sudah tersedia.
@@ -158,6 +170,7 @@ Berkas lamaran asli tetap disimpan sebagai arsip Rekrutmen. Sistem tidak langsun
 - site dan penempatan awal sesuai keputusan HR;
 - foto profil, dokumen KTP, dan KK dapat dibuka;
 - tanggal bergabung benar;
+- pendidikan terakhir sama dengan biodata kandidat;
 - kandidat berstatus Sudah menjadi karyawan;
 - tombol **Buka data karyawan** menuju orang yang tepat.
 
@@ -165,6 +178,7 @@ Berkas lamaran asli tetap disimpan sebagai arsip Rekrutmen. Sistem tidak langsun
 
 - [ ] Tautan atau QR sesuai dengan site tujuan.
 - [ ] Biodata sudah dicocokkan dengan Foto KTP dan Foto KK.
+- [ ] Pendidikan terakhir sudah dipilih sesuai dokumen kependudukan.
 - [ ] Foto dan dokumen dapat dibaca serta tidak tertukar.
 - [ ] Catatan internal HR tidak ditulis pada alasan untuk pelamar.
 - [ ] Keputusan Lolos atau Tidak Lolos sudah diperiksa kembali.

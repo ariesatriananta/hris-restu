@@ -6,7 +6,7 @@
 >
 > Audiens: HR Officer, Site Supervisor, Super Admin, Payroll Officer, dan tim support HRIS
 >
-> Terakhir diverifikasi: 7 Agustus 2026
+> Terakhir diverifikasi: 7 September 2026
 >
 > Status: aktif, sesuai perilaku aplikasi saat dokumen ini dibuat
 
@@ -250,7 +250,11 @@ Schema Payroll menyediakan snapshot ringkasan yang dapat menampung:
 - menit pulang awal;
 - menit kerja.
 
-Cara formula Payroll menggunakan nilai tersebut harus ditentukan dan didokumentasikan pada modul Payroll. Total durasi kerja pada Attendance saat ini secara eksplisit hanya informasi dan bukan dasar upah Borongan.
+Penggunaan snapshot tersebut mengikuti skema Payroll: Borongan memakai hasil
+Produksi, Harian/Training memakai Attendance final untuk hari bayar, dan
+Bulanan memakai Attendance antara lain untuk potongan Alpha/Izin sesuai policy.
+Total durasi kerja tetap merupakan informasi operasional dan bukan dasar upah
+Borongan.
 
 ### 9.2 Checklist sebelum menyerahkan periode
 
@@ -272,9 +276,14 @@ Koreksi Attendance dan klasifikasi yang menyentuh Payroll `CLOSED` ditolak oleh 
 
 ## 10. Hubungan dengan Produksi Borongan
 
-Attendance sebagai gate Setoran Produksi merupakan **rencana Milestone 9**, belum fungsi aktif yang dijamin oleh modul Produksi saat dokumen ini dibuat.
+Attendance sudah menjadi gate Setoran Produksi. Terminal Produksi memerlukan
+record berstatus Hadir dan event **scan Masuk terminal sukses** pada business
+date serta site yang sama. Status Hadir dari koreksi saja, scan Pulang saja,
+atau record tanpa event scan Masuk sukses tidak cukup.
 
-Keputusan rencana yang sudah disepakati adalah gate membutuhkan **scan Masuk terminal sukses** pada business date dan site yang sama. Status Hadir dari koreksi saja atau scan Pulang saja tidak akan cukup. Dokumentasi ini hanya mencatat readiness/keputusan; kontrak API dan implementasi Produksi harus diverifikasi saat Milestone 9 dibangun.
+Rekap Attendance tetap bukan sumber nominal Produksi. Transaksi Produksi yang
+lolos gate disimpan dan dihitung pada modul Produksi, kemudian disnapshot oleh
+Payroll sesuai periode terkait.
 
 ## 11. Troubleshooting rekap
 
@@ -299,7 +308,8 @@ Keputusan rencana yang sudah disepakati adalah gate membutuhkan **scan Masuk ter
 - Weekly off tanpa scan hanya berupa proyeksi rekap, bukan record database.
 - Durasi kerja bukan dasar upah Borongan.
 - Modul Payroll masih memiliki KBase tersendiri dan tidak dijelaskan seolah sudah menghitung data Attendance secara otomatis.
-- Gate scan Masuk untuk Produksi Borongan belum diimplementasikan sebagai Milestone 9.
+- Gate scan Masuk untuk Produksi Borongan sudah aktif; Rekap Attendance tetap
+  tidak membuat atau menghitung transaksi Produksi.
 
 ## 13. Referensi teknis untuk support dan developer
 

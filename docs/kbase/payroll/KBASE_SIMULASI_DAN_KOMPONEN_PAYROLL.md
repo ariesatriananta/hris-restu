@@ -6,7 +6,7 @@
 >
 > Audiens: Payroll Finance, Super Admin, Direksi, dan pemeriksa Payroll
 >
-> Terakhir diverifikasi: 5 September 2026
+> Terakhir diverifikasi: 7 September 2026
 
 Panduan ini menjelaskan cara menyiapkan komponen manual, menjalankan simulasi,
 membaca hasil, menghitung ulang, dan menangani run yang gagal pada **Payroll >

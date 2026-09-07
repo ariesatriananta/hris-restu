@@ -4,7 +4,7 @@
 >
 > Audiens: Admin Produksi, operator terminal, HR, Payroll, pimpinan, dan Super Admin
 >
-> Terakhir diperbarui: 22 Agustus 2026
+> Terakhir diverifikasi: 7 September 2026
 >
 > Status: aktif, mengikuti proses yang tersedia pada aplikasi
 

@@ -56,3 +56,18 @@ describe('artikel Knowledge Base Payroll', () => {
     expect(normalizeKnowledgeArticle('payroll')).toBe('payroll-ringkasan')
   })
 })
+
+describe('artikel Knowledge Base Administrasi Sistem', () => {
+  it('menyediakan indeks dan panduan untuk seluruh menu aktif', () => {
+    expect(knowledgeArticleValues).toEqual(
+      expect.arrayContaining([
+        'administrasi-ringkasan',
+        'administrasi-user-hak-akses',
+        'administrasi-master-data',
+        'administrasi-audit-trail',
+        'administrasi-monitoring-cron',
+        'administrasi-pengaturan',
+      ])
+    )
+  })
+})

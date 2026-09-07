@@ -1,5 +1,13 @@
 # Panduan Pengelolaan Mutasi Karyawan
 
+> Modul: Karyawan
+>
+> Audiens: HR Officer, Super Admin, dan tim support HRIS
+>
+> Terakhir diverifikasi: 7 September 2026
+>
+> Status: aktif, sesuai perilaku aplikasi saat dokumen ini dibuat
+
 ## Tujuan panduan
 
 Panduan ini membantu petugas HR mencatat perubahan penempatan karyawan secara benar dan tetap menjaga riwayat sebelumnya. Mutasi digunakan ketika kondisi lama memang benar, lalu terjadi perubahan mulai tanggal tertentu.

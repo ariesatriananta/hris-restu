@@ -6,7 +6,7 @@
 >
 > Audiens: Admin Produksi, operator terminal, pengguna yang menangani koreksi, dan Super Admin
 >
-> Terakhir diperbarui: 22 Agustus 2026
+> Terakhir diverifikasi: 7 September 2026
 
 Panduan ini menjelaskan cara mencatat hasil kerja melalui Terminal Setoran, memantau transaksi, mencatat Setoran Susulan, serta menangani kesalahan tanpa menghilangkan histori.
 

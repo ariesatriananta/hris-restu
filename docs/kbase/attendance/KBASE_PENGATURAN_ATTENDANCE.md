@@ -6,7 +6,7 @@
 >
 > Audiens: HR Officer, Super Admin, administrator site, dan tim support HRIS
 >
-> Terakhir diverifikasi: 8 Agustus 2026
+> Terakhir diverifikasi: 7 September 2026
 >
 > Status: aktif, sesuai perilaku aplikasi saat dokumen ini dibuat
 
@@ -291,12 +291,14 @@ Gunakan tindakan ini jika browser diganti, local storage terhapus, perangkat dip
 | Terminal tiba-tiba kembali ke aktivasi | Token mungkin dibatalkan melalui regenerate, perangkat dinonaktifkan, local storage dibersihkan, atau akun kehilangan akses site. |
 | Perangkat tidak dapat dihapus | Nonaktifkan perangkat; perangkat yang pernah dipakai memang dipertahankan untuk histori. |
 
-## 10. Batasan dan rencana
+## 10. Batasan versi saat ini
 
 - Kalender resmi yang disediakan migration saat ini adalah tahun 2026. Tahun berikutnya perlu sumber resmi dan pembaruan data tersendiri.
 - Mode scan offline belum tersedia.
 - Penghapusan histori shift, assignment, kalender terpakai, dan perangkat terpakai sengaja dibatasi.
-- Attendance sebagai gate Setoran Produksi Borongan belum aktif. Milestone 9 direncanakan mewajibkan **scan Masuk terminal sukses**, bukan sekadar status Hadir atau hanya scan Pulang.
+- Gate Attendance untuk Setoran Produksi Borongan sudah aktif. Perangkat harus
+  diaktivasi khusus untuk Produksi, dan karyawan wajib mempunyai status Hadir
+  serta **scan Masuk terminal sukses** pada business date dan site yang sama.
 
 ## 11. Referensi teknis untuk support dan developer
 

@@ -4,7 +4,7 @@
 >
 > Audiens: Payroll Finance, Direksi, Super Admin, HR, dan pengguna laporan
 >
-> Terakhir diverifikasi: 5 September 2026
+> Terakhir diverifikasi: 7 September 2026
 >
 > Status: aktif; panduan dibagi berdasarkan pekerjaan pada aplikasi
 

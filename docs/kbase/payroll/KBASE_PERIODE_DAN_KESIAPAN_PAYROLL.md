@@ -6,7 +6,7 @@
 >
 > Audiens: Payroll Finance, Super Admin, Direksi, HR, dan tim support
 >
-> Terakhir diverifikasi: 5 September 2026
+> Terakhir diverifikasi: 7 September 2026
 
 Panduan ini menjelaskan cara membuat periode, memahami status, membaca hasil
 pemeriksaan kesiapan, dan membatalkan periode Draft melalui **Payroll > Periode

@@ -6,7 +6,7 @@
 >
 > Audiens: Karyawan, operator terminal, HR Officer, Site Supervisor, Super Admin, dan tim support HRIS
 >
-> Terakhir diverifikasi: 7 Agustus 2026
+> Terakhir diverifikasi: 7 September 2026
 >
 > Status: aktif, sesuai perilaku aplikasi saat dokumen ini dibuat
 
@@ -186,7 +186,42 @@ Record Masuk yang masih menunggu jam Pulang tidak langsung dianggap abnormal seb
 - **Ajukan klasifikasi** tersedia pada record Alpha bagi HR Officer/Super Admin yang memiliki permission terkait.
 - Pengguna hanya dapat memproses record pada site yang dapat diakses.
 
-### 5.5 Tindak Lanjut Attendance
+### 5.5 Aksi massal dari Monitoring
+
+Aksi massal mempercepat pekerjaan pada banyak baris tanpa melewati validasi
+per record. Pilih jenis aksi terlebih dahulu, lalu checkbox hanya aktif pada
+baris yang memenuhi syarat untuk aksi tersebut.
+
+| Aksi | Baris yang dapat dipilih | Data yang diisi |
+|---|---|---|
+| Ajukan koreksi | Record yang memenuhi syarat koreksi | Jam baru per karyawan dan satu alasan bersama. |
+| Ajukan klasifikasi | Record Alpha yang memenuhi syarat | Jenis Cuti/Sakit/Izin dan satu alasan bersama; hanya satu tanggal tanpa lampiran. |
+| Approve koreksi | Record yang mempunyai koreksi `PENDING` | Catatan approval opsional. |
+| Approve klasifikasi | Record yang mempunyai klasifikasi `PENDING` | Catatan approval opsional. |
+
+Cara menggunakan:
+
+1. Pilih tepat satu site pada filter Monitoring.
+2. Pilih aksi pada bagian **Aksi massal**.
+3. Centang maksimal 50 baris yang checkbox-nya aktif.
+4. Lengkapi data pada dialog dan pilih **Proses terpilih**.
+5. Baca jumlah berhasil/gagal dan alasan setiap baris yang gagal.
+6. Perbaiki baris gagal secara terpisah; jangan mengulang baris yang sudah
+   berhasil.
+
+Pergantian tanggal, filter, halaman, ukuran halaman, atau jenis aksi akan
+membersihkan pilihan. Backend memproses setiap baris dalam transaksi terpisah,
+sehingga kegagalan satu baris tidak membatalkan baris lain yang sudah berhasil.
+Scope site, permission, go-live, kunci Payroll, status request, dan aturan
+operasional tetap divalidasi ulang. Aksi approval massal hanya menyetujui;
+penolakan tetap dilakukan dari detail agar alasan penolakan diperiksa per
+request.
+
+Klasifikasi yang berhasil diterapkan dan koreksi yang mengubah fakta dapat
+membuat finalisasi perlu dijalankan ulang. Periksa kembali panel finalisasi
+setelah aksi massal selesai.
+
+### 5.6 Tindak Lanjut Attendance
 
 Menu **Tindak Lanjut Attendance** menyatukan workflow Koreksi dan Klasifikasi dalam dua tab. Badge pada masing-masing tab menunjukkan jumlah request `PENDING` sesuai filter site sejak tanggal go-live Attendance. Request sebelum go-live tetap dipertahankan sebagai histori dan dapat ditelusuri melalui laporan atau detail audit, tetapi tidak menjadi antrean operasional aktif dan tidak dapat disetujui. Angka `…` berarti pemeriksaan masih berjalan, sedangkan `?` berarti jumlah gagal dimuat; daftar tetap dapat dibuka dan dicoba ulang.
 
@@ -367,16 +402,20 @@ Attendance versi ini belum menghitung lembur. Scan pada hari libur atau di luar 
 | Finalisasi tetap Partial | Selesaikan Tertunda, assignment hilang/ambigu, histori ambigu, koreksi pending, dan klasifikasi pending. |
 | Tanggal belum final | Pastikan waktu due sudah lewat, lalu jalankan finalisasi manual dari Monitoring Harian. |
 
-## 11. Keputusan rencana Milestone 9
+## 11. Gate Attendance untuk Setoran Produksi
 
-Gate Attendance untuk Setoran Produksi Borongan **belum aktif**. Keputusan bisnis untuk implementasi Milestone 9 adalah:
+Gate Attendance untuk Setoran Produksi Borongan sudah aktif. Saat label pekerja
+dipindai atau Setoran Susulan disimpan, server memeriksa:
 
-- wajib ada scan **Masuk** terminal yang sukses;
-- status harus Hadir;
-- business date harus sama dengan tanggal setoran;
-- site Attendance harus sama dengan site setoran.
+- business date Produksi sama dengan business date Attendance;
+- site transaksi sama dengan site Attendance;
+- record berstatus `PRESENT`;
+- terdapat event `CLOCK_IN` berstatus `SUCCESS` yang terhubung ke record,
+  karyawan, dan site tersebut pada business date yang sama.
 
-Scan Pulang saja, koreksi manual saja, atau status Hadir tanpa scan Masuk tidak akan memenuhi gate yang direncanakan. Sampai Milestone 9 benar-benar dibangun dan diuji, jangan menganggap Attendance sudah menolak transaksi Produksi.
+Scan Pulang saja, koreksi manual saja, atau status Hadir tanpa event scan Masuk
+sukses tidak memenuhi gate. Setelah gate lolos, aturan pekerjaan utama, satuan,
+tarif, perangkat Produksi, dan kunci Payroll tetap diperiksa oleh modul Produksi.
 
 ## 12. Referensi teknis untuk support dan developer
 
@@ -402,8 +441,12 @@ Scan Pulang saja, koreksi manual saja, atau status Hadir tanpa scan Masuk tidak 
 | `GET /api/attendance/readiness` | Ringkasan kesiapan Shift, perangkat, kalender, finalisasi, dan workflow per site. |
 | `GET /api/attendance/records/:uid/timeline` | Timeline audit satu record Attendance berdasarkan UID publik. |
 | `GET/POST /api/attendance/corrections` | Daftar dan pengajuan koreksi. |
+| `POST /api/attendance/corrections/batch` | Mengajukan maksimal 50 koreksi dari satu site dengan hasil per baris. |
+| `POST /api/attendance/corrections/batch-review` | Menyetujui maksimal 50 koreksi pending dari satu site. |
 | `POST /api/attendance/corrections/:uid/review` | Menyetujui atau menolak koreksi. |
 | `GET/POST /api/attendance/classifications` | Daftar dan pengajuan klasifikasi. |
+| `POST /api/attendance/classifications/batch` | Mengajukan maksimal 50 klasifikasi satu tanggal tanpa lampiran dari satu site. |
+| `POST /api/attendance/classifications/batch-review` | Menyetujui maksimal 50 klasifikasi pending dari satu site. |
 | `POST /api/attendance/classifications/:uid/cancel` | Membatalkan klasifikasi pending. |
 | `POST /api/attendance/classifications/:uid/review` | Menyetujui atau menolak klasifikasi. |
 | `GET /api/attendance/finalizations` | Status finalisasi per site/tanggal. |

@@ -4,7 +4,7 @@
 >
 > Audiens: HR, administrator site, Site Supervisor, Super Admin, dan tim support HRIS
 >
-> Terakhir diverifikasi: 8 Agustus 2026
+> Terakhir diverifikasi: 7 September 2026
 >
 > Status: indeks aktif; isi teknis dan operasional dibagi menjadi tiga panduan
 
@@ -32,11 +32,20 @@ Alur yang disarankan:
 - Rekap resmi hanya dapat diekspor jika periode berada dalam cakupan go-live dan seluruh kombinasi tanggal-site sudah lengkap.
 - Scope site selalu diperiksa kembali oleh backend. Hak menu di frontend bukan satu-satunya pengaman.
 
-## Status implementasi dan rencana berikutnya
+## Status implementasi saat ini
 
 Shift, kalender kerja, perangkat, terminal scan, monitoring, koreksi, klasifikasi, finalisasi, rekap, dan ekspor Excel sudah memiliki implementasi aplikasi.
 
-Integrasi Attendance sebagai gate Setoran Produksi Borongan merupakan **rencana Milestone 9** dan belum aktif. Keputusan bisnis yang sudah disepakati untuk milestone tersebut adalah karyawan wajib memiliki **scan Masuk terminal yang sukses** pada business date dan site yang sesuai. Keputusan ini tidak boleh dibaca sebagai perilaku Produksi yang sudah berjalan saat ini.
+Integrasi Attendance sebagai gate Setoran Produksi Borongan sudah aktif. Karyawan
+hanya dapat mencatat setoran jika mempunyai status Hadir dan **scan Masuk
+terminal yang sukses** pada business date serta site yang sama. Status Hadir
+hasil koreksi saja, scan Pulang saja, atau record tanpa event scan Masuk sukses
+tidak memenuhi gate Produksi.
+
+Monitoring Harian juga menyediakan aksi massal untuk mengajukan koreksi,
+mengajukan klasifikasi, serta menyetujui request terpilih. Aksi ini tetap
+memeriksa permission, satu site, batas 50 baris, go-live, dan kelayakan setiap
+baris di backend.
 
 ## Aturan pembaruan
 

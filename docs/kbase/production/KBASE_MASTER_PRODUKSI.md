@@ -6,7 +6,7 @@
 >
 > Audiens: pengelola master Produksi, HR terkait, dan Super Admin
 >
-> Terakhir diperbarui: 22 Agustus 2026
+> Terakhir diverifikasi: 7 September 2026
 
 Panduan ini membantu Anda menyiapkan dasar operasional Produksi Borongan. Setelah selesai, setiap pekerja memiliki pekerjaan yang sesuai dan setiap pekerjaan yang dipakai memiliki tarif aktif pada site serta tanggal yang benar.
 

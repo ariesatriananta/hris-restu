@@ -6,7 +6,7 @@
 >
 > Audiens: Payroll Finance, Direksi, Super Admin, auditor, dan pengguna laporan
 >
-> Terakhir diverifikasi: 5 September 2026
+> Terakhir diverifikasi: 7 September 2026
 
 Panduan ini menjelaskan cara menelusuri run, membandingkan hasil, mengunduh
 rekap dan Daftar Pembayaran, melihat atau mencetak slip, serta membaca Laporan

@@ -6,7 +6,7 @@
 >
 > Audiens: Super Admin, Payroll Finance, dan pengguna Payroll read-only
 >
-> Terakhir diverifikasi: 5 September 2026
+> Terakhir diverifikasi: 7 September 2026
 
 Panduan ini menjelaskan policy Payroll, tarif harian, gaji pokok, dan pemeriksaan
 histori Training yang tersedia pada **Payroll > Skema Upah & Tarif**.

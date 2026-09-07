@@ -1,5 +1,13 @@
 # Panduan Pengelolaan Kontrak Karyawan
 
+> Modul: Karyawan
+>
+> Audiens: HR Officer, Super Admin, dan tim support HRIS
+>
+> Terakhir diverifikasi: 7 September 2026
+>
+> Status: aktif, sesuai perilaku aplikasi saat dokumen ini dibuat
+
 ## Tujuan panduan
 
 Panduan ini membantu petugas HR membuat, memeriksa, mengaktifkan, memperpanjang, mencetak, dan mengakhiri kontrak karyawan dengan urutan yang aman. Setiap tindakan harus mengikuti dokumen dan tanggal yang benar karena kontrak berhubungan langsung dengan status kerja karyawan.

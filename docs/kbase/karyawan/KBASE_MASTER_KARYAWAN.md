@@ -1,5 +1,13 @@
 # Panduan Master Karyawan
 
+> Modul: Karyawan
+>
+> Audiens: HR Officer, Super Admin, administrator data karyawan, dan tim support HRIS
+>
+> Terakhir diverifikasi: 7 September 2026
+>
+> Status: aktif, sesuai perilaku aplikasi saat dokumen ini dibuat
+
 ## Tujuan panduan
 
 Panduan ini membantu petugas HR mengelola data utama karyawan dari awal sampai siap dipakai untuk kegiatan harian. Isinya meliputi penambahan karyawan, pemeriksaan data, perubahan data, impor Excel, dokumen, foto, ID Card, dan label barcode.
@@ -16,7 +24,7 @@ Siapkan informasi berikut:
 - bagian, jabatan, serta kelompok kerja;
 - bagian produksi jika karyawan terlibat dalam kegiatan produksi;
 - tanggal mulai bekerja;
-- nomor identitas, alamat, dan kontak;
+- nomor identitas, pendidikan terakhir, alamat, dan kontak;
 - data rekening, BPJS, serta dokumen pendukung jika sudah tersedia.
 
 Pastikan penulisan nama dan nomor identitas benar. Data ini akan dipakai kembali pada kartu karyawan, kontrak, attendance, produksi, dan payroll.
@@ -63,6 +71,12 @@ Jangan memakai menu ubah data biasa untuk mengganti histori penempatan yang suda
 
 Masukkan nama, nama panggilan, jenis kelamin, tempat dan tanggal lahir, agama, status perkawinan, dan **Pendidikan terakhir**. Pendidikan terakhir wajib dipilih dari daftar standar biodata Dukcapil; jangan mengetik atau menebak tingkat pendidikan sendiri.
 
+Pilihan yang tersedia adalah Tidak/Belum Sekolah, Belum Tamat SD/Sederajat,
+Tamat SD/Sederajat, SLTP/Sederajat, SLTA/Sederajat, Diploma I/II,
+Akademi/Diploma III/Sarjana Muda, Diploma IV/Strata I, Strata II, dan Strata
+III. Data historis yang belum diverifikasi dapat tampil `-`, tetapi penambahan
+karyawan baru, impor, dan konversi dari Rekrutmen wajib mempunyai nilai.
+
 ### Alamat dan kontak
 
 Isi alamat selengkap mungkin, termasuk RT/RW, kelurahan, kecamatan, kota/kabupaten, provinsi, dan kode pos. Isi nomor telepon aktif, email bila ada, serta kontak darurat yang dapat dihubungi.
@@ -108,6 +122,7 @@ Klik nama karyawan atau pilih tindakan **Lihat detail**. Halaman detail digunaka
 Periksa bagian berikut:
 
 - identitas dan kontak;
+- pendidikan terakhir;
 - penempatan saat ini;
 - riwayat penempatan dan mutasi;
 - kontrak dan masa berlakunya;
@@ -115,6 +130,14 @@ Periksa bagian berikut:
 - foto, dokumen, dan data pendukung lainnya.
 
 Jika membuka detail dari daftar yang sudah difilter, gunakan tombol kembali yang tersedia agar kembali ke daftar dengan pencarian dan filter sebelumnya.
+
+## Laporan Karyawan dan Excel
+
+Pendidikan terakhir tersedia pada **Laporan > Karyawan** dan ikut masuk ke
+ekspor Excel menggunakan label yang mudah dibaca, bukan kode internal. Ekspor
+tetap mengikuti filter dan scope site akun. Jika data historis belum mempunyai
+pendidikan, laporan menampilkan nilai kosong; perbaiki melalui data karyawan
+setelah memperoleh dokumen yang sah, jangan mengisi berdasarkan perkiraan.
 
 ## Mengubah data karyawan
 

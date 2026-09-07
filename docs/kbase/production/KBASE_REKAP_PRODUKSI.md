@@ -6,7 +6,7 @@
 >
 > Audiens: Admin Produksi, HR, Payroll, pimpinan, dan Super Admin
 >
-> Terakhir diperbarui: 22 Agustus 2026
+> Terakhir diverifikasi: 7 September 2026
 
 Panduan ini membantu Anda membaca hasil Produksi Borongan per periode, karyawan, dan pekerjaan. Rekap menampilkan data yang masih aktif dihitung, sehingga transaksi yang sudah dibatalkan tidak ikut menambah hasil.
 

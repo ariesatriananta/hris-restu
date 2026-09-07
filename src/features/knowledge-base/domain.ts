@@ -16,6 +16,12 @@ export const knowledgeArticleValues = [
   'payroll-simulasi-komponen',
   'payroll-approval-closing',
   'payroll-riwayat-ekspor-slip',
+  'administrasi-ringkasan',
+  'administrasi-user-hak-akses',
+  'administrasi-master-data',
+  'administrasi-audit-trail',
+  'administrasi-monitoring-cron',
+  'administrasi-pengaturan',
 ] as const
 
 export type KnowledgeArticle = (typeof knowledgeArticleValues)[number]

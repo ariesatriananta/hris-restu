@@ -6,7 +6,7 @@
 >
 > Audiens: Payroll Finance, Direksi, Super Admin, dan auditor internal
 >
-> Terakhir diverifikasi: 5 September 2026
+> Terakhir diverifikasi: 7 September 2026
 
 Panduan ini menjelaskan pengajuan, penarikan, persetujuan, penolakan, dan closing
 current run melalui **Payroll > Approval & Closing**.
