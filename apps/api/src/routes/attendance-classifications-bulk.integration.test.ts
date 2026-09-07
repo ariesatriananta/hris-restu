@@ -1,6 +1,8 @@
-import type { AddressInfo } from 'node:net'
 import express from 'express'
+import type { AddressInfo } from 'node:net'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { errorHandler } from '../lib/errors.js'
+import { attendanceClassificationsRouter } from './attendance-classifications.js'
 
 const mocks = vi.hoisted(() => ({
   getConnection: vi.fn(),
@@ -22,17 +24,20 @@ vi.mock('../lib/attendance-calendar.js', () => ({
 vi.mock('../middleware/authenticate.js', () => ({
   requirePermission:
     (permission: string) =>
-    (_req: express.Request, res: express.Response, next: express.NextFunction) => {
+    (
+      _req: express.Request,
+      res: express.Response,
+      next: express.NextFunction
+    ) => {
       const actor = res.locals.auth as ReturnType<typeof auth>
       if (!actor.permissions.includes(permission)) {
-        return res.status(403).json({ message: 'Anda tidak memiliki izin untuk aksi ini.' })
+        return res
+          .status(403)
+          .json({ message: 'Anda tidak memiliki izin untuk aksi ini.' })
       }
       next()
     },
 }))
-
-import { errorHandler } from '../lib/errors.js'
-import { attendanceClassificationsRouter } from './attendance-classifications.js'
 
 const firstUid = '44444444-4444-4444-8444-444444444444'
 const secondUid = '55555555-5555-4555-8555-555555555555'
@@ -64,43 +69,73 @@ function connection(
   }
   conn.query.mockImplementation(async (sqlValue: unknown) => {
     const sql = String(sqlValue)
+    if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]]
+    if (sql.includes('RELEASE_LOCK')) return [[{ released: 1 }]]
     if (sql.includes('FROM attendance_classification_requests acr')) {
-      return [[{
-        id: uid === firstUid ? 41 : 42,
-        uid,
-        employee_id: 20,
-        site_id: 1,
-        classification_type: 'SICK',
-        reason: 'Kondisi kesehatan.',
-        approval_status: approvalStatus,
-        start_date: startDate,
-        end_date: startDate,
-        startDate,
-        endDate: startDate,
-        employeeUid: '66666666-6666-4666-8666-666666666666',
-        employeeName: 'Karyawan Demo',
-        employeeNumber: 'KRY-001',
-        site: 'JEPARA',
-      }]]
+      return [
+        [
+          {
+            id: uid === firstUid ? 41 : 42,
+            uid,
+            employee_id: 20,
+            site_id: 1,
+            classification_type: 'SICK',
+            reason: 'Kondisi kesehatan.',
+            approval_status: approvalStatus,
+            start_date: startDate,
+            end_date: startDate,
+            startDate,
+            endDate: startDate,
+            employeeUid: '66666666-6666-4666-8666-666666666666',
+            employeeName: 'Karyawan Demo',
+            employeeNumber: 'KRY-001',
+            site: 'JEPARA',
+          },
+        ],
+      ]
     }
+    if (sql.includes('FROM employees e')) {
+      return [
+        [
+          {
+            id: 20,
+            uid: '66666666-6666-4666-8666-666666666666',
+            siteId: 1,
+            site: 'JEPARA',
+            employeeName: 'Karyawan Demo',
+            employeeStatus: 'ACTIVE',
+            allowsAttendance: 1,
+          },
+        ],
+      ]
+    }
+    if (sql.includes('FROM attendance_classification_requests')) return [[]]
     if (sql.includes('SELECT id FROM employees')) return [[{ id: 20 }]]
+    if (sql.includes('FROM payroll_periods')) return [[]]
+    if (sql.includes('FROM payroll_attendance_summaries')) return [[]]
+    if (sql.includes('FROM attendance_classification_details acd')) return [[]]
+    if (sql.includes('FROM attendance_records ar')) return [[]]
     if (sql.includes('FROM employee_shift_assignments')) {
-      return [[{
-        id: 30,
-        shiftId: 31,
-        shiftSiteId: 1,
-        workDays: '[1,2,3,4,5]',
-        effectiveFrom: '2026-08-01',
-        effectiveTo: null,
-        shiftName: 'Shift Demo',
-      }]]
+      return [
+        [
+          {
+            id: 30,
+            shiftId: 31,
+            shiftSiteId: 1,
+            workDays: '[1,2,3,4,5]',
+            effectiveFrom: '2026-08-01',
+            effectiveTo: null,
+            shiftName: 'Shift Demo',
+          },
+        ],
+      ]
     }
     throw new Error(`Query test belum dimock: ${sql.slice(0, 100)}`)
   })
   return conn
 }
 
-async function post(body: unknown) {
+async function post(body: unknown, path = '/classifications/batch-review') {
   const app = express()
   app.use(express.json())
   app.use((_req, res, next) => {
@@ -114,7 +149,7 @@ async function post(body: unknown) {
   try {
     const port = (server.address() as AddressInfo).port
     return await fetch(
-      `http://127.0.0.1:${port}/api/attendance/classifications/batch-review`,
+      `http://127.0.0.1:${port}/api/attendance${path}`,
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -159,15 +194,20 @@ describe('Attendance classification bulk approval API', () => {
       requested: 2,
       approved: 1,
       failed: 1,
-      failures: [{
-        uid: secondUid,
-        message: 'Klasifikasi Attendance ini sudah ditinjau.',
-      }],
+      failures: [
+        {
+          uid: secondUid,
+          message: 'Klasifikasi Attendance ini sudah ditinjau.',
+        },
+      ],
     })
     expect(successful.commit).toHaveBeenCalledOnce()
     expect(alreadyReviewed.rollback).toHaveBeenCalledOnce()
     expect(mocks.writeAudit).toHaveBeenCalledWith(
-      expect.objectContaining({ recordUid: firstUid, requestId: expect.any(String) }),
+      expect.objectContaining({
+        recordUid: firstUid,
+        requestId: expect.any(String),
+      }),
       successful
     )
   })
@@ -196,5 +236,71 @@ describe('Attendance classification bulk approval API', () => {
     })
     expect(historical.execute).not.toHaveBeenCalled()
     expect(historical.rollback).toHaveBeenCalledOnce()
+  })
+
+  it('membuat klasifikasi massal satu tanggal dengan operation id audit', async () => {
+    const conn = connection(firstUid, 'PENDING')
+    mocks.getConnection.mockResolvedValueOnce(conn)
+
+    const response = await post(
+      {
+        site: 'JEPARA',
+        operationId: '77777777-7777-4777-8777-777777777777',
+        items: [
+          {
+            employeeUid: '66666666-6666-4666-8666-666666666666',
+            startDate: '2026-08-08',
+            endDate: '2026-08-08',
+            classificationType: 'SICK',
+            reason: 'Sakit dan sudah dikonfirmasi.',
+          },
+        ],
+      },
+      '/classifications/batch'
+    )
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toMatchObject({
+      requested: 1,
+      created: 1,
+      failed: 0,
+    })
+    expect(mocks.writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: '77777777-7777-4777-8777-777777777777',
+      }),
+      conn
+    )
+  })
+
+  it('mengunci finalisasi dan menandai finalisasi ulang saat approval diterapkan', async () => {
+    mocks.resolveCalendar.mockResolvedValueOnce({
+      dayType: 'WORKDAY',
+      reasonType: 'SHIFT_WEEKDAY',
+      eventId: null,
+      siteRuleId: null,
+      name: null,
+    })
+    const conn = connection(firstUid, 'PENDING')
+    mocks.getConnection.mockResolvedValueOnce(conn)
+
+    const response = await post({
+      site: 'JEPARA',
+      uids: [firstUid],
+      decision: 'APPROVED',
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ approved: 1, failed: 0 })
+    expect(conn.query).toHaveBeenCalledWith('SELECT GET_LOCK(?,0) acquired', [
+      'hris:attendance:finalize:1:2026-08-08',
+    ])
+    expect(conn.execute).toHaveBeenCalledWith(
+      expect.stringContaining('invalidatedByAttendanceClassification'),
+      expect.any(Array)
+    )
+    expect(conn.query).toHaveBeenCalledWith('SELECT RELEASE_LOCK(?)', [
+      'hris:attendance:finalize:1:2026-08-08',
+    ])
   })
 })

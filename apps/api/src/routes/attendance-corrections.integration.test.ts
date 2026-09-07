@@ -212,6 +212,44 @@ describe('Attendance correction API integration', () => {
     mocks.writeAudit.mockReset().mockResolvedValue(undefined)
   })
 
+  it('membuat koreksi massal per item dengan operation id audit', async () => {
+    const conn = connection({
+      attendanceStatus: 'PRESENT',
+      clockInAt: null,
+      clockOutAt: '2026-08-07 15:00:00',
+      correctionUid: null,
+      correctionStatus: null,
+      correctionNewStatus: null,
+    })
+    mocks.getConnection.mockResolvedValueOnce(conn)
+
+    const response = await post('/corrections/batch', {
+      site: 'JEPARA',
+      operationId: '77777777-7777-4777-8777-777777777777',
+      items: [
+        {
+          attendanceUid,
+          correctionType: 'CLOCK_IN',
+          newClockInAt: '2026-08-07T06:00',
+          reason: 'Scanner tidak merekam jam masuk.',
+        },
+      ],
+    })
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toMatchObject({
+      requested: 1,
+      created: 1,
+      failed: 0,
+    })
+    expect(mocks.writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: '77777777-7777-4777-8777-777777777777',
+      }),
+      conn
+    )
+  })
+
   it('mengubah Alpha menjadi Hadir setelah koreksi jam disetujui', async () => {
     const state: TestState = {
       attendanceStatus: 'ABSENT',

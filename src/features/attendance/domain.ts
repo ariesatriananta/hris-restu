@@ -152,6 +152,9 @@ export interface AttendanceRepository {
   ): Promise<PaginatedAttendanceResult<AttendanceCorrection>>
   getCorrection(uid: string): Promise<AttendanceCorrection>
   createCorrection(input: AttendanceCorrectionInput): Promise<void>
+  bulkCreateCorrections(
+    input: AttendanceBulkCorrectionInput
+  ): Promise<AttendanceBulkCreateResult>
   reviewCorrection(
     uid: string,
     input: AttendanceCorrectionReviewInput
@@ -169,6 +172,9 @@ export interface AttendanceRepository {
   createClassification(
     input: AttendanceClassificationInput
   ): Promise<{ uid: string; approvalStatus: 'PENDING' }>
+  bulkCreateClassifications(
+    input: AttendanceBulkClassificationInput
+  ): Promise<AttendanceBulkCreateResult>
   reviewClassification(
     uid: string,
     input: AttendanceClassificationReviewInput
@@ -491,6 +497,14 @@ export interface AttendanceMonitoringRecord {
   hasAppliedClassification: boolean
   pendingCorrectionUid?: string | null
   pendingCorrectionType?: AttendanceCorrectionType | null
+  pendingClassificationUid?: string | null
+  pendingClassificationType?: AttendanceClassificationType | null
+  bulkActions: {
+    createCorrection: boolean
+    createClassification: boolean
+    approveCorrection: boolean
+    approveClassification: boolean
+  }
   site: AttendanceSiteCode
   shiftUid?: string | null
   shiftName?: string | null
@@ -944,6 +958,30 @@ export interface AttendanceBulkReviewResult {
   approved: number
   failed: number
   failures: AttendanceBulkReviewFailure[]
+}
+
+export interface AttendanceBulkCreateFailure {
+  uid: string
+  message: string
+}
+
+export interface AttendanceBulkCreateResult {
+  requested: number
+  created: number
+  failed: number
+  failures: AttendanceBulkCreateFailure[]
+}
+
+export interface AttendanceBulkCorrectionInput {
+  site: AttendanceSiteCode
+  operationId: string
+  items: AttendanceCorrectionInput[]
+}
+
+export interface AttendanceBulkClassificationInput {
+  site: AttendanceSiteCode
+  operationId: string
+  items: AttendanceClassificationInput[]
 }
 
 export interface AttendanceClassificationEmployee {

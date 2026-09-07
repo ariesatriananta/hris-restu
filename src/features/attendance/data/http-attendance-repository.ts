@@ -28,6 +28,7 @@ import type {
   AttendanceClassificationEmployeeListParams,
   AttendanceClassificationListParams,
   AttendanceBulkReviewResult,
+  AttendanceBulkCreateResult,
   AttendanceRecapDayListParams,
   AttendanceRecapDayResult,
   AttendanceRecapListParams,
@@ -280,6 +281,14 @@ export const httpAttendanceRepository: AttendanceRepository = {
   async createCorrection(input) {
     await apiClient.post('/attendance/corrections', input)
   },
+  async bulkCreateCorrections(input) {
+    return (
+      await apiClient.post<AttendanceBulkCreateResult>(
+        '/attendance/corrections/batch',
+        input
+      )
+    ).data
+  },
   async reviewCorrection(uid, input) {
     await apiClient.post(`/attendance/corrections/${uid}/review`, input)
   },
@@ -317,6 +326,14 @@ export const httpAttendanceRepository: AttendanceRepository = {
     return (
       await apiClient.post<{ uid: string; approvalStatus: 'PENDING' }>(
         '/attendance/classifications',
+        input
+      )
+    ).data
+  },
+  async bulkCreateClassifications(input) {
+    return (
+      await apiClient.post<AttendanceBulkCreateResult>(
+        '/attendance/classifications/batch',
         input
       )
     ).data

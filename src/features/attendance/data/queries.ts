@@ -34,6 +34,8 @@ import type {
   AttendanceBulkReviewInput,
   AttendanceBulkFinalizationInput,
   AttendanceBulkFinalizationRunInput,
+  AttendanceBulkCorrectionInput,
+  AttendanceBulkClassificationInput,
 } from '../domain'
 import { httpAttendanceRepository } from './http-attendance-repository'
 
@@ -288,6 +290,11 @@ export const useCreateAttendanceCorrection = () =>
     httpAttendanceRepository.createCorrection(input)
   )
 
+export const useBulkCreateAttendanceCorrections = () =>
+  useAttendanceMutation((input: AttendanceBulkCorrectionInput) =>
+    httpAttendanceRepository.bulkCreateCorrections(input)
+  )
+
 export const useReviewAttendanceCorrection = () =>
   useAttendanceMutation(
     ({ uid, input }: { uid: string; input: AttendanceCorrectionReviewInput }) =>
@@ -329,6 +336,11 @@ export const useAttendanceClassification = (uid?: string) =>
 export const useCreateAttendanceClassification = () =>
   useAttendanceMutation((input: AttendanceClassificationInput) =>
     httpAttendanceRepository.createClassification(input)
+  )
+
+export const useBulkCreateAttendanceClassifications = () =>
+  useAttendanceMutation((input: AttendanceBulkClassificationInput) =>
+    httpAttendanceRepository.bulkCreateClassifications(input)
   )
 
 export const useReviewAttendanceClassification = () =>

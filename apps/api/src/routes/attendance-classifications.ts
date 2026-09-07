@@ -36,6 +36,32 @@ import {
 } from '../middleware/authenticate.js'
 
 const siteCodes = ['JEPARA', 'SEMARANG', 'KLATEN'] as const
+const attendanceClassificationBatchInput = z
+  .object({
+    site: z.enum(siteCodes),
+    operationId: z.string().uuid(),
+    items: z.array(attendanceClassificationRequestInput).min(1).max(50),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const employees = value.items.map((item) => item.employeeUid)
+    if (new Set(employees).size !== employees.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['items'],
+        message: 'Karyawan yang sama tidak boleh dikirim lebih dari sekali.',
+      })
+    }
+    value.items.forEach((item, index) => {
+      if (item.startDate !== item.endDate || item.fileUid) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index],
+          message: 'Klasifikasi massal hanya mendukung satu tanggal tanpa lampiran.',
+        })
+      }
+    })
+  })
 const routeParam = (value: string | string[]) =>
   Array.isArray(value) ? value[0] : value
 const fileUrl = (path?: string) =>
@@ -206,7 +232,7 @@ async function getClassificationForUpdate(conn: PoolConnection, uid: string) {
   return rows[0]
 }
 
-async function acquireClassificationReversalLocks(
+async function acquireClassificationFinalizationLocks(
   conn: PoolConnection,
   siteId: number,
   businessDates: string[],
@@ -228,7 +254,7 @@ async function acquireClassificationReversalLocks(
   }
 }
 
-async function releaseClassificationReversalLocks(
+async function releaseClassificationFinalizationLocks(
   conn: PoolConnection | undefined,
   acquiredLocks: string[]
 ) {
@@ -248,6 +274,7 @@ async function approveClassification(
     reviewNotes?: string | null
     batchId?: string
     expectedSite?: string
+    acquiredLocks: string[]
   }
 ) {
   const classification = await getClassificationForUpdate(conn, input.uid)
@@ -267,6 +294,12 @@ async function approveClassification(
     classification.employee_id,
   ])
   const dates = enumerateDates(classification.startDate, classification.endDate)
+  await acquireClassificationFinalizationLocks(
+    conn,
+    Number(classification.site_id),
+    dates,
+    input.acquiredLocks
+  )
   const [assignments] = await conn.query<RowDataPacket[]>(
     `SELECT esa.id,esa.shift_id shiftId,sh.site_id shiftSiteId,
             esa.work_days_json workDays,
@@ -426,6 +459,34 @@ async function approveClassification(
   )
   const appliedCount = workdays.length
   const skippedCount = resolved.length - appliedCount
+  let invalidatedFinalizationCount = 0
+  for (const businessDate of workdays.map((item) => item.date)) {
+    const [invalidated] = await conn.execute<ResultSetHeader>(
+      `INSERT INTO attendance_daily_finalization_runs
+        (uid,site_id,business_date,trigger_type,status,grace_minutes,reason,
+         summary,warnings,requested_by,started_at,finished_at,created_by,updated_by)
+       SELECT UUID(),latest.site_id,latest.business_date,'MANUAL','SKIPPED',60,?,
+              JSON_OBJECT('invalidatedByAttendanceClassification',TRUE),
+              JSON_ARRAY(?),?,CURRENT_TIMESTAMP(3),CURRENT_TIMESTAMP(3),?,?
+         FROM attendance_daily_finalization_runs latest
+        WHERE latest.site_id=? AND latest.business_date=?
+          AND latest.id=(SELECT MAX(previous.id)
+            FROM attendance_daily_finalization_runs previous
+           WHERE previous.site_id=latest.site_id
+             AND previous.business_date=latest.business_date)
+          AND latest.status='SUCCEEDED'`,
+      [
+        'Klasifikasi Attendance telah diterapkan.',
+        'Finalisasi perlu dijalankan ulang setelah klasifikasi Attendance disetujui.',
+        input.auth.id,
+        input.auth.id,
+        input.auth.id,
+        classification.site_id,
+        businessDate,
+      ]
+    )
+    invalidatedFinalizationCount += invalidated.affectedRows
+  }
   await writeAudit(
     {
       auth: input.auth,
@@ -440,7 +501,12 @@ async function approveClassification(
       reason: classification.reason,
       requestId: input.batchId,
       beforeData: { approvalStatus: 'PENDING' },
-      afterData: { approvalStatus: 'APPROVED', appliedCount, skippedCount },
+      afterData: {
+        approvalStatus: 'APPROVED',
+        appliedCount,
+        skippedCount,
+        invalidatedFinalizationCount,
+      },
     },
     conn
   )
@@ -450,6 +516,98 @@ async function approveClassification(
     appliedCount,
     skippedCount,
   }
+}
+
+async function createBulkClassificationItem(
+  conn: PoolConnection,
+  input: z.infer<typeof attendanceClassificationRequestInput>,
+  context: {
+    auth: AuthContext
+    request: Request
+    expectedSite: string
+    operationId: string
+  }
+) {
+  assertAttendanceOperationalDate(input.startDate, env.ATTENDANCE_GO_LIVE_DATE)
+  const [employees] = await conn.query<RowDataPacket[]>(
+    `SELECT e.id,e.uid,e.current_site_id siteId,s.code site,
+            e.full_name employeeName,es.code employeeStatus,
+            es.allows_attendance allowsAttendance
+       FROM employees e
+       JOIN employee_statuses es ON es.id=e.employee_status_id
+       JOIN sites s ON s.id=e.current_site_id
+      WHERE e.uid=? FOR UPDATE`,
+    [input.employeeUid]
+  )
+  const employee = employees[0]
+  if (!employee) throw new ApiError(404, 'Karyawan tidak ditemukan.')
+  enforceSite(context.auth, employee.site)
+  if (employee.site !== context.expectedSite) {
+    throw new ApiError(409, 'Karyawan tidak sesuai site yang dipilih.')
+  }
+  if (
+    employee.employeeStatus !== 'ACTIVE' ||
+    Number(employee.allowsAttendance) !== 1
+  ) {
+    throw new ApiError(422, 'Karyawan tidak aktif untuk Attendance.')
+  }
+  const [overlap] = await conn.query<RowDataPacket[]>(
+    `SELECT id FROM attendance_classification_requests
+      WHERE employee_id=? AND approval_status='PENDING'
+        AND start_date<=? AND end_date>=? LIMIT 1 FOR UPDATE`,
+    [employee.id, input.endDate, input.startDate]
+  )
+  if (overlap[0]) {
+    throw new ApiError(409, 'Karyawan memiliki klasifikasi menunggu persetujuan pada tanggal ini.')
+  }
+  const uid = randomUUID()
+  const [inserted] = await conn.execute<ResultSetHeader>(
+    `INSERT INTO attendance_classification_requests
+      (uid,employee_id,site_id,classification_type,start_date,end_date,reason,
+       attachment_file_id,approval_status,requested_by,requested_at,created_by,updated_by)
+     VALUES(?,?,?,?,?,?,?,NULL,'PENDING',?,CURRENT_TIMESTAMP(3),?,?)`,
+    [
+      uid,
+      employee.id,
+      employee.siteId,
+      input.classificationType,
+      input.startDate,
+      input.endDate,
+      input.reason,
+      context.auth.id,
+      context.auth.id,
+      context.auth.id,
+    ]
+  )
+  await conn.execute(
+    `INSERT INTO attendance_classification_details
+      (uid,request_id,employee_id,business_date,outcome,created_by,updated_by)
+     VALUES(?,?,?,?, 'PENDING',?,?)`,
+    [randomUUID(), inserted.insertId, employee.id, input.startDate, context.auth.id, context.auth.id]
+  )
+  await writeAudit(
+    {
+      auth: context.auth,
+      request: context.request,
+      module: 'ATTENDANCE',
+      siteId: employee.siteId,
+      action: 'CREATE',
+      table: 'attendance_classification_requests',
+      recordId: inserted.insertId,
+      recordUid: uid,
+      requestId: context.operationId,
+      description: `Mengajukan klasifikasi massal ${input.classificationType} Attendance ${employee.employeeName}.`,
+      reason: input.reason,
+      afterData: {
+        employeeUid: input.employeeUid,
+        classificationType: input.classificationType,
+        startDate: input.startDate,
+        endDate: input.endDate,
+      },
+    },
+    conn
+  )
+  return uid
 }
 
 export const attendanceClassificationsRouter = Router()
@@ -840,7 +998,7 @@ attendanceClassificationsRouter.post(
       const businessDates = appliedDetails.map((detail) =>
         String(detail.businessDate)
       )
-      await acquireClassificationReversalLocks(
+      await acquireClassificationFinalizationLocks(
         conn,
         Number(classification.site_id),
         businessDates,
@@ -1022,8 +1180,53 @@ attendanceClassificationsRouter.post(
       await conn?.rollback().catch(() => undefined)
       next(error)
     } finally {
-      await releaseClassificationReversalLocks(conn, acquiredLocks)
+      await releaseClassificationFinalizationLocks(conn, acquiredLocks)
       conn?.release()
+    }
+  }
+)
+
+attendanceClassificationsRouter.post(
+  '/classifications/batch',
+  requirePermission('attendance.correct'),
+  async (req, res, next) => {
+    try {
+      const auth = res.locals.auth as AuthContext
+      const input = attendanceClassificationBatchInput.parse(req.body)
+      enforceSite(auth, input.site)
+      const failures: { uid: string; message: string }[] = []
+      let created = 0
+      for (const item of input.items) {
+        let conn: PoolConnection | undefined
+        try {
+          conn = await pool.getConnection()
+          await conn.beginTransaction()
+          await createBulkClassificationItem(conn, item, {
+            auth,
+            request: req,
+            expectedSite: input.site,
+            operationId: input.operationId,
+          })
+          await conn.commit()
+          created += 1
+        } catch (error) {
+          await conn?.rollback().catch(() => undefined)
+          failures.push({
+            uid: item.employeeUid,
+            message: safeBulkReviewMessage(error),
+          })
+        } finally {
+          conn?.release()
+        }
+      }
+      res.status(created ? 201 : 200).json({
+        requested: input.items.length,
+        created,
+        failed: failures.length,
+        failures,
+      })
+    } catch (error) {
+      next(error)
     }
   }
 )
@@ -1042,6 +1245,7 @@ attendanceClassificationsRouter.post(
 
       for (const uid of input.uids) {
         let conn: PoolConnection | undefined
+        const acquiredLocks: string[] = []
         try {
           conn = await pool.getConnection()
           await conn.beginTransaction()
@@ -1052,6 +1256,7 @@ attendanceClassificationsRouter.post(
             reviewNotes: input.reviewNotes,
             batchId,
             expectedSite: input.site,
+            acquiredLocks,
           })
           await conn.commit()
           approved += 1
@@ -1059,6 +1264,7 @@ attendanceClassificationsRouter.post(
           await conn?.rollback().catch(() => undefined)
           failures.push({ uid, message: safeBulkReviewMessage(error) })
         } finally {
+          await releaseClassificationFinalizationLocks(conn, acquiredLocks)
           conn?.release()
         }
       }
@@ -1080,6 +1286,7 @@ attendanceClassificationsRouter.post(
   requirePermission('attendance.approve'),
   async (req, res, next) => {
     const conn = await pool.getConnection()
+    const acquiredLocks: string[] = []
     try {
       const auth = res.locals.auth as AuthContext
       const uid = routeParam(req.params.uid)
@@ -1126,6 +1333,7 @@ attendanceClassificationsRouter.post(
         request: req,
         uid,
         reviewNotes: input.reviewNotes,
+        acquiredLocks,
       })
       await conn.commit()
       res.json(result)
@@ -1135,6 +1343,7 @@ attendanceClassificationsRouter.post(
       await conn.rollback()
       next(error)
     } finally {
+      await releaseClassificationFinalizationLocks(conn, acquiredLocks)
       conn.release()
     }
   }

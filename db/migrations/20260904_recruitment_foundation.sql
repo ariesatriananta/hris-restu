@@ -23,10 +23,10 @@ CREATE TABLE IF NOT EXISTS recruitment_candidates (
   privacy_consent_at DATETIME(3) NOT NULL,
   privacy_notice_version VARCHAR(30) NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'NEW',
-  active_national_id_number CHAR(16) GENERATED ALWAYS AS (
+  active_national_id_number VARCHAR(16) GENERATED ALWAYS AS (
     CASE
       WHEN status IN ('NEW','IN_PROGRESS','PASSED','CONVERTED')
-        THEN national_id_number
+        THEN RTRIM(national_id_number)
       ELSE NULL
     END
   ) STORED,

@@ -6,10 +6,12 @@ import {
   getCoreRowModel,
   useReactTable,
   type ColumnDef,
+  type RowSelectionState,
 } from '@tanstack/react-table'
 import {
   AlertTriangle,
   CalendarRange,
+  Check,
   ClipboardCheck,
   ChevronLeft,
   ChevronRight,
@@ -25,6 +27,7 @@ import { cn } from '@/lib/utils'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -33,6 +36,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -49,6 +59,7 @@ import {
 } from '@/components/ui/tooltip'
 import {
   DataTableActionButton,
+  DataTableBulkActions,
   DataTableColumnHeader,
   DataTablePagination,
   DataTableToolbar,
@@ -82,6 +93,10 @@ import {
   attendanceEmployeeTypeOptions,
   attendanceProductionSectionOptions,
 } from './filter-options'
+import {
+  MonitoringBulkDialog,
+  type MonitoringBulkAction,
+} from './monitoring-bulk-dialog'
 import { MonitoringFinalizationPanel } from './monitoring-finalization-panel'
 
 export function AttendanceMonitoringPage({
@@ -128,7 +143,7 @@ export function AttendanceMonitoringPage({
   const [selected, setSelected] = useState<AttendanceMonitoringRecord>()
   const [reviewCorrectionUid, setReviewCorrectionUid] = useState<string>()
   const [timelineUid, setTimelineUid] = useState<string>()
-  const selectedSites = arrayValue<AttendanceSiteCode>(search.site)
+  const selectedSites = arrayValue<AttendanceSiteCode>(search.site) ?? []
 
   useEffect(() => {
     if (!goLiveDate || requestedBusinessDate >= goLiveDate) return
@@ -289,7 +304,9 @@ export function AttendanceMonitoringPage({
           productionSectionOptions={productionSectionOptions}
           canCorrect={canCorrect}
           canApprove={canApprove}
+          canApproveClassification={canApprove && isAttendanceHr}
           canClassify={canClassify}
+          bulkSite={selectedSites.length === 1 ? selectedSites[0] : undefined}
           onOpenDetail={(record) => setTimelineUid(record.uid)}
           onCorrect={setSelected}
           onReviewCorrection={(record) =>
@@ -570,7 +587,9 @@ function MonitoringTable({
   productionSectionOptions,
   canCorrect,
   canApprove,
+  canApproveClassification,
   canClassify,
+  bulkSite,
   onOpenDetail,
   onCorrect,
   onReviewCorrection,
@@ -583,15 +602,71 @@ function MonitoringTable({
   productionSectionOptions: { value: string; label: string }[]
   canCorrect: boolean
   canApprove: boolean
+  canApproveClassification: boolean
   canClassify: boolean
+  bulkSite?: AttendanceSiteCode
   onOpenDetail: (record: AttendanceMonitoringRecord) => void
   onCorrect: (record: AttendanceMonitoringRecord) => void
   onReviewCorrection: (record: AttendanceMonitoringRecord) => void
   onClassify: (record: AttendanceMonitoringRecord) => void
 }) {
   const returnTo = currentListReturnTo()
+  const [bulkAction, setBulkAction] = useState<MonitoringBulkAction>()
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const [bulkOpen, setBulkOpen] = useState(false)
   const columns = useMemo<ColumnDef<AttendanceMonitoringRecord>[]>(
     () => [
+      ...(bulkAction
+        ? [
+            {
+              id: 'select',
+              header: ({ table }) => (
+                <Checkbox
+                  checked={
+                    table.getSelectedRowModel().rows.length > 0 &&
+                    table.getSelectedRowModel().rows.length ===
+                      Math.min(
+                        50,
+                        table
+                          .getRowModel()
+                          .rows.filter((row) => row.getCanSelect()).length
+                      )
+                      ? true
+                      : table.getSelectedRowModel().rows.length > 0
+                        ? 'indeterminate'
+                        : false
+                  }
+                  onCheckedChange={(value) => {
+                    if (!value) return table.resetRowSelection()
+                    setRowSelection(
+                      Object.fromEntries(
+                        table
+                          .getRowModel()
+                          .rows.filter((row) => row.getCanSelect())
+                          .slice(0, 50)
+                          .map((row) => [row.id, true])
+                      )
+                    )
+                  }}
+                  aria-label='Pilih semua baris yang memenuhi syarat'
+                />
+              ),
+              cell: ({ row }) => (
+                <Checkbox
+                  checked={row.getIsSelected()}
+                  disabled={!row.getCanSelect()}
+                  onCheckedChange={(value) =>
+                    row.toggleSelected(Boolean(value))
+                  }
+                  onClick={(event) => event.stopPropagation()}
+                  aria-label={`Pilih ${row.original.employeeName}`}
+                />
+              ),
+              enableSorting: false,
+              meta: { className: 'w-10 px-2' },
+            } satisfies ColumnDef<AttendanceMonitoringRecord>,
+          ]
+        : []),
       {
         accessorKey: 'employeeName',
         header: ({ column }) => (
@@ -759,7 +834,7 @@ function MonitoringTable({
                   <Clock3 />
                 </DataTableActionButton>
               )}
-            {canClassify && row.original.attendanceStatus === 'ABSENT' && (
+            {canClassify && row.original.bulkActions.createClassification && (
               <DataTableActionButton
                 label='Ajukan klasifikasi'
                 onClick={() => onClassify(row.original)}
@@ -774,6 +849,7 @@ function MonitoringTable({
     ],
     [
       canApprove,
+      bulkAction,
       canClassify,
       canCorrect,
       onClassify,
@@ -812,6 +888,23 @@ function MonitoringTable({
       },
     ],
   })
+  const selectionScope = JSON.stringify({
+    businessDate: search.businessDate,
+    filter: search.filter,
+    site: search.site,
+    employeeType: search.employeeType,
+    productionSection: search.productionSection,
+    attendanceStatus: search.attendanceStatus,
+    qualityStatus: search.qualityStatus,
+    abnormalReason: search.abnormalReason,
+    page: search.page,
+    pageSize: search.pageSize,
+  })
+  useEffect(() => {
+    setRowSelection({})
+    setBulkOpen(false)
+  }, [bulkAction, selectionScope])
+  const selectedRowCount = Object.values(rowSelection).filter(Boolean).length
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: result.data?.items ?? [],
@@ -820,6 +913,7 @@ function MonitoringTable({
       globalFilter: url.globalFilter,
       columnFilters: url.columnFilters,
       pagination: url.pagination,
+      rowSelection,
     },
     pageCount: Math.max(
       1,
@@ -827,6 +921,14 @@ function MonitoringTable({
     ),
     manualPagination: true,
     manualFiltering: true,
+    getRowId: (row) => row.uid,
+    enableRowSelection: (row) =>
+      Boolean(
+        bulkAction &&
+        bulkSite &&
+        row.original.bulkActions[bulkActionKey(bulkAction)] &&
+        (rowSelection[row.id] || selectedRowCount < 50)
+      ),
     initialState: {
       columnVisibility: {
         site: false,
@@ -837,11 +939,61 @@ function MonitoringTable({
     onGlobalFilterChange: url.onGlobalFilterChange,
     onColumnFiltersChange: url.onColumnFiltersChange,
     onPaginationChange: url.onPaginationChange,
+    onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
   })
   const data = result.data
+  const selectedRecords = table
+    .getSelectedRowModel()
+    .rows.map((row) => row.original)
   return (
     <div className='space-y-4'>
+      {(canCorrect || canApprove || canClassify) && (
+        <div className='flex flex-col gap-2 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between'>
+          <div>
+            <p className='text-sm font-medium'>Aksi massal</p>
+            <p className='text-xs text-muted-foreground'>
+              Pilih aksi lebih dulu; checkbox hanya aktif pada baris yang
+              memenuhi syarat.
+            </p>
+          </div>
+          <Select
+            value={bulkAction ?? 'NONE'}
+            onValueChange={(value) =>
+              setBulkAction(
+                value === 'NONE' ? undefined : (value as MonitoringBulkAction)
+              )
+            }
+          >
+            <SelectTrigger className='w-full sm:w-64'>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='NONE'>Tanpa aksi massal</SelectItem>
+              {canCorrect && (
+                <SelectItem value='CREATE_CORRECTION'>
+                  Ajukan koreksi
+                </SelectItem>
+              )}
+              {canClassify && (
+                <SelectItem value='CREATE_CLASSIFICATION'>
+                  Ajukan klasifikasi
+                </SelectItem>
+              )}
+              {canApprove && (
+                <SelectItem value='APPROVE_CORRECTION'>
+                  Approve koreksi
+                </SelectItem>
+              )}
+              {canApproveClassification && (
+                <SelectItem value='APPROVE_CLASSIFICATION'>
+                  Approve klasifikasi
+                </SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       <DataTableToolbar
         table={table}
         searchPlaceholder='Cari nama atau nomor karyawan...'
@@ -875,6 +1027,22 @@ function MonitoringTable({
           },
         ]}
       />
+      {bulkAction && !bulkSite && (
+        <p className='text-sm text-muted-foreground'>
+          Pilih tepat satu site pada filter agar aksi massal aman diproses.
+        </p>
+      )}
+      {bulkAction && bulkSite && (
+        <DataTableBulkActions
+          table={table}
+          entityName='attendance'
+          entityNamePlural='attendance'
+        >
+          <Button size='sm' className='h-8' onClick={() => setBulkOpen(true)}>
+            <Check /> {bulkActionLabel(bulkAction)}
+          </Button>
+        </DataTableBulkActions>
+      )}
       {result.isPending ? (
         <StateText>Memuat monitoring attendance...</StateText>
       ) : result.isError ? (
@@ -970,6 +1138,22 @@ function MonitoringTable({
                 onReviewCorrection={onReviewCorrection}
                 onClassify={onClassify}
                 returnTo={returnTo}
+                bulkSelectable={Boolean(
+                  bulkAction &&
+                  bulkSite &&
+                  item.bulkActions[bulkActionKey(bulkAction)] &&
+                  (rowSelection[item.uid] || selectedRowCount < 50)
+                )}
+                bulkSelected={Boolean(rowSelection[item.uid])}
+                showBulkSelection={Boolean(bulkAction)}
+                onBulkSelected={(selected) =>
+                  setRowSelection((current) => {
+                    if (selected) return { ...current, [item.uid]: true }
+                    const next = { ...current }
+                    delete next[item.uid]
+                    return next
+                  })
+                }
               />
             ))}
           </div>
@@ -977,6 +1161,20 @@ function MonitoringTable({
             table={table}
             summary={paginationSummary(data.page, data.pageSize, data.total)}
           />
+          {bulkOpen && (
+            <MonitoringBulkDialog
+              key={`${bulkAction}-${selectedRecords.map((record) => record.uid).join(',')}`}
+              action={bulkAction}
+              records={selectedRecords}
+              site={bulkSite}
+              open
+              onOpenChange={(open) => {
+                setBulkOpen(open)
+                if (!open) table.resetRowSelection()
+              }}
+              onCompleted={() => void result.refetch()}
+            />
+          )}
         </>
       )}
     </div>
@@ -993,6 +1191,10 @@ function MobileRecord({
   onReviewCorrection,
   onClassify,
   returnTo,
+  bulkSelectable,
+  bulkSelected,
+  showBulkSelection,
+  onBulkSelected,
 }: {
   item: AttendanceMonitoringRecord
   canCorrect: boolean
@@ -1003,22 +1205,36 @@ function MobileRecord({
   onReviewCorrection: (item: AttendanceMonitoringRecord) => void
   onClassify: (item: AttendanceMonitoringRecord) => void
   returnTo?: string
+  bulkSelectable: boolean
+  bulkSelected: boolean
+  showBulkSelection: boolean
+  onBulkSelected: (selected: boolean) => void
 }) {
   return (
     <div className='space-y-3 rounded-lg border p-3'>
       <div className='flex items-start justify-between gap-2'>
-        <div>
-          <Link
-            className='font-medium hover:underline'
-            to='/karyawan/data-karyawan/$employeeUid'
-            params={{ employeeUid: item.employeeUid }}
-            search={{ returnTo }}
-          >
-            {item.employeeName}
-          </Link>
-          <p className='text-xs text-muted-foreground'>
-            {monitoringSiteLabel(item.site)} - {item.employeeNumber}
-          </p>
+        <div className='flex min-w-0 items-start gap-2'>
+          {showBulkSelection && (
+            <Checkbox
+              checked={bulkSelected}
+              disabled={!bulkSelectable}
+              onCheckedChange={(value) => onBulkSelected(Boolean(value))}
+              aria-label={`Pilih ${item.employeeName}`}
+            />
+          )}
+          <div className='min-w-0'>
+            <Link
+              className='font-medium hover:underline'
+              to='/karyawan/data-karyawan/$employeeUid'
+              params={{ employeeUid: item.employeeUid }}
+              search={{ returnTo }}
+            >
+              {item.employeeName}
+            </Link>
+            <p className='text-xs text-muted-foreground'>
+              {monitoringSiteLabel(item.site)} - {item.employeeNumber}
+            </p>
+          </div>
         </div>
         <div className='flex flex-wrap justify-end gap-1.5'>
           <AttendanceStatusBadge value={item.attendanceStatus} />
@@ -1072,7 +1288,7 @@ function MobileRecord({
             <Clock3 /> Ajukan koreksi
           </Button>
         )}
-      {canClassify && item.attendanceStatus === 'ABSENT' && (
+      {canClassify && item.bulkActions.createClassification && (
         <Button
           variant='outline'
           className='w-full'
@@ -1268,6 +1484,29 @@ const abnormalOptions = [
   { value: 'MISSING_CLOCK_IN', label: 'Tanpa jam masuk' },
   { value: 'MISSING_CLOCK_OUT', label: 'Tanpa jam pulang' },
 ]
+function bulkActionKey(action: MonitoringBulkAction) {
+  const keys = {
+    CREATE_CORRECTION: 'createCorrection',
+    CREATE_CLASSIFICATION: 'createClassification',
+    APPROVE_CORRECTION: 'approveCorrection',
+    APPROVE_CLASSIFICATION: 'approveClassification',
+  } as const
+  return keys[action]
+}
+function bulkActionLabel(action?: MonitoringBulkAction) {
+  switch (action) {
+    case 'CREATE_CORRECTION':
+      return 'Ajukan koreksi massal'
+    case 'CREATE_CLASSIFICATION':
+      return 'Ajukan klasifikasi massal'
+    case 'APPROVE_CORRECTION':
+      return 'Approve koreksi massal'
+    case 'APPROVE_CLASSIFICATION':
+      return 'Approve klasifikasi massal'
+    default:
+      return 'Pilih aksi massal'
+  }
+}
 function StateText({ children }: { children: React.ReactNode }) {
   return (
     <div className='flex min-h-40 items-center justify-center gap-2 text-center text-sm text-muted-foreground'>

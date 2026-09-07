@@ -52,6 +52,23 @@ const missingClockOutSql = `(ar.attendance_status='PRESENT'
     THEN DATE_ADD(TIMESTAMP(ar.business_date,sh.end_time),INTERVAL 1 DAY)
     ELSE TIMESTAMP(ar.business_date,sh.end_time) END)`
 const abnormalAttendanceSql = `(${missingClockInSql} OR ${missingClockOutSql})`
+const attendanceCorrectionBatchInput = z
+  .object({
+    site: z.enum(siteCodes),
+    operationId: z.string().uuid(),
+    items: z.array(attendanceCorrectionRequestInput).min(1).max(50),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const uids = value.items.map((item) => item.attendanceUid)
+    if (new Set(uids).size !== uids.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['items'],
+        message: 'Attendance yang sama tidak boleh dikirim lebih dari sekali.',
+      })
+    }
+  })
 
 function pageParams(page: unknown, pageSize: unknown) {
   const parsedPage = Number(page ?? 1)
@@ -362,6 +379,118 @@ async function approveCorrection(
   return { uid: input.uid, approvalStatus: 'APPROVED' as const, applied: true }
 }
 
+async function createBulkCorrectionItem(
+  conn: PoolConnection,
+  input: z.infer<typeof attendanceCorrectionRequestInput>,
+  context: {
+    auth: AuthContext
+    request: Request
+    expectedSite: string
+    operationId: string
+  }
+) {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT ar.id,ar.uid,ar.site_id siteId,
+            DATE_FORMAT(ar.business_date,'%Y-%m-%d') businessDate,
+            ar.attendance_status attendanceStatus,
+            DATE_FORMAT(ar.clock_in_at,'%Y-%m-%d %H:%i:%s') clockInAt,
+            DATE_FORMAT(ar.clock_out_at,'%Y-%m-%d %H:%i:%s') clockOutAt,
+            s.code site
+       FROM attendance_records ar
+       JOIN sites s ON s.id=ar.site_id
+      WHERE ar.uid=? FOR UPDATE`,
+    [input.attendanceUid]
+  )
+  const attendance = rows[0]
+  if (!attendance) throw new ApiError(404, 'Attendance tidak ditemukan.')
+  enforceSite(context.auth, attendance.site)
+  if (attendance.site !== context.expectedSite) {
+    throw new ApiError(409, 'Attendance tidak sesuai site yang dipilih.')
+  }
+  assertAttendanceOperationalDate(
+    String(attendance.businessDate),
+    env.ATTENDANCE_GO_LIVE_DATE
+  )
+  await assertAttendanceHasNoAppliedClassification(conn, Number(attendance.id))
+  const [pending] = await conn.query<RowDataPacket[]>(
+    `SELECT id FROM attendance_corrections
+      WHERE attendance_record_id=? AND approval_status='PENDING'
+      LIMIT 1 FOR UPDATE`,
+    [attendance.id]
+  )
+  if (pending[0]) {
+    throw new ApiError(409, 'Attendance masih memiliki koreksi yang menunggu persetujuan.')
+  }
+  if (input.correctionType === 'STATUS') {
+    throw new ApiError(422, 'Koreksi massal hanya mendukung jam masuk dan/atau jam pulang.')
+  }
+  const proposedClockIn =
+    input.correctionType === 'CLOCK_IN' || input.correctionType === 'BOTH'
+      ? input.newClockInAt ?? null
+      : attendance.clockInAt
+  const proposedClockOut =
+    input.correctionType === 'CLOCK_OUT' || input.correctionType === 'BOTH'
+      ? input.newClockOutAt ?? null
+      : attendance.clockOutAt
+  if (!validateClockOrder(proposedClockIn, proposedClockOut)) {
+    throw new ApiError(422, 'Jam pulang tidak boleh sebelum jam masuk.')
+  }
+  if (
+    !validCorrectionDateTime(proposedClockIn, attendance.businessDate) ||
+    !validCorrectionDateTime(proposedClockOut, attendance.businessDate)
+  ) {
+    throw new ApiError(422, 'Waktu koreksi harus berada pada business date atau hari berikutnya.')
+  }
+  const uid = randomUUID()
+  await conn.execute(
+    `INSERT INTO attendance_corrections
+      (uid,attendance_record_id,correction_type,old_clock_in_at,new_clock_in_at,
+       old_clock_out_at,new_clock_out_at,old_status,new_status,reason,
+       approval_status,requested_by,requested_at,created_by,updated_by)
+     VALUES(?,?,?,?,?,?,?,?,?,?,'PENDING',?,CURRENT_TIMESTAMP(3),?,?)`,
+    [
+      uid,
+      attendance.id,
+      input.correctionType,
+      input.correctionType === 'CLOCK_IN' || input.correctionType === 'BOTH'
+        ? attendance.clockInAt
+        : null,
+      input.correctionType === 'CLOCK_IN' || input.correctionType === 'BOTH'
+        ? input.newClockInAt ?? null
+        : null,
+      input.correctionType === 'CLOCK_OUT' || input.correctionType === 'BOTH'
+        ? attendance.clockOutAt
+        : null,
+      input.correctionType === 'CLOCK_OUT' || input.correctionType === 'BOTH'
+        ? input.newClockOutAt ?? null
+        : null,
+      null,
+      null,
+      input.reason,
+      context.auth.id,
+      context.auth.id,
+      context.auth.id,
+    ]
+  )
+  await writeAudit(
+    {
+      auth: context.auth,
+      request: context.request,
+      module: 'ATTENDANCE',
+      siteId: attendance.siteId,
+      action: 'CREATE',
+      table: 'attendance_corrections',
+      recordUid: uid,
+      requestId: context.operationId,
+      description: `Mengajukan koreksi massal ${input.correctionType} Attendance.`,
+      reason: input.reason,
+      afterData: { attendanceUid: input.attendanceUid, correctionType: input.correctionType },
+    },
+    conn
+  )
+  return uid
+}
+
 export const attendanceCorrectionsRouter = Router()
 
 attendanceCorrectionsRouter.get(
@@ -447,6 +576,16 @@ attendanceCorrectionsRouter.get(
               FROM attendance_corrections candidate
              WHERE candidate.attendance_record_id=ar.id
                AND candidate.approval_status='PENDING'
+          )
+        LEFT JOIN attendance_classification_requests pending_classification
+          ON pending_classification.id=(
+            SELECT MAX(candidate.id)
+              FROM attendance_classification_requests candidate
+             WHERE candidate.employee_id=ar.employee_id
+               AND candidate.site_id=ar.site_id
+               AND candidate.approval_status='PENDING'
+               AND candidate.start_date<=ar.business_date
+               AND candidate.end_date>=ar.business_date
           )`
       const [countRows] = await pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) total ${from} WHERE ${where.join(' AND ')}`,
@@ -471,6 +610,8 @@ attendanceCorrectionsRouter.get(
                 ) hasAppliedClassification,
                 pending_correction.uid pendingCorrectionUid,
                 pending_correction.correction_type pendingCorrectionType,
+                pending_classification.uid pendingClassificationUid,
+                pending_classification.classification_type pendingClassificationType,
                 s.code site,sh.uid shiftUid,sh.name shiftName,
                 DATE_FORMAT(NOW(3),'%Y-%m-%d %H:%i:%s') asOf,
                 DATE_FORMAT(
@@ -500,21 +641,42 @@ attendanceCorrectionsRouter.get(
         baseValues
       )
       res.json({
-        items: rows.map((row) => ({
-          ...row,
-          lateMinutes: Number(row.lateMinutes ?? 0),
-          earlyLeaveMinutes: Number(row.earlyLeaveMinutes ?? 0),
-          workedMinutes:
-            row.workedMinutes === null ? null : Number(row.workedMinutes),
-          hasAppliedClassification: Boolean(row.hasAppliedClassification),
-          ...deriveAttendanceQuality({
+        items: rows.map((row) => {
+          const quality = deriveAttendanceQuality({
             attendanceStatus: String(row.attendanceStatus),
             clockInAt: row.clockInAt,
             clockOutAt: row.clockOutAt,
             scheduledEndAt: row.scheduledEndAt,
             asOf: row.asOf,
-          }),
-        })),
+          })
+          const hasAppliedClassification = Boolean(row.hasAppliedClassification)
+          const hasPendingCorrection = Boolean(row.pendingCorrectionUid)
+          const hasPendingClassification = Boolean(row.pendingClassificationUid)
+          const canCreateCorrection =
+            quality.qualityStatus === 'ABNORMAL' &&
+            !hasPendingCorrection &&
+            !hasAppliedClassification
+          const canCreateClassification =
+            row.attendanceStatus === 'ABSENT' &&
+            !hasPendingCorrection &&
+            !hasPendingClassification &&
+            !hasAppliedClassification
+          return {
+          ...row,
+          lateMinutes: Number(row.lateMinutes ?? 0),
+          earlyLeaveMinutes: Number(row.earlyLeaveMinutes ?? 0),
+          workedMinutes:
+            row.workedMinutes === null ? null : Number(row.workedMinutes),
+          hasAppliedClassification,
+          ...quality,
+          bulkActions: {
+            createCorrection: canCreateCorrection,
+            createClassification: canCreateClassification,
+            approveCorrection: hasPendingCorrection,
+            approveClassification: hasPendingClassification,
+          },
+        }
+        }),
         total: Number(countRows[0].total),
         page,
         pageSize,
@@ -820,6 +982,51 @@ attendanceCorrectionsRouter.post(
       next(error)
     } finally {
       conn.release()
+    }
+  }
+)
+
+attendanceCorrectionsRouter.post(
+  '/corrections/batch',
+  requirePermission('attendance.correct'),
+  async (req, res, next) => {
+    try {
+      const auth = res.locals.auth as AuthContext
+      const input = attendanceCorrectionBatchInput.parse(req.body)
+      enforceSite(auth, input.site)
+      const failures: { uid: string; message: string }[] = []
+      let created = 0
+      for (const item of input.items) {
+        let conn: PoolConnection | undefined
+        try {
+          conn = await pool.getConnection()
+          await conn.beginTransaction()
+          await createBulkCorrectionItem(conn, item, {
+            auth,
+            request: req,
+            expectedSite: input.site,
+            operationId: input.operationId,
+          })
+          await conn.commit()
+          created += 1
+        } catch (error) {
+          await conn?.rollback().catch(() => undefined)
+          failures.push({
+            uid: item.attendanceUid,
+            message: safeBulkReviewMessage(error),
+          })
+        } finally {
+          conn?.release()
+        }
+      }
+      res.status(created ? 201 : 200).json({
+        requested: input.items.length,
+        created,
+        failed: failures.length,
+        failures,
+      })
+    } catch (error) {
+      next(error)
     }
   }
 )
