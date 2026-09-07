@@ -67,7 +67,8 @@ Buka **Produksi Borongan → Terminal Setoran**.
 
 Jika layar menampilkan **Aktivasi Terminal Produksi**:
 
-1. ambil kode aktivasi dari Master Perangkat;
+1. dari Master Perangkat, pilih aksi **Aktivasi Produksi** pada perangkat
+   bertipe Scanner USB atau Terminal;
 2. masukkan kode pada kolom **Kode aktivasi**;
 3. klik **Aktifkan terminal**;
 4. pastikan nama perangkat, site, kode perangkat, dan jenis perangkat yang tampil sudah benar.

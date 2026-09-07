@@ -214,6 +214,22 @@ describe('Production transactions API', () => {
     expect(mocks.beginTransaction).not.toHaveBeenCalled()
   })
 
+  it('mengaktifkan Terminal hanya dengan kode Produksi atau kode legacy', async () => {
+    mocks.query.mockResolvedValueOnce([[deviceRow()]])
+
+    const response = await request('/terminal/activate', {
+      method: 'POST',
+      body: { activationCode: '0123-4567-89AB' },
+      withToken: false,
+    })
+
+    expect(response.status).toBe(200)
+    const lookupParams = mocks.query.mock.calls[0]?.[1] as string[]
+    expect(lookupParams[0]).toMatch(/^PRODUCTION:[a-f0-9]{64}$/)
+    expect(lookupParams[1]).toMatch(/^[a-f0-9]{64}$/)
+    expect(mocks.commit).toHaveBeenCalledOnce()
+  })
+
   it('mewajibkan token perangkat Produksi pada lookup', async () => {
     const response = await request('/terminal/lookup', {
       method: 'POST',

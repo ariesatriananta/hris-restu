@@ -5,9 +5,11 @@ import type { PoolConnection } from 'mysql2/promise'
 import { pool } from '../db.js'
 import {
   activationInput,
+  deviceActivationPurposeInput,
   deviceInput,
   generateActivationCode,
   generateDeviceToken,
+  hashDeviceActivationCode,
   hashDeviceSecret,
 } from '../lib/attendance-device-policy.js'
 import { writeAudit } from '../lib/audit.js'
@@ -66,6 +68,8 @@ async function getDeviceForUpdate(conn: PoolConnection, uid: string) {
             d.location_description locationDescription,d.is_active isActive,
             d.device_token_hash deviceTokenHash,d.activation_code_hash activationCodeHash,
             d.activation_code_expires_at activationCodeExpiresAt,d.activated_at activatedAt,
+            d.production_token_hash productionTokenHash,
+            d.production_activated_at productionActivatedAt,
             s.code site,s.name siteName
        FROM scan_devices d
        JOIN sites s ON s.id=d.site_id
@@ -126,7 +130,15 @@ attendanceDevicesRouter.get(
                 d.device_type deviceType,d.location_description locationDescription,
                 DATE_FORMAT(d.last_seen_at,'%Y-%m-%dT%H:%i:%s+07:00') lastSeenAt,
                 d.is_active isActive,(d.device_token_hash IS NOT NULL) isActivated,
+                (d.device_token_hash IS NOT NULL) attendanceActivated,
+                (d.device_type IN ('USB_SCANNER','TERMINAL')) productionSupported,
+                (d.production_token_hash IS NOT NULL AND d.production_activated_at IS NOT NULL) productionActivated,
                 (d.activation_code_hash IS NOT NULL AND d.activation_code_expires_at>NOW(3)) activationPending,
+                CASE
+                  WHEN d.activation_code_hash LIKE 'ATTENDANCE:%' THEN 'ATTENDANCE'
+                  WHEN d.activation_code_hash LIKE 'PRODUCTION:%' THEN 'PRODUCTION'
+                  ELSE NULL
+                END activationPurpose,
                 DATE_FORMAT(d.activation_code_expires_at,'%Y-%m-%dT%H:%i:%s+07:00') activationCodeExpiresAt,
                 (SELECT COUNT(*) FROM attendance_scan_events ase WHERE ase.device_id=d.id) scanCount
            ${from}
@@ -140,6 +152,9 @@ attendanceDevicesRouter.get(
           ...row,
           isActive: Number(row.isActive) === 1,
           isActivated: Number(row.isActivated) === 1,
+          attendanceActivated: Number(row.attendanceActivated) === 1,
+          productionSupported: Number(row.productionSupported) === 1,
+          productionActivated: Number(row.productionActivated) === 1,
           activationPending: Number(row.activationPending) === 1,
           scanCount: Number(row.scanCount),
         })),
@@ -183,7 +198,7 @@ attendanceDevicesRouter.post(
           input.deviceType,
           input.locationDescription ?? null,
           input.isActive ? 1 : 0,
-          hashDeviceSecret(activationCode.replaceAll('-', '')),
+          hashDeviceActivationCode(activationCode, 'ATTENDANCE'),
           auth.id,
           auth.id,
         ]
@@ -219,6 +234,7 @@ attendanceDevicesRouter.post(
         uid,
         activationCode,
         activationCodeExpiresAt: expiryRows[0].activationCodeExpiresAt,
+        purpose: 'ATTENDANCE',
       })
     } catch (error) {
       await conn.rollback()
@@ -243,10 +259,13 @@ attendanceDevicesRouter.post(
                 s.id siteId,s.code site,s.name siteName
            FROM scan_devices d
            JOIN sites s ON s.id=d.site_id
-          WHERE d.activation_code_hash=?
+          WHERE d.activation_code_hash IN (?,?)
             AND d.activation_code_expires_at>NOW(3)
           FOR UPDATE`,
-        [hashDeviceSecret(input.activationCode)]
+        [
+          hashDeviceActivationCode(input.activationCode, 'ATTENDANCE'),
+          hashDeviceSecret(input.activationCode),
+        ]
       )
       const device = rows[0]
       if (!device) throw new ApiError(422, 'Kode aktivasi tidak valid atau kedaluwarsa.')
@@ -374,6 +393,7 @@ attendanceDevicesRouter.post(
     try {
       const uid = routeParam(req.params.uid)
       const auth = res.locals.auth as AuthContext
+      const { purpose } = deviceActivationPurposeInput.parse(req.body ?? {})
       const activationCode = generateActivationCode()
       await conn.beginTransaction()
       const device = await getDeviceForUpdate(conn, uid)
@@ -381,18 +401,39 @@ attendanceDevicesRouter.post(
       if (Number(device.isActive) !== 1) {
         throw new ApiError(409, 'Aktifkan perangkat sebelum membuat kode aktivasi.')
       }
-      await conn.execute(
-        `UPDATE scan_devices
-            SET device_token_hash=NULL,activation_code_hash=?,
-                activation_code_expires_at=DATE_ADD(NOW(3),INTERVAL 15 MINUTE),
-                activated_at=NULL,activated_by=NULL,updated_by=?
-          WHERE id=?`,
-        [
-          hashDeviceSecret(activationCode.replaceAll('-', '')),
-          auth.id,
-          device.id,
-        ]
+      if (
+        purpose === 'PRODUCTION' &&
+        !['USB_SCANNER', 'TERMINAL'].includes(String(device.deviceType))
+      ) {
+        throw new ApiError(
+          422,
+          'Tipe perangkat ini tidak mendukung Terminal Produksi.'
+        )
+      }
+      const activationCodeHash = hashDeviceActivationCode(
+        activationCode,
+        purpose
       )
+      if (purpose === 'PRODUCTION') {
+        await conn.execute(
+          `UPDATE scan_devices
+              SET production_token_hash=NULL,activation_code_hash=?,
+                  activation_code_expires_at=DATE_ADD(NOW(3),INTERVAL 15 MINUTE),
+                  production_activated_at=NULL,production_activated_by=NULL,
+                  updated_by=?
+            WHERE id=?`,
+          [activationCodeHash, auth.id, device.id]
+        )
+      } else {
+        await conn.execute(
+          `UPDATE scan_devices
+              SET device_token_hash=NULL,activation_code_hash=?,
+                  activation_code_expires_at=DATE_ADD(NOW(3),INTERVAL 15 MINUTE),
+                  activated_at=NULL,activated_by=NULL,updated_by=?
+            WHERE id=?`,
+          [activationCodeHash, auth.id, device.id]
+        )
+      }
       await writeAudit(
         {
           auth,
@@ -403,9 +444,15 @@ attendanceDevicesRouter.post(
           table: 'scan_devices',
           recordId: device.id,
           recordUid: uid,
-          description: `Membuat ulang kode aktivasi perangkat Attendance ${device.name}.`,
-          beforeData: { activated: Boolean(device.deviceTokenHash) },
-          afterData: { activated: false, activationPending: true },
+          description: `Membuat ulang kode aktivasi perangkat ${purpose === 'PRODUCTION' ? 'Produksi' : 'Attendance'} ${device.name}.`,
+          beforeData: {
+            purpose,
+            activated:
+              purpose === 'PRODUCTION'
+                ? Boolean(device.productionTokenHash)
+                : Boolean(device.deviceTokenHash),
+          },
+          afterData: { purpose, activated: false, activationPending: true },
         },
         conn
       )
@@ -418,6 +465,7 @@ attendanceDevicesRouter.post(
       res.json({
         activationCode,
         activationCodeExpiresAt: expiryRows[0].activationCodeExpiresAt,
+        purpose,
       })
     } catch (error) {
       await conn.rollback()

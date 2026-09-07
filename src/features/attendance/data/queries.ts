@@ -36,6 +36,7 @@ import type {
   AttendanceBulkFinalizationRunInput,
   AttendanceBulkCorrectionInput,
   AttendanceBulkClassificationInput,
+  AttendanceDeviceActivationPurpose,
 } from '../domain'
 import { httpAttendanceRepository } from './http-attendance-repository'
 
@@ -167,8 +168,14 @@ export const useDeleteAttendanceDevice = () =>
   )
 
 export const useRegenerateDeviceActivation = () =>
-  useAttendanceMutation((uid: string) =>
-    httpAttendanceRepository.regenerateDeviceActivation(uid)
+  useAttendanceMutation(
+    ({
+      uid,
+      purpose,
+    }: {
+      uid: string
+      purpose: AttendanceDeviceActivationPurpose
+    }) => httpAttendanceRepository.regenerateDeviceActivation(uid, purpose)
   )
 
 export const useActivateAttendanceDevice = () =>

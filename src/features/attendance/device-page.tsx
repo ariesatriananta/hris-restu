@@ -12,10 +12,12 @@ import {
   ClipboardCopy,
   KeyRound,
   LoaderCircle,
+  PackageCheck,
   Pencil,
   Plus,
   RefreshCcw,
   RotateCw,
+  ScanLine,
   Smartphone,
   Trash2,
 } from 'lucide-react'
@@ -32,6 +34,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -68,6 +76,7 @@ import {
 import type {
   AttendanceDevice,
   AttendanceDeviceActivation,
+  AttendanceDeviceActivationPurpose,
   AttendanceDeviceInput,
   AttendanceDeviceType,
   AttendanceSiteCode,
@@ -92,7 +101,10 @@ export function DevicePage({
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<AttendanceDevice>()
   const [deleteTarget, setDeleteTarget] = useState<AttendanceDevice>()
-  const [regenerateTarget, setRegenerateTarget] = useState<AttendanceDevice>()
+  const [regenerateTarget, setRegenerateTarget] = useState<{
+    device: AttendanceDevice
+    purpose: AttendanceDeviceActivationPurpose
+  }>()
   const [activation, setActivation] = useState<AttendanceDeviceActivation>()
   const remove = useDeleteAttendanceDevice()
   const regenerate = useRegenerateDeviceActivation()
@@ -114,7 +126,8 @@ export function DevicePage({
     []
   )
   const requestRegenerate = useCallback(
-    (device: AttendanceDevice) => setRegenerateTarget(device),
+    (device: AttendanceDevice, purpose: AttendanceDeviceActivationPurpose) =>
+      setRegenerateTarget({ device, purpose }),
     []
   )
   const columns = useMemo<ColumnDef<AttendanceDevice>[]>(
@@ -157,12 +170,12 @@ export function DevicePage({
         meta: { label: 'Tipe' },
       },
       {
-        id: 'activation',
+        id: 'readiness',
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title='Aktivasi' />
+          <DataTableColumnHeader column={column} title='Kesiapan perangkat' />
         ),
-        cell: ({ row }) => <ActivationStatus device={row.original} />,
-        meta: { label: 'Aktivasi' },
+        cell: ({ row }) => <DeviceReadiness device={row.original} />,
+        meta: { label: 'Kesiapan perangkat' },
       },
       {
         accessorKey: 'lastSeenAt',
@@ -209,12 +222,11 @@ export function DevicePage({
             >
               <Pencil />
             </DataTableActionButton>
-            <DataTableActionButton
-              label={`${row.original.isActivated ? 'Buat ulang' : 'Buat'} kode aktivasi ${row.original.name}`}
-              onClick={() => requestRegenerate(row.original)}
-            >
-              <RotateCw />
-            </DataTableActionButton>
+            <ActivationMenu
+              device={row.original}
+              iconOnly
+              onSelect={requestRegenerate}
+            />
             {row.original.scanCount === 0 && (
               <DataTableActionButton
                 className='text-destructive hover:text-destructive'
@@ -273,7 +285,8 @@ export function DevicePage({
             Master Perangkat
           </h1>
           <p className='text-muted-foreground'>
-            Kelola terminal scan dan aktivasi perangkat per site.
+            Kelola perangkat dan pantau kesiapan Attendance serta Produksi per
+            site.
           </p>
         </div>
         <Button
@@ -287,6 +300,11 @@ export function DevicePage({
         </Button>
       </div>
       <div className='space-y-4'>
+        <div className='rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground'>
+          Aktivasi Attendance dan Produksi memakai token yang terpisah. Produksi
+          hanya didukung perangkat USB Scanner dan Terminal. Perangkat nonaktif
+          tetap tidak dapat digunakan meskipun sudah teraktivasi.
+        </div>
         <DataTableToolbar
           table={table}
           searchPlaceholder='Cari kode atau nama perangkat...'
@@ -410,22 +428,28 @@ export function DevicePage({
       <ConfirmDialog
         open={Boolean(regenerateTarget)}
         onOpenChange={(open) => !open && setRegenerateTarget(undefined)}
-        title='Buat ulang kode aktivasi?'
-        desc={`Token lama perangkat ${regenerateTarget?.name ?? ''} akan langsung tidak berlaku. Terminal harus diaktivasi ulang dengan kode baru.`}
-        confirmText='Buat ulang kode'
+        title={`Buat kode aktivasi ${activationPurposeLabel(regenerateTarget?.purpose)}?`}
+        desc={activationConfirmationDescription(regenerateTarget)}
+        confirmText='Buat kode'
         isLoading={regenerate.isPending}
         handleConfirm={() => {
           if (!regenerateTarget) return
-          regenerate.mutate(regenerateTarget.uid, {
-            onSuccess: (data) => {
-              setRegenerateTarget(undefined)
-              setActivation(data)
+          regenerate.mutate(
+            {
+              uid: regenerateTarget.device.uid,
+              purpose: regenerateTarget.purpose,
             },
-            onError: (error) => {
-              setRegenerateTarget(undefined)
-              toast.error(apiMessage(error, 'Kode aktivasi gagal dibuat.'))
-            },
-          })
+            {
+              onSuccess: (data) => {
+                setRegenerateTarget(undefined)
+                setActivation(data)
+              },
+              onError: (error) => {
+                setRegenerateTarget(undefined)
+                toast.error(apiMessage(error, 'Kode aktivasi gagal dibuat.'))
+              },
+            }
+          )
         }}
       />
       <ConfirmDialog
@@ -637,22 +661,26 @@ function ActivationCodeDialog({
   onClose: () => void
 }) {
   const [copied, setCopied] = useState(false)
+  const purposeLabel = activationPurposeLabel(activation.purpose)
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
-            <KeyRound /> Kode Aktivasi Perangkat
+            <KeyRound /> Kode Aktivasi {purposeLabel}
           </DialogTitle>
           <DialogDescription>
-            Kode ini hanya ditampilkan sekarang dan berlaku sampai{' '}
+            Gunakan kode ini pada halaman Terminal {purposeLabel}. Kode hanya
+            ditampilkan sekarang dan berlaku sampai{' '}
             {formatDateTime(activation.activationCodeExpiresAt)}.
           </DialogDescription>
         </DialogHeader>
         <div className='rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm'>
           <strong>Simpan sekarang.</strong> Setelah dialog ditutup, kode tidak
-          dapat dilihat lagi. Membuat ulang kode akan memutus token terminal
-          lama.
+          dapat dilihat lagi. Aktivasi ini hanya mengganti token {purposeLabel};
+          token{' '}
+          {activation.purpose === 'ATTENDANCE' ? 'Produksi' : 'Attendance'}{' '}
+          tidak berubah.
         </div>
         <div className='flex items-center gap-2'>
           <code className='min-w-0 flex-1 rounded-lg bg-muted p-4 text-center text-xl font-bold tracking-widest select-all'>
@@ -705,7 +733,10 @@ function DeviceCard({
 }: {
   device: AttendanceDevice
   onEdit: (value: AttendanceDevice) => void
-  onRegenerate: (value: AttendanceDevice) => void
+  onRegenerate: (
+    value: AttendanceDevice,
+    purpose: AttendanceDeviceActivationPurpose
+  ) => void
   onDelete: (value: AttendanceDevice) => void
 }) {
   return (
@@ -722,7 +753,7 @@ function DeviceCard({
             {device.isActive ? 'Aktif' : 'Nonaktif'}
           </Badge>
         </div>
-        <ActivationStatus device={device} />
+        <DeviceReadiness device={device} />
         <p className='text-xs text-muted-foreground'>
           {device.lastSeenAt
             ? `Terakhir aktif ${formatDateTime(device.lastSeenAt)}`
@@ -733,13 +764,7 @@ function DeviceCard({
           <Button size='sm' variant='outline' onClick={() => onEdit(device)}>
             <Pencil /> Ubah
           </Button>
-          <Button
-            size='sm'
-            variant='outline'
-            onClick={() => onRegenerate(device)}
-          >
-            <RotateCw /> Aktivasi
-          </Button>
+          <ActivationMenu device={device} onSelect={onRegenerate} />
           {device.scanCount === 0 && (
             <Button
               size='sm'
@@ -755,14 +780,160 @@ function DeviceCard({
     </Card>
   )
 }
-function ActivationStatus({ device }: { device: AttendanceDevice }) {
-  return device.isActivated ? (
-    <Badge variant='outline'>Teraktivasi</Badge>
-  ) : device.activationPending ? (
-    <Badge variant='outline'>Menunggu aktivasi</Badge>
-  ) : (
-    <Badge variant='secondary'>Belum diaktivasi</Badge>
+
+function DeviceReadiness({ device }: { device: AttendanceDevice }) {
+  return (
+    <div className='grid min-w-40 gap-1.5 text-xs'>
+      <ReadinessRow
+        label='Attendance'
+        status={
+          !device.isActive
+            ? 'INACTIVE'
+            : device.attendanceActivated
+              ? 'READY'
+              : 'NEEDS_ACTIVATION'
+        }
+        pending={
+          device.activationPending && device.activationPurpose === 'ATTENDANCE'
+        }
+      />
+      <ReadinessRow
+        label='Produksi'
+        status={
+          !device.productionSupported
+            ? 'UNSUPPORTED'
+            : !device.isActive
+              ? 'INACTIVE'
+              : device.productionActivated
+                ? 'READY'
+                : 'NEEDS_ACTIVATION'
+        }
+        pending={
+          device.activationPending && device.activationPurpose === 'PRODUCTION'
+        }
+      />
+    </div>
   )
+}
+
+function ReadinessRow({
+  label,
+  status,
+  pending,
+}: {
+  label: string
+  status: 'READY' | 'NEEDS_ACTIVATION' | 'UNSUPPORTED' | 'INACTIVE'
+  pending: boolean
+}) {
+  return (
+    <div className='flex items-center justify-between gap-2'>
+      <span className='text-muted-foreground'>{label}</span>
+      <Badge
+        variant='outline'
+        className={
+          status === 'READY'
+            ? 'border-positive/40 bg-positive/10 text-positive'
+            : status === 'NEEDS_ACTIVATION'
+              ? 'border-warning/50 bg-warning/10 text-warning-foreground'
+              : 'bg-muted text-muted-foreground'
+        }
+        title={
+          pending ? 'Kode aktivasi sudah dibuat dan belum digunakan' : undefined
+        }
+      >
+        {status === 'READY'
+          ? 'Siap'
+          : status === 'UNSUPPORTED'
+            ? 'Tidak didukung'
+            : status === 'INACTIVE'
+              ? 'Nonaktif'
+              : 'Perlu aktivasi'}
+        {pending && <span className='sr-only'>, kode sudah dibuat</span>}
+      </Badge>
+    </div>
+  )
+}
+
+function ActivationMenu({
+  device,
+  onSelect,
+  iconOnly = false,
+}: {
+  device: AttendanceDevice
+  onSelect: (
+    device: AttendanceDevice,
+    purpose: AttendanceDeviceActivationPurpose
+  ) => void
+  iconOnly?: boolean
+}) {
+  const label = `Pilih tujuan aktivasi perangkat ${device.name}`
+  return (
+    <DropdownMenu modal={false}>
+      {iconOnly ? (
+        <DataTableActionButton
+          asChild
+          label={label}
+          disabled={!device.isActive}
+        >
+          <DropdownMenuTrigger>
+            <RotateCw />
+          </DropdownMenuTrigger>
+        </DataTableActionButton>
+      ) : (
+        <DropdownMenuTrigger asChild>
+          <Button size='sm' variant='outline' disabled={!device.isActive}>
+            <RotateCw /> Aktivasi
+          </Button>
+        </DropdownMenuTrigger>
+      )}
+      <DropdownMenuContent align='end' className='w-64'>
+        <DropdownMenuItem onSelect={() => onSelect(device, 'ATTENDANCE')}>
+          <ScanLine />
+          <span>
+            <span className='block'>Aktivasi Attendance</span>
+            <span className='block text-xs text-muted-foreground'>
+              Untuk terminal scan kehadiran
+            </span>
+          </span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!device.productionSupported}
+          onSelect={() => onSelect(device, 'PRODUCTION')}
+        >
+          <PackageCheck />
+          <span>
+            <span className='block'>Aktivasi Produksi</span>
+            <span className='block text-xs text-muted-foreground'>
+              {device.productionSupported
+                ? 'Untuk Terminal Setoran Produksi'
+                : 'Tidak didukung oleh tipe perangkat ini'}
+            </span>
+          </span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function activationPurposeLabel(
+  purpose?: AttendanceDeviceActivationPurpose | null
+) {
+  return purpose === 'PRODUCTION' ? 'Produksi' : 'Attendance'
+}
+
+function activationConfirmationDescription(target?: {
+  device: AttendanceDevice
+  purpose: AttendanceDeviceActivationPurpose
+}) {
+  if (!target) return ''
+  const purpose = activationPurposeLabel(target.purpose)
+  const otherPurpose =
+    target.purpose === 'ATTENDANCE' ? 'Produksi' : 'Attendance'
+  const targetActivated =
+    target.purpose === 'ATTENDANCE'
+      ? target.device.attendanceActivated
+      : target.device.productionActivated
+  return `${targetActivated ? `Token ${purpose} lama perangkat ${target.device.name} akan langsung tidak berlaku. ` : ''}Kode aktivasi lain yang masih menunggu akan diganti. Token ${otherPurpose} tidak berubah.`
 }
 function Field({
   label,

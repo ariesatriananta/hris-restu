@@ -221,7 +221,8 @@ Master Perangkat mendaftarkan browser/terminal yang berhak mengirim scan untuk s
 | Tipe | `MOBILE_CAMERA`, `USB_SCANNER`, `TERMINAL`, atau `OTHER`. |
 | Lokasi | Keterangan fisik perangkat, opsional. |
 | Status aktif | Terminal nonaktif ditolak oleh server. |
-| Aktivasi | Menunjukkan apakah browser pernah memperoleh token perangkat. |
+| Kesiapan Attendance | Menunjukkan apakah browser Attendance sudah memperoleh token perangkat. |
+| Kesiapan Produksi | Menunjukkan **Siap**, **Perlu aktivasi**, atau **Tidak didukung**. Hanya `USB_SCANNER` dan `TERMINAL` yang mendukung Produksi. |
 | Terakhir aktif | Waktu terakhir terminal berkomunikasi dengan server. |
 | Scan | Jumlah event scan yang tercatat. |
 
@@ -239,14 +240,20 @@ Kode aktivasi dan token disimpan server dalam bentuk hash. Kode yang sudah dituk
 
 ### 7.2 Membuat ulang aktivasi
 
-Membuat ulang kode aktivasi:
+Pada Master Perangkat, pilih tujuan kode secara eksplisit: **Attendance** atau
+**Produksi**. Membuat ulang kode aktivasi:
 
 - hanya tersedia untuk perangkat aktif;
-- langsung membatalkan token terminal lama;
-- mengembalikan perangkat ke kondisi perlu diaktivasi;
+- hanya membatalkan token lama untuk tujuan yang dipilih;
+- tidak memutus token Attendance ketika membuat kode Produksi, atau sebaliknya;
+- mengganti kode aktivasi lain yang masih menunggu digunakan;
 - menghasilkan kode baru yang berlaku 15 menit.
 
 Gunakan tindakan ini jika browser diganti, local storage terhapus, perangkat dipindahkan secara fisik dalam site yang sama, atau token diduga bocor.
+
+Kode Produksi ditolak untuk perangkat `MOBILE_CAMERA` dan `OTHER`. Setelah kode
+Produksi dibuat, masukkan kode tersebut pada **Produksi Borongan > Terminal
+Setoran**, bukan pada halaman Scan Attendance.
 
 ### 7.3 Nonaktifkan atau hapus
 

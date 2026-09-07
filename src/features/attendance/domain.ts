@@ -31,6 +31,8 @@ export type AttendanceDeviceType =
   | 'TERMINAL'
   | 'OTHER'
 
+export type AttendanceDeviceActivationPurpose = 'ATTENDANCE' | 'PRODUCTION'
+
 export interface AttendanceCapabilities {
   view: boolean
   scan: boolean
@@ -116,7 +118,10 @@ export interface AttendanceRepository {
     uid?: string
   ): Promise<AttendanceDeviceActivation | void>
   deleteDevice(uid: string): Promise<void>
-  regenerateDeviceActivation(uid: string): Promise<AttendanceDeviceActivation>
+  regenerateDeviceActivation(
+    uid: string,
+    purpose: AttendanceDeviceActivationPurpose
+  ): Promise<AttendanceDeviceActivation>
   activateDevice(activationCode: string): Promise<ActivatedAttendanceDevice>
   scanAttendance(
     input: AttendanceScanInput,
@@ -397,7 +402,11 @@ export interface AttendanceDevice {
   lastSeenAt?: string | null
   isActive: boolean
   isActivated: boolean
+  attendanceActivated: boolean
+  productionSupported: boolean
+  productionActivated: boolean
   activationPending: boolean
+  activationPurpose?: AttendanceDeviceActivationPurpose | null
   activationCodeExpiresAt?: string | null
   scanCount: number
 }
@@ -422,6 +431,7 @@ export interface AttendanceDeviceListParams {
 
 export interface AttendanceDeviceActivation {
   uid?: string
+  purpose: AttendanceDeviceActivationPurpose
   activationCode: string
   activationCodeExpiresAt: string
 }

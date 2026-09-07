@@ -41,6 +41,16 @@ export const activationInput = z
   })
   .strict()
 
+export const deviceActivationPurposeInput = z
+  .object({
+    purpose: z.enum(['ATTENDANCE', 'PRODUCTION']).default('ATTENDANCE'),
+  })
+  .strict()
+
+export type DeviceActivationPurpose = z.infer<
+  typeof deviceActivationPurposeInput
+>['purpose']
+
 export const terminalScanInput = z
   .object({
     eventType: z.enum(['CLOCK_IN', 'CLOCK_OUT']),
@@ -68,6 +78,13 @@ export function generateDeviceToken() {
 
 export function hashDeviceSecret(value: string) {
   return createHash('sha256').update(value, 'utf8').digest('hex')
+}
+
+export function hashDeviceActivationCode(
+  value: string,
+  purpose: DeviceActivationPurpose
+) {
+  return `${purpose}:${hashDeviceSecret(normalizeActivationCode(value))}`
 }
 
 export function shiftBusinessDate(input: {

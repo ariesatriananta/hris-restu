@@ -7,6 +7,7 @@ import { pool } from '../db.js'
 import {
   activationInput,
   generateDeviceToken,
+  hashDeviceActivationCode,
   hashDeviceSecret,
 } from '../lib/attendance-device-policy.js'
 import { writeAudit } from '../lib/audit.js'
@@ -907,11 +908,14 @@ productionTransactionsRouter.post(
                 s.id siteId,s.code site,s.name siteName
            FROM scan_devices d
            JOIN sites s ON s.id=d.site_id
-          WHERE d.activation_code_hash=?
+          WHERE d.activation_code_hash IN (?,?)
             AND d.activation_code_expires_at>NOW(3)
             AND d.device_type IN ('USB_SCANNER','TERMINAL')
           FOR UPDATE`,
-        [hashDeviceSecret(input.activationCode)]
+        [
+          hashDeviceActivationCode(input.activationCode, 'PRODUCTION'),
+          hashDeviceSecret(input.activationCode),
+        ]
       )
       const device = rows[0]
       if (!device) {

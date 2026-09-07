@@ -149,10 +149,11 @@ export const httpAttendanceRepository: AttendanceRepository = {
   async deleteDevice(uid) {
     await apiClient.delete(`/attendance/devices/${uid}`)
   },
-  async regenerateDeviceActivation(uid) {
+  async regenerateDeviceActivation(uid, purpose) {
     return (
       await apiClient.post<AttendanceDeviceActivation>(
-        `/attendance/devices/${uid}/regenerate-activation`
+        `/attendance/devices/${uid}/regenerate-activation`,
+        { purpose }
       )
     ).data
   },

@@ -4,6 +4,7 @@ import {
   canClockInExistingAttendance,
   generateActivationCode,
   generateDeviceToken,
+  hashDeviceActivationCode,
   hashDeviceSecret,
   isoWeekday,
   selectClosestShiftEnd,
@@ -23,6 +24,19 @@ describe('attendance device policy', () => {
     const token = generateDeviceToken()
     expect(Buffer.from(token, 'base64url')).toHaveLength(32)
     expect(hashDeviceSecret(token)).toMatch(/^[a-f0-9]{64}$/)
+  })
+
+  it('mengikat kode aktivasi ke tujuan Attendance atau Produksi', () => {
+    const code = '0123-4567-89AB'
+    expect(hashDeviceActivationCode(code, 'ATTENDANCE')).toMatch(
+      /^ATTENDANCE:[a-f0-9]{64}$/
+    )
+    expect(hashDeviceActivationCode(code, 'PRODUCTION')).toMatch(
+      /^PRODUCTION:[a-f0-9]{64}$/
+    )
+    expect(hashDeviceActivationCode(code, 'ATTENDANCE')).not.toBe(
+      hashDeviceActivationCode(code, 'PRODUCTION')
+    )
   })
 
   it('memvalidasi scan eksplisit dan idempotency UUID', () => {
