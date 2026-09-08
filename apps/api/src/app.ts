@@ -6,6 +6,7 @@ import { errorHandler } from './lib/errors.js'
 import { registerProductionFrontend } from './lib/production-frontend.js'
 import { attendanceRouter } from './routes/attendance.js'
 import { authRouter } from './routes/auth.js'
+import { dashboardRouter } from './routes/dashboard.js'
 import { employeesRouter } from './routes/employees.js'
 import { filesRouter } from './routes/files.js'
 import { healthRouter } from './routes/health.js'
@@ -36,6 +37,7 @@ app.use('/api/health', healthRouter)
 // memakai autentikasi dan permission pada milestone internal berikutnya.
 app.use('/api/public/recruitment', publicRecruitmentRouter)
 app.use('/api/auth', authRouter)
+app.use('/api/dashboard', dashboardRouter)
 app.use('/api/files', filesRouter)
 app.use('/api/employees', employeesRouter)
 app.use('/api/recruitment', recruitmentRouter)

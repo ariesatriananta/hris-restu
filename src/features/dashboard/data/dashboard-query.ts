@@ -1,28 +1,22 @@
 import { queryOptions, useQuery } from '@tanstack/react-query'
-import { mockDashboardRepository } from './mock-dashboard-repository'
-import type { DashboardMockState, SiteCode } from './types'
+import { httpDashboardRepository } from './http-dashboard-repository'
 
 export const dashboardKeys = {
   all: ['dashboard'] as const,
-  overview: (site: SiteCode, mockState: DashboardMockState) =>
-    [...dashboardKeys.all, 'overview', site, mockState] as const,
+  overview: (site?: string) =>
+    [...dashboardKeys.all, 'overview', site] as const,
 }
 
-export function dashboardOverviewOptions(
-  site: SiteCode,
-  mockState: DashboardMockState
-) {
+export function dashboardOverviewOptions(site?: string) {
   return queryOptions({
-    queryKey: dashboardKeys.overview(site, mockState),
+    queryKey: dashboardKeys.overview(site),
     queryFn: ({ signal }) =>
-      mockDashboardRepository.getOverview({ site, mockState, signal }),
-    retry: false,
+      httpDashboardRepository.getOverview({ site, signal }),
+    staleTime: 60_000,
+    retry: 1,
   })
 }
 
-export function useDashboardOverview(
-  site: SiteCode,
-  mockState: DashboardMockState
-) {
-  return useQuery(dashboardOverviewOptions(site, mockState))
+export function useDashboardOverview(site?: string) {
+  return useQuery(dashboardOverviewOptions(site))
 }
