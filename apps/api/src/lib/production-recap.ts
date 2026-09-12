@@ -84,6 +84,29 @@ export type ProductionRecapProjection = {
   jobs: ProductionJobRecap[]
 }
 
+export type ProductionRecapMatrixCell = {
+  transactionCount: number
+  quantityTotals: ProductionQuantityTotal[]
+  grossAmount: string
+  jobs: Array<{
+    uid: string
+    code: string
+    name: string
+    transactionCount: number
+    quantityTotals: ProductionQuantityTotal[]
+    grossAmount: string
+  }>
+  payrollStatus: ProductionPayrollStatus
+}
+
+export type ProductionRecapMatrixRow = {
+  employee: ProductionRecapTransaction['employee']
+  site: ProductionRecapTransaction['site']
+  placement: ProductionRecapTransaction['placement']
+  placementChanged: boolean
+  days: Record<string, ProductionRecapMatrixCell | null>
+}
+
 export type ProductionRevisionExportRow = {
   revisionUid: string
   revisionType: 'CORRECTION' | 'VOID'
@@ -101,6 +124,8 @@ export type ProductionRevisionExportRow = {
   beforeData: string
   afterData: string | null
 }
+
+const rupiahNumberFormat = '"Rp" #,##0'
 
 function scaledInteger(value: string, scale: number) {
   const normalized = String(value ?? '0').trim()
@@ -256,6 +281,187 @@ export function aggregateProductionRecap(
   }
 }
 
+export function aggregateProductionRecapMatrix(
+  rows: ProductionRecapTransaction[],
+  dates: string[]
+): ProductionRecapMatrixRow[] {
+  const employeeGroups = new Map<string, ProductionRecapTransaction[]>()
+  for (const row of rows) {
+    const key = `${row.employee.uid}|${row.site.code}`
+    const current = employeeGroups.get(key) ?? []
+    current.push(row)
+    employeeGroups.set(key, current)
+  }
+
+  return [...employeeGroups.values()]
+    .map((employeeRows): ProductionRecapMatrixRow => {
+      const ordered = [...employeeRows].sort((left, right) =>
+        right.transactionAt.localeCompare(left.transactionAt)
+      )
+      const placementKeys = new Set(
+        employeeRows.map((row) =>
+          JSON.stringify({
+            employeeType: row.placement.employeeType.code,
+            position: row.placement.position?.uid ?? null,
+            section: row.placement.productionSection?.uid ?? null,
+            workGroup: row.placement.workGroup?.uid ?? null,
+          })
+        )
+      )
+      const days = Object.fromEntries(
+        dates.map((date) => {
+          const dayRows = employeeRows.filter((row) => row.businessDate === date)
+          if (!dayRows.length) return [date, null]
+          return [
+            date,
+            {
+              transactionCount: dayRows.length,
+              quantityTotals: quantityTotals(dayRows),
+              grossAmount: dayRows.reduce(
+                (total, row) => addDecimal(total, row.grossAmount, 2),
+                '0.00'
+              ),
+              jobs: jobBreakdowns(dayRows).map((job) => ({
+                uid: job.job.uid,
+                code: job.job.code,
+                name: job.job.name,
+                transactionCount: job.transactionCount,
+                quantityTotals: job.quantityTotals,
+                grossAmount: job.grossAmount,
+              })),
+              payrollStatus: payrollStatus(
+                dayRows.length,
+                dayRows.filter((row) => row.payrollSnapshotted).length
+              ),
+            } satisfies ProductionRecapMatrixCell,
+          ]
+        })
+      )
+      return {
+        employee: ordered[0].employee,
+        site: ordered[0].site,
+        placement: ordered[0].placement,
+        placementChanged: placementKeys.size > 1,
+        days,
+      }
+    })
+    .sort(
+      (left, right) =>
+        left.employee.fullName.localeCompare(right.employee.fullName, 'id') ||
+        left.site.code.localeCompare(right.site.code, 'id')
+    )
+}
+
+function enumerateProductionRecapDates(dateFrom: string, dateTo: string) {
+  const dates: string[] = []
+  const cursor = new Date(`${dateFrom}T00:00:00Z`)
+  const end = new Date(`${dateTo}T00:00:00Z`)
+  while (cursor <= end) {
+    dates.push(cursor.toISOString().slice(0, 10))
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+  return dates
+}
+
+function matrixDateHeader(date: string) {
+  const dateLabel = new Intl.DateTimeFormat('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    timeZone: 'UTC',
+  }).format(new Date(`${date}T00:00:00Z`))
+  const dayLabel = new Intl.DateTimeFormat('id-ID', {
+    weekday: 'short',
+    timeZone: 'UTC',
+  }).format(new Date(`${date}T00:00:00Z`))
+  return `${dateLabel}\n${dayLabel}`
+}
+
+function isWeekendDate(date: string) {
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay()
+  return day === 0 || day === 6
+}
+
+function matrixQuantityText(cell: ProductionRecapMatrixCell | null) {
+  if (!cell) return '—'
+  return cell.quantityTotals
+    .map((item) => `${item.quantity} ${safeSpreadsheetText(item.unit.code)}`)
+    .join('\n')
+}
+
+function matrixPayrollLabel(status: ProductionPayrollStatus) {
+  return {
+    NONE: 'Belum disnapshot',
+    PARTIAL: 'Sebagian disnapshot',
+    SNAPSHOTTED: 'Sudah disnapshot',
+  }[status]
+}
+
+function matrixCellNote(cell: ProductionRecapMatrixCell) {
+  return [
+    `${cell.transactionCount} transaksi · ${matrixPayrollLabel(cell.payrollStatus)}`,
+    ...cell.jobs.map(
+      (job) =>
+        `${job.name} (${job.code}): ${job.quantityTotals
+          .map((item) => `${item.quantity} ${item.unit.code}`)
+          .join(' · ')} · Rp${Number(job.grossAmount).toLocaleString('id-ID')}`
+    ),
+    `Total bruto: Rp${Number(cell.grossAmount).toLocaleString('id-ID')}`,
+  ].join('\n')
+}
+
+function styleProductionMatrix(
+  sheet: ExcelJS.Worksheet,
+  dates: string[],
+  mode: 'quantity' | 'gross'
+) {
+  sheet.views = [
+    {
+      state: 'frozen',
+      xSplit: 5,
+      ySplit: 1,
+      topLeftCell: 'F2',
+      activeCell: 'F2',
+    },
+  ]
+  sheet.autoFilter = {
+    from: 'A1',
+    to: sheet.getCell(1, sheet.columnCount).address,
+  }
+  sheet.getRow(1).height = 30
+  sheet.getRow(1).alignment = {
+    horizontal: 'center',
+    vertical: 'middle',
+    wrapText: true,
+  }
+  sheet.getRow(1).eachCell((cell, columnNumber) => {
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 9 }
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: {
+        argb:
+          columnNumber > 5 && isWeekendDate(dates[columnNumber - 6])
+            ? 'FF2B902E'
+            : 'FF0E2459',
+      },
+    }
+  })
+  sheet.columns.forEach((column, index) => {
+    column.width =
+      index === 0
+        ? 5
+        : index === 1
+          ? 16
+          : index === 2
+            ? 28
+            : index < 5
+              ? 16
+              : mode === 'gross'
+                ? 15
+                : 12
+  })
+}
+
 export async function buildProductionRecapWorkbook(input: {
   projection: ProductionRecapProjection
   transactions: ProductionRecapTransaction[]
@@ -268,6 +474,12 @@ export async function buildProductionRecapWorkbook(input: {
   const workbook = new ExcelJS.Workbook()
   workbook.creator = 'HRIS RSIA'
   workbook.created = new Date(input.generatedAt)
+
+  const matrixDates = enumerateProductionRecapDates(input.dateFrom, input.dateTo)
+  const matrixRows = aggregateProductionRecapMatrix(
+    input.transactions,
+    matrixDates
+  )
 
   const employees = workbook.addWorksheet('Ringkasan Karyawan')
   employees.addRow([
@@ -292,6 +504,93 @@ export async function buildProductionRecapWorkbook(input: {
       row.payrollStatus,
     ])
   )
+
+  const quantityMatrix = workbook.addWorksheet('Hasil per Tanggal')
+  quantityMatrix.addRow([
+    'No',
+    'NIK',
+    'Nama',
+    'Site',
+    'Jenis Karyawan',
+    ...matrixDates.map(matrixDateHeader),
+  ])
+  matrixRows.forEach((row, index) => {
+    const excelRow = quantityMatrix.addRow([
+      index + 1,
+      safeSpreadsheetText(row.employee.employeeNumber),
+      safeSpreadsheetText(row.employee.fullName),
+      safeSpreadsheetText(row.site.name),
+      safeSpreadsheetText(row.placement.employeeType.name),
+      ...matrixDates.map((date) => matrixQuantityText(row.days[date] ?? null)),
+    ])
+    matrixDates.forEach((date, dateIndex) => {
+      const value = row.days[date] ?? null
+      const cell = excelRow.getCell(dateIndex + 6)
+      cell.alignment = {
+        horizontal: 'center',
+        vertical: 'middle',
+        wrapText: true,
+      }
+      cell.font = { size: 8, color: { argb: value ? 'FF0E2459' : 'FF94A3B8' } }
+      if (value) cell.note = matrixCellNote(value)
+      if (!value || isWeekendDate(date)) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: value ? 'FFF0FDF4' : 'FFF8FAFC' },
+        }
+      }
+    })
+    const maximumUnits = Math.max(
+      1,
+      ...matrixDates.map(
+        (date) => row.days[date]?.quantityTotals.length ?? 1
+      )
+    )
+    excelRow.height = Math.min(60, Math.max(26, maximumUnits * 12 + 6))
+  })
+
+  const grossMatrix = workbook.addWorksheet('Bruto per Tanggal')
+  grossMatrix.addRow([
+    'No',
+    'NIK',
+    'Nama',
+    'Site',
+    'Jenis Karyawan',
+    ...matrixDates.map(matrixDateHeader),
+  ])
+  matrixRows.forEach((row, index) => {
+    const excelRow = grossMatrix.addRow([
+      index + 1,
+      safeSpreadsheetText(row.employee.employeeNumber),
+      safeSpreadsheetText(row.employee.fullName),
+      safeSpreadsheetText(row.site.name),
+      safeSpreadsheetText(row.placement.employeeType.name),
+      ...matrixDates.map((date) => {
+        const value = row.days[date]
+        return value ? Number(value.grossAmount) : null
+      }),
+    ])
+    matrixDates.forEach((date, dateIndex) => {
+      const value = row.days[date] ?? null
+      const cell = excelRow.getCell(dateIndex + 6)
+      cell.numFmt = rupiahNumberFormat
+      cell.alignment = { horizontal: 'right', vertical: 'middle' }
+      cell.font = {
+        size: 8,
+        color: { argb: value ? 'FF166534' : 'FF94A3B8' },
+      }
+      if (value) cell.note = matrixCellNote(value)
+      if (!value || isWeekendDate(date)) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: value ? 'FFF0FDF4' : 'FFF8FAFC' },
+        }
+      }
+    })
+    excelRow.height = 26
+  })
 
   const jobs = workbook.addWorksheet('Rincian Pekerjaan')
   jobs.addRow([
@@ -372,12 +671,13 @@ export async function buildProductionRecapWorkbook(input: {
   )
 
   for (const sheet of workbook.worksheets) {
+    if (sheet === quantityMatrix || sheet === grossMatrix) continue
     sheet.views = [{ state: 'frozen', ySplit: 1 }]
     sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
     sheet.getRow(1).fill = {
       type: 'pattern',
       pattern: 'solid',
-      fgColor: { argb: 'FF0F766E' },
+      fgColor: { argb: 'FF0E2459' },
     }
     sheet.autoFilter = {
       from: 'A1',
@@ -394,12 +694,14 @@ export async function buildProductionRecapWorkbook(input: {
       )
     })
   }
-  employees.getColumn(12).numFmt = '#,##0'
+  styleProductionMatrix(quantityMatrix, matrixDates, 'quantity')
+  styleProductionMatrix(grossMatrix, matrixDates, 'gross')
+  employees.getColumn(12).numFmt = rupiahNumberFormat
   jobs.getColumn(8).numFmt = '#,##0.####'
-  jobs.getColumn(10).numFmt = '#,##0'
+  jobs.getColumn(10).numFmt = rupiahNumberFormat
   transactions.getColumn(10).numFmt = '#,##0.####'
   transactions.getColumn(11).numFmt = '#,##0.####'
-  transactions.getColumn(12).numFmt = '#,##0'
+  transactions.getColumn(12).numFmt = rupiahNumberFormat
 
   return Buffer.from(await workbook.xlsx.writeBuffer())
 }

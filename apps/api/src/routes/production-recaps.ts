@@ -9,6 +9,7 @@ import { businessDate } from '../lib/contract-lifecycle.js'
 import { ApiError } from '../lib/errors.js'
 import {
   aggregateProductionRecap,
+  aggregateProductionRecapMatrix,
   buildProductionRecapWorkbook,
   type ProductionRecapTransaction,
   type ProductionRevisionExportRow,
@@ -86,6 +87,24 @@ function parsePeriod(input: RecapInput) {
   }
 }
 
+function enumerateDates(dateFrom: string, dateTo: string) {
+  const dates: string[] = []
+  const cursor = new Date(`${dateFrom}T00:00:00Z`)
+  const end = new Date(`${dateTo}T00:00:00Z`)
+  while (cursor <= end) {
+    dates.push(cursor.toISOString().slice(0, 10))
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+  return dates
+}
+
+function dayName(date: string) {
+  return new Intl.DateTimeFormat('id-ID', {
+    weekday: 'long',
+    timeZone: 'UTC',
+  }).format(new Date(`${date}T00:00:00Z`))
+}
+
 function parseQuery(raw: Record<string, unknown>) {
   const today = businessDate()
   const parsed = recapInput.parse({
@@ -106,6 +125,17 @@ function parseBody(raw: unknown) {
   const parsed = recapInput.parse(raw)
   parsePeriod(parsed)
   return parsed
+}
+
+function productionRecapFilename(
+  dateFrom: string,
+  dateTo: string,
+  sites: string[]
+) {
+  const siteLabel = sites
+    .map((site) => site.toUpperCase().replace(/[^A-Z0-9]+/g, '_'))
+    .join('_')
+  return `Rekap_Produksi_Borongan_${siteLabel}_${dateFrom}_sd_${dateTo}.xlsx`
 }
 
 function jsonText(value: unknown) {
@@ -521,6 +551,37 @@ productionRecapsRouter.get(
 )
 
 productionRecapsRouter.get(
+  '/recaps/matrix',
+  requirePermission('production.view'),
+  async (req, res, next) => {
+    try {
+      const input = parseQuery(req.query as Record<string, unknown>)
+      const period = parsePeriod(input)
+      const { page, pageSize } = pageParams(req.query.page, req.query.pageSize)
+      const auth = res.locals.auth as AuthContext
+      input.site.forEach((site) => enforceSite(auth, site))
+      const [transactions, facets] = await Promise.all([
+        loadTransactions(auth, input),
+        loadFilterOptions(auth),
+      ])
+      const dates = enumerateDates(input.dateFrom, input.dateTo)
+      const rows = aggregateProductionRecapMatrix(transactions, dates)
+      res.json({
+        period,
+        dates: dates.map((date) => ({ date, dayName: dayName(date) })),
+        items: rows.slice((page - 1) * pageSize, page * pageSize),
+        total: rows.length,
+        page,
+        pageSize,
+        facets,
+      })
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+productionRecapsRouter.get(
   '/recaps/employees/:employeeUid',
   requirePermission('production.view'),
   async (req, res, next) => {
@@ -627,9 +688,11 @@ productionRecapsRouter.post(
         : isGlobalViewer(auth)
           ? ['SEMUA-SITE']
           : auth.siteAccess
-      const filename = `rekap-produksi-${input.dateFrom}-${input.dateTo}-${selectedSites
-        .map((site) => site.toLowerCase())
-        .join('-')}.xlsx`
+      const filename = productionRecapFilename(
+        input.dateFrom,
+        input.dateTo,
+        selectedSites
+      )
       const suppliedRequestId = req.get('x-request-id')
       const requestId =
         suppliedRequestId && /^[A-Za-z0-9._:-]{1,100}$/.test(suppliedRequestId)

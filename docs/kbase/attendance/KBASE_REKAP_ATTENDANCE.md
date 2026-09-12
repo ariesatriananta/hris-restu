@@ -71,9 +71,9 @@ Kelengkapan diperiksa untuk setiap kombinasi tanggal-site dalam scope rekap.
 
 | Badge | Arti |
 |---|---|
-| **Lengkap** | Periode official dan semua kombinasi tanggal-site `FINALIZED` atau `NOT_REQUIRED`. Ekspor dapat tersedia jika akun punya permission. |
-| **Belum lengkap** | Ada tanggal-site yang belum dimulai, partial, atau gagal; atau ada blocker workflow/data. |
-| **Sebelum go-live** | Tanggal awal periode berada sebelum konfigurasi go-live finalisasi Attendance. Periode tidak dianggap official. |
+| **Lengkap** | Periode official dan semua kombinasi tanggal-site `FINALIZED` atau `NOT_REQUIRED`. File Excel ditandai resmi. |
+| **Belum lengkap** | Ada tanggal-site yang belum dimulai, partial, atau gagal; atau ada blocker workflow/data. File tetap dapat diunduh, tetapi ditandai draft. |
+| **Sebelum go-live** | Tanggal awal periode berada sebelum konfigurasi go-live finalisasi Attendance. Periode tidak dianggap official dan hasil ekspornya ditandai draft. |
 
 Panel menampilkan jumlah kombinasi tanggal-site yang selesai dan jumlah yang gagal. Buka **Lihat rincian status** untuk mengetahui tanggal dan site yang perlu ditangani.
 
@@ -88,9 +88,9 @@ Panel menampilkan jumlah kombinasi tanggal-site yang selesai dan jumlah yang gag
 | `FINALIZED` | Selesai | Run sukses dan tidak ada blocker. |
 | `FAILED` | Gagal | Run terakhir gagal. |
 
-### 4.3 Penyebab ekspor diblokir
+### 4.3 Penyebab hasil ekspor ditandai draft
 
-Rekap belum siap diekspor resmi jika terdapat salah satu kondisi berikut:
+Rekap belum siap menjadi dokumen resmi jika terdapat salah satu kondisi berikut:
 
 - periode dimulai sebelum go-live;
 - mencakup tanggal masa depan;
@@ -102,7 +102,11 @@ Rekap belum siap diekspor resmi jika terdapat salah satu kondisi berikut:
 - koreksi `PENDING`;
 - klasifikasi `PENDING`.
 
-Alasan yang tampil pada panel berasal dari pemeriksaan server. Jangan menghilangkan warning dengan mengubah filter site secara sengaja jika periode Payroll sebenarnya mencakup site tersebut.
+Kondisi tersebut tidak memblokir unduhan Excel. Sistem mengekspor data apa
+adanya dengan status **DRAFT - DATA BELUM LENGKAP**, nama file berawalan
+`DRAFT_`, dan daftar masalah kelengkapan. Jangan menghilangkan warning dengan
+mengubah filter site secara sengaja jika periode Payroll sebenarnya mencakup
+site tersebut.
 
 ## 5. Arti panel ringkasan
 
@@ -185,14 +189,30 @@ Abnormal harus ditinjau sebelum Payroll readiness. Namun, keberadaan abnormal da
 Ekspor membutuhkan:
 
 - permission `attendance.export`;
-- periode valid maksimal 31 hari;
-- periode official, yaitu tanggal mulai tidak sebelum go-live;
-- seluruh tanggal-site selesai atau tidak memerlukan finalisasi;
-- tidak ada alasan blokir kelengkapan.
+- periode valid maksimal 31 hari.
 
-Jika rekap belum lengkap, server mengembalikan konflik `ATTENDANCE_RECAP_INCOMPLETE` dan UI menonaktifkan ekspor.
+Tombol tetap aktif ketika data belum lengkap. Server mengunduh data sesuai
+filter dan scope site saat itu. Kelengkapan menentukan status file:
 
-### 8.1 Sheet Ringkasan
+- **RESMI** jika periode official, seluruh tanggal-site selesai/tidak perlu
+  finalisasi, dan tidak ada blocker;
+- **DRAFT - DATA BELUM LENGKAP** jika salah satu syarat resmi belum terpenuhi.
+
+File draft tidak boleh dipakai sebagai rekap final atau dasar persetujuan tanpa
+review dan penyelesaian masalah kelengkapan.
+
+### 8.1 Sheet Informasi
+
+Sheet pertama menampilkan status dokumen, periode, waktu dan pelaku ekspor,
+catatan penggunaan, serta daftar masalah kelengkapan. Baca sheet ini terlebih
+dahulu terutama jika nama file diawali `DRAFT_`.
+
+Nama file resmi memakai pola
+`Rekap_Attendance_SITE_TANGGAL-AWAL_sd_TANGGAL-AKHIR.xlsx`, misalnya
+`Rekap_Attendance_JEPARA_2026-08-31_sd_2026-09-04.xlsx`. Jika rekap belum
+lengkap, nama tersebut diawali `DRAFT_`.
+
+### 8.2 Sheet Ringkasan
 
 Berisi satu baris per grup karyawan-site-jenis, termasuk:
 
@@ -204,7 +224,14 @@ Berisi satu baris per grup karyawan-site-jenis, termasuk:
 - hari/menit pulang cepat;
 - menit kerja dan anomali.
 
-### 8.2 Sheet Detail Harian
+### 8.3 Sheet Rincian per Tanggal
+
+Berisi matriks satu baris per karyawan dan kolom per tanggal. Jam Masuk/Pulang,
+kode klasifikasi, Alpha, hari libur, keterlambatan, pulang awal, dan abnormal
+ditampilkan secara ringkas. Catatan Excel pada sel menyimpan penjelasan kondisi
+yang memerlukan perhatian.
+
+### 8.4 Sheet Detail Harian
 
 Berisi satu baris per tanggal-karyawan yang diproyeksikan, termasuk:
 
@@ -216,20 +243,22 @@ Berisi satu baris per tanggal-karyawan yang diproyeksikan, termasuk:
 - penanda Dikoreksi dan Baris Otomatis;
 - catatan.
 
-### 8.3 Sheet Metadata Export
+### 8.5 Sheet Metadata Export
 
 Berisi:
 
 - periode dan timezone;
 - waktu ekspor dan pengguna yang mengekspor;
-- status official dan izin ekspor;
+- status dokumen dan pemenuhan syarat rekap resmi;
 - jumlah baris ringkasan/detail;
 - jumlah libur mingguan otomatis;
 - filter yang digunakan;
 - alasan blokir jika ada;
 - status kelengkapan setiap tanggal-site.
 
-Ketiga sheet mempunyai header beku, filter Excel, dan lebar kolom otomatis. Simpan sheet Metadata bersama file; jangan mengirim hanya sheet Ringkasan karena konteks auditnya akan hilang.
+Sheet data mempunyai header beku, filter Excel, dan lebar kolom terkontrol.
+Simpan sheet Informasi dan Metadata bersama file; jangan mengirim hanya sheet
+Ringkasan karena status dokumen dan konteks auditnya akan hilang.
 
 ## 9. Payroll readiness
 
@@ -296,15 +325,15 @@ Payroll sesuai periode terkait.
 | Hadir hari libur muncul | Ada record scan/fakta `PRESENT` pada hari libur; periksa detail dan event scan. |
 | Abnormal tetap ada setelah koreksi | Pastikan koreksi `APPROVED`, jam benar-benar diterapkan, dan muat ulang data. |
 | Status Partial | Buka alasan tanggal-site, selesaikan blocker, lalu finalisasi ulang. |
-| Ekspor nonaktif | Periksa permission, periode maksimal 31 hari, go-live, finalisasi, tanggal masa depan, dan workflow pending. |
-| Periode sebelum go-live tidak bisa diekspor | Itu perlindungan ekspor official; data dapat dilihat tetapi tidak diterbitkan sebagai rekap resmi. |
+| Ekspor nonaktif | Periksa permission `attendance.export`, validitas periode maksimal 31 hari, serta proses ekspor lain yang masih berjalan. Kelengkapan tidak menonaktifkan tombol. |
+| Periode sebelum go-live | Data tetap dapat diekspor, tetapi file ditandai draft dan tidak boleh diterbitkan sebagai rekap resmi. |
 | Angka Excel berbeda dari UI | Pastikan filter dan periode sama, lalu lihat sheet Metadata Export. |
 | Payroll sudah closing | Attendance pada periode itu tidak dapat dikoreksi melalui workflow normal. |
 
 ## 12. Batasan versi saat ini
 
 - Rentang rekap dan ekspor maksimal 31 hari kalender.
-- Ekspor official tidak tersedia untuk periode yang dimulai sebelum go-live.
+- Periode sebelum go-live atau belum lengkap hanya dapat diekspor sebagai draft.
 - Weekly off tanpa scan hanya berupa proyeksi rekap, bukan record database.
 - Durasi kerja bukan dasar upah Borongan.
 - Modul Payroll masih memiliki KBase tersendiri dan tidak dijelaskan seolah sudah menghitung data Attendance secara otomatis.
@@ -319,7 +348,7 @@ Payroll sesuai periode terkait.
 |---|---|
 | `GET /api/attendance/recaps` | Ringkasan, summary panel, dan kelengkapan periode. |
 | `GET /api/attendance/recaps/:employeeUid/days` | Rincian harian satu karyawan/grup. |
-| `POST /api/attendance/recaps/export` | Membuat workbook official sesuai filter. |
+| `POST /api/attendance/recaps/export` | Membuat workbook sesuai filter; status resmi atau draft mengikuti hasil pemeriksaan kelengkapan. |
 | `GET /api/attendance/finalizations` | Status finalisasi yang menjadi bagian dari kelengkapan. |
 
 ### 13.2 Tabel dan proyeksi utama

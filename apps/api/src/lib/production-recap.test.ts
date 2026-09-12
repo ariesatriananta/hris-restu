@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs'
 import { describe, expect, it } from 'vitest'
 import {
   aggregateProductionRecap,
+  aggregateProductionRecapMatrix,
   buildProductionRecapWorkbook,
   type ProductionRecapTransaction,
 } from './production-recap.js'
@@ -91,14 +92,80 @@ describe('Production recap projection', () => {
     expect(result.employees[0].payrollStatus).toBe('PARTIAL')
   })
 
-  it('membuat tepat empat sheet operasional pada export', async () => {
-    const transactions = [transaction()]
+  it('mengagregasi matriks per karyawan, site, dan tanggal tanpa mencampur satuan', () => {
+    const rows = [
+      transaction(),
+      transaction({
+        id: 2,
+        uid: '55555555-5555-4555-8555-555555555555',
+        transactionNumber: 'PRD-002',
+        quantity: '6',
+        grossAmount: '5550.00',
+        payrollSnapshotted: true,
+      }),
+      transaction({
+        id: 3,
+        uid: '66666666-6666-4666-8666-666666666666',
+        transactionNumber: 'PRD-003',
+        businessDate: '2026-08-22',
+        transactionAt: '2026-08-22T09:00:00+07:00',
+        quantity: '1.5',
+        rateSnapshot: '1000',
+        grossAmount: '1500.00',
+        unit: {
+          uid: '77777777-7777-4777-8777-777777777777',
+          code: 'KG',
+          name: 'Kilogram',
+          decimalPrecision: 2,
+        },
+      }),
+    ]
+
+    const result = aggregateProductionRecapMatrix(rows, [
+      '2026-08-21',
+      '2026-08-22',
+      '2026-08-23',
+    ])
+
+    expect(result).toHaveLength(1)
+    expect(result[0].days['2026-08-21']).toMatchObject({
+      transactionCount: 2,
+      grossAmount: '37000.00',
+      payrollStatus: 'PARTIAL',
+      quantityTotals: [{ quantity: '40', unit: expect.objectContaining({ code: 'PCS' }) }],
+    })
+    expect(result[0].days['2026-08-22']).toMatchObject({
+      grossAmount: '1500.00',
+      quantityTotals: [{ quantity: '1.5', unit: expect.objectContaining({ code: 'KG' }) }],
+    })
+    expect(result[0].days['2026-08-23']).toBeNull()
+  })
+
+  it('membuat sheet operasional dan dua matriks tanggal yang rapi', async () => {
+    const transactions = [
+      transaction(),
+      transaction({
+        id: 2,
+        uid: '88888888-8888-4888-8888-888888888888',
+        transactionNumber: 'PRD-002',
+        businessDate: '2026-08-22',
+        transactionAt: '2026-08-22T09:00:00+07:00',
+        quantity: '1.5',
+        grossAmount: '1500.00',
+        unit: {
+          uid: '99999999-9999-4999-8999-999999999999',
+          code: 'KG',
+          name: 'Kilogram',
+          decimalPrecision: 2,
+        },
+      }),
+    ]
     const buffer = await buildProductionRecapWorkbook({
       projection: aggregateProductionRecap(transactions),
       transactions,
       revisions: [],
       dateFrom: '2026-08-21',
-      dateTo: '2026-08-21',
+      dateTo: '2026-08-23',
       generatedAt: '2026-08-21T13:00:00+07:00',
       generatedBy: 'Administrator',
     })
@@ -108,11 +175,38 @@ describe('Production recap projection', () => {
     )
     expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual([
       'Ringkasan Karyawan',
+      'Hasil per Tanggal',
+      'Bruto per Tanggal',
       'Rincian Pekerjaan',
       'Transaksi POSTED',
       'Riwayat Revisi',
     ])
-    expect(workbook.getWorksheet('Transaksi POSTED')?.rowCount).toBe(2)
+    expect(workbook.getWorksheet('Transaksi POSTED')?.rowCount).toBe(3)
+
+    const quantityMatrix = workbook.getWorksheet('Hasil per Tanggal')!
+    expect((quantityMatrix.getRow(1).values as unknown[]).slice(1)).toEqual([
+      'No',
+      'NIK',
+      'Nama',
+      'Site',
+      'Jenis Karyawan',
+      '21 Agu\nJum',
+      '22 Agu\nSab',
+      '23 Agu\nMin',
+    ])
+    expect(quantityMatrix.getRow(2).getCell(6).value).toBe('34 PCS')
+    expect(quantityMatrix.getRow(2).getCell(7).value).toBe('1.5 KG')
+    expect(quantityMatrix.getRow(2).getCell(8).value).toBe('—')
+    expect(String(quantityMatrix.getRow(2).getCell(6).note)).toContain(
+      '1 transaksi'
+    )
+    expect(quantityMatrix.views[0]).toMatchObject({ xSplit: 5, ySplit: 1 })
+
+    const grossMatrix = workbook.getWorksheet('Bruto per Tanggal')!
+    expect(grossMatrix.getRow(2).getCell(6).value).toBe(31450)
+    expect(grossMatrix.getRow(2).getCell(7).value).toBe(1500)
+    expect(grossMatrix.getRow(2).getCell(8).value).toBeNull()
+    expect(grossMatrix.getRow(2).getCell(6).numFmt).toBe('"Rp" #,##0')
   })
 
   it('mengamankan seluruh teks bebas dari formula spreadsheet', async () => {

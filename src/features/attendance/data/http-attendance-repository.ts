@@ -33,6 +33,7 @@ import type {
   AttendanceRecapDayResult,
   AttendanceRecapListParams,
   AttendanceRecapResult,
+  AttendanceRecapMatrixResult,
   HistoricalShiftAssignmentApplyResult,
   HistoricalShiftAssignmentPreview,
   AttendanceBulkFinalizationInput,
@@ -237,6 +238,14 @@ export const httpAttendanceRepository: AttendanceRepository = {
       await apiClient.get<AttendanceRecapResult>('/attendance/recaps', {
         params: listParams(input),
       })
+    ).data
+  },
+  async listRecapMatrix(input) {
+    return (
+      await apiClient.get<AttendanceRecapMatrixResult>(
+        '/attendance/recaps/matrix',
+        { params: listParams(input) }
+      )
     ).data
   },
   async listRecapDays(employeeUid, input) {

@@ -440,10 +440,10 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   yang tercatat sebagai baris histori tersendiri; angka tersebut tidak boleh
   dianggap sebagai seluruh perubahan status karyawan.
 - Ekspor Excel Laporan Karyawan dan Laporan Kontrak wajib memakai filter serta
-  cakupan site yang sama dengan hasil di layar. Ekspor Attendance hanya boleh
-  memakai ekspor Rekap Attendance resmi dan membutuhkan permission
-  `attendance.export`; data yang belum memenuhi syarat finalisasi tidak boleh
-  diekspor sebagai laporan resmi.
+  cakupan site yang sama dengan hasil di layar. Ekspor Attendance membutuhkan
+  permission `attendance.export`. Data yang belum memenuhi syarat finalisasi
+  tetap dapat diunduh apa adanya, tetapi wajib ditandai sebagai `DRAFT` dan
+  tidak boleh digunakan sebagai laporan resmi.
 - Ekspor Laporan Produksi memakai ekspor resmi Rekap Produksi, membutuhkan
   `production.export`, mengikuti filter dan cakupan site yang sama dengan hasil
   di layar, serta mempertahankan riwayat koreksi dan void untuk keperluan audit.

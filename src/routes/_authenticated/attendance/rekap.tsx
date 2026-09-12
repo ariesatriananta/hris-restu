@@ -9,6 +9,7 @@ const employeeType = z.enum(['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING'])
 export const Route = createFileRoute('/_authenticated/attendance/rekap')({
   beforeLoad: () => requirePermission('attendance.view'),
   validateSearch: z.object({
+    view: z.enum(['summary', 'matrix']).optional(),
     dateFrom: z.string().date().optional(),
     dateTo: z.string().date().optional(),
     filter: z.string().optional(),
@@ -30,6 +31,8 @@ export const Route = createFileRoute('/_authenticated/attendance/rekap')({
       .optional(),
     page: z.number().int().positive().optional(),
     pageSize: z.number().int().min(1).max(500).optional(),
+    matrixPage: z.number().int().positive().optional(),
+    matrixPageSize: z.number().int().min(1).max(500).optional(),
     employeeUid: z.string().uuid().optional(),
     detailSite: site.optional(),
     detailEmployeeType: employeeType.optional(),

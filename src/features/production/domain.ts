@@ -547,6 +547,39 @@ export type ProductionRecapResult = {
   }
 }
 
+export type ProductionRecapMatrixCell = {
+  transactionCount: number
+  quantityTotals: ProductionRecapQuantity[]
+  grossAmount: string
+  jobs: Array<{
+    uid: string
+    code: string
+    name: string
+    transactionCount: number
+    quantityTotals: ProductionRecapQuantity[]
+    grossAmount: string
+  }>
+  payrollStatus: ProductionPayrollSnapshotStatus
+}
+
+export type ProductionRecapMatrixItem = {
+  employee: ProductionRecapEmployee['employee']
+  site: ProductionRecapEmployee['site']
+  placement: ProductionRecapEmployee['placement']
+  placementChanged: boolean
+  days: Record<string, ProductionRecapMatrixCell | null>
+}
+
+export type ProductionRecapMatrixResult = {
+  period: ProductionRecapResult['period']
+  dates: Array<{ date: string; dayName: string }>
+  items: ProductionRecapMatrixItem[]
+  total: number
+  page: number
+  pageSize: number
+  facets: ProductionRecapResult['facets']
+}
+
 export type ProductionRecapTransaction = Pick<
   ProductionTransaction,
   | 'uid'

@@ -23,6 +23,7 @@ import type {
   ProductionRateCorrectionPreview,
   ProductionRecapParams,
   ProductionRecapResult,
+  ProductionRecapMatrixResult,
   ProductionEmployeeRecapDetail,
   ProductionJobRecapDetail,
   ProductionReadiness,
@@ -58,6 +59,8 @@ const keys = {
     [...keys.all, 'eligible-employees', input] as const,
   recaps: (input: ProductionRecapParams) =>
     [...keys.all, 'recaps', input] as const,
+  recapMatrix: (input: ProductionRecapParams) =>
+    [...keys.all, 'recaps', 'matrix', input] as const,
   employeeRecap: (uid: string, input: Record<string, unknown>) =>
     [...keys.all, 'recaps', 'employees', uid, input] as const,
   jobRecap: (uid: string, input: Record<string, unknown>) =>
@@ -305,6 +308,23 @@ export function useProductionRecaps(
       (
         await apiClient.get<ProductionRecapResult>(
           `/production/recaps?${recapParams(input)}`
+        )
+      ).data,
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+}
+
+export function useProductionRecapMatrix(
+  input: ProductionRecapParams,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: keys.recapMatrix(input),
+    queryFn: async () =>
+      (
+        await apiClient.get<ProductionRecapMatrixResult>(
+          `/production/recaps/matrix?${recapParams(input)}`
         )
       ).data,
     placeholderData: keepPreviousData,

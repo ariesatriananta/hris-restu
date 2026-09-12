@@ -18,6 +18,7 @@ type DataTableToolbarProps<TData> = {
   className?: string
   controlsClassName?: string
   searchInputClassName?: string
+  showViewOptions?: boolean
   filters?: {
     columnId: string
     title: string
@@ -40,6 +41,7 @@ export function DataTableToolbar<TData>({
   className,
   controlsClassName,
   searchInputClassName,
+  showViewOptions = true,
   filters = [],
 }: DataTableToolbarProps<TData>) {
   const isFiltered =
@@ -132,7 +134,7 @@ export function DataTableToolbar<TData>({
           </Button>
         )}
       </div>
-      <DataTableViewOptions table={table} />
+      {showViewOptions && <DataTableViewOptions table={table} />}
     </div>
   )
 }

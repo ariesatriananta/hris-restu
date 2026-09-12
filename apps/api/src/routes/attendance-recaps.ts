@@ -6,7 +6,9 @@ import { env } from '../config.js'
 import { pool } from '../db.js'
 import {
   aggregateAttendanceRecap,
+  buildAttendanceRecapMatrix,
   buildAttendanceRecapWorkbook,
+  filterAttendanceRecapMatrixDetails,
   loadAttendanceRecapProjection,
   summarizeAttendanceRecap,
   type AttendanceRecapDetail,
@@ -14,6 +16,8 @@ import {
 } from '../lib/attendance-recap.js'
 import {
   attendanceRecapPeriodInput,
+  enumerateRecapDates,
+  recapDayName,
   recapAttendanceStatuses,
 } from '../lib/attendance-recap-policy.js'
 import { jakartaDateTime } from '../lib/attendance-finalization-policy.js'
@@ -71,6 +75,18 @@ function parseQuery(raw: Record<string, unknown>) {
     productionSection: csv(raw.productionSection, productionSectionUid),
     attendanceStatus: csv(raw.attendanceStatus, attendanceStatus),
   })
+}
+
+function attendanceRecapFilename(input: {
+  dateFrom: string
+  dateTo: string
+  sites: AttendanceRecapSite[]
+  draft: boolean
+}) {
+  const siteLabel = input.sites
+    .map((site) => site.code.toUpperCase().replace(/[^A-Z0-9]+/g, '_'))
+    .join('_')
+  return `${input.draft ? 'DRAFT_' : ''}Rekap_Attendance_${siteLabel}_${input.dateFrom}_sd_${input.dateTo}.xlsx`
 }
 
 async function resolveSites(auth: AuthContext, requested: string[]) {
@@ -171,6 +187,44 @@ attendanceRecapsRouter.get(
 )
 
 attendanceRecapsRouter.get(
+  '/recaps/matrix',
+  requirePermission('attendance.view'),
+  async (req, res, next) => {
+    try {
+      const input = parseQuery(req.query as Record<string, unknown>)
+      const { page, pageSize } = pageParams(req.query.page, req.query.pageSize)
+      const sites = await resolveSites(res.locals.auth as AuthContext, input.site)
+      const projection = await loadAttendanceRecapProjection({
+        dateFrom: input.dateFrom,
+        dateTo: input.dateTo,
+        goLiveDate: env.ATTENDANCE_GO_LIVE_DATE,
+        sites,
+      })
+      const dateValues = enumerateRecapDates(input.dateFrom, input.dateTo)
+      const rows = buildAttendanceRecapMatrix(
+        filterAttendanceRecapMatrixDetails(projection.details, {
+          query: input.query,
+          employeeTypes: input.employeeType,
+          productionSectionUids: input.productionSection,
+          attendanceStatuses: input.attendanceStatus,
+        }),
+        dateValues
+      )
+      res.json({
+        dates: dateValues.map((date) => ({ date, dayName: recapDayName(date) })),
+        items: rows.slice((page - 1) * pageSize, page * pageSize),
+        total: rows.length,
+        page,
+        pageSize,
+        completeness: projection.completeness,
+      })
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+attendanceRecapsRouter.get(
   '/recaps/:employeeUid/days',
   requirePermission('attendance.view'),
   async (req, res, next) => {
@@ -219,14 +273,16 @@ attendanceRecapsRouter.post(
         goLiveDate: env.ATTENDANCE_GO_LIVE_DATE,
         sites,
       })
-      if (!projection.completeness.exportAllowed) {
-        return res.status(409).json({
-          code: 'ATTENDANCE_RECAP_INCOMPLETE',
-          message: 'Rekap Attendance belum lengkap dan belum dapat diekspor resmi.',
-          completeness: projection.completeness,
-        })
-      }
       const details = applyDetailFilters(projection.details, input)
+      const matrixDetails = filterAttendanceRecapMatrixDetails(
+        projection.details,
+        {
+          query: input.query,
+          employeeTypes: input.employeeType,
+          productionSectionUids: input.productionSection,
+          attendanceStatuses: input.attendanceStatus,
+        }
+      )
       const groups = summarizeAttendanceRecap(details)
       const generatedAt = `${jakartaDateTime().replace(' ', 'T')}+07:00`
       const auditFilters = {
@@ -241,6 +297,7 @@ attendanceRecapsRouter.post(
       const workbook = await buildAttendanceRecapWorkbook({
         groups,
         details,
+        matrixDetails,
         completeness: projection.completeness,
         dateFrom: input.dateFrom,
         dateTo: input.dateTo,
@@ -249,9 +306,15 @@ attendanceRecapsRouter.post(
         filters: auditFilters,
       })
       const checksumSha256 = createHash('sha256').update(workbook).digest('hex')
-      const filename = `rekap-attendance-${input.dateFrom}-${input.dateTo}-${sites
-        .map((site) => site.code.toLowerCase())
-        .join('-')}.xlsx`
+      const documentStatus = projection.completeness.exportAllowed
+        ? 'OFFICIAL'
+        : 'DRAFT'
+      const filename = attendanceRecapFilename({
+        dateFrom: input.dateFrom,
+        dateTo: input.dateTo,
+        sites,
+        draft: documentStatus === 'DRAFT',
+      })
       const suppliedRequestId = req.get('x-request-id')
       const requestId =
         suppliedRequestId && /^[A-Za-z0-9._:-]{1,100}$/.test(suppliedRequestId)
@@ -274,6 +337,8 @@ attendanceRecapsRouter.post(
               afterData: {
                 ...auditFilters,
                 filename,
+                documentStatus,
+                completenessReasons: projection.completeness.blockedReasons,
                 summaryRows: groups.filter((group) => group.site === site.code).length,
                 detailRows: details.filter((row) => row.site === site.code).length,
                 virtualWeeklyOffRows: details.filter(
@@ -297,6 +362,7 @@ attendanceRecapsRouter.post(
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       )
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+      res.setHeader('X-Attendance-Recap-Status', documentStatus)
       res.setHeader('X-Request-ID', requestId)
       res.send(workbook)
     } catch (error) {

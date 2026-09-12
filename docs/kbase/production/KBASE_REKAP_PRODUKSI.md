@@ -94,7 +94,9 @@ Filter yang tersedia:
 - **Jenis** karyawan;
 - **Bagian produksi**.
 
-Filter berlaku pada tampilan **Per Karyawan** dan **Per Pekerjaan**. Jika hasil kosong setelah filter dipilih, klik **Reset filter** untuk kembali melihat seluruh data dalam periode dan akses site Anda.
+Filter berlaku pada tampilan **Per Karyawan**, **Per Pekerjaan**, dan **Rincian
+per Tanggal**. Jika hasil kosong setelah filter dipilih, klik **Reset filter**
+untuk kembali melihat seluruh data dalam periode dan akses site Anda.
 
 Tidak ada filter Kelompok Kerja pada halaman ini. Gunakan Site, Pekerjaan, Jenis, dan Bagian Produksi sebagai dasar pemeriksaan operasional.
 
@@ -164,7 +166,26 @@ Pada tab **Ringkasan**, Anda dapat melihat:
 
 Pada tab **Transaksi**, Anda dapat melihat waktu, kuantitas, nilai bruto, dan informasi jika transaksi merupakan pengganti hasil koreksi.
 
-## 9. Memahami status terhadap Payroll
+## 9. Rincian per Tanggal
+
+Tab **Rincian per Tanggal** menyajikan matriks satu baris untuk setiap kombinasi
+karyawan dan site, dengan kolom tanggal mengikuti periode yang dipilih. Kolom
+identitas tetap terlihat saat tabel digeser secara horizontal.
+
+Gunakan pilihan mode di atas tabel:
+
+- **Hasil Satuan** untuk melihat total kuantitas per satuan pada setiap tanggal;
+- **Nilai Bruto** untuk melihat jumlah bruto berdasarkan snapshot tarif
+  transaksi pada setiap tanggal.
+
+Jika satu tanggal memuat beberapa satuan, sistem tetap memisahkannya, misalnya
+`120 PCS · 8 KG`. Tanda `—` berarti tidak ada setoran `POSTED` pada tanggal
+tersebut, bukan berarti karyawan tidak hadir. Arahkan kursor ke sel untuk melihat
+jumlah transaksi, pekerjaan, hasil per satuan, nilai bruto lengkap, dan status
+snapshot Payroll. Klik nama karyawan untuk membuka rincian yang sama dengan tab
+Per Karyawan.
+
+## 10. Memahami status terhadap Payroll
 
 Status di Rekap Produksi menjelaskan apakah transaksi sudah disalin sebagai dasar proses Payroll. Status ini tidak menunjukkan pembayaran gaji.
 
@@ -178,9 +199,9 @@ Istilah “disnapshot” pada layar berarti data transaksi disalin dan dipertaha
 
 Jika status **Sebagian disnapshot** muncul, buka detail transaksi untuk menemukan data yang sudah dan belum masuk proses Payroll. Jangan langsung menyimpulkan ada selisih tanpa memeriksa tanggal dan transaksi penyusunnya.
 
-## 10. Dampak koreksi dan pembatalan pada rekap
+## 11. Dampak koreksi dan pembatalan pada rekap
 
-### 10.1 Transaksi dikoreksi
+### 11.1 Transaksi dikoreksi
 
 Saat koreksi diterapkan:
 
@@ -191,15 +212,15 @@ Saat koreksi diterapkan:
 
 Setelah koreksi, muat ulang atau tunggu rekap selesai memperbarui data.
 
-### 10.2 Transaksi dibatalkan
+### 11.2 Transaksi dibatalkan
 
 Transaksi yang dibatalkan tidak menambah jumlah transaksi, kuantitas, maupun nilai bruto pada rekap.
 
-### 10.3 Data sudah masuk Payroll
+### 11.3 Data sudah masuk Payroll
 
 Jika transaksi sudah dikunci oleh Payroll, perubahannya dapat ditolak. Koordinasikan dengan tim Payroll dan jangan memaksakan perubahan dari modul Produksi.
 
-## 11. Mengunduh Rekap ke Excel
+## 12. Mengunduh Rekap ke Excel
 
 Jika tombol **Ekspor Excel** tersedia:
 
@@ -216,9 +237,26 @@ File mengikuti:
 - site yang boleh diakses oleh akun;
 - transaksi yang masih dihitung pada saat ekspor dilakukan.
 
-File Excel berisi beberapa lembar untuk ringkasan karyawan, rincian pekerjaan, transaksi yang dihitung, dan riwayat revisi. Karena rekap bersifat live, waktu ekspor penting. Simpan file beserta periode pemeriksaannya jika akan dipakai sebagai bukti review.
+File Excel berisi:
 
-## 12. Urutan pemeriksaan yang disarankan
+- **Ringkasan Karyawan**;
+- **Hasil per Tanggal**, berupa matriks kuantitas per satuan;
+- **Bruto per Tanggal**, berupa matriks nilai Rupiah;
+- **Rincian Pekerjaan**;
+- **Transaksi POSTED**;
+- **Riwayat Revisi**.
+
+Nama file memakai pola
+`Rekap_Produksi_Borongan_SITE_TANGGAL-AWAL_sd_TANGGAL-AKHIR.xlsx`, misalnya
+`Rekap_Produksi_Borongan_JEPARA_2026-08-21_sd_2026-08-27.xlsx`.
+
+Kedua sheet matriks memakai kolom identitas dan header tanggal beku. Akhir pekan
+diberi penanda warna, cell kosong berarti tidak ada setoran, dan catatan cell
+memuat rincian pekerjaan, transaksi, serta status snapshot Payroll. Karena rekap
+bersifat live, waktu ekspor penting. Simpan file beserta periode pemeriksaannya
+jika akan dipakai sebagai bukti review.
+
+## 13. Urutan pemeriksaan yang disarankan
 
 1. Pilih periode dan site yang benar.
 2. Periksa jumlah **Karyawan tercatat** dan **Transaksi tercatat**.
@@ -232,7 +270,7 @@ File Excel berisi beberapa lembar untuk ringkasan karyawan, rincian pekerjaan, t
 10. Perbaiki kesalahan dari halaman Transaksi Produksi, lalu kembali ke rekap.
 11. Ekspor Excel setelah hasil pemeriksaan dinyatakan sesuai.
 
-## 13. Solusi masalah umum
+## 14. Solusi masalah umum
 
 | Kondisi | Yang perlu dilakukan |
 |---|---|
@@ -249,7 +287,7 @@ File Excel berisi beberapa lembar untuk ringkasan karyawan, rincian pekerjaan, t
 | Ekspor gagal | Periksa periode, koneksi, dan filter. Coba lagi tanpa mengubah periode agar hasil tetap sebanding. |
 | Angka rekap salah | Temukan transaksi penyusunnya dari drawer, lalu koreksi atau batalkan melalui halaman Transaksi Produksi. |
 
-## 14. Batas penggunaan Rekap Produksi
+## 15. Batas penggunaan Rekap Produksi
 
 - Rekap tidak melakukan finalisasi harian.
 - Rekap tidak mengubah transaksi.
@@ -260,7 +298,7 @@ File Excel berisi beberapa lembar untuk ringkasan karyawan, rincian pekerjaan, t
 
 Gunakan Rekap sebagai alat pemeriksaan operasional. Proses perhitungan, persetujuan, penutupan, dan pembayaran tetap dilakukan pada modul Payroll.
 
-## 15. Navigasi KBase Produksi
+## 16. Navigasi KBase Produksi
 
 - Kembali ke [Indeks Produksi Borongan](../../KBASE_SETORAN_PRODUKSI.md).
 - Buka [Master Produksi](./KBASE_MASTER_PRODUKSI.md) untuk pekerjaan, penugasan, satuan, dan tarif.

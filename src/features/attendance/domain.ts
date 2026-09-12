@@ -145,6 +145,9 @@ export interface AttendanceRepository {
     input: AttendanceBulkFinalizationRunInput
   ): Promise<AttendanceBulkFinalizationResult>
   listRecaps(input: AttendanceRecapListParams): Promise<AttendanceRecapResult>
+  listRecapMatrix(
+    input: AttendanceRecapMatrixListParams
+  ): Promise<AttendanceRecapMatrixResult>
   listRecapDays(
     employeeUid: string,
     input: AttendanceRecapDayListParams
@@ -704,6 +707,42 @@ export interface AttendanceRecapResult extends PaginatedAttendanceResult<Attenda
   summary: AttendanceRecapSummary
   completeness: AttendanceRecapCompleteness
 }
+
+export interface AttendanceRecapMatrixDate {
+  date: string
+  dayName: string
+}
+
+export interface AttendanceRecapMatrixCell {
+  status: AttendanceRecapStatus
+  clockInAt?: string | null
+  clockOutAt?: string | null
+  qualityStatus: AttendanceQualityStatus
+  abnormalReasons: AttendanceAbnormalReason[]
+  lateMinutes: number
+  earlyLeaveMinutes: number
+  virtual: boolean
+  calendarDayType: 'WORKDAY' | 'HOLIDAY' | 'NON_WORKDAY'
+}
+
+export interface AttendanceRecapMatrixItem {
+  employeeUid: string
+  employeeNumber: string
+  employeeName: string
+  site: AttendanceSiteCode
+  siteName: string
+  employeeType: AttendanceEmployeeType
+  positions: string[]
+  productionSections: string[]
+  days: Record<string, AttendanceRecapMatrixCell | null>
+}
+
+export interface AttendanceRecapMatrixResult extends PaginatedAttendanceResult<AttendanceRecapMatrixItem> {
+  dates: AttendanceRecapMatrixDate[]
+  completeness: AttendanceRecapCompleteness
+}
+
+export type AttendanceRecapMatrixListParams = AttendanceRecapListParams
 
 export interface AttendanceRecapListParams {
   dateFrom: string

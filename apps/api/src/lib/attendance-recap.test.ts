@@ -1,7 +1,9 @@
 import ExcelJS from 'exceljs'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  buildAttendanceRecapMatrix,
   buildAttendanceRecapWorkbook,
+  filterAttendanceRecapMatrixDetails,
   summarizeAttendanceRecap,
   type AttendanceRecapCompleteness,
   type AttendanceRecapDetail,
@@ -84,8 +86,95 @@ describe('attendance recap summary', () => {
   })
 })
 
+describe('attendance recap matrix', () => {
+  it('membentuk slot semua tanggal dan tidak mencampur site historis', () => {
+    const rows = buildAttendanceRecapMatrix(
+      [
+        detail({
+          businessDate: '2026-08-06',
+          status: 'PRESENT',
+          calendarDayType: 'WORKDAY',
+          clockInAt: '2026-08-06T07:00:00+07:00',
+          clockOutAt: '2026-08-06T15:00:00+07:00',
+        }),
+        detail({
+          businessDate: '2026-08-07',
+          status: 'SICK',
+          calendarDayType: 'WORKDAY',
+        }),
+        detail({
+          businessDate: '2026-08-06',
+          site: 'KLATEN',
+          siteName: 'Klaten',
+          status: 'PRESENT',
+          calendarDayType: 'WORKDAY',
+        }),
+      ],
+      ['2026-08-06', '2026-08-07', '2026-08-08']
+    )
+
+    expect(rows).toHaveLength(2)
+    const jepara = rows.find((row) => row.site === 'JEPARA')!
+    expect(Object.keys(jepara.days)).toEqual([
+      '2026-08-06',
+      '2026-08-07',
+      '2026-08-08',
+    ])
+    expect(jepara.days['2026-08-06']).toMatchObject({
+      status: 'PRESENT',
+      clockInAt: '2026-08-06T07:00:00+07:00',
+      clockOutAt: '2026-08-06T15:00:00+07:00',
+    })
+    expect(jepara.days['2026-08-07']?.status).toBe('SICK')
+    expect(jepara.days['2026-08-08']).toBeNull()
+  })
+
+  it('mempertahankan alasan abnormal pada sel', () => {
+    const rows = buildAttendanceRecapMatrix(
+      [
+        detail({
+          businessDate: '2026-08-06',
+          status: 'PRESENT',
+          calendarDayType: 'WORKDAY',
+          qualityStatus: 'ABNORMAL',
+          abnormalReasons: ['MISSING_CLOCK_OUT'],
+        }),
+      ],
+      ['2026-08-06']
+    )
+
+    expect(rows[0]?.days['2026-08-06']).toMatchObject({
+      qualityStatus: 'ABNORMAL',
+      abnormalReasons: ['MISSING_CLOCK_OUT'],
+    })
+  })
+
+  it('memakai status untuk memilih baris tanpa membuang hari lain', () => {
+    const details = [
+      detail({
+        businessDate: '2026-08-06',
+        status: 'PRESENT',
+        calendarDayType: 'WORKDAY',
+      }),
+      detail({
+        businessDate: '2026-08-07',
+        status: 'SICK',
+        calendarDayType: 'WORKDAY',
+      }),
+    ]
+
+    const filtered = filterAttendanceRecapMatrixDetails(details, {
+      employeeTypes: [],
+      productionSectionUids: [],
+      attendanceStatuses: ['SICK'],
+    })
+
+    expect(filtered.map((item) => item.status)).toEqual(['PRESENT', 'SICK'])
+  })
+})
+
 describe('attendance recap workbook', () => {
-  it('dapat dibuka ulang dengan tiga sheet, header stabil, dan row virtual/audit utuh', async () => {
+  it('dapat dibuka ulang dengan matriks, header stabil, dan row virtual/audit utuh', async () => {
     const details = [
       detail({
         businessDate: '2026-08-06',
@@ -119,10 +208,17 @@ describe('attendance recap workbook', () => {
       buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]
     )
     expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual([
+      'Informasi',
       'Ringkasan',
+      'Rincian per Tanggal',
       'Detail Harian',
       'Metadata Export',
     ])
+    const information = workbook.getWorksheet('Informasi')!
+    expect(information.getCell('B3').value).toBe('RESMI')
+    expect(information.getCell('B7').value).toBe(
+      'Data telah memenuhi syarat Rekap Attendance resmi.'
+    )
     const summaryHeaders = workbook
       .getWorksheet('Ringkasan')!
       .getRow(1)
@@ -151,6 +247,19 @@ describe('attendance recap workbook', () => {
       'Menit Kerja',
       'Anomali',
     ])
+    const matrix = workbook.getWorksheet('Rincian per Tanggal')!
+    expect((matrix.getRow(1).values as unknown[]).slice(1)).toEqual([
+      'No',
+      'NIK',
+      'Nama',
+      'Site',
+      'Jenis Karyawan',
+      '06 Agu\nKam',
+      '07 Agu\nJum',
+    ])
+    expect(matrix.getRow(2).getCell(6).value).toBe('IN 07:00\nOUT 15:00')
+    expect(matrix.getRow(2).getCell(7).value).toBe('OFF')
+    expect(matrix.views[0]).toMatchObject({ xSplit: 5, ySplit: 1 })
     const daily = workbook.getWorksheet('Detail Harian')!
     expect((daily.getRow(1).values as unknown[]).slice(1)).toEqual([
       'Tanggal',
@@ -190,10 +299,80 @@ describe('attendance recap workbook', () => {
       'Waktu Ekspor',
       '2026-08-08T10:00:00+07:00',
     ])
-    expect(metadata.getRow(11).values).toEqual([
+    expect(metadata.getRow(12).values).toEqual([
       undefined,
       'Jumlah Libur Mingguan Otomatis',
       1,
     ])
+  })
+
+  it('menandai dan menjelaskan sel abnormal pada matriks', async () => {
+    const details = [
+      detail({
+        businessDate: '2026-08-06',
+        status: 'PRESENT',
+        calendarDayType: 'WORKDAY',
+        clockInAt: '2026-08-06T07:00:00+07:00',
+        qualityStatus: 'ABNORMAL',
+        abnormalReasons: ['MISSING_CLOCK_OUT'],
+      }),
+    ]
+    const buffer = await buildAttendanceRecapWorkbook({
+      groups: summarizeAttendanceRecap(details),
+      details,
+      completeness,
+      dateFrom: '2026-08-06',
+      dateTo: '2026-08-06',
+      generatedAt: '2026-08-08T10:00:00+07:00',
+      generatedBy: 'Admin Uji',
+      filters: { sites: ['JEPARA'] },
+    })
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(
+      buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]
+    )
+    const cell = workbook
+      .getWorksheet('Rincian per Tanggal')!
+      .getRow(2)
+      .getCell(6)
+
+    expect(cell.value).toBe('⚠\nIN 07:00\nOUT —')
+    expect(String(cell.note)).toContain('Jam pulang belum tersedia')
+    expect(cell.border?.top?.color?.argb).toBe('FFF59E0B')
+  })
+
+  it('menandai workbook belum lengkap sebagai draft beserta alasannya', async () => {
+    const draftCompleteness: AttendanceRecapCompleteness = {
+      official: true,
+      exportAllowed: false,
+      blockedReasons: ['Finalisasi Jepara tanggal 2026-08-06 belum selesai.'],
+      sites: [
+        {
+          site: 'JEPARA',
+          date: '2026-08-06',
+          status: 'PARTIAL',
+          reasons: ['Finalisasi belum selesai.'],
+        },
+      ],
+    }
+    const buffer = await buildAttendanceRecapWorkbook({
+      groups: [],
+      details: [],
+      completeness: draftCompleteness,
+      dateFrom: '2026-08-06',
+      dateTo: '2026-08-06',
+      generatedAt: '2026-08-08T10:00:00+07:00',
+      generatedBy: 'Admin Uji',
+      filters: { sites: ['JEPARA'] },
+    })
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(
+      buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]
+    )
+    const information = workbook.getWorksheet('Informasi')!
+    expect(information.getCell('B3').value).toBe('DRAFT - DATA BELUM LENGKAP')
+    expect(information.getCell('B10').value).toBe(
+      'Finalisasi Jepara tanggal 2026-08-06 belum selesai.'
+    )
   })
 })

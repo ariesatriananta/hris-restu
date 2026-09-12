@@ -91,6 +91,38 @@ export type AttendanceRecapGroup = {
   abnormal: number
 }
 
+export type AttendanceRecapMatrixCell = Pick<
+  AttendanceRecapDetail,
+  | 'status'
+  | 'clockInAt'
+  | 'clockOutAt'
+  | 'qualityStatus'
+  | 'abnormalReasons'
+  | 'lateMinutes'
+  | 'earlyLeaveMinutes'
+  | 'virtual'
+  | 'calendarDayType'
+>
+
+export type AttendanceRecapMatrixRow = {
+  employeeUid: string
+  employeeNumber: string
+  employeeName: string
+  site: string
+  siteName: string
+  employeeType: string
+  positions: string[]
+  productionSections: string[]
+  days: Record<string, AttendanceRecapMatrixCell | null>
+}
+
+export type AttendanceRecapMatrixFilters = {
+  query?: string
+  employeeTypes: string[]
+  productionSectionUids: string[]
+  attendanceStatuses: RecapAttendanceStatus[]
+}
+
 export type AttendanceRecapCompletenessSite = {
   site: string
   date: string
@@ -666,6 +698,90 @@ export function summarizeAttendanceRecap(details: AttendanceRecapDetail[]) {
   )
 }
 
+export function buildAttendanceRecapMatrix(
+  details: AttendanceRecapDetail[],
+  dates: string[]
+) {
+  const rows = new Map<string, AttendanceRecapMatrixRow>()
+  for (const detail of details) {
+    const key = `${detail.employeeUid}:${detail.site}:${detail.employeeType}`
+    let row = rows.get(key)
+    if (!row) {
+      row = {
+        employeeUid: detail.employeeUid,
+        employeeNumber: detail.employeeNumber,
+        employeeName: detail.employeeName,
+        site: detail.site,
+        siteName: detail.siteName,
+        employeeType: detail.employeeType,
+        positions: [],
+        productionSections: [],
+        days: Object.fromEntries(dates.map((date) => [date, null])),
+      }
+      rows.set(key, row)
+    }
+    if (detail.position && !row.positions.includes(detail.position)) {
+      row.positions.push(detail.position)
+    }
+    if (
+      detail.productionSection &&
+      !row.productionSections.includes(detail.productionSection)
+    ) {
+      row.productionSections.push(detail.productionSection)
+    }
+    row.days[detail.businessDate] = {
+      status: detail.status,
+      clockInAt: detail.clockInAt,
+      clockOutAt: detail.clockOutAt,
+      qualityStatus: detail.qualityStatus,
+      abnormalReasons: detail.abnormalReasons,
+      lateMinutes: detail.lateMinutes,
+      earlyLeaveMinutes: detail.earlyLeaveMinutes,
+      virtual: detail.virtual,
+      calendarDayType: detail.calendarDayType,
+    }
+  }
+  return [...rows.values()].sort(
+    (a, b) =>
+      a.employeeName.localeCompare(b.employeeName, 'id') ||
+      a.site.localeCompare(b.site) ||
+      a.employeeType.localeCompare(b.employeeType)
+  )
+}
+
+export function filterAttendanceRecapMatrixDetails(
+  details: AttendanceRecapDetail[],
+  filters: AttendanceRecapMatrixFilters
+) {
+  const query = filters.query?.toLocaleLowerCase('id')
+  const groups = new Map<string, AttendanceRecapDetail[]>()
+  for (const detail of details) {
+    const key = `${detail.employeeUid}:${detail.site}:${detail.employeeType}`
+    const current = groups.get(key) ?? []
+    current.push(detail)
+    groups.set(key, current)
+  }
+  return [...groups.values()].flatMap((group) => {
+    const first = group[0]
+    const matches =
+      Boolean(first) &&
+      (!query ||
+        first.employeeName.toLocaleLowerCase('id').includes(query) ||
+        first.employeeNumber.toLocaleLowerCase('id').includes(query)) &&
+      (!filters.employeeTypes.length ||
+        filters.employeeTypes.includes(first.employeeType)) &&
+      (!filters.productionSectionUids.length ||
+        group.some(
+          (row) =>
+            row.productionSectionUid !== null &&
+            filters.productionSectionUids.includes(row.productionSectionUid)
+        )) &&
+      (!filters.attendanceStatuses.length ||
+        group.some((row) => filters.attendanceStatuses.includes(row.status)))
+    return matches ? group : []
+  })
+}
+
 export function aggregateAttendanceRecap(groups: AttendanceRecapGroup[]) {
   const numericKeys = [
     'scheduledDays',
@@ -705,9 +821,69 @@ const statusLabels: Record<RecapAttendanceStatus, string> = {
   WEEKLY_OFF: 'Libur Mingguan',
 }
 
+const matrixStatusCodes: Record<Exclude<RecapAttendanceStatus, 'PRESENT'>, string> = {
+  ABSENT: 'A',
+  LEAVE: 'C',
+  SICK: 'S',
+  PERMISSION: 'I',
+  HOLIDAY: 'L',
+  WEEKLY_OFF: 'OFF',
+}
+
+function matrixClockLabel(value: string | null) {
+  return value?.match(/(?:T|\s)(\d{2}:\d{2})/)?.[1] ?? '—'
+}
+
+function matrixCellValue(cell: AttendanceRecapMatrixCell | null) {
+  if (!cell) return '—'
+  const abnormal =
+    cell.qualityStatus === 'ABNORMAL' || cell.abnormalReasons.length > 0
+  if (cell.status === 'PRESENT') {
+    return `${abnormal ? '⚠\n' : ''}IN ${matrixClockLabel(cell.clockInAt)}\nOUT ${matrixClockLabel(cell.clockOutAt)}`
+  }
+  return `${matrixStatusCodes[cell.status]}${abnormal ? ' ⚠' : ''}`
+}
+
+function matrixCellNote(cell: AttendanceRecapMatrixCell) {
+  const lines = [`Status: ${statusLabels[cell.status]}`]
+  if (cell.lateMinutes > 0) lines.push(`Terlambat: ${cell.lateMinutes} menit`)
+  if (cell.earlyLeaveMinutes > 0) {
+    lines.push(`Pulang awal: ${cell.earlyLeaveMinutes} menit`)
+  }
+  if (cell.abnormalReasons.length) {
+    lines.push(
+      `Abnormal: ${cell.abnormalReasons
+        .map((reason) =>
+          reason === 'MISSING_CLOCK_IN'
+            ? 'Jam masuk belum tersedia'
+            : reason === 'MISSING_CLOCK_OUT'
+              ? 'Jam pulang belum tersedia'
+              : reason
+        )
+        .join(', ')}`
+    )
+  }
+  return lines.join('\n')
+}
+
+function matrixDateHeader(date: string) {
+  const label = new Intl.DateTimeFormat('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    timeZone: 'UTC',
+  }).format(new Date(`${date}T00:00:00Z`))
+  return `${label}\n${recapDayName(date).slice(0, 3)}`
+}
+
+function isWeekendDate(date: string) {
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay()
+  return day === 0 || day === 6
+}
+
 export async function buildAttendanceRecapWorkbook(input: {
   groups: AttendanceRecapGroup[]
   details: AttendanceRecapDetail[]
+  matrixDetails?: AttendanceRecapDetail[]
   completeness: AttendanceRecapCompleteness
   dateFrom: string
   dateTo: string
@@ -718,6 +894,73 @@ export async function buildAttendanceRecapWorkbook(input: {
   const workbook = new ExcelJS.Workbook()
   workbook.creator = 'HRIS RSIA'
   workbook.created = new Date(input.generatedAt)
+  const documentStatus = input.completeness.exportAllowed
+    ? 'RESMI'
+    : 'DRAFT - DATA BELUM LENGKAP'
+  const information = workbook.addWorksheet('Informasi')
+  information.mergeCells('A1:B1')
+  information.getCell('A1').value = 'REKAP ATTENDANCE'
+  information.getCell('A1').font = {
+    bold: true,
+    color: { argb: 'FFFFFFFF' },
+    size: 16,
+  }
+  information.getCell('A1').fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF0E2459' },
+  }
+  information.getCell('A1').alignment = {
+    horizontal: 'center',
+    vertical: 'middle',
+  }
+  information.getRow(1).height = 30
+  information.addRows([
+    [],
+    ['Status Dokumen', documentStatus],
+    ['Periode', `${input.dateFrom} s.d. ${input.dateTo}`],
+    ['Waktu Ekspor', input.generatedAt],
+    ['Diekspor Oleh', input.generatedBy],
+    [
+      'Catatan',
+      input.completeness.exportAllowed
+        ? 'Data telah memenuhi syarat Rekap Attendance resmi.'
+        : 'File memuat data apa adanya saat diekspor. Selesaikan seluruh masalah kelengkapan sebelum menggunakan data sebagai rekap final.',
+    ],
+    [],
+    ['Masalah Kelengkapan', 'Keterangan'],
+    ...(input.completeness.blockedReasons.length
+      ? input.completeness.blockedReasons.map((reason, index) => [
+          `Masalah ${index + 1}`,
+          reason,
+        ])
+      : [['-', 'Tidak ada masalah kelengkapan.']]),
+  ])
+  information.getCell('B3').font = {
+    bold: true,
+    color: {
+      argb: input.completeness.exportAllowed ? 'FF166534' : 'FF9A3412',
+    },
+  }
+  information.getCell('B3').fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: {
+      argb: input.completeness.exportAllowed ? 'FFDCFCE7' : 'FFFFEDD5',
+    },
+  }
+  information.getRow(7).height = 44
+  information.getCell('B7').alignment = { vertical: 'top', wrapText: true }
+  information.getRow(9).font = { bold: true, color: { argb: 'FFFFFFFF' } }
+  information.getRow(9).fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF0E2459' },
+  }
+  information.getColumn(1).width = 24
+  information.getColumn(2).width = 90
+  information.getColumn(2).alignment = { vertical: 'top', wrapText: true }
+
   const summary = workbook.addWorksheet('Ringkasan')
   const summaryHeaders = [
     'No', 'NIK', 'Nama', 'Site', 'Jenis Karyawan', 'Shift', 'Hari Terjadwal',
@@ -738,6 +981,88 @@ export async function buildAttendanceRecapWorkbook(input: {
       group.abnormal,
     ])
   )
+
+  const matrixDates = enumerateRecapDates(input.dateFrom, input.dateTo)
+  const matrixRows = buildAttendanceRecapMatrix(
+    input.matrixDetails ?? input.details,
+    matrixDates
+  )
+  const matrix = workbook.addWorksheet('Rincian per Tanggal')
+  matrix.addRow([
+    'No',
+    'NIK',
+    'Nama',
+    'Site',
+    'Jenis Karyawan',
+    ...matrixDates.map(matrixDateHeader),
+  ])
+  matrixRows.forEach((row, index) => {
+    const excelRow = matrix.addRow([
+      index + 1,
+      row.employeeNumber,
+      row.employeeName,
+      row.siteName,
+      row.employeeType,
+      ...matrixDates.map((date) => matrixCellValue(row.days[date] ?? null)),
+    ])
+    matrixDates.forEach((date, dateIndex) => {
+      const value = row.days[date] ?? null
+      const cell = excelRow.getCell(dateIndex + 6)
+      if (
+        value &&
+        (value.status !== 'PRESENT' ||
+          value.qualityStatus === 'ABNORMAL' ||
+          value.abnormalReasons.length > 0 ||
+          value.lateMinutes > 0 ||
+          value.earlyLeaveMinutes > 0)
+      ) {
+        cell.note = matrixCellNote(value)
+      }
+      cell.alignment = {
+        horizontal: 'center',
+        vertical: 'middle',
+        wrapText: true,
+      }
+      cell.font = { size: 8, bold: value?.status !== 'PRESENT' }
+      if (!value || value.status === 'WEEKLY_OFF' || value.status === 'HOLIDAY') {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFF1F5F9' },
+        }
+      } else if (value.status === 'ABSENT') {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFFFE4E6' },
+        }
+      } else if (value.status !== 'PRESENT') {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFE0F2FE' },
+        }
+      } else if (value.lateMinutes > 0 || value.earlyLeaveMinutes > 0) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFFEF3C7' },
+        }
+      }
+      if (
+        value &&
+        (value.qualityStatus === 'ABNORMAL' || value.abnormalReasons.length > 0)
+      ) {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFF59E0B' } },
+          left: { style: 'thin', color: { argb: 'FFF59E0B' } },
+          bottom: { style: 'thin', color: { argb: 'FFF59E0B' } },
+          right: { style: 'thin', color: { argb: 'FFF59E0B' } },
+        }
+      }
+    })
+    excelRow.height = 28
+  })
 
   const detail = workbook.addWorksheet('Detail Harian')
   const detailHeaders = [
@@ -771,9 +1096,10 @@ export async function buildAttendanceRecapWorkbook(input: {
     ['Timezone', 'Asia/Jakarta'],
     ['Waktu Ekspor', input.generatedAt],
     ['Diekspor Oleh', input.generatedBy],
-    ['Status Resmi', input.completeness.official ? 'Ya' : 'Tidak'],
-    ['Ekspor Diizinkan', input.completeness.exportAllowed ? 'Ya' : 'Tidak'],
+    ['Status Dokumen', documentStatus],
+    ['Memenuhi Syarat Rekap Resmi', input.completeness.exportAllowed ? 'Ya' : 'Tidak'],
     ['Jumlah Ringkasan', input.groups.length],
+    ['Jumlah Baris Matriks', matrixRows.length],
     ['Jumlah Detail', input.details.length],
     ['Jumlah Libur Mingguan Otomatis', input.details.filter((row) => row.virtual).length],
     ['Filter', JSON.stringify(input.filters)],
@@ -788,6 +1114,7 @@ export async function buildAttendanceRecapWorkbook(input: {
     ]),
   ])
   for (const sheet of workbook.worksheets) {
+    if (sheet === information) continue
     sheet.views = [{ state: 'frozen', ySplit: 1 }]
     sheet.getRow(1).font = { bold: true }
     sheet.columns.forEach((column) => {
@@ -805,5 +1132,36 @@ export async function buildAttendanceRecapWorkbook(input: {
       to: sheet.getCell(1, sheet.columnCount).address,
     }
   }
+  matrix.views = [
+    {
+      state: 'frozen',
+      xSplit: 5,
+      ySplit: 1,
+      topLeftCell: 'F2',
+      activeCell: 'F2',
+    },
+  ]
+  matrix.getRow(1).height = 30
+  matrix.getRow(1).alignment = {
+    horizontal: 'center',
+    vertical: 'middle',
+    wrapText: true,
+  }
+  matrix.getRow(1).eachCell((cell, columnNumber) => {
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 9 }
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: {
+        argb:
+          columnNumber > 5 && isWeekendDate(matrixDates[columnNumber - 6])
+            ? 'FF2B902E'
+            : 'FF0E2459',
+      },
+    }
+  })
+  matrix.columns.forEach((column, index) => {
+    column.width = index === 0 ? 5 : index === 1 ? 16 : index === 2 ? 28 : index < 5 ? 14 : 11
+  })
   return Buffer.from(await workbook.xlsx.writeBuffer())
 }

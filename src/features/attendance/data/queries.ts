@@ -29,6 +29,7 @@ import type {
   AttendanceRecapDayListParams,
   AttendanceRecapExportInput,
   AttendanceRecapListParams,
+  AttendanceRecapMatrixListParams,
   HistoricalShiftAssignmentApplyInput,
   HistoricalShiftAssignmentInput,
   AttendanceBulkReviewInput,
@@ -72,6 +73,8 @@ export const attendanceKeys = {
     [...attendanceKeys.all, 'classifications', uid] as const,
   recaps: (params: AttendanceRecapListParams) =>
     [...attendanceKeys.all, 'recaps', params] as const,
+  recapMatrix: (params: AttendanceRecapMatrixListParams) =>
+    [...attendanceKeys.all, 'recaps', 'matrix', params] as const,
   recapDays: (employeeUid: string, params: AttendanceRecapDayListParams) =>
     [...attendanceKeys.all, 'recaps', employeeUid, 'days', params] as const,
 }
@@ -256,6 +259,17 @@ export const useAttendanceRecaps = (
   useQuery({
     queryKey: attendanceKeys.recaps(params),
     queryFn: () => httpAttendanceRepository.listRecaps(params),
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+
+export const useAttendanceRecapMatrix = (
+  params: AttendanceRecapMatrixListParams,
+  enabled = true
+) =>
+  useQuery({
+    queryKey: attendanceKeys.recapMatrix(params),
+    queryFn: () => httpAttendanceRepository.listRecapMatrix(params),
     placeholderData: keepPreviousData,
     enabled,
   })

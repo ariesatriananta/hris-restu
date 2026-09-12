@@ -175,6 +175,36 @@ describe('Production recaps API', () => {
     expect(recapSql).toContain('wg.id=pt.work_group_id')
   })
 
+  it('mengembalikan matriks produksi per tanggal dengan pagination terpisah', async () => {
+    const response = await request(
+      '/recaps/matrix?dateFrom=2026-08-21&dateTo=2026-08-22&site=JEPARA&page=1&pageSize=50'
+    )
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      dates: Array<{ date: string; dayName: string }>
+      items: Array<{
+        employee: { uid: string }
+        site: { code: string }
+        days: Record<string, { grossAmount: string } | null>
+      }>
+      total: number
+      page: number
+      pageSize: number
+    }
+    expect(body.dates).toEqual([
+      { date: '2026-08-21', dayName: 'Jumat' },
+      { date: '2026-08-22', dayName: 'Sabtu' },
+    ])
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]).toMatchObject({
+      employee: { uid: transactionRow.employeeUid },
+      site: { code: 'JEPARA' },
+    })
+    expect(body.items[0].days['2026-08-21']?.grossAmount).toBe('31450.00')
+    expect(body.items[0].days['2026-08-22']).toBeNull()
+    expect(body).toMatchObject({ total: 1, page: 1, pageSize: 50 })
+  })
+
   it('menolak periode di atas 31 hari sebelum query database', async () => {
     const response = await request(
       '/recaps?dateFrom=2026-07-01&dateTo=2026-08-21'
@@ -249,6 +279,9 @@ describe('Production recaps API', () => {
     })
     expect(exported.status).toBe(200)
     expect(exported.headers.get('content-type')).toContain('spreadsheetml')
+    expect(exported.headers.get('content-disposition')).toContain(
+      'Rekap_Produksi_Borongan_JEPARA_2026-08-21_sd_2026-08-21.xlsx'
+    )
     expect(exported.headers.get('x-request-id')).toBeTruthy()
     expect(mocks.beginTransaction).toHaveBeenCalledOnce()
     expect(mocks.commit).toHaveBeenCalledOnce()

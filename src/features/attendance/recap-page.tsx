@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react'
-import { isAxiosError } from 'axios'
 import { useNavigate } from '@tanstack/react-router'
 import {
   AlertTriangle,
@@ -11,6 +10,7 @@ import {
   Download,
   FileWarning,
   LoaderCircle,
+  ListChecks,
   ShieldCheck,
   UserCheck,
   UserMinus,
@@ -27,6 +27,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Tooltip,
   TooltipContent,
@@ -37,6 +38,7 @@ import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
 import {
   useAttendanceFoundation,
+  useAttendanceRecapMatrix,
   useAttendanceRecaps,
   useExportAttendanceRecaps,
 } from './data/queries'
@@ -47,6 +49,7 @@ import type {
   AttendanceRecapCompletenessSite,
   AttendanceRecapGroup,
   AttendanceRecapListParams,
+  AttendanceRecapMatrixItem,
   AttendanceRecapSummary,
   AttendanceRecapStatus,
   AttendanceSiteCode,
@@ -54,6 +57,7 @@ import type {
 import { attendanceProductionSectionOptions } from './filter-options'
 import { durationLabel, siteLabel } from './recap-columns'
 import { AttendanceRecapDetailSheet } from './recap-detail-sheet'
+import { AttendanceRecapMatrixTable } from './recap-matrix-table'
 import { AttendanceRecapTable } from './recap-table'
 
 export function AttendanceRecapPage({
@@ -68,6 +72,7 @@ export function AttendanceRecapPage({
   const dateFrom = stringValue(search.dateFrom) ?? defaults.dateFrom
   const dateTo = stringValue(search.dateTo) ?? defaults.dateTo
   const error = rangeError(dateFrom, dateTo)
+  const view = search.view === 'matrix' ? 'matrix' : 'summary'
   const params: AttendanceRecapListParams = {
     dateFrom,
     dateTo,
@@ -81,20 +86,32 @@ export function AttendanceRecapPage({
     page: numberValue(search.page, 1),
     pageSize: numberValue(search.pageSize, 50),
   }
-  const result = useAttendanceRecaps(params, !error)
+  const matrixParams: AttendanceRecapListParams = {
+    ...params,
+    page: numberValue(search.matrixPage, 1),
+    pageSize: numberValue(search.matrixPageSize, 50),
+  }
+  const result = useAttendanceRecaps(params, !error && view === 'summary')
+  const matrixResult = useAttendanceRecapMatrix(
+    matrixParams,
+    !error && view === 'matrix'
+  )
   const foundation = useAttendanceFoundation()
   const session = useAuthStore((state) => state.session)
   const exportMutation = useExportAttendanceRecaps()
   const canExportPermission = hasPermission(session, 'attendance.export')
   const capabilityAllowsExport = foundation.data?.capabilities.export ?? false
-  const completeness = result.data?.completeness
+  const activeResult = view === 'matrix' ? matrixResult : result
+  const completeness = activeResult.data?.completeness
   const exportDisabledReason = exportReason({
     rangeError: error,
     canExportPermission,
     capabilityAllowsExport,
-    completeness,
-    isLoading: result.isPending || foundation.isPending,
   })
+  const exportWarning =
+    completeness && !completeness.exportAllowed
+      ? 'Rekap belum lengkap. Excel tetap dapat diunduh dan akan ditandai sebagai draft.'
+      : undefined
   const selectedEmployeeUid = stringValue(search.employeeUid)
 
   useEffect(() => {
@@ -111,7 +128,7 @@ export function AttendanceRecapPage({
   }, [dateFrom, dateTo, navigate, search.dateFrom, search.dateTo])
 
   const openDetail = useCallback(
-    (item: AttendanceRecapGroup) =>
+    (item: AttendanceRecapGroup | AttendanceRecapMatrixItem) =>
       navigate({
         search: (previous) => ({
           ...previous,
@@ -143,14 +160,15 @@ export function AttendanceRecapPage({
           anchor.download = fileName
           anchor.click()
           window.setTimeout(() => URL.revokeObjectURL(url), 0)
-          toast.success('Rekap attendance berhasil diunduh.')
+          if (fileName.startsWith('DRAFT_')) {
+            toast.warning(
+              'Data attendance diunduh sebagai draft karena rekap belum lengkap.'
+            )
+          } else {
+            toast.success('Rekap attendance resmi berhasil diunduh.')
+          }
         },
-        onError: (exportError) =>
-          toast.error(
-            isAxiosError(exportError) && exportError.response?.status === 409
-              ? 'Ekspor diblokir karena rekap belum lengkap atau belum official.'
-              : 'Ekspor rekap attendance gagal.'
-          ),
+        onError: () => toast.error('Ekspor rekap attendance gagal.'),
       }
     )
   }
@@ -227,7 +245,7 @@ export function AttendanceRecapPage({
               disabled={
                 Boolean(exportDisabledReason) || exportMutation.isPending
               }
-              title={exportDisabledReason}
+              title={exportDisabledReason ?? exportWarning}
               aria-describedby={
                 exportDisabledReason ? 'attendance-export-reason' : undefined
               }
@@ -257,7 +275,7 @@ export function AttendanceRecapPage({
       ) : (
         <CompletenessPanel
           data={completeness}
-          isLoading={result.isPending}
+          isLoading={activeResult.isPending}
           onOpenMonitoring={(item) =>
             void routerNavigate({
               to: '/attendance/monitoring-harian',
@@ -268,9 +286,34 @@ export function AttendanceRecapPage({
       )}
 
       {!error && (
-        <>
-          <Summary data={result.data?.summary} />
-          <div className='mt-5'>
+        <Tabs
+          value={view}
+          onValueChange={(nextView) =>
+            navigate({
+              search: (previous) => ({
+                ...previous,
+                view: nextView === 'matrix' ? 'matrix' : undefined,
+                employeeUid: undefined,
+                detailSite: undefined,
+                detailEmployeeType: undefined,
+              }),
+            })
+          }
+          className='gap-4'
+        >
+          <TabsList
+            className='h-auto min-h-12 max-w-full justify-start overflow-x-auto overflow-y-hidden p-1'
+            aria-label='Jenis tampilan rekap attendance'
+          >
+            <TabsTrigger value='summary' className='h-10 shrink-0 px-4'>
+              <ListChecks className='size-4' /> Rekap Ringkas
+            </TabsTrigger>
+            <TabsTrigger value='matrix' className='h-10 shrink-0 px-4'>
+              <CalendarDays className='size-4' /> Rincian per Tanggal
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value='summary' className='space-y-5'>
+            <Summary data={result.data?.summary} />
             <AttendanceRecapTable
               data={result.data}
               search={search}
@@ -283,8 +326,22 @@ export function AttendanceRecapPage({
               onRetry={() => void result.refetch()}
               onDetail={openDetail}
             />
-          </div>
-        </>
+          </TabsContent>
+          <TabsContent value='matrix'>
+            <AttendanceRecapMatrixTable
+              data={matrixResult.data}
+              search={search}
+              navigate={navigate}
+              siteOptions={siteOptions}
+              productionSectionOptions={productionSectionOptions}
+              isPending={matrixResult.isPending}
+              isFetching={matrixResult.isFetching}
+              isError={matrixResult.isError}
+              onRetry={() => void matrixResult.refetch()}
+              onDetail={openDetail}
+            />
+          </TabsContent>
+        </Tabs>
       )}
 
       <AttendanceRecapDetailSheet
@@ -568,19 +625,10 @@ function exportReason(input: {
   rangeError?: string
   canExportPermission: boolean
   capabilityAllowsExport: boolean
-  completeness?: AttendanceRecapCompleteness
-  isLoading: boolean
 }) {
   if (input.rangeError) return input.rangeError
   if (!input.canExportPermission || !input.capabilityAllowsExport)
     return 'Akun tidak memiliki izin ekspor attendance.'
-  if (input.isLoading) return 'Tunggu pemeriksaan kelengkapan selesai.'
-  if (!input.completeness) return 'Status kelengkapan belum tersedia.'
-  if (!input.completeness.official || !input.completeness.exportAllowed)
-    return (
-      input.completeness.blockedReasons.join(' ') ||
-      'Rekap belum lengkap atau belum official.'
-    )
   return undefined
 }
 
@@ -591,6 +639,7 @@ function updatePeriod(navigate: NavigateFn, dateFrom: string, dateTo: string) {
       dateFrom,
       dateTo,
       page: undefined,
+      matrixPage: undefined,
       employeeUid: undefined,
       detailSite: undefined,
       detailEmployeeType: undefined,
