@@ -25,6 +25,10 @@ import {
   YAxis,
 } from 'recharts'
 import { cn } from '@/lib/utils'
+import {
+  siteScopeLabel,
+  useSiteScopeFilter,
+} from '@/hooks/use-site-scope-filter'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -44,6 +48,7 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Main } from '@/components/layout/main'
+import { SiteScopeFilter } from '@/components/site-scope-filter'
 import { useDashboardOverview } from './data/dashboard-query'
 import type { DashboardCapabilities, DashboardOverview } from './data/types'
 
@@ -96,7 +101,11 @@ function attendanceRate(present: number | null, eligible: number | null) {
 export function Dashboard() {
   const search = useSearch({ from: '/_authenticated/' })
   const navigate = useNavigate({ from: '/' })
-  const site = search.site ?? 'ALL'
+  const requestedSite = search.site ?? 'ALL'
+  const { lockedSite, effectiveSite } = useSiteScopeFilter(
+    requestedSite === 'ALL' ? undefined : [requestedSite]
+  )
+  const site = effectiveSite ?? 'ALL'
   const query = useDashboardOverview(site)
 
   function setSite(value: string) {
@@ -135,7 +144,19 @@ export function Dashboard() {
             )}
           </div>
           <div className='flex w-full flex-col gap-2 sm:flex-row lg:w-auto lg:items-end'>
-            {query.data && query.data.availableSites.length > 1 && (
+            {lockedSite ? (
+              <SiteScopeFilter
+                title='Cakupan site'
+                siteLabel={siteScopeLabel(
+                  lockedSite,
+                  query.data?.availableSites.map((item) => ({
+                    value: item.code,
+                    label: item.name,
+                  }))
+                )}
+                className='h-9 w-full bg-background/80 shadow-sm backdrop-blur-sm sm:w-auto'
+              />
+            ) : query.data && query.data.availableSites.length > 1 ? (
               <div className='w-full sm:w-56'>
                 <label
                   htmlFor='dashboard-site-filter'
@@ -160,7 +181,7 @@ export function Dashboard() {
                   </SelectContent>
                 </Select>
               </div>
-            )}
+            ) : null}
             <Button
               type='button'
               variant='outline'

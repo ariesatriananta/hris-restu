@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   attendanceCorrectionRequestInput,
   attendanceCorrectionReviewInput,
+  deriveAttendanceAvailableActions,
   deriveAttendanceQuality,
   resolveCorrectionAttendanceStatus,
   validateClockOrder,
@@ -124,5 +125,35 @@ describe('attendance correction policy', () => {
         clockOutAt: null,
       })
     ).toBe('SICK')
+  })
+
+  it('menyamakan eligibility aksi individual dan massal', () => {
+    expect(
+      deriveAttendanceAvailableActions({
+        attendanceStatus: 'ABSENT',
+        hasPendingCorrection: false,
+        hasPendingClassification: false,
+        hasAppliedClassification: false,
+      })
+    ).toEqual({
+      createCorrection: true,
+      createClassification: true,
+      approveCorrection: false,
+      approveClassification: false,
+    })
+
+    expect(
+      deriveAttendanceAvailableActions({
+        attendanceStatus: 'ABSENT',
+        hasPendingCorrection: false,
+        hasPendingClassification: true,
+        hasAppliedClassification: false,
+      })
+    ).toEqual({
+      createCorrection: false,
+      createClassification: false,
+      approveCorrection: false,
+      approveClassification: true,
+    })
   })
 })

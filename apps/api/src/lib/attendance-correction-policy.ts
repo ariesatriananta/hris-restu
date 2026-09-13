@@ -145,6 +145,26 @@ export function deriveAttendanceQuality(input: {
   }
 }
 
+export function deriveAttendanceAvailableActions(input: {
+  attendanceStatus: string
+  hasPendingCorrection: boolean
+  hasPendingClassification: boolean
+  hasAppliedClassification: boolean
+}) {
+  const workflowAvailable =
+    !input.hasPendingCorrection &&
+    !input.hasPendingClassification &&
+    !input.hasAppliedClassification
+
+  return {
+    createCorrection: workflowAvailable,
+    createClassification:
+      input.attendanceStatus === 'ABSENT' && workflowAvailable,
+    approveCorrection: input.hasPendingCorrection,
+    approveClassification: input.hasPendingClassification,
+  }
+}
+
 export function validateClockOrder(clockInAt: unknown, clockOutAt: unknown) {
   return !clockInAt || !clockOutAt || String(clockOutAt) >= String(clockInAt)
 }

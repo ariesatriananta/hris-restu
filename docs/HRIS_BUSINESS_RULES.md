@@ -92,6 +92,9 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   `after_data`. Ekspor tetap mencatat identitas permintaan, jumlah baris, dan
   checksum berkas pada Audit Trail.
 - Klasifikasi Attendance `APPROVED` yang salah dibatalkan melalui reversal oleh pengguna berizin `attendance.approve`, bukan melalui Koreksi Attendance. Reversal wajib memiliki alasan, mempertahankan histori detail sebagai `REVERSED`, mengembalikan hari yang pernah diterapkan menjadi `ABSENT`, dan menginvalidasi finalisasi terkait. Reversal ditolak bila fakta Attendance sudah berubah, memiliki scan sukses atau setoran produksi `POSTED`, maupun sudah masuk perhitungan atau snapshot Payroll.
+- Koreksi dan klasifikasi Attendance tidak boleh sama-sama berstatus `PENDING`
+  untuk karyawan, site, dan tanggal yang sama. Eligibility aksi individual dan
+  massal pada Monitoring Harian wajib berasal dari policy server yang sama.
 - Attendance merupakan syarat setoran produksi pada business date yang sama.
 - Tanggal go-live Attendance adalah batas inklusif fakta operasional resmi.
   Monitoring Harian, Kesiapan Attendance, serta antrean aktif Koreksi dan

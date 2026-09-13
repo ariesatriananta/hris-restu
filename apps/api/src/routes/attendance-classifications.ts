@@ -133,6 +133,33 @@ function requireClassificationListAccess(
   next()
 }
 
+async function assertEmployeeHasNoPendingCorrection(
+  conn: PoolConnection,
+  employeeId: number,
+  siteId: number,
+  startDate: string,
+  endDate: string
+) {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT correction.id
+       FROM attendance_corrections correction
+       JOIN attendance_records attendance
+         ON attendance.id=correction.attendance_record_id
+      WHERE attendance.employee_id=?
+        AND attendance.site_id=?
+        AND attendance.business_date BETWEEN ? AND ?
+        AND correction.approval_status='PENDING'
+      LIMIT 1 FOR UPDATE`,
+    [employeeId, siteId, startDate, endDate]
+  )
+  if (rows[0]) {
+    throw new ApiError(
+      409,
+      'Selesaikan koreksi yang menunggu persetujuan sebelum mengajukan klasifikasi Attendance.'
+    )
+  }
+}
+
 function mapClassification(row: RowDataPacket) {
   const {
     employeeUid,
@@ -551,6 +578,13 @@ async function createBulkClassificationItem(
   ) {
     throw new ApiError(422, 'Karyawan tidak aktif untuk Attendance.')
   }
+  await assertEmployeeHasNoPendingCorrection(
+    conn,
+    Number(employee.id),
+    Number(employee.siteId),
+    input.startDate,
+    input.endDate
+  )
   const [overlap] = await conn.query<RowDataPacket[]>(
     `SELECT id FROM attendance_classification_requests
       WHERE employee_id=? AND approval_status='PENDING'
@@ -807,6 +841,13 @@ attendanceClassificationsRouter.post(
       ) {
         throw new ApiError(422, 'Karyawan tidak aktif untuk Attendance.')
       }
+      await assertEmployeeHasNoPendingCorrection(
+        conn,
+        Number(employee.id),
+        Number(employee.siteId),
+        input.startDate,
+        input.endDate
+      )
       const [overlap] = await conn.query<RowDataPacket[]>(
         `SELECT id FROM attendance_classification_requests
           WHERE employee_id=? AND approval_status='PENDING'

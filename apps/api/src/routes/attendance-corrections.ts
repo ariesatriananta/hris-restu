@@ -11,6 +11,7 @@ import {
   attendanceCorrectionReviewInput,
   attendanceCorrectionTypes,
   attendanceStatusValues,
+  deriveAttendanceAvailableActions,
   deriveAttendanceQuality,
   resolveCorrectionAttendanceStatus,
   validateClockOrder,
@@ -179,6 +180,31 @@ async function assertAttendanceHasNoAppliedClassification(
   }
 }
 
+async function assertAttendanceHasNoPendingClassification(
+  conn: PoolConnection,
+  attendanceRecordId: number
+) {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT request.id
+       FROM attendance_records attendance
+       JOIN attendance_classification_requests request
+         ON request.employee_id=attendance.employee_id
+        AND request.site_id=attendance.site_id
+        AND request.approval_status='PENDING'
+        AND request.start_date<=attendance.business_date
+        AND request.end_date>=attendance.business_date
+      WHERE attendance.id=?
+      LIMIT 1 FOR UPDATE`,
+    [attendanceRecordId]
+  )
+  if (rows[0]) {
+    throw new ApiError(
+      409,
+      'Selesaikan klasifikasi yang menunggu persetujuan sebelum mengajukan koreksi Attendance.'
+    )
+  }
+}
+
 async function approveCorrection(
   conn: PoolConnection,
   input: {
@@ -301,21 +327,27 @@ async function approveCorrection(
     )
     workedMinutes = Number(metricRows[0].workedMinutes ?? 0)
   }
+  const correctsClockIn =
+    correction.correctionType === 'CLOCK_IN' ||
+    correction.correctionType === 'BOTH'
+  const correctsClockOut =
+    correction.correctionType === 'CLOCK_OUT' ||
+    correction.correctionType === 'BOTH'
   await conn.execute(
     `UPDATE attendance_records
         SET attendance_status=?,clock_in_at=?,clock_out_at=?,late_minutes=?,
             early_leave_minutes=?,worked_minutes=?,
-            clock_in_device_id=CASE WHEN ? IN ('CLOCK_IN','BOTH') THEN NULL ELSE clock_in_device_id END,
-            clock_in_source=CASE WHEN ? IN ('CLOCK_IN','BOTH') THEN 'CORRECTION' ELSE clock_in_source END,
-            clock_out_device_id=CASE WHEN ? IN ('CLOCK_OUT','BOTH') THEN NULL ELSE clock_out_device_id END,
-            clock_out_source=CASE WHEN ? IN ('CLOCK_OUT','BOTH') THEN 'CORRECTION' ELSE clock_out_source END,
+            clock_in_device_id=CASE WHEN ?=1 THEN NULL ELSE clock_in_device_id END,
+            clock_in_source=CASE WHEN ?=1 THEN 'CORRECTION' ELSE clock_in_source END,
+            clock_out_device_id=CASE WHEN ?=1 THEN NULL ELSE clock_out_device_id END,
+            clock_out_source=CASE WHEN ?=1 THEN 'CORRECTION' ELSE clock_out_source END,
             is_corrected=1,updated_by=?
       WHERE id=?`,
     [
       proposedStatus, proposedClockIn, proposedClockOut, lateMinutes,
-      earlyLeaveMinutes, workedMinutes, correction.correctionType,
-      correction.correctionType, correction.correctionType,
-      correction.correctionType, input.auth.id, correction.attendanceRecordId,
+      earlyLeaveMinutes, workedMinutes, Number(correctsClockIn),
+      Number(correctsClockIn), Number(correctsClockOut),
+      Number(correctsClockOut), input.auth.id, correction.attendanceRecordId,
     ]
   )
   await conn.execute(
@@ -412,6 +444,7 @@ async function createBulkCorrectionItem(
     env.ATTENDANCE_GO_LIVE_DATE
   )
   await assertAttendanceHasNoAppliedClassification(conn, Number(attendance.id))
+  await assertAttendanceHasNoPendingClassification(conn, Number(attendance.id))
   const [pending] = await conn.query<RowDataPacket[]>(
     `SELECT id FROM attendance_corrections
       WHERE attendance_record_id=? AND approval_status='PENDING'
@@ -421,9 +454,6 @@ async function createBulkCorrectionItem(
   if (pending[0]) {
     throw new ApiError(409, 'Attendance masih memiliki koreksi yang menunggu persetujuan.')
   }
-  if (input.correctionType === 'STATUS') {
-    throw new ApiError(422, 'Koreksi massal hanya mendukung jam masuk dan/atau jam pulang.')
-  }
   const proposedClockIn =
     input.correctionType === 'CLOCK_IN' || input.correctionType === 'BOTH'
       ? input.newClockInAt ?? null
@@ -432,6 +462,13 @@ async function createBulkCorrectionItem(
     input.correctionType === 'CLOCK_OUT' || input.correctionType === 'BOTH'
       ? input.newClockOutAt ?? null
       : attendance.clockOutAt
+  const proposedStatus = resolveCorrectionAttendanceStatus({
+    correctionType: input.correctionType,
+    currentStatus: attendance.attendanceStatus,
+    newStatus: input.newStatus,
+    clockInAt: proposedClockIn,
+    clockOutAt: proposedClockOut,
+  })
   if (!validateClockOrder(proposedClockIn, proposedClockOut)) {
     throw new ApiError(422, 'Jam pulang tidak boleh sebelum jam masuk.')
   }
@@ -440,6 +477,13 @@ async function createBulkCorrectionItem(
     !validCorrectionDateTime(proposedClockOut, attendance.businessDate)
   ) {
     throw new ApiError(422, 'Waktu koreksi harus berada pada business date atau hari berikutnya.')
+  }
+  if (
+    String(proposedClockIn ?? '') === String(attendance.clockInAt ?? '') &&
+    String(proposedClockOut ?? '') === String(attendance.clockOutAt ?? '') &&
+    proposedStatus === attendance.attendanceStatus
+  ) {
+    throw new ApiError(422, 'Koreksi tidak mengubah data Attendance.')
   }
   const uid = randomUUID()
   await conn.execute(
@@ -464,8 +508,10 @@ async function createBulkCorrectionItem(
       input.correctionType === 'CLOCK_OUT' || input.correctionType === 'BOTH'
         ? input.newClockOutAt ?? null
         : null,
-      null,
-      null,
+      proposedStatus !== attendance.attendanceStatus
+        ? attendance.attendanceStatus
+        : null,
+      proposedStatus !== attendance.attendanceStatus ? proposedStatus : null,
       input.reason,
       context.auth.id,
       context.auth.id,
@@ -484,7 +530,13 @@ async function createBulkCorrectionItem(
       requestId: context.operationId,
       description: `Mengajukan koreksi massal ${input.correctionType} Attendance.`,
       reason: input.reason,
-      afterData: { attendanceUid: input.attendanceUid, correctionType: input.correctionType },
+      afterData: {
+        attendanceUid: input.attendanceUid,
+        correctionType: input.correctionType,
+        newClockInAt: input.newClockInAt ?? null,
+        newClockOutAt: input.newClockOutAt ?? null,
+        newStatus: input.newStatus ?? null,
+      },
     },
     conn
   )
@@ -652,15 +704,12 @@ attendanceCorrectionsRouter.get(
           const hasAppliedClassification = Boolean(row.hasAppliedClassification)
           const hasPendingCorrection = Boolean(row.pendingCorrectionUid)
           const hasPendingClassification = Boolean(row.pendingClassificationUid)
-          const canCreateCorrection =
-            quality.qualityStatus === 'ABNORMAL' &&
-            !hasPendingCorrection &&
-            !hasAppliedClassification
-          const canCreateClassification =
-            row.attendanceStatus === 'ABSENT' &&
-            !hasPendingCorrection &&
-            !hasPendingClassification &&
-            !hasAppliedClassification
+          const availableActions = deriveAttendanceAvailableActions({
+            attendanceStatus: String(row.attendanceStatus),
+            hasPendingCorrection,
+            hasPendingClassification,
+            hasAppliedClassification,
+          })
           return {
           ...row,
           lateMinutes: Number(row.lateMinutes ?? 0),
@@ -669,12 +718,7 @@ attendanceCorrectionsRouter.get(
             row.workedMinutes === null ? null : Number(row.workedMinutes),
           hasAppliedClassification,
           ...quality,
-          bulkActions: {
-            createCorrection: canCreateCorrection,
-            createClassification: canCreateClassification,
-            approveCorrection: hasPendingCorrection,
-            approveClassification: hasPendingClassification,
-          },
+          availableActions,
         }
         }),
         total: Number(countRows[0].total),
@@ -872,6 +916,10 @@ attendanceCorrectionsRouter.post(
         env.ATTENDANCE_GO_LIVE_DATE
       )
       await assertAttendanceHasNoAppliedClassification(
+        conn,
+        Number(attendance.id)
+      )
+      await assertAttendanceHasNoPendingClassification(
         conn,
         Number(attendance.id)
       )

@@ -57,7 +57,8 @@ function auth() {
 function connection(
   uid: string,
   approvalStatus: 'PENDING' | 'APPROVED',
-  startDate = '2026-08-08'
+  startDate = '2026-08-08',
+  hasPendingCorrection = false
 ) {
   const conn = {
     beginTransaction: vi.fn().mockResolvedValue(undefined),
@@ -108,6 +109,9 @@ function connection(
           },
         ],
       ]
+    }
+    if (sql.includes('FROM attendance_corrections correction')) {
+      return [hasPendingCorrection ? [{ id: 99 }] : []]
     }
     if (sql.includes('FROM attendance_classification_requests')) return [[]]
     if (sql.includes('SELECT id FROM employees')) return [[{ id: 20 }]]
@@ -271,6 +275,43 @@ describe('Attendance classification bulk approval API', () => {
       }),
       conn
     )
+  })
+
+  it('menolak klasifikasi massal saat koreksi masih menunggu', async () => {
+    const conn = connection(firstUid, 'PENDING', '2026-08-08', true)
+    mocks.getConnection.mockResolvedValueOnce(conn)
+
+    const response = await post(
+      {
+        site: 'JEPARA',
+        operationId: '88888888-8888-4888-8888-888888888888',
+        items: [
+          {
+            employeeUid: '66666666-6666-4666-8666-666666666666',
+            startDate: '2026-08-08',
+            endDate: '2026-08-08',
+            classificationType: 'SICK',
+            reason: 'Sakit dan sudah dikonfirmasi.',
+          },
+        ],
+      },
+      '/classifications/batch'
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      requested: 1,
+      created: 0,
+      failed: 1,
+      failures: [
+        {
+          uid: '66666666-6666-4666-8666-666666666666',
+          message:
+            'Selesaikan koreksi yang menunggu persetujuan sebelum mengajukan klasifikasi Attendance.',
+        },
+      ],
+    })
+    expect(conn.execute).not.toHaveBeenCalled()
   })
 
   it('mengunci finalisasi dan menandai finalisasi ulang saat approval diterapkan', async () => {

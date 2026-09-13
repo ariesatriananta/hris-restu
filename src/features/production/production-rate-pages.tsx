@@ -18,6 +18,10 @@ import {
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 import { apiClient } from '@/lib/api-client'
+import {
+  siteScopeLabel,
+  useSiteScopeFilter,
+} from '@/hooks/use-site-scope-filter'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -58,6 +62,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
+import { SiteScopeFilter } from '@/components/site-scope-filter'
 import {
   dateOnlyFromInput,
   dateOnlyToInput,
@@ -1631,8 +1636,11 @@ function FilterBar({
   showStatus?: boolean
   onChange: (patch: Record<string, unknown>) => void
 }) {
+  const { lockedSite } = useSiteScopeFilter(
+    site ? [site as ProductionSite] : undefined
+  )
   const hasFilters = Boolean(
-    query || (showSite && site) || (showStatus && status)
+    query || (showSite && site && !lockedSite) || (showStatus && status)
   )
   return (
     <div className='flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:w-auto'>
@@ -1642,26 +1650,32 @@ function FilterBar({
         onChange={(e) => onChange({ filter: e.target.value, page: 1 })}
         placeholder={searchPlaceholder}
       />
-      {showSite && (
-        <Select
-          value={site || 'ALL'}
-          onValueChange={(value) =>
-            onChange({ site: value === 'ALL' ? undefined : [value], page: 1 })
-          }
-        >
-          <SelectTrigger className='w-full sm:w-40'>
-            <SelectValue placeholder='Semua site' />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='ALL'>Semua site</SelectItem>
-            {sites.map((item) => (
-              <SelectItem key={item} value={item}>
-                {item}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
+      {showSite &&
+        (lockedSite ? (
+          <SiteScopeFilter
+            siteLabel={siteScopeLabel(lockedSite)}
+            className='w-full sm:w-auto'
+          />
+        ) : (
+          <Select
+            value={site || 'ALL'}
+            onValueChange={(value) =>
+              onChange({ site: value === 'ALL' ? undefined : [value], page: 1 })
+            }
+          >
+            <SelectTrigger className='w-full sm:w-40'>
+              <SelectValue placeholder='Semua site' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='ALL'>Semua site</SelectItem>
+              {sites.map((item) => (
+                <SelectItem key={item} value={item}>
+                  {item}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ))}
       {showStatus && (
         <Select
           value={status || 'ALL'}
@@ -1740,9 +1754,10 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
   const filter = String(search.filter ?? '')
   const asOf = typeof search.asOf === 'string' ? search.asOf : undefined
   const issue = (search.issue ?? 'ALL') as ProductionAssignmentReadinessIssue
-  const site = Array.isArray(search.site)
+  const requestedSites = Array.isArray(search.site)
     ? (search.site as ProductionSite[])
     : []
+  const { effectiveSites: site = [] } = useSiteScopeFilter(requestedSites)
   const status = Array.isArray(search.status) ? (search.status as string[]) : []
   const employeeType = Array.isArray(search.employeeType)
     ? (search.employeeType as string[])
@@ -2150,9 +2165,10 @@ export function ProductionRatePage({ search, navigate }: PageProps) {
   const page = Number(search.page ?? 1)
   const pageSize = Number(search.pageSize ?? 50)
   const filter = String(search.filter ?? '')
-  const site = Array.isArray(search.site)
+  const requestedSites = Array.isArray(search.site)
     ? (search.site as ProductionSite[])
     : []
+  const { effectiveSites: site = [] } = useSiteScopeFilter(requestedSites)
   const status = Array.isArray(search.status) ? (search.status as string[]) : []
   const jobs = useProductionJobs()
   const rates = useProductionRates({

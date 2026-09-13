@@ -27,6 +27,7 @@ export const Route = createFileRoute(
     classificationType: z
       .array(z.enum(['LEAVE', 'SICK', 'PERMISSION']))
       .optional(),
+    classificationUid: z.string().uuid().optional(),
     employeeUid: z.string().uuid().optional(),
     employeeName: z.string().max(200).optional(),
     employeeNumber: z.string().max(100).optional(),

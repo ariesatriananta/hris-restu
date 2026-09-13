@@ -18,6 +18,10 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { currentListReturnTo } from '@/lib/list-return-to'
+import {
+  siteScopeLabel,
+  useSiteScopeFilter,
+} from '@/hooks/use-site-scope-filter'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -38,6 +42,7 @@ import {
 } from '@/components/data-table'
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
+import { SiteScopeFilter } from '@/components/site-scope-filter'
 import {
   dateOnlyFromInput,
   dateOnlyToInput,
@@ -87,12 +92,13 @@ export function MutationReportPage({
   const dateFrom = search.dateFrom ?? defaults.dateFrom
   const dateTo = search.dateTo ?? defaults.dateTo
   const rangeError = mutationRangeError(dateFrom, dateTo)
+  const { lockedSite } = useSiteScopeFilter(search.site)
   const params: MutationReportParams = {
     dateFrom,
     dateTo,
     query: search.filter,
-    site: search.site,
-    sourceSite: search.sourceSite,
+    site: lockedSite ? undefined : search.site,
+    sourceSite: lockedSite ? undefined : search.sourceSite,
     employeeType: search.employeeType,
     productionSection: search.productionSection,
     changeType: search.changeType,
@@ -126,6 +132,21 @@ export function MutationReportPage({
       },
     ],
   })
+
+  useEffect(() => {
+    if (!lockedSite || (!search.site?.length && !search.sourceSite?.length)) {
+      return
+    }
+    navigate({
+      replace: true,
+      search: (previous) => ({
+        ...previous,
+        site: undefined,
+        sourceSite: undefined,
+        page: undefined,
+      }),
+    })
+  }, [lockedSite, navigate, search.site, search.sourceSite])
 
   // TanStack Table mengembalikan fungsi stateful; ini pola resmi starter.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -280,17 +301,32 @@ export function MutationReportPage({
               table={table}
               searchPlaceholder='Cari nama, nomor karyawan, atau referensi...'
               searchDebounceMs={500}
+              additionalFilters={
+                lockedSite ? (
+                  <SiteScopeFilter
+                    title='Cakupan site'
+                    siteLabel={siteScopeLabel(
+                      lockedSite,
+                      meta.data?.sites.map(optionByCode)
+                    )}
+                  />
+                ) : undefined
+              }
               filters={[
-                {
-                  columnId: 'sourceSite',
-                  title: 'Site asal',
-                  options: (meta.data?.sites ?? []).map(optionByCode),
-                },
-                {
-                  columnId: 'site',
-                  title: 'Site tujuan',
-                  options: (meta.data?.sites ?? []).map(optionByCode),
-                },
+                ...(lockedSite
+                  ? []
+                  : [
+                      {
+                        columnId: 'sourceSite',
+                        title: 'Site asal',
+                        options: (meta.data?.sites ?? []).map(optionByCode),
+                      },
+                      {
+                        columnId: 'site',
+                        title: 'Site tujuan',
+                        options: (meta.data?.sites ?? []).map(optionByCode),
+                      },
+                    ]),
                 {
                   columnId: 'employeeType',
                   title: 'Jenis karyawan tujuan',

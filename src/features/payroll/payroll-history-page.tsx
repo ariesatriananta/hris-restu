@@ -16,6 +16,10 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import {
+  siteScopeLabel,
+  useSiteScopeFilter,
+} from '@/hooks/use-site-scope-filter'
 import { type NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -39,6 +43,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
+import { SiteScopeFilter } from '@/components/site-scope-filter'
 import {
   exportPayrollRun,
   usePayrollHistory,
@@ -112,7 +117,12 @@ export function PayrollHistoryPage({
   navigate: NavigateFn
 }) {
   const query = typeof search.query === 'string' ? search.query : ''
-  const siteCode = typeof search.siteCode === 'string' ? search.siteCode : ''
+  const requestedSiteCode =
+    typeof search.siteCode === 'string' ? search.siteCode : ''
+  const { lockedSite, effectiveSite } = useSiteScopeFilter(
+    requestedSiteCode ? [requestedSiteCode] : undefined
+  )
+  const siteCode = effectiveSite ?? ''
   const status = typeof search.status === 'string' ? search.status : ''
   const dateFrom = typeof search.dateFrom === 'string' ? search.dateFrom : ''
   const dateTo = typeof search.dateTo === 'string' ? search.dateTo : ''
@@ -147,7 +157,9 @@ export function PayrollHistoryPage({
       failed: items.reduce((total, item) => total + item.failedRunCount, 0),
     }
   }, [history.data])
-  const hasFilters = Boolean(query || siteCode || status || dateFrom || dateTo)
+  const hasFilters = Boolean(
+    query || requestedSiteCode || status || dateFrom || dateTo
+  )
 
   return (
     <Main>
@@ -214,24 +226,37 @@ export function PayrollHistoryPage({
               aria-label='Cari riwayat Payroll'
             />
           </div>
-          <Select
-            value={siteCode || 'ALL'}
-            onValueChange={(value) =>
-              resetPage({ siteCode: value === 'ALL' ? undefined : value })
-            }
-          >
-            <SelectTrigger className='w-full' aria-label='Filter site'>
-              <SelectValue placeholder='Semua site' />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value='ALL'>Semua site</SelectItem>
-              {history.data?.meta.sites.map((site) => (
-                <SelectItem key={site.uid} value={site.code}>
-                  {site.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {lockedSite ? (
+            <SiteScopeFilter
+              siteLabel={siteScopeLabel(
+                lockedSite,
+                history.data?.meta.sites.map((site) => ({
+                  value: site.code,
+                  label: site.name,
+                }))
+              )}
+              className='h-9 w-full'
+            />
+          ) : (
+            <Select
+              value={siteCode || 'ALL'}
+              onValueChange={(value) =>
+                resetPage({ siteCode: value === 'ALL' ? undefined : value })
+              }
+            >
+              <SelectTrigger className='w-full' aria-label='Filter site'>
+                <SelectValue placeholder='Semua site' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='ALL'>Semua site</SelectItem>
+                {history.data?.meta.sites.map((site) => (
+                  <SelectItem key={site.uid} value={site.code}>
+                    {site.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Select
             value={status || 'ALL'}
             onValueChange={(value) =>

@@ -24,6 +24,10 @@ import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 import { currentListReturnTo } from '@/lib/list-return-to'
 import { cn } from '@/lib/utils'
+import {
+  siteScopeLabel,
+  useSiteScopeFilter,
+} from '@/hooks/use-site-scope-filter'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -118,6 +122,8 @@ export function AttendanceMonitoringPage({
     (session?.user.role === 'HR_OFFICER' ||
       session?.user.role === 'SUPER_ADMIN')
   const foundation = useAttendanceFoundation()
+  const selectedSites = arrayValue<AttendanceSiteCode>(search.site) ?? []
+  const { lockedSite, effectiveSites = [] } = useSiteScopeFilter(selectedSites)
   const requestedBusinessDate =
     typeof search.businessDate === 'string' ? search.businessDate : today()
   const goLiveDate = foundation.data?.configuration.goLiveDate
@@ -129,7 +135,7 @@ export function AttendanceMonitoringPage({
     {
       businessDate,
       query: stringValue(search.filter),
-      site: arrayValue(search.site),
+      site: effectiveSites,
       employeeType: arrayValue(search.employeeType),
       productionSection: arrayValue(search.productionSection),
       attendanceStatus: arrayValue(search.attendanceStatus),
@@ -143,7 +149,6 @@ export function AttendanceMonitoringPage({
   const [selected, setSelected] = useState<AttendanceMonitoringRecord>()
   const [reviewCorrectionUid, setReviewCorrectionUid] = useState<string>()
   const [timelineUid, setTimelineUid] = useState<string>()
-  const selectedSites = arrayValue<AttendanceSiteCode>(search.site) ?? []
 
   useEffect(() => {
     if (!goLiveDate || requestedBusinessDate >= goLiveDate) return
@@ -170,8 +175,11 @@ export function AttendanceMonitoringPage({
   }))
   const productionSectionOptions = attendanceProductionSectionOptions(
     foundation.data,
-    selectedSites
+    effectiveSites
   )
+  const lockedSiteLabel = lockedSite
+    ? siteScopeLabel(lockedSite, siteOptions)
+    : undefined
 
   return (
     <Main>
@@ -237,7 +245,7 @@ export function AttendanceMonitoringPage({
       </div>
 
       <AttendanceReadinessPanel
-        sites={selectedSites}
+        sites={effectiveSites}
         onOpenFinalization={(site, rerunDate) => {
           void navigate({
             search: (previous) => ({
@@ -255,7 +263,7 @@ export function AttendanceMonitoringPage({
       <div id='finalisasi-attendance' className='scroll-mt-4'>
         <MonitoringFinalizationPanel
           businessDate={businessDate}
-          sites={selectedSites}
+          sites={effectiveSites}
           availableSites={foundation.data?.sites ?? []}
           goLiveDate={goLiveDate}
           canFinalize={canFinalize}
@@ -301,17 +309,31 @@ export function AttendanceMonitoringPage({
           search={search}
           navigate={navigate}
           siteOptions={siteOptions}
+          lockedSiteLabel={lockedSiteLabel}
           productionSectionOptions={productionSectionOptions}
           canCorrect={canCorrect}
           canApprove={canApprove}
           canApproveClassification={canApprove && isAttendanceHr}
           canClassify={canClassify}
-          bulkSite={selectedSites.length === 1 ? selectedSites[0] : undefined}
+          bulkSite={effectiveSites.length === 1 ? effectiveSites[0] : undefined}
           onOpenDetail={(record) => setTimelineUid(record.uid)}
           onCorrect={setSelected}
           onReviewCorrection={(record) =>
             setReviewCorrectionUid(record.pendingCorrectionUid ?? undefined)
           }
+          onReviewClassification={(record) => {
+            if (!record.pendingClassificationUid) return
+            void routerNavigate({
+              to: '/attendance/tindak-lanjut',
+              search: {
+                tab: 'classification',
+                classificationUid: record.pendingClassificationUid,
+                dateFrom: record.businessDate,
+                dateTo: record.businessDate,
+                approvalStatus: ['PENDING'],
+              },
+            })
+          }}
           onClassify={(record) =>
             void routerNavigate({
               to: '/attendance/tindak-lanjut',
@@ -584,6 +606,7 @@ function MonitoringTable({
   search,
   navigate,
   siteOptions,
+  lockedSiteLabel,
   productionSectionOptions,
   canCorrect,
   canApprove,
@@ -593,12 +616,14 @@ function MonitoringTable({
   onOpenDetail,
   onCorrect,
   onReviewCorrection,
+  onReviewClassification,
   onClassify,
 }: {
   result: ReturnType<typeof useAttendanceMonitoring>
   search: Record<string, unknown>
   navigate: NavigateFn
   siteOptions: { value: string; label: string }[]
+  lockedSiteLabel?: string
   productionSectionOptions: { value: string; label: string }[]
   canCorrect: boolean
   canApprove: boolean
@@ -608,6 +633,7 @@ function MonitoringTable({
   onOpenDetail: (record: AttendanceMonitoringRecord) => void
   onCorrect: (record: AttendanceMonitoringRecord) => void
   onReviewCorrection: (record: AttendanceMonitoringRecord) => void
+  onReviewClassification: (record: AttendanceMonitoringRecord) => void
   onClassify: (record: AttendanceMonitoringRecord) => void
 }) {
   const returnTo = currentListReturnTo()
@@ -816,32 +842,41 @@ function MonitoringTable({
             >
               <Eye />
             </DataTableActionButton>
-            {canApprove && row.original.pendingCorrectionUid && (
+            {canApprove &&
+              row.original.availableActions.approveCorrection && (
               <DataTableActionButton
                 label='Review koreksi menunggu'
                 onClick={() => onReviewCorrection(row.original)}
               >
                 <ClipboardCheck />
               </DataTableActionButton>
-            )}
-            {canCorrect &&
-              !row.original.pendingCorrectionUid &&
-              !row.original.hasAppliedClassification && (
+              )}
+            {canApproveClassification &&
+              row.original.availableActions.approveClassification && (
                 <DataTableActionButton
-                  label='Ajukan koreksi'
-                  onClick={() => onCorrect(row.original)}
+                  label='Review klasifikasi menunggu'
+                  onClick={() => onReviewClassification(row.original)}
                 >
-                  <Clock3 />
+                  <CalendarRange />
                 </DataTableActionButton>
               )}
-            {canClassify && row.original.bulkActions.createClassification && (
+            {canCorrect && row.original.availableActions.createCorrection && (
               <DataTableActionButton
-                label='Ajukan klasifikasi'
-                onClick={() => onClassify(row.original)}
+                label='Ajukan koreksi'
+                onClick={() => onCorrect(row.original)}
               >
-                <CalendarRange />
+                <Clock3 />
               </DataTableActionButton>
             )}
+            {canClassify &&
+              row.original.availableActions.createClassification && (
+                <DataTableActionButton
+                  label='Ajukan klasifikasi'
+                  onClick={() => onClassify(row.original)}
+                >
+                  <CalendarRange />
+                </DataTableActionButton>
+              )}
           </div>
         ),
         meta: { className: 'w-[7%] px-1' },
@@ -849,12 +884,14 @@ function MonitoringTable({
     ],
     [
       canApprove,
+      canApproveClassification,
       bulkAction,
       canClassify,
       canCorrect,
       onClassify,
       onCorrect,
       onOpenDetail,
+      onReviewClassification,
       onReviewCorrection,
       returnTo,
     ]
@@ -926,7 +963,7 @@ function MonitoringTable({
       Boolean(
         bulkAction &&
         bulkSite &&
-        row.original.bulkActions[bulkActionKey(bulkAction)] &&
+        row.original.availableActions[bulkActionKey(bulkAction)] &&
         (rowSelection[row.id] || selectedRowCount < 50)
       ),
     initialState: {
@@ -999,7 +1036,12 @@ function MonitoringTable({
         searchPlaceholder='Cari nama atau nomor karyawan...'
         searchDebounceMs={500}
         filters={[
-          { columnId: 'site', title: 'Site', options: siteOptions },
+          {
+            columnId: 'site',
+            title: 'Site',
+            options: siteOptions,
+            lockedLabel: lockedSiteLabel,
+          },
           {
             columnId: 'employeeType',
             title: 'Jenis karyawan',
@@ -1028,7 +1070,7 @@ function MonitoringTable({
         ]}
       />
       {bulkAction && !bulkSite && (
-        <p className='text-sm text-muted-foreground'>
+        <p className='text-sm font-medium text-destructive'>
           Pilih tepat satu site pada filter agar aksi massal aman diproses.
         </p>
       )}
@@ -1132,16 +1174,18 @@ function MonitoringTable({
                 item={item}
                 canCorrect={canCorrect}
                 canApprove={canApprove}
+                canApproveClassification={canApproveClassification}
                 canClassify={canClassify}
                 onOpenDetail={onOpenDetail}
                 onCorrect={onCorrect}
                 onReviewCorrection={onReviewCorrection}
+                onReviewClassification={onReviewClassification}
                 onClassify={onClassify}
                 returnTo={returnTo}
                 bulkSelectable={Boolean(
                   bulkAction &&
                   bulkSite &&
-                  item.bulkActions[bulkActionKey(bulkAction)] &&
+                  item.availableActions[bulkActionKey(bulkAction)] &&
                   (rowSelection[item.uid] || selectedRowCount < 50)
                 )}
                 bulkSelected={Boolean(rowSelection[item.uid])}
@@ -1185,10 +1229,12 @@ function MobileRecord({
   item,
   canCorrect,
   canApprove,
+  canApproveClassification,
   canClassify,
   onOpenDetail,
   onCorrect,
   onReviewCorrection,
+  onReviewClassification,
   onClassify,
   returnTo,
   bulkSelectable,
@@ -1199,10 +1245,12 @@ function MobileRecord({
   item: AttendanceMonitoringRecord
   canCorrect: boolean
   canApprove: boolean
+  canApproveClassification: boolean
   canClassify: boolean
   onOpenDetail: (item: AttendanceMonitoringRecord) => void
   onCorrect: (item: AttendanceMonitoringRecord) => void
   onReviewCorrection: (item: AttendanceMonitoringRecord) => void
+  onReviewClassification: (item: AttendanceMonitoringRecord) => void
   onClassify: (item: AttendanceMonitoringRecord) => void
   returnTo?: string
   bulkSelectable: boolean
@@ -1272,23 +1320,30 @@ function MobileRecord({
       >
         <Eye /> Lihat timeline
       </Button>
-      {canApprove && item.pendingCorrectionUid && (
+      {canApprove && item.availableActions.approveCorrection && (
         <Button className='w-full' onClick={() => onReviewCorrection(item)}>
           <ClipboardCheck /> Review koreksi menunggu
         </Button>
       )}
-      {canCorrect &&
-        !item.pendingCorrectionUid &&
-        !item.hasAppliedClassification && (
+      {canApproveClassification &&
+        item.availableActions.approveClassification && (
           <Button
-            variant='outline'
             className='w-full'
-            onClick={() => onCorrect(item)}
+            onClick={() => onReviewClassification(item)}
           >
-            <Clock3 /> Ajukan koreksi
+            <CalendarRange /> Review klasifikasi menunggu
           </Button>
         )}
-      {canClassify && item.bulkActions.createClassification && (
+      {canCorrect && item.availableActions.createCorrection && (
+        <Button
+          variant='outline'
+          className='w-full'
+          onClick={() => onCorrect(item)}
+        >
+          <Clock3 /> Ajukan koreksi
+        </Button>
+      )}
+      {canClassify && item.availableActions.createClassification && (
         <Button
           variant='outline'
           className='w-full'

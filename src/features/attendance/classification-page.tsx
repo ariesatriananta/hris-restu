@@ -21,6 +21,10 @@ import {
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 import { cn } from '@/lib/utils'
+import {
+  siteScopeLabel,
+  useSiteScopeFilter,
+} from '@/hooks/use-site-scope-filter'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -74,6 +78,7 @@ import {
 } from '@/components/data-table'
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
+import { SiteScopeFilter } from '@/components/site-scope-filter'
 import { hasPermission } from '@/features/auth/permissions'
 import {
   uploadAttendanceClassificationAttachment,
@@ -122,7 +127,9 @@ export function AttendanceClassificationPage({
   const [createOpen, setCreateOpen] = useState(
     typeof search.employeeUid === 'string' && Boolean(search.employeeUid)
   )
-  const [selectedUid, setSelectedUid] = useState<string>()
+  const [selectedUid, setSelectedUid] = useState<string | undefined>(
+    stringValue(search.classificationUid)
+  )
   const result = useAttendanceClassifications({
     query: stringValue(search.filter),
     site: arrayValue(search.site),
@@ -269,7 +276,18 @@ export function AttendanceClassificationPage({
         open={Boolean(selectedUid)}
         canApprove={canApprove}
         canCorrect={canCreate}
-        onOpenChange={(open) => !open && setSelectedUid(undefined)}
+        onOpenChange={(open) => {
+          if (open) return
+          setSelectedUid(undefined)
+          if (search.classificationUid) {
+            navigate({
+              search: (previous) => ({
+                ...previous,
+                classificationUid: undefined,
+              }),
+            })
+          }
+        }}
       />
     </PageContainer>
   )
@@ -1038,10 +1056,13 @@ function EmployeePicker({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [site, setSite] = useState<AttendanceSiteCode | 'ALL'>('ALL')
+  const { lockedSite, effectiveSite } = useSiteScopeFilter(
+    site === 'ALL' ? undefined : [site]
+  )
   const employees = useAttendanceClassificationEmployees(
     {
       query: query.trim() || undefined,
-      site: site === 'ALL' ? undefined : site,
+      site: effectiveSite,
       page: 1,
       pageSize: 20,
     },
@@ -1072,24 +1093,31 @@ function EmployeePicker({
           className='w-[min(32rem,calc(100vw-2rem))] p-0'
         >
           <div className='border-b p-2'>
-            <Select
-              value={site}
-              onValueChange={(next) =>
-                setSite(next as AttendanceSiteCode | 'ALL')
-              }
-            >
-              <SelectTrigger className='w-full'>
-                <SelectValue placeholder='Semua site' />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='ALL'>Semua site</SelectItem>
-                {siteOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {lockedSite ? (
+              <SiteScopeFilter
+                siteLabel={siteScopeLabel(lockedSite, siteOptions)}
+                className='h-9 w-full'
+              />
+            ) : (
+              <Select
+                value={site}
+                onValueChange={(next) =>
+                  setSite(next as AttendanceSiteCode | 'ALL')
+                }
+              >
+                <SelectTrigger className='w-full'>
+                  <SelectValue placeholder='Semua site' />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='ALL'>Semua site</SelectItem>
+                  {siteOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <Command shouldFilter={false}>
             <CommandInput

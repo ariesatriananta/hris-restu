@@ -194,7 +194,7 @@ baris yang memenuhi syarat untuk aksi tersebut.
 
 | Aksi | Baris yang dapat dipilih | Data yang diisi |
 |---|---|---|
-| Ajukan koreksi | Record yang memenuhi syarat koreksi | Jam baru per karyawan dan satu alasan bersama. |
+| Ajukan koreksi | Record tanpa koreksi/klasifikasi `PENDING` dan tanpa klasifikasi terpasang | Jenis koreksi, jam atau status baru per karyawan, serta satu alasan bersama. |
 | Ajukan klasifikasi | Record Alpha yang memenuhi syarat | Jenis Cuti/Sakit/Izin dan satu alasan bersama; hanya satu tanggal tanpa lampiran. |
 | Approve koreksi | Record yang mempunyai koreksi `PENDING` | Catatan approval opsional. |
 | Approve klasifikasi | Record yang mempunyai klasifikasi `PENDING` | Catatan approval opsional. |
@@ -216,6 +216,12 @@ Scope site, permission, go-live, kunci Payroll, status request, dan aturan
 operasional tetap divalidasi ulang. Aksi approval massal hanya menyetujui;
 penolakan tetap dilakukan dari detail agar alasan penolakan diperiksa per
 request.
+
+Tombol aksi per baris dan checkbox aksi massal memakai eligibility yang sama.
+Karena itu Alpha maupun record normal dapat dikoreksi selama tidak memiliki
+workflow lain yang masih `PENDING`. Bila klasifikasi masih menunggu, selesaikan
+review klasifikasi terlebih dahulu; sistem tidak mengizinkan koreksi dan
+klasifikasi pending berjalan bersamaan pada tanggal yang sama.
 
 Klasifikasi yang berhasil diterapkan dan koreksi yang mengubah fakta dapat
 membuat finalisasi perlu dijalankan ulang. Periksa kembali panel finalisasi
@@ -243,7 +249,8 @@ Alasan minimal 5 karakter dan maksimal 500 karakter. Nilai baru harus benar-bena
 ### 6.2 Workflow koreksi
 
 1. Pengguna dengan `attendance.correct` mengajukan koreksi.
-2. Request berstatus `PENDING`; pada satu record tidak boleh ada dua koreksi pending.
+2. Request berstatus `PENDING`; pada satu record tidak boleh ada dua koreksi
+   pending dan tidak boleh ada klasifikasi pending pada tanggal yang sama.
 3. Pengguna dengan `attendance.approve` membuka tab Koreksi pada Tindak Lanjut Attendance.
 4. Reviewer memilih `APPROVED` atau `REJECTED`.
 5. Catatan review wajib saat menolak.

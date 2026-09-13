@@ -26,6 +26,10 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import {
+  siteScopeLabel,
+  useSiteScopeFilter,
+} from '@/hooks/use-site-scope-filter'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -72,6 +76,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
+import { SiteScopeFilter } from '@/components/site-scope-filter'
 import {
   dateOnlyFromInput,
   dateOnlyToInput,
@@ -172,7 +177,11 @@ export function PayrollConfigurationPage({
   const tab = tabValues.includes(requestedTab as ConfigurationTab)
     ? (requestedTab as ConfigurationTab)
     : 'policy'
-  const site = typeof search.site === 'string' ? search.site : ''
+  const requestedSite = typeof search.site === 'string' ? search.site : ''
+  const { effectiveSite } = useSiteScopeFilter(
+    requestedSite ? [requestedSite] : undefined
+  )
+  const site = effectiveSite ?? ''
   const employeeType =
     typeof search.employeeType === 'string' ? search.employeeType : ''
   const status = typeof search.status === 'string' ? search.status : 'ACTIVE'
@@ -378,6 +387,7 @@ function Filters({
   showEmployeeType: boolean
   onChange: (value: SearchState) => void
 }) {
+  const { lockedSite } = useSiteScopeFilter(site ? [site] : undefined)
   return (
     <div
       className={cn(
@@ -402,24 +412,34 @@ function Filters({
           />
         </div>
       )}
-      <Select
-        value={site || 'ALL'}
-        onValueChange={(value) =>
-          onChange({ site: value === 'ALL' ? undefined : value })
-        }
-      >
-        <SelectTrigger className='w-full' aria-label='Filter site'>
-          <SelectValue placeholder='Semua site' />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value='ALL'>Semua site</SelectItem>
-          {sites.map((item) => (
-            <SelectItem key={item.uid} value={item.code}>
-              {item.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {lockedSite ? (
+        <SiteScopeFilter
+          siteLabel={siteScopeLabel(
+            lockedSite,
+            sites.map((item) => ({ value: item.code, label: item.name }))
+          )}
+          className='h-9 w-full'
+        />
+      ) : (
+        <Select
+          value={site || 'ALL'}
+          onValueChange={(value) =>
+            onChange({ site: value === 'ALL' ? undefined : value })
+          }
+        >
+          <SelectTrigger className='w-full' aria-label='Filter site'>
+            <SelectValue placeholder='Semua site' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='ALL'>Semua site</SelectItem>
+            {sites.map((item) => (
+              <SelectItem key={item.uid} value={item.code}>
+                {item.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
       {showEmployeeType && (
         <Select
           value={employeeType || 'ALL'}
@@ -1179,6 +1199,7 @@ function PreflightSection({
   site: string
   onFilter: (value: SearchState) => void
 }) {
+  const { lockedSite } = useSiteScopeFilter(site ? [site] : undefined)
   if (query.isPending) return <CardsSkeleton />
   if (query.isError) return <ErrorState onRetry={() => query.refetch()} />
   const data = query.data
@@ -1192,27 +1213,37 @@ function PreflightSection({
   return (
     <div className='space-y-4'>
       <div className='flex justify-end'>
-        <Select
-          value={site || 'ALL'}
-          onValueChange={(value) =>
-            onFilter({ site: value === 'ALL' ? undefined : value })
-          }
-        >
-          <SelectTrigger
-            className='w-full sm:w-52'
-            aria-label='Filter site preflight'
+        {lockedSite ? (
+          <SiteScopeFilter
+            siteLabel={siteScopeLabel(
+              lockedSite,
+              sites.map((item) => ({ value: item.code, label: item.name }))
+            )}
+            className='w-full sm:w-auto'
+          />
+        ) : (
+          <Select
+            value={site || 'ALL'}
+            onValueChange={(value) =>
+              onFilter({ site: value === 'ALL' ? undefined : value })
+            }
           >
-            <SelectValue placeholder='Semua site' />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='ALL'>Semua site</SelectItem>
-            {sites.map((item) => (
-              <SelectItem key={item.uid} value={item.code}>
-                {item.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            <SelectTrigger
+              className='w-full sm:w-52'
+              aria-label='Filter site preflight'
+            >
+              <SelectValue placeholder='Semua site' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='ALL'>Semua site</SelectItem>
+              {sites.map((item) => (
+                <SelectItem key={item.uid} value={item.code}>
+                  {item.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
       <div className={cn('rounded-xl border p-4', tone)}>
         <div className='flex items-start gap-3'>

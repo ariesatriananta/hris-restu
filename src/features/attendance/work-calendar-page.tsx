@@ -18,6 +18,10 @@ import {
   Settings2,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
+import {
+  siteScopeLabel,
+  useSiteScopeFilter,
+} from '@/hooks/use-site-scope-filter'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -46,9 +50,11 @@ import {
   DataTableToolbar,
 } from '@/components/data-table'
 import { Main } from '@/components/layout/main'
+import { SiteScopeFilter } from '@/components/site-scope-filter'
 import { hasPermission } from '@/features/auth/permissions'
 import { useAttendanceFoundation } from './data/queries'
 import { useWorkCalendar } from './data/work-calendar-queries'
+import type { AttendanceSiteCode } from './domain'
 import {
   CancelWorkCalendarDialog,
   CollectiveLeaveSitesDialog,
@@ -94,9 +100,11 @@ export function WorkCalendarPage({
   const month = numberValue(search.month, today.getMonth() + 1)
   const tab = search.tab === 'list' ? 'list' : 'calendar'
   const bounds = monthBounds(year, month)
+  const selectedSites = arrayValue<AttendanceSiteCode>(search.site)
+  const { lockedSite, effectiveSites } = useSiteScopeFilter(selectedSites)
   const params: WorkCalendarListParams = {
     query: stringValue(search.filter),
-    site: arrayValue(search.site),
+    site: effectiveSites,
     type: arrayValue(search.type),
     dateFrom: bounds.start,
     dateTo: bounds.end,
@@ -175,20 +183,32 @@ export function WorkCalendarPage({
             updateSearch(navigate, { year: next, page: undefined })
           }
         />
-        <FilterSelect
-          label='Semua site'
-          value={arrayValue<string>(search.site)?.[0] ?? 'ALL'}
-          options={sites.map((site) => ({
-            value: site.code,
-            label: site.name,
-          }))}
-          onChange={(next) =>
-            updateSearch(navigate, {
-              site: next === 'ALL' ? undefined : [next],
-              page: undefined,
-            })
-          }
-        />
+        {lockedSite ? (
+          <SiteScopeFilter
+            siteLabel={siteScopeLabel(
+              lockedSite,
+              sites.map((site) => ({
+                value: site.code,
+                label: site.name,
+              }))
+            )}
+          />
+        ) : (
+          <FilterSelect
+            label='Semua site'
+            value={selectedSites?.[0] ?? 'ALL'}
+            options={sites.map((site) => ({
+              value: site.code,
+              label: site.name,
+            }))}
+            onChange={(next) =>
+              updateSearch(navigate, {
+                site: next === 'ALL' ? undefined : [next],
+                page: undefined,
+              })
+            }
+          />
+        )}
         <FilterSelect
           label='Semua jenis'
           value={arrayValue<string>(search.type)?.[0] ?? 'ALL'}

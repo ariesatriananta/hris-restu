@@ -339,6 +339,7 @@ function UsersTab({
           {
             columnId: 'site',
             title: 'Site',
+            lockToSiteAccess: false,
             options:
               meta?.sites.map((site) => ({
                 value: site.code,

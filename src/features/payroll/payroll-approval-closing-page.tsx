@@ -24,6 +24,10 @@ import {
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 import { cn } from '@/lib/utils'
+import {
+  siteScopeLabel,
+  useSiteScopeFilter,
+} from '@/hooks/use-site-scope-filter'
 import { type NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -56,6 +60,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { Main } from '@/components/layout/main'
+import { SiteScopeFilter } from '@/components/site-scope-filter'
 import {
   useApprovePayrollApproval,
   useClosePayrollPeriod,
@@ -137,8 +142,11 @@ export function PayrollApprovalClosingPage({
     typeof search.status === 'string'
       ? (search.status as ViewStatus)
       : defaultStatus
-  const siteCode =
+  const requestedSiteCode =
     typeof search.siteCode === 'string' ? search.siteCode : undefined
+  const { lockedSite, effectiveSite: siteCode } = useSiteScopeFilter(
+    requestedSiteCode ? [requestedSiteCode] : undefined
+  )
   const query = typeof search.query === 'string' ? search.query : ''
   const page = typeof search.page === 'number' ? search.page : 1
   const pageSize = typeof search.pageSize === 'number' ? search.pageSize : 20
@@ -212,27 +220,40 @@ export function PayrollApprovalClosingPage({
               aria-label='Cari approval Payroll'
             />
           </div>
-          <Select
-            value={siteCode ?? 'ALL'}
-            onValueChange={(value) =>
-              patch({
-                siteCode: value === 'ALL' ? undefined : value,
-                page: undefined,
-              })
-            }
-          >
-            <SelectTrigger className='w-full' aria-label='Filter site'>
-              <SelectValue placeholder='Semua site' />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value='ALL'>Semua site</SelectItem>
-              {(meta.data?.sites ?? []).map((site) => (
-                <SelectItem key={site.uid} value={site.code}>
-                  {site.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {lockedSite ? (
+            <SiteScopeFilter
+              siteLabel={siteScopeLabel(
+                lockedSite,
+                meta.data?.sites.map((site) => ({
+                  value: site.code,
+                  label: site.name,
+                }))
+              )}
+              className='h-9 w-full'
+            />
+          ) : (
+            <Select
+              value={siteCode ?? 'ALL'}
+              onValueChange={(value) =>
+                patch({
+                  siteCode: value === 'ALL' ? undefined : value,
+                  page: undefined,
+                })
+              }
+            >
+              <SelectTrigger className='w-full' aria-label='Filter site'>
+                <SelectValue placeholder='Semua site' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='ALL'>Semua site</SelectItem>
+                {(meta.data?.sites ?? []).map((site) => (
+                  <SelectItem key={site.uid} value={site.code}>
+                    {site.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Select
             value={status}
             onValueChange={(value: ViewStatus) =>

@@ -27,22 +27,19 @@ import {
 } from './data/queries'
 import type {
   AttendanceClassificationType,
-  AttendanceCorrectionInput,
   AttendanceMonitoringRecord,
   AttendanceSiteCode,
 } from './domain'
+import {
+  buildBulkCorrectionItems,
+  type BulkCorrectionDraft,
+} from './monitoring-bulk-utils'
 
 export type MonitoringBulkAction =
   | 'CREATE_CORRECTION'
   | 'CREATE_CLASSIFICATION'
   | 'APPROVE_CORRECTION'
   | 'APPROVE_CLASSIFICATION'
-
-type CorrectionDraft = {
-  type: 'CLOCK_IN' | 'CLOCK_OUT' | 'BOTH'
-  clockIn: string
-  clockOut: string
-}
 
 type BulkResult = {
   requested: number
@@ -75,23 +72,12 @@ export function MonitoringBulkDialog({
   const [classificationType, setClassificationType] =
     useState<AttendanceClassificationType>('SICK')
   const [result, setResult] = useState<BulkResult>()
-  const [drafts, setDrafts] = useState<Record<string, CorrectionDraft>>(() =>
-    Object.fromEntries(
-      records.map((record) => [
-        record.uid,
-        {
-          type:
-            record.abnormalReasons.includes('MISSING_CLOCK_IN') &&
-            record.abnormalReasons.includes('MISSING_CLOCK_OUT')
-              ? 'BOTH'
-              : record.abnormalReasons.includes('MISSING_CLOCK_IN')
-                ? 'CLOCK_IN'
-                : 'CLOCK_OUT',
-          clockIn: '',
-          clockOut: '',
-        },
-      ])
-    )
+  const [correctionDraft, setCorrectionDraft] = useState<BulkCorrectionDraft>(
+    () => ({
+      type: suggestedCorrectionType(records),
+      clockIn: '',
+      clockOut: '',
+    })
   )
 
   const pending =
@@ -119,33 +105,21 @@ export function MonitoringBulkDialog({
       if (reason.trim().length < 5) {
         return toast.error('Alasan koreksi minimal 5 karakter.')
       }
-      const items: AttendanceCorrectionInput[] = []
-      for (const record of records) {
-        const draft = drafts[record.uid]
-        if (!draft)
-          return toast.error(`Draft ${record.employeeName} belum siap.`)
-        if (
-          ((draft.type === 'CLOCK_IN' || draft.type === 'BOTH') &&
-            !draft.clockIn) ||
-          ((draft.type === 'CLOCK_OUT' || draft.type === 'BOTH') &&
-            !draft.clockOut)
-        ) {
-          return toast.error(`Lengkapi jam koreksi ${record.employeeName}.`)
-        }
-        items.push({
-          attendanceUid: record.uid,
-          correctionType: draft.type,
-          newClockInAt:
-            draft.type === 'CLOCK_IN' || draft.type === 'BOTH'
-              ? draft.clockIn
-              : undefined,
-          newClockOutAt:
-            draft.type === 'CLOCK_OUT' || draft.type === 'BOTH'
-              ? draft.clockOut
-              : undefined,
-          reason: reason.trim(),
-        })
+      if (
+        ((correctionDraft.type === 'CLOCK_IN' ||
+          correctionDraft.type === 'BOTH') &&
+          !correctionDraft.clockIn) ||
+        ((correctionDraft.type === 'CLOCK_OUT' ||
+          correctionDraft.type === 'BOTH') &&
+          !correctionDraft.clockOut)
+      ) {
+        return toast.error('Lengkapi jam koreksi yang akan diterapkan.')
       }
+      const items = buildBulkCorrectionItems(
+        records,
+        correctionDraft,
+        reason.trim()
+      )
       return createCorrections.mutate(
         { site, operationId: crypto.randomUUID(), items },
         {
@@ -262,54 +236,68 @@ export function MonitoringBulkDialog({
 
         {!result && action === 'CREATE_CORRECTION' && (
           <div className='grid gap-4'>
-            <div className='grid max-h-[55svh] gap-3 overflow-y-auto pr-1'>
-              {records.map((record) => {
-                const draft = drafts[record.uid]
-                if (!draft) return null
-                return (
-                  <div
-                    key={record.uid}
-                    className='grid gap-3 rounded-md border p-3'
-                  >
-                    <div>
-                      <p className='font-medium'>{record.employeeName}</p>
-                      <p className='text-xs text-muted-foreground'>
-                        {record.employeeNumber} · {record.businessDate}
-                      </p>
-                    </div>
-                    {(draft.type === 'CLOCK_IN' || draft.type === 'BOTH') && (
-                      <div className='grid gap-1'>
-                        <Label>Jam masuk baru</Label>
-                        <AttendanceDateTimePicker
-                          value={draft.clockIn}
-                          defaultDate={record.businessDate}
-                          onChange={(clockIn) =>
-                            setDrafts((current) => ({
-                              ...current,
-                              [record.uid]: { ...draft, clockIn },
-                            }))
-                          }
-                        />
-                      </div>
-                    )}
-                    {(draft.type === 'CLOCK_OUT' || draft.type === 'BOTH') && (
-                      <div className='grid gap-1'>
-                        <Label>Jam pulang baru</Label>
-                        <AttendanceDateTimePicker
-                          value={draft.clockOut}
-                          defaultDate={record.businessDate}
-                          onChange={(clockOut) =>
-                            setDrafts((current) => ({
-                              ...current,
-                              [record.uid]: { ...draft, clockOut },
-                            }))
-                          }
-                        />
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+            <div className='rounded-md border bg-muted/30 p-3 text-sm'>
+              <p className='font-medium'>Berlaku untuk semua pilihan</p>
+              <p className='mt-1 text-xs text-muted-foreground'>
+                Jenis dan nilai koreksi di bawah akan diterapkan ke{' '}
+                {records.length} karyawan pada tanggal{' '}
+                {records[0]?.businessDate ?? '-'}.
+              </p>
+            </div>
+            <div className='grid gap-3'>
+              <div className='grid min-w-0 gap-1'>
+                <Label>Jenis koreksi</Label>
+                <Select
+                  value={correctionDraft.type}
+                  onValueChange={(type) =>
+                    setCorrectionDraft((current) => ({
+                      ...current,
+                      type: type as BulkCorrectionDraft['type'],
+                    }))
+                  }
+                >
+                  <SelectTrigger className='w-full'>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='CLOCK_IN'>Jam masuk</SelectItem>
+                    <SelectItem value='CLOCK_OUT'>Jam pulang</SelectItem>
+                    <SelectItem value='BOTH'>Jam masuk dan pulang</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {(correctionDraft.type === 'CLOCK_IN' ||
+                correctionDraft.type === 'BOTH') && (
+                <div className='grid min-w-0 gap-1'>
+                  <Label>Jam masuk baru</Label>
+                  <AttendanceDateTimePicker
+                    value={correctionDraft.clockIn}
+                    defaultDate={records[0]?.businessDate}
+                    onChange={(clockIn) =>
+                      setCorrectionDraft((current) => ({
+                        ...current,
+                        clockIn,
+                      }))
+                    }
+                  />
+                </div>
+              )}
+              {(correctionDraft.type === 'CLOCK_OUT' ||
+                correctionDraft.type === 'BOTH') && (
+                <div className='grid min-w-0 gap-1'>
+                  <Label>Jam pulang baru</Label>
+                  <AttendanceDateTimePicker
+                    value={correctionDraft.clockOut}
+                    defaultDate={records[0]?.businessDate}
+                    onChange={(clockOut) =>
+                      setCorrectionDraft((current) => ({
+                        ...current,
+                        clockOut,
+                      }))
+                    }
+                  />
+                </div>
+              )}
             </div>
             <ReasonField
               value={reason}
@@ -416,6 +404,25 @@ function bulkActionLabel(action?: MonitoringBulkAction) {
     default:
       return 'Pilih aksi massal'
   }
+}
+
+function suggestedCorrectionType(
+  records: AttendanceMonitoringRecord[]
+): BulkCorrectionDraft['type'] {
+  const suggestions = new Set(
+    records.map((record): BulkCorrectionDraft['type'] => {
+      const missingClockIn = record.abnormalReasons.includes('MISSING_CLOCK_IN')
+      const missingClockOut =
+        record.abnormalReasons.includes('MISSING_CLOCK_OUT')
+      if (missingClockIn && missingClockOut) return 'BOTH'
+      if (missingClockIn) return 'CLOCK_IN'
+      if (missingClockOut) return 'CLOCK_OUT'
+      return 'BOTH'
+    })
+  )
+
+  if (suggestions.size === 1) return [...suggestions][0]
+  return 'BOTH'
 }
 
 function apiError(error: unknown, fallback: string) {

@@ -512,7 +512,7 @@ export interface AttendanceMonitoringRecord {
   pendingCorrectionType?: AttendanceCorrectionType | null
   pendingClassificationUid?: string | null
   pendingClassificationType?: AttendanceClassificationType | null
-  bulkActions: {
+  availableActions: {
     createCorrection: boolean
     createClassification: boolean
     approveCorrection: boolean

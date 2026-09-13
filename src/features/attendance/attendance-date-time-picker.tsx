@@ -35,8 +35,8 @@ export function AttendanceDateTimePicker({
   }
 
   return (
-    <div className='grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_5.5rem_5.5rem]'>
-      <div className='col-span-2 sm:col-span-1'>
+    <div className='grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_5.5rem_5.5rem]'>
+      <div className='col-span-2 min-w-0 sm:col-span-1'>
         <DatePicker
           selected={dateOnlyFromInput(draftDate)}
           onSelect={(date) => {
@@ -49,6 +49,7 @@ export function AttendanceDateTimePicker({
             const current = dateOnlyToInput(date)
             return current < defaultDate || current > nextBusinessDate
           }}
+          triggerClassName='min-w-0 overflow-hidden'
         />
       </div>
       <Select
@@ -60,7 +61,7 @@ export function AttendanceDateTimePicker({
           emit(draftDate, hour, minute)
         }}
       >
-        <SelectTrigger aria-label='Jam'>
+        <SelectTrigger aria-label='Jam' className='w-full min-w-0'>
           <SelectValue placeholder='Jam' />
         </SelectTrigger>
         <SelectContent>
@@ -79,7 +80,7 @@ export function AttendanceDateTimePicker({
           emit(draftDate, draftHour, minute)
         }}
       >
-        <SelectTrigger aria-label='Menit'>
+        <SelectTrigger aria-label='Menit' className='w-full min-w-0'>
           <SelectValue placeholder='Menit' />
         </SelectTrigger>
         <SelectContent>

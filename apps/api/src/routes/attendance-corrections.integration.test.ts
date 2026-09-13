@@ -62,6 +62,7 @@ type TestState = {
   payrollSnapshot?: boolean
   finalized?: boolean
   hasAppliedClassification?: boolean
+  hasPendingClassification?: boolean
 }
 
 const attendanceUid = '11111111-1111-4111-8111-111111111111'
@@ -96,6 +97,9 @@ function connection(state: TestState): FakeConnection {
     if (sql.includes('RELEASE_LOCK')) return [[{ released: 1 }]]
     if (sql.includes('FROM attendance_classification_details')) {
       return [state.hasAppliedClassification ? [{ id: 101 }] : []]
+    }
+    if (sql.includes('JOIN attendance_classification_requests request')) {
+      return [state.hasPendingClassification ? [{ id: 102 }] : []]
     }
     if (sql.includes('WHERE ar.uid=?')) {
       return [[{
@@ -250,6 +254,67 @@ describe('Attendance correction API integration', () => {
     )
   })
 
+  it('mendukung koreksi status Alpha melalui aksi massal', async () => {
+    const state: TestState = {
+      attendanceStatus: 'ABSENT',
+      clockInAt: null,
+      clockOutAt: null,
+      correctionUid: null,
+      correctionStatus: null,
+      correctionNewStatus: null,
+    }
+    const conn = connection(state)
+    mocks.getConnection.mockResolvedValueOnce(conn)
+
+    const response = await post('/corrections/batch', {
+      site: 'JEPARA',
+      operationId: '88888888-8888-4888-8888-888888888888',
+      items: [
+        {
+          attendanceUid,
+          correctionType: 'STATUS',
+          newStatus: 'PRESENT',
+          reason: 'Status Alpha perlu dikoreksi berdasarkan bukti HR.',
+        },
+      ],
+    })
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toMatchObject({
+      requested: 1,
+      created: 1,
+      failed: 0,
+    })
+    expect(state.correctionNewStatus).toBe('PRESENT')
+  })
+
+  it('menolak koreksi saat klasifikasi masih menunggu persetujuan', async () => {
+    const conn = connection({
+      attendanceStatus: 'ABSENT',
+      clockInAt: null,
+      clockOutAt: null,
+      correctionUid: null,
+      correctionStatus: null,
+      correctionNewStatus: null,
+      hasPendingClassification: true,
+    })
+    mocks.getConnection.mockResolvedValueOnce(conn)
+
+    const response = await post('/corrections', {
+      attendanceUid,
+      correctionType: 'STATUS',
+      newStatus: 'PRESENT',
+      reason: 'Status perlu dikoreksi berdasarkan bukti HR.',
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      message:
+        'Selesaikan klasifikasi yang menunggu persetujuan sebelum mengajukan koreksi Attendance.',
+    })
+    expect(conn.execute).not.toHaveBeenCalled()
+  })
+
   it('mengubah Alpha menjadi Hadir setelah koreksi jam disetujui', async () => {
     const state: TestState = {
       attendanceStatus: 'ABSENT',
@@ -301,6 +366,10 @@ describe('Attendance correction API integration', () => {
     expect(conn.execute).toHaveBeenCalledWith(
       expect.stringContaining('invalidatedByAttendanceCorrection'),
       expect.any(Array)
+    )
+    expect(conn.execute).toHaveBeenCalledWith(
+      expect.stringContaining('clock_in_device_id=CASE WHEN ?=1'),
+      expect.arrayContaining([1, 1, 1, 1])
     )
     expect(conn.query).toHaveBeenCalledWith(
       'SELECT RELEASE_LOCK(?)',
