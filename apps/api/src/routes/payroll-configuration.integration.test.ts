@@ -37,4 +37,55 @@ describe('Payroll M5A1 configuration API',()=>{
     expect(mocks.query.mock.calls[0][1]).toEqual(['JEPARA'])
     expect(mocks.query.mock.calls[1][1]).toEqual(['JEPARA'])
   })
+
+  it('memaksa scope site Finance pada daftar UMK',async()=>{
+    mocks.query
+      .mockResolvedValueOnce([[{total:1}]])
+      .mockResolvedValueOnce([[{
+        id:1,uid:'11111111-1111-4111-8111-111111111111',siteId:2,
+        siteUid:'22222222-2222-4222-8222-222222222222',siteCode:'JEPARA',siteName:'Jepara',
+        wageYear:2026,amount:'2450000.00',currency:'IDR',regulationReference:null,
+        notes:null,status:'ACTIVE',cancellationReason:null,cancelledAt:null,
+        createdAt:'2026-09-14T08:00:00.000Z',updatedAt:'2026-09-14T08:00:00.000Z'
+      }]])
+    const response=await request('/configuration/minimum-wages?year=2026')
+    expect(response.status).toBe(200)
+    expect(String(mocks.query.mock.calls[0][0])).toContain('s.code IN (?)')
+    expect(mocks.query.mock.calls[0][1]).toEqual(['JEPARA',2026])
+    const body=await response.json() as {data:Array<{amount:string}>}
+    expect(body.data[0].amount).toBe('2450000.00')
+  })
+
+  it('menolak Finance membaca UMK site di luar aksesnya',async()=>{
+    const response=await request('/configuration/minimum-wages?site=KLATEN')
+    expect(response.status).toBe(403)
+    expect(mocks.query).not.toHaveBeenCalled()
+  })
+
+  it('membuat UMK dengan revision dan audit trail',async()=>{
+    const row={
+      id:9,uid:'33333333-3333-4333-8333-333333333333',siteId:2,
+      siteUid:'22222222-2222-4222-8222-222222222222',siteCode:'JEPARA',siteName:'Jepara',
+      wageYear:2026,amount:'2450000.00',currency:'IDR',regulationReference:'SK Gubernur 2026',
+      notes:null,status:'ACTIVE',cancellationReason:null,cancelledAt:null,
+      createdAt:'2026-09-14T08:00:00.000Z',updatedAt:'2026-09-14T08:00:00.000Z'
+    }
+    mocks.query
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[{id:2,uid:row.siteUid,code:'JEPARA',name:'Jepara'}]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[row]])
+    mocks.execute
+      .mockResolvedValueOnce([{insertId:9,affectedRows:1}])
+      .mockResolvedValueOnce([{affectedRows:1}])
+    const response=await request('/configuration/minimum-wages',{method:'POST',body:{
+      siteUid:row.siteUid,wageYear:2026,amount:'2450000',currency:'IDR',
+      regulationReference:'SK Gubernur 2026',reason:'Penetapan UMK tahun 2026',
+      idempotencyKey:'umk-jepara-2026-create'
+    }})
+    expect(response.status).toBe(201)
+    expect(String(mocks.execute.mock.calls[1][0])).toContain('site_minimum_wage_revisions')
+    expect(mocks.audit).toHaveBeenCalledOnce()
+    expect(mocks.commit).toHaveBeenCalledOnce()
+  })
 })

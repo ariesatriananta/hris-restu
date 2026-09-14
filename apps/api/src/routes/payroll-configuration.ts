@@ -64,6 +64,17 @@ const correctionInput = z.object({
   idempotencyKey,
 })
 const cancellationInput = z.object({ reason: z.string().trim().min(5).max(500), idempotencyKey })
+const minimumWageInput = z.object({
+  siteUid: uid,
+  wageYear: z.coerce.number().int().min(2000).max(2100),
+  amount: z.coerce.number().positive().max(999_999_999_999),
+  currency: z.literal('IDR').default('IDR'),
+  regulationReference: z.string().trim().max(255).nullable().optional(),
+  notes: z.string().trim().max(500).nullable().optional(),
+  reason: z.string().trim().min(5).max(500),
+  idempotencyKey,
+})
+const minimumWageCorrectionInput = minimumWageInput.omit({ siteUid: true, wageYear: true })
 
 function isGlobal(auth: AuthContext) { return auth.roles.includes('SUPER_ADMIN') || auth.roles.includes('DIRECTOR') }
 function canSeeNominal(auth: AuthContext) { return auth.roles.includes('SUPER_ADMIN') || auth.roles.includes('PAYROLL_FINANCE') }
@@ -116,6 +127,32 @@ function nominalDto(row: RowDataPacket, auth: AuthContext, field: 'dailyRate' | 
     status: row.status, notes: row.notes ?? row.reason ?? null,
   }
 }
+
+function minimumWageDto(row: RowDataPacket) {
+  return {
+    uid: String(row.uid),
+    site: { uid: String(row.siteUid), code: String(row.siteCode), name: String(row.siteName) },
+    wageYear: Number(row.wageYear),
+    amount: String(row.amount),
+    currency: 'IDR' as const,
+    regulationReference: row.regulationReference == null ? null : String(row.regulationReference),
+    notes: row.notes == null ? null : String(row.notes),
+    status: String(row.status),
+    cancellationReason: row.cancellationReason == null ? null : String(row.cancellationReason),
+    cancelledAt: row.cancelledAt == null ? null : String(row.cancelledAt),
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  }
+}
+
+const minimumWageSelect = `SELECT mw.id,mw.uid,mw.site_id siteId,mw.wage_year wageYear,
+ mw.amount,mw.currency,mw.regulation_reference regulationReference,mw.notes,mw.status,
+ mw.cancellation_reason cancellationReason,
+ DATE_FORMAT(mw.cancelled_at,'%Y-%m-%dT%H:%i:%s') cancelledAt,
+ DATE_FORMAT(mw.created_at,'%Y-%m-%dT%H:%i:%s') createdAt,
+ DATE_FORMAT(mw.updated_at,'%Y-%m-%dT%H:%i:%s') updatedAt,
+ s.uid siteUid,s.code siteCode,s.name siteName
+ FROM site_minimum_wages mw JOIN sites s ON s.id=mw.site_id`
 
 async function assertEmployeeCoverage(conn: PoolConnection, input: { employeeUid: string; siteUid?: string; effectiveFrom: string; allowedTypes: string[] }) {
   const [rows] = await conn.query<RowDataPacket[]>(
@@ -251,6 +288,135 @@ payrollConfigurationRouter.post('/configuration/policies/:uid/cancel', requirePe
   } catch (error) { await conn.rollback(); next(error) } finally { conn.release() }
 })
 
+payrollConfigurationRouter.get('/configuration/minimum-wages', requirePermission('payroll.view'), async (req, res, next) => {
+  try {
+    const auth = res.locals.auth as AuthContext
+    const page = z.coerce.number().int().min(1).default(1).parse(req.query.page)
+    const pageSize = z.coerce.number().int().min(10).max(100).default(50).parse(req.query.pageSize)
+    const where: string[] = []
+    const values: unknown[] = []
+    if (!isGlobal(auth)) {
+      where.push(`s.code IN (${auth.siteAccess.map(() => '?').join(',') || "''"})`)
+      values.push(...auth.siteAccess)
+    }
+    if (req.query.site) {
+      enforceSite(auth, String(req.query.site))
+      where.push('s.code=?')
+      values.push(String(req.query.site))
+    }
+    if (req.query.year) {
+      where.push('mw.wage_year=?')
+      values.push(z.coerce.number().int().min(2000).max(2100).parse(req.query.year))
+    }
+    if (req.query.status) {
+      where.push('mw.status=?')
+      values.push(status.parse(req.query.status))
+    }
+    const clause = where.length ? ` WHERE ${where.join(' AND ')}` : ''
+    const [countRows] = await pool.query<RowDataPacket[]>(
+      `SELECT COUNT(*) total FROM site_minimum_wages mw JOIN sites s ON s.id=mw.site_id${clause}`,
+      values
+    )
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `${minimumWageSelect}${clause} ORDER BY mw.wage_year DESC,s.name LIMIT ? OFFSET ?`,
+      [...values, pageSize, (page - 1) * pageSize]
+    )
+    const total = Number(countRows[0]?.total ?? 0)
+    res.json({ data: rows.map(minimumWageDto), meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) } })
+  } catch (error) { next(error) }
+})
+
+payrollConfigurationRouter.post('/configuration/minimum-wages', requirePermission('payroll.rate.manage'), async (req, res, next) => {
+  const conn = await pool.getConnection()
+  try {
+    const auth = res.locals.auth as AuthContext
+    const input = minimumWageInput.parse(req.body)
+    await conn.beginTransaction()
+    const [retry] = await conn.query<RowDataPacket[]>('SELECT site_minimum_wage_id sourceId FROM site_minimum_wage_revisions WHERE idempotency_key=? FOR UPDATE', [input.idempotencyKey])
+    if (retry[0]) {
+      await conn.rollback()
+      const [rows] = await pool.query<RowDataPacket[]>(`${minimumWageSelect} WHERE mw.id=?`, [retry[0].sourceId])
+      res.json({ data: minimumWageDto(rows[0]) })
+      return
+    }
+    const site = await siteByUid(input.siteUid, auth, conn)
+    const [existing] = await conn.query<RowDataPacket[]>('SELECT id,status FROM site_minimum_wages WHERE site_id=? AND wage_year=? FOR UPDATE', [site.id, input.wageYear])
+    if (existing[0]) throw new ApiError(409, 'UMK untuk site dan tahun tersebut sudah tersedia. Koreksi atau aktifkan ulang data yang ada.')
+    const recordUid = randomUUID()
+    const [insert] = await conn.execute<ResultSetHeader>(
+      `INSERT INTO site_minimum_wages(uid,site_id,wage_year,amount,currency,regulation_reference,notes,status,created_by,updated_by)
+       VALUES(?,?,?,?,?,?,?,'ACTIVE',?,?)`,
+      [recordUid, site.id, input.wageYear, input.amount, input.currency, input.regulationReference ?? null, input.notes ?? null, auth.id, auth.id]
+    )
+    const [createdRows] = await conn.query<RowDataPacket[]>(`${minimumWageSelect} WHERE mw.id=?`, [insert.insertId])
+    const after = minimumWageDto(createdRows[0])
+    await conn.execute(
+      `INSERT INTO site_minimum_wage_revisions(uid,site_minimum_wage_id,revision_type,idempotency_key,before_data,after_data,reason,revised_by)
+       VALUES(?,?,?,?,?,?,?,?)`,
+      [randomUUID(), insert.insertId, 'CREATE', input.idempotencyKey, null, JSON.stringify(after), input.reason, auth.id]
+    )
+    await writeAudit({ auth, request: req, module: 'PAYROLL', siteId: Number(site.id), action: 'CREATE', table: 'site_minimum_wages', recordId: insert.insertId, recordUid, description: `Membuat master UMK tahun ${input.wageYear}.`, reason: input.reason, afterData: after }, conn)
+    await conn.commit()
+    res.status(201).json({ data: after })
+  } catch (error) { await conn.rollback(); next(error) } finally { conn.release() }
+})
+
+async function reviseMinimumWage(req: Request, res: Response, next: NextFunction, action: 'correct' | 'cancel' | 'reactivate') {
+  const conn = await pool.getConnection()
+  try {
+    const auth = res.locals.auth as AuthContext
+    const input = action === 'correct' ? minimumWageCorrectionInput.parse(req.body) : cancellationInput.parse(req.body)
+    const recordUid = uid.parse(req.params.uid)
+    await conn.beginTransaction()
+    const [retry] = await conn.query<RowDataPacket[]>('SELECT site_minimum_wage_id sourceId FROM site_minimum_wage_revisions WHERE idempotency_key=? FOR UPDATE', [input.idempotencyKey])
+    if (retry[0]) {
+      await conn.rollback()
+      const [rows] = await pool.query<RowDataPacket[]>(`${minimumWageSelect} WHERE mw.id=?`, [retry[0].sourceId])
+      res.json({ data: minimumWageDto(rows[0]) })
+      return
+    }
+    const [rows] = await conn.query<RowDataPacket[]>(`${minimumWageSelect} WHERE mw.uid=? FOR UPDATE`, [recordUid])
+    const row = rows[0]
+    if (!row) throw new ApiError(404, 'Master UMK tidak ditemukan.')
+    enforceSite(auth, String(row.siteCode))
+    if (action === 'reactivate' && row.status !== 'CANCELLED') throw new ApiError(409, 'Master UMK masih aktif.')
+    if (action !== 'reactivate' && row.status !== 'ACTIVE') throw new ApiError(409, 'Master UMK sudah dibatalkan.')
+    const before = minimumWageDto(row)
+    if (action === 'correct') {
+      const corrected = input as z.infer<typeof minimumWageCorrectionInput>
+      await conn.execute(
+        `UPDATE site_minimum_wages SET amount=?,currency=?,regulation_reference=?,notes=?,updated_by=? WHERE id=?`,
+        [corrected.amount, corrected.currency, corrected.regulationReference ?? null, corrected.notes ?? null, auth.id, row.id]
+      )
+    } else if (action === 'cancel') {
+      await conn.execute(
+        `UPDATE site_minimum_wages SET status='CANCELLED',cancelled_at=NOW(3),cancelled_by=?,cancellation_reason=?,updated_by=? WHERE id=?`,
+        [auth.id, input.reason, auth.id, row.id]
+      )
+    } else {
+      await conn.execute(
+        `UPDATE site_minimum_wages SET status='ACTIVE',cancelled_at=NULL,cancelled_by=NULL,cancellation_reason=NULL,updated_by=? WHERE id=?`,
+        [auth.id, row.id]
+      )
+    }
+    const [afterRows] = await conn.query<RowDataPacket[]>(`${minimumWageSelect} WHERE mw.id=?`, [row.id])
+    const after = minimumWageDto(afterRows[0])
+    const revisionType = action === 'correct' ? 'CORRECTION' : action === 'cancel' ? 'CANCELLATION' : 'REACTIVATION'
+    await conn.execute(
+      `INSERT INTO site_minimum_wage_revisions(uid,site_minimum_wage_id,revision_type,idempotency_key,before_data,after_data,reason,revised_by)
+       VALUES(?,?,?,?,?,?,?,?)`,
+      [randomUUID(), row.id, revisionType, input.idempotencyKey, JSON.stringify(before), JSON.stringify(after), input.reason, auth.id]
+    )
+    await writeAudit({ auth, request: req, module: 'PAYROLL', siteId: Number(row.siteId), action: 'UPDATE', table: 'site_minimum_wages', recordId: Number(row.id), recordUid, description: action === 'correct' ? 'Mengoreksi master UMK.' : action === 'cancel' ? 'Membatalkan master UMK.' : 'Mengaktifkan ulang master UMK.', reason: input.reason, beforeData: before, afterData: after }, conn)
+    await conn.commit()
+    res.json({ data: after })
+  } catch (error) { await conn.rollback(); next(error) } finally { conn.release() }
+}
+
+payrollConfigurationRouter.post('/configuration/minimum-wages/:uid/correct', requirePermission('payroll.rate.manage'), (req, res, next) => reviseMinimumWage(req, res, next, 'correct'))
+payrollConfigurationRouter.post('/configuration/minimum-wages/:uid/cancel', requirePermission('payroll.rate.manage'), (req, res, next) => reviseMinimumWage(req, res, next, 'cancel'))
+payrollConfigurationRouter.post('/configuration/minimum-wages/:uid/reactivate', requirePermission('payroll.rate.manage'), (req, res, next) => reviseMinimumWage(req, res, next, 'reactivate'))
+
 const dailySelect = `SELECT r.id,r.uid,r.daily_rate dailyRate,r.currency,DATE_FORMAT(r.effective_from,'%Y-%m-%d') effectiveFrom,DATE_FORMAT(r.effective_to,'%Y-%m-%d') effectiveTo,r.status,r.notes,e.id employeeId,e.uid employeeUid,e.employee_number employeeNumber,e.full_name fullName,r.employee_type_code employeeType,s.id siteId,s.uid siteUid,s.code siteCode,s.name siteName FROM employee_daily_rate_histories r JOIN employees e ON e.id=r.employee_id JOIN sites s ON s.id=r.site_id`
 const salarySelect = `SELECT sh.id,sh.uid,sh.basic_salary basicSalary,sh.currency,DATE_FORMAT(sh.effective_from,'%Y-%m-%d') effectiveFrom,DATE_FORMAT(sh.effective_to,'%Y-%m-%d') effectiveTo,COALESCE(sh.status,'ACTIVE') status,sh.reason,e.id employeeId,e.uid employeeUid,e.employee_number employeeNumber,e.full_name fullName,'BULANAN' employeeType,s.id siteId,s.uid siteUid,s.code siteCode,s.name siteName FROM employee_salary_histories sh JOIN employees e ON e.id=sh.employee_id JOIN employee_employment_histories eh ON eh.employee_id=e.id AND eh.effective_from<=sh.effective_from AND (eh.effective_to IS NULL OR eh.effective_to>=sh.effective_from) JOIN sites s ON s.id=eh.site_id`
 
@@ -302,10 +468,3 @@ async function reviseNominal(req:Request,res:Response,next:NextFunction,kind:'ra
   }catch(error){await conn.rollback();next(error)}finally{conn.release()}
 }
 for(const [path,kind] of [['daily-rates','rate'],['salaries','salary']] as const){payrollConfigurationRouter.post(`/configuration/${path}/:uid/correct`,requirePermission('payroll.rate.manage'),(req,res,next)=>reviseNominal(req,res,next,kind,'correct'));payrollConfigurationRouter.post(`/configuration/${path}/:uid/cancel`,requirePermission('payroll.rate.manage'),(req,res,next)=>reviseNominal(req,res,next,kind,'cancel'))}
-
-payrollConfigurationRouter.get('/configuration/training-preflight',requirePermission('payroll.view'),async(req,res,next)=>{
-  try{const auth=res.locals.auth as AuthContext;const siteFilter=String(req.query.site??'').trim();if(siteFilter)enforceSite(auth,siteFilter);const sites=!isGlobal(auth)?auth.siteAccess:siteFilter?[siteFilter]:[];const clause=sites.length?`AND s.code IN (${sites.map(()=>'?').join(',')})`:''
-    const [summary]=await pool.query<RowDataPacket[]>(`SELECT COUNT(DISTINCT eh.employee_id) trainingEmployees,COUNT(DISTINCT pt.id) productionFacts,COUNT(DISTINCT CASE WHEN pp.status IN ('APPROVED','CLOSED') OR pr.run_type='FINAL' THEN per.id END) immutablePayrollRows FROM employee_employment_histories eh JOIN employee_types et ON et.id=eh.employee_type_id AND et.code='TRAINING' JOIN sites s ON s.id=eh.site_id LEFT JOIN production_transactions pt ON pt.employee_id=eh.employee_id AND pt.business_date BETWEEN eh.effective_from AND COALESCE(eh.effective_to,'9999-12-31') LEFT JOIN payroll_employee_results per ON per.employee_id=eh.employee_id AND per.employee_type_snapshot='TRAINING' LEFT JOIN payroll_runs pr ON pr.id=per.payroll_run_id LEFT JOIN payroll_periods pp ON pp.id=per.payroll_period_id WHERE 1=1 ${clause}`,sites)
-    const row=summary[0]??{};const immutable=Number(row.immutablePayrollRows??0);res.json({data:{status:immutable>0?'BLOCKED':'READY',summary:{trainingEmployees:Number(row.trainingEmployees??0),productionFacts:Number(row.productionFacts??0),immutablePayrollRows:immutable},blockers:immutable>0?[{code:'IMMUTABLE_TRAINING_PAYROLL',message:'Ditemukan Payroll immutable Training berbasis hasil. Remediasi owner wajib sebelum cutover.',count:immutable}]:[],notes:['Fakta Produksi Training dipertahankan untuk monitoring dan tidak dihapus.']}})
-  }catch(error){next(error)}
-})

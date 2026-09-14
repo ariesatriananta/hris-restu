@@ -770,24 +770,27 @@ export interface PayrollEmployeeRateListResult {
   }
 }
 
-export interface PayrollTrainingPreflightIssue {
-  code: string
-  severity: 'BLOCKER' | 'WARNING' | 'INFO'
-  count: number
-  title: string
-  message: string
-  actionHint: string | null
+export interface PayrollMinimumWage {
+  uid: string
+  site: PayrollSite
+  wageYear: number
+  amount: string
+  currency: 'IDR'
+  regulationReference: string | null
+  notes: string | null
+  status: PayrollConfigurationStatus
+  cancellationReason: string | null
+  cancelledAt: string | null
+  createdAt: string
+  updatedAt: string
 }
 
-export interface PayrollTrainingPreflight {
-  status: 'READY' | 'ATTENTION' | 'BLOCKED'
-  evaluatedAt: string
-  summary: {
-    trainingEmployees: number
-    employmentHistories: number
-    productionTransactions: number
-    payrollSnapshots: number
-    immutablePayrollSnapshots: number
+export interface PayrollMinimumWageListResult {
+  data: PayrollMinimumWage[]
+  meta: {
+    page: number
+    pageSize: number
+    total: number
+    totalPages: number
   }
-  issues: PayrollTrainingPreflightIssue[]
 }

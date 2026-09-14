@@ -293,13 +293,12 @@ kontrak `TRAINING`, sedangkan `BORONGAN`, `HARIAN`, dan `BULANAN` hanya memakai
   eksplisit pada pengembangan selanjutnya.
 - Perhitungan uang memakai DECIMAL dan dibulatkan `HALF_UP` ke Rp1 per komponen
   per karyawan. Policy pembulatan disnapshot dan tidak berlaku retroaktif.
-- Migrasi `TRAINING` wajib didahului preflight terhadap histori employment,
-  assignment/transaksi Produksi, serta period/run/snapshot Payroll. Transaksi
-  Produksi tetap dipertahankan sebagai fakta monitoring, tetapi dikeluarkan
-  dari nominal `PIECE_RATE` berdasarkan skema historis.
-- Migration utama tidak menghapus atau menulis ulang hasil `SUBMITTED`,
-  `APPROVED`, atau `CLOSED`. Data immutable yang masih mengandung upah Training
-  berbasis hasil menjadi blocker yang harus dilaporkan untuk remediasi owner.
+- Master UMK tersedia per site dan tahun dengan nominal IDR, referensi regulasi
+  opsional, status aktif/dibatalkan, revision log, idempotency, audit, serta
+  pembatasan akses site. Master ini belum masuk kalkulasi Payroll pada M5A1.
+- Implementasi BPJS berikutnya harus menyelesaikan tepat satu UMK berdasarkan
+  site dan tahun periode, lalu menyimpan UID sumber serta nominal sebagai
+  snapshot. Formula BPJS tidak boleh membaca ulang master untuk hasil lama.
 
 ### Milestone 5A2 - Readiness dan preview segmentasi
 

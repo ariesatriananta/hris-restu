@@ -8,19 +8,17 @@ import {
   Banknote,
   CalendarClock,
   Check,
-  CheckCircle2,
   ChevronsUpDown,
   CircleDollarSign,
   Eye,
-  FileWarning,
   History,
   LoaderCircle,
+  Landmark,
   PencilLine,
   Plus,
   Search,
   Settings2,
   ShieldAlert,
-  UserRoundCheck,
   XCircle,
   type LucideIcon,
 } from 'lucide-react'
@@ -89,8 +87,8 @@ import {
   usePayrollConfigurationMeta,
   usePayrollDailyRates,
   usePayrollPolicies,
+  usePayrollMinimumWages,
   usePayrollSalaries,
-  usePayrollTrainingPreflight,
   usePreviewPayrollPolicy,
   type PayrollPolicyInput,
 } from './data/queries'
@@ -100,9 +98,10 @@ import type {
   PayrollEmployeeType,
   PayrollPolicyVersion,
 } from './domain'
+import { MinimumWageSection } from './minimum-wage-section'
 import { formatDecimalString } from './money'
 
-type ConfigurationTab = 'policy' | 'daily-rate' | 'salary' | 'preflight'
+type ConfigurationTab = 'policy' | 'daily-rate' | 'salary' | 'minimum-wage'
 type SearchState = Record<string, unknown>
 type RateResource = 'daily-rates' | 'salaries'
 
@@ -117,7 +116,7 @@ const tabValues: ConfigurationTab[] = [
   'policy',
   'daily-rate',
   'salary',
-  'preflight',
+  'minimum-wage',
 ]
 
 function localDate(value: string | null) {
@@ -184,8 +183,16 @@ export function PayrollConfigurationPage({
   const site = effectiveSite ?? ''
   const employeeType =
     typeof search.employeeType === 'string' ? search.employeeType : ''
-  const status = typeof search.status === 'string' ? search.status : 'ACTIVE'
+  const status =
+    typeof search.status === 'string'
+      ? search.status
+      : tab === 'minimum-wage'
+        ? ''
+        : 'ACTIVE'
   const query = typeof search.query === 'string' ? search.query : ''
+  const year = typeof search.year === 'number' ? search.year : undefined
+  const page = typeof search.page === 'number' ? search.page : 1
+  const pageSize = typeof search.pageSize === 'number' ? search.pageSize : 50
   const selectedUid =
     typeof search.detailUid === 'string' ? search.detailUid : ''
   const patch = (value: SearchState) =>
@@ -217,11 +224,16 @@ export function PayrollConfigurationPage({
     },
     tab === 'salary'
   )
-  const preflight = usePayrollTrainingPreflight(
-    site || undefined,
-    tab === 'preflight'
+  const minimumWages = usePayrollMinimumWages(
+    {
+      site: site || undefined,
+      year,
+      status: status || undefined,
+      page,
+      pageSize,
+    },
+    tab === 'minimum-wage'
   )
-
   const policyItems = policies.data?.data ?? []
   const rateItems =
     tab === 'salary' ? (salaries.data?.data ?? []) : (rates.data?.data ?? [])
@@ -244,20 +256,21 @@ export function PayrollConfigurationPage({
               Skema Upah & Tarif
             </h1>
             <p className='max-w-3xl text-sm text-muted-foreground'>
-              Kelola versi kebijakan, tarif harian, dan gaji pokok tanpa
+              Kelola kebijakan, tarif harian, gaji pokok, dan UMK site tanpa
               mengubah histori Payroll yang sudah disahkan.
             </p>
           </div>
           <Badge variant='outline' className='gap-1.5 bg-muted/50'>
-            <History className='size-3.5' /> Effective-dated
+            <History className='size-3.5' /> Histori terlacak
           </Badge>
         </header>
 
         <Alert className='border-sky-200 bg-sky-50/70 dark:border-sky-900 dark:bg-sky-950/30'>
           <ShieldAlert className='size-4' />
           <AlertDescription>
-            Perubahan selalu membuat versi histori. Policy hanya dapat dikelola
-            Super Admin; nominal mengikuti akses site dan kewenangan pengguna.
+            Perubahan tersimpan sebagai versi histori atau revisi. Policy hanya
+            dapat dikelola Super Admin; nominal mengikuti akses site dan
+            kewenangan pengguna.
           </AlertDescription>
         </Alert>
 
@@ -269,6 +282,8 @@ export function PayrollConfigurationPage({
               detailUid: undefined,
               employeeType: undefined,
               query: undefined,
+              year: undefined,
+              page: undefined,
             })
           }
         >
@@ -285,9 +300,9 @@ export function PayrollConfigurationPage({
               <Banknote className='size-4' />
               Gaji pokok
             </TabsTrigger>
-            <TabsTrigger value='preflight' className='h-10 gap-2 px-4'>
-              <FileWarning className='size-4' />
-              Preflight Training
+            <TabsTrigger value='minimum-wage' className='h-10 gap-2 px-4'>
+              <Landmark className='size-4' />
+              UMK Site
             </TabsTrigger>
           </TabsList>
 
@@ -347,11 +362,16 @@ export function PayrollConfigurationPage({
             />
           </TabsContent>
 
-          <TabsContent value='preflight' className='mt-4'>
-            <PreflightSection
-              query={preflight}
+          <TabsContent value='minimum-wage' className='mt-4 space-y-4'>
+            <MinimumWageSection
+              queryState={minimumWages}
               sites={meta.data?.sites ?? []}
               site={site}
+              year={year}
+              status={status}
+              page={page}
+              pageSize={pageSize}
+              canManage={capabilities?.canManageRates === true}
               onFilter={patch}
             />
           </TabsContent>
@@ -1188,152 +1208,6 @@ function RateDialog({
   )
 }
 
-function PreflightSection({
-  query,
-  sites,
-  site,
-  onFilter,
-}: {
-  query: ReturnType<typeof usePayrollTrainingPreflight>
-  sites: Array<{ uid: string; code: string; name: string }>
-  site: string
-  onFilter: (value: SearchState) => void
-}) {
-  const { lockedSite } = useSiteScopeFilter(site ? [site] : undefined)
-  if (query.isPending) return <CardsSkeleton />
-  if (query.isError) return <ErrorState onRetry={() => query.refetch()} />
-  const data = query.data
-  if (!data) return null
-  const tone =
-    data.status === 'READY'
-      ? 'border-positive/30 bg-positive/5'
-      : data.status === 'BLOCKED'
-        ? 'border-destructive/30 bg-destructive/5'
-        : 'border-warning/40 bg-warning/10'
-  return (
-    <div className='space-y-4'>
-      <div className='flex justify-end'>
-        {lockedSite ? (
-          <SiteScopeFilter
-            siteLabel={siteScopeLabel(
-              lockedSite,
-              sites.map((item) => ({ value: item.code, label: item.name }))
-            )}
-            className='w-full sm:w-auto'
-          />
-        ) : (
-          <Select
-            value={site || 'ALL'}
-            onValueChange={(value) =>
-              onFilter({ site: value === 'ALL' ? undefined : value })
-            }
-          >
-            <SelectTrigger
-              className='w-full sm:w-52'
-              aria-label='Filter site preflight'
-            >
-              <SelectValue placeholder='Semua site' />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value='ALL'>Semua site</SelectItem>
-              {sites.map((item) => (
-                <SelectItem key={item.uid} value={item.code}>
-                  {item.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-      <div className={cn('rounded-xl border p-4', tone)}>
-        <div className='flex items-start gap-3'>
-          {data.status === 'READY' ? (
-            <CheckCircle2 className='size-5 text-positive' />
-          ) : (
-            <AlertTriangle className='size-5 text-warning-foreground' />
-          )}
-          <div>
-            <h2 className='font-semibold'>
-              Preflight migrasi Training:{' '}
-              {data.status === 'READY'
-                ? 'Siap'
-                : data.status === 'BLOCKED'
-                  ? 'Terblokir'
-                  : 'Perlu perhatian'}
-            </h2>
-            <p className='text-sm text-muted-foreground'>
-              Diperiksa {localDateTime(data.evaluatedAt)}. Pemeriksaan ini tidak
-              mengubah histori atau transaksi Produksi.
-            </p>
-          </div>
-        </div>
-      </div>
-      <div className='grid grid-cols-2 gap-2 lg:grid-cols-5'>
-        <Kpi
-          icon={UserRoundCheck}
-          label='Karyawan Training'
-          value={data.summary.trainingEmployees}
-        />
-        <Kpi
-          icon={History}
-          label='Histori employment'
-          value={data.summary.employmentHistories}
-        />
-        <Kpi
-          icon={BadgeDollarSign}
-          label='Transaksi Produksi'
-          value={data.summary.productionTransactions}
-        />
-        <Kpi
-          icon={CalendarClock}
-          label='Snapshot Payroll'
-          value={data.summary.payrollSnapshots}
-        />
-        <Kpi
-          icon={ShieldAlert}
-          label='Snapshot immutable'
-          value={data.summary.immutablePayrollSnapshots}
-          tone={data.summary.immutablePayrollSnapshots ? 'danger' : 'default'}
-        />
-      </div>
-      {data.issues.length ? (
-        <div className='space-y-2'>
-          {data.issues.map((issue) => (
-            <div key={issue.code} className='rounded-lg border p-3'>
-              <div className='flex items-start justify-between gap-3'>
-                <div>
-                  <p className='font-medium'>{issue.title}</p>
-                  <p className='mt-1 text-sm text-muted-foreground'>
-                    {issue.message}
-                  </p>
-                  {issue.actionHint && (
-                    <p className='mt-2 text-xs font-medium text-primary'>
-                      {issue.actionHint}
-                    </p>
-                  )}
-                </div>
-                <Badge
-                  variant={
-                    issue.severity === 'BLOCKER' ? 'destructive' : 'outline'
-                  }
-                >
-                  {issue.count.toLocaleString('id-ID')}
-                </Badge>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <EmptyState
-          icon={CheckCircle2}
-          title='Tidak ada masalah ditemukan'
-          description='Histori Training siap mengikuti skema berbasis waktu tanpa menghapus fakta Produksi.'
-        />
-      )}
-    </div>
-  )
-}
-
 function PolicyDrawer({
   policy,
   onClose,
@@ -1581,34 +1455,6 @@ function FactBox({ label, value }: { label: string; value: string }) {
     <div className='rounded-lg border bg-muted/25 px-3 py-2'>
       <p className='text-xs text-muted-foreground'>{label}</p>
       <p className='mt-0.5 text-sm font-semibold'>{value}</p>
-    </div>
-  )
-}
-function Kpi({
-  icon: Icon,
-  label,
-  value,
-  tone = 'default',
-}: {
-  icon: LucideIcon
-  label: string
-  value: number
-  tone?: 'default' | 'danger'
-}) {
-  return (
-    <div
-      className={cn(
-        'flex min-h-[68px] items-center gap-3 rounded-lg border px-3 py-2.5',
-        tone === 'danger' && 'border-destructive/30 bg-destructive/5'
-      )}
-    >
-      <div className='rounded-lg bg-primary/10 p-2 text-primary'>
-        <Icon className='size-4' />
-      </div>
-      <div>
-        <p className='text-xs text-muted-foreground'>{label}</p>
-        <p className='text-lg font-bold'>{value.toLocaleString('id-ID')}</p>
-      </div>
     </div>
   )
 }

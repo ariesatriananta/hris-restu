@@ -30,7 +30,8 @@ import type {
   PayrollPolicyVersion,
   PayrollEmployeeRate,
   PayrollEmployeeRateListResult,
-  PayrollTrainingPreflight,
+  PayrollMinimumWage,
+  PayrollMinimumWageListResult,
 } from '../domain'
 
 const keys = {
@@ -71,8 +72,8 @@ const keys = {
     [...keys.configuration, 'daily-rates', input] as const,
   salaries: (input: Record<string, unknown>) =>
     [...keys.configuration, 'salaries', input] as const,
-  trainingPreflight: (site?: string) =>
-    [...keys.configuration, 'training-preflight', site ?? 'all'] as const,
+  minimumWages: (input: Record<string, unknown>) =>
+    [...keys.configuration, 'minimum-wages', input] as const,
 }
 
 export type PayrollPolicyInput = {
@@ -92,6 +93,17 @@ export type PayrollRateInput = {
   effectiveFrom: string
   effectiveTo?: string
   notes?: string
+}
+
+export type PayrollMinimumWageInput = {
+  siteUid: string
+  wageYear: number
+  amount: string
+  currency: 'IDR'
+  regulationReference?: string | null
+  notes?: string | null
+  reason: string
+  idempotencyKey: string
 }
 
 export function usePayrollConfigurationMeta() {
@@ -176,6 +188,75 @@ export function usePayrollSalaries(
   return usePayrollEmployeeRates('salaries', input, enabled)
 }
 
+export function usePayrollMinimumWages(
+  input: Record<string, unknown>,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: keys.minimumWages(input),
+    queryFn: async () =>
+      (
+        await apiClient.get<PayrollMinimumWageListResult>(
+          `/payroll/configuration/minimum-wages?${params(input)}`
+        )
+      ).data,
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+}
+
+function usePayrollMinimumWageMutation(
+  request: (input: {
+    uid?: string
+    payload: Record<string, unknown>
+  }) => Promise<PayrollMinimumWage>
+) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: request,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: keys.configuration }),
+  })
+}
+
+export function useCreatePayrollMinimumWage() {
+  return usePayrollMinimumWageMutation(
+    async ({ payload }) =>
+      (
+        await apiClient.post<{ data: PayrollMinimumWage }>(
+          '/payroll/configuration/minimum-wages',
+          payload
+        )
+      ).data.data
+  )
+}
+
+export function useCorrectPayrollMinimumWage() {
+  return usePayrollMinimumWageMutation(
+    async ({ uid, payload }) =>
+      (
+        await apiClient.post<{ data: PayrollMinimumWage }>(
+          `/payroll/configuration/minimum-wages/${uid}/correct`,
+          payload
+        )
+      ).data.data
+  )
+}
+
+export function useChangePayrollMinimumWageStatus() {
+  return usePayrollMinimumWageMutation(async ({ uid, payload }) => {
+    const action = payload.action
+    const body = { ...payload }
+    delete body.action
+    return (
+      await apiClient.post<{ data: PayrollMinimumWage }>(
+        `/payroll/configuration/minimum-wages/${uid}/${action}`,
+        body
+      )
+    ).data.data
+  })
+}
+
 function usePayrollEmployeeRates(
   resource: 'daily-rates' | 'salaries',
   input: Record<string, unknown>,
@@ -251,21 +332,6 @@ export function useCancelPayrollRate() {
   )
 }
 
-export function usePayrollTrainingPreflight(site?: string, enabled = true) {
-  return useQuery({
-    queryKey: keys.trainingPreflight(site),
-    queryFn: async () =>
-      normalizeTrainingPreflight(
-        (
-          await apiClient.get<{ data: BackendTrainingPreflight }>(
-            `/payroll/configuration/training-preflight?${params({ site })}`
-          )
-        ).data.data
-      ),
-    enabled,
-  })
-}
-
 type BackendConfigurationMeta = {
   sites: PayrollConfigurationMeta['sites']
   employeeTypes: PayrollPolicyInput['employeeType'][]
@@ -306,17 +372,6 @@ type BackendNominal = {
   status: PayrollEmployeeRate['status']
   notes: string | null
 }
-type BackendTrainingPreflight = {
-  status: 'READY' | 'BLOCKED'
-  summary: {
-    trainingEmployees: number
-    productionFacts: number
-    immutablePayrollRows: number
-  }
-  blockers: Array<{ code: string; message: string; count: number }>
-  notes: string[]
-}
-
 function normalizeConfigurationMeta(
   input: BackendConfigurationMeta
 ): PayrollConfigurationMeta {
@@ -414,40 +469,6 @@ function normalizeNominalList(
         canViewAmounts: false,
       },
     },
-  }
-}
-
-function normalizeTrainingPreflight(
-  input: BackendTrainingPreflight
-): PayrollTrainingPreflight {
-  return {
-    status: input.status,
-    evaluatedAt: new Date().toISOString(),
-    summary: {
-      trainingEmployees: input.summary.trainingEmployees,
-      employmentHistories: 0,
-      productionTransactions: input.summary.productionFacts,
-      payrollSnapshots: input.summary.immutablePayrollRows,
-      immutablePayrollSnapshots: input.summary.immutablePayrollRows,
-    },
-    issues: [
-      ...input.blockers.map((issue) => ({
-        code: issue.code,
-        severity: 'BLOCKER' as const,
-        count: issue.count,
-        title: 'Payroll Training immutable ditemukan',
-        message: issue.message,
-        actionHint: 'Lakukan remediasi owner sebelum cutover skema Training.',
-      })),
-      ...input.notes.map((message, index) => ({
-        code: `NOTE_${index + 1}`,
-        severity: 'INFO' as const,
-        count: 0,
-        title: 'Catatan preflight',
-        message,
-        actionHint: null,
-      })),
-    ],
   }
 }
 

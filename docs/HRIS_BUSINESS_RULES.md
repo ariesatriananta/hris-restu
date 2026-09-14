@@ -236,6 +236,13 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Bonus, tunjangan, penalti, pinjaman, dan potongan lain dikelola sebagai
   komponen eksplisit per periode. Pajak dan BPJS belum dihitung otomatis pada
   fase awal.
+- UMK berarti Upah Minimum Kabupaten/Kota dan dikelola per site serta tahun
+  kalender. Dalam satu site hanya boleh ada satu master UMK untuk satu tahun.
+- Koreksi, pembatalan, dan aktivasi ulang UMK wajib beralasan, idempotent,
+  tercatat dalam revision log serta audit trail, dan tidak menghapus histori.
+- Master UMK belum memengaruhi bruto, potongan, atau neto Payroll. Integrasi
+  BPJS berikutnya wajib menyimpan snapshot UID sumber UMK dan nominalnya agar
+  perubahan master tidak mengubah hasil Payroll lama.
 - Jika total potongan melebihi pendapatan, approval dan closing diblokir sampai
   komponen diperbaiki; sistem tidak boleh diam-diam membulatkan net pay menjadi
   nol.

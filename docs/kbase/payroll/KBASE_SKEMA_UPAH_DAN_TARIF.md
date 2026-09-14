@@ -6,17 +6,17 @@
 >
 > Audiens: Super Admin, Payroll Finance, dan pengguna Payroll read-only
 >
-> Terakhir diverifikasi: 7 September 2026
+> Terakhir diverifikasi: 14 September 2026
 
-Panduan ini menjelaskan policy Payroll, tarif harian, gaji pokok, dan pemeriksaan
-histori Training yang tersedia pada **Payroll > Skema Upah & Tarif**.
+Panduan ini menjelaskan policy Payroll, tarif harian, gaji pokok, dan master UMK
+yang tersedia pada **Payroll > Skema Upah & Tarif**.
 
 ## 1. Kapan panduan ini digunakan
 
 - menyiapkan policy Payroll per site dan jenis karyawan;
 - menambahkan atau memperbaiki tarif Harian dan Training;
 - menambahkan atau memperbaiki gaji pokok Bulanan;
-- memeriksa apakah histori Training lama aman memakai skema berbasis waktu;
+- mencatat Upah Minimum Kabupaten/Kota (UMK) per site dan tahun;
 - memahami mengapa periode tidak menemukan policy atau nominal yang sesuai.
 
 ## 2. Hak akses
@@ -24,6 +24,7 @@ histori Training yang tersedia pada **Payroll > Skema Upah & Tarif**.
 - Pengguna dengan akses Payroll dapat membuka halaman ini.
 - Hanya **Super Admin** yang dapat membuat atau membatalkan policy.
 - Pengelolaan tarif harian dan gaji pokok memerlukan hak kelola tarif Payroll.
+- Pengelolaan UMK menggunakan hak kelola tarif Payroll yang sama.
 - Data tetap dibatasi menurut site pengguna. Super Admin dapat bekerja lintas site.
 - Nominal dapat disamarkan jika akun tidak memiliki kewenangan melihat nilai.
 
@@ -108,17 +109,23 @@ Gaji pokok hanya digunakan untuk karyawan **Bulanan**.
 Gunakan **Koreksi** atau **Batalkan** dengan alasan. Jangan menimpa atau menghapus
 nilai lama secara langsung.
 
-## 7. Tab Preflight Training
+## 7. Tab UMK Site
 
-Preflight Training memeriksa data lama sebelum skema Training dipakai sebagai
-Payroll berbasis waktu.
+UMK disimpan satu kali untuk setiap kombinasi **site dan tahun kalender**.
+Nominal ini disiapkan sebagai fondasi formula BPJS yang akan dibangun kemudian;
+saat ini UMK belum mengubah bruto, potongan, atau neto Payroll.
 
-- Status aman berarti histori dapat mengikuti tarif harian tanpa menghapus fakta Produksi.
-- Status terblokir dapat berarti Payroll lama yang sudah disetujui atau ditutup
-  masih memperlakukan Training sebagai upah hasil.
+1. Pilih tab **UMK Site**.
+2. Gunakan **Tambah UMK**, lalu pilih site dan tahun.
+3. Isi nominal IDR, referensi regulasi bila tersedia, dan alasan perubahan.
+4. Gunakan **Koreksi** bila nominal atau referensinya salah.
+5. Gunakan **Batalkan** untuk menonaktifkan data yang tidak berlaku, atau
+   **Aktifkan kembali** bila pembatalan perlu dipulihkan.
 
-Jika terblokir, jangan memperbaiki tabel secara manual. Catat site dan data yang
-ditunjukkan lalu koordinasikan remediasi historis dengan Administrator.
+Site dan tahun menjadi identitas tetap setelah data dibuat. Perubahan selalu
+memerlukan alasan serta dicatat pada revision log dan audit trail. Data tidak
+dihapus permanen. Nilai UMK boleh dilihat pengguna `payroll.view` sesuai scope
+site karena merupakan nilai regulasi wilayah, bukan gaji pribadi karyawan.
 
 ## 8. Rumus penting skema Bulanan
 
@@ -140,6 +147,7 @@ membentuk potongan otomatis saat ini.
 - [ ] Mata uang nominal adalah IDR.
 - [ ] Histori yang dikoreksi memiliki alasan dan jejak revisi.
 - [ ] Perubahan master tidak ditujukan untuk mengubah Payroll final lama.
+- [ ] UMK site dan tahun terkait sudah dicatat bila akan dipakai pada formula BPJS mendatang.
 
 ## 10. Solusi masalah umum
 
@@ -152,6 +160,8 @@ membentuk potongan otomatis saat ini.
 | Gaji berubah di tengah periode | Mulai perubahan pada awal periode yang benar, kecuali gaji pertama karyawan baru. |
 | Nominal tidak terlihat | Periksa kewenangan nominal dan akses site akun. |
 | Hasil simulasi tertinggal dari master | Jalankan Hitung ulang dan gunakan current run terbaru. |
+| UMK site dan tahun sudah ada | Buka data yang ada lalu koreksi atau aktifkan kembali; jangan membuat duplikat. |
+| UMK tidak memengaruhi hasil Payroll | Sesuai scope saat ini; integrasi formula dan snapshot BPJS belum diaktifkan. |
 
 ## 11. Navigasi KBase Payroll
 

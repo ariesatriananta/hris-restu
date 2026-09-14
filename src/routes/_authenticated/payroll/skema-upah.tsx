@@ -6,13 +6,16 @@ import { PayrollConfigurationPage } from '@/features/payroll/payroll-configurati
 export const Route = createFileRoute('/_authenticated/payroll/skema-upah')({
   beforeLoad: () => requirePermission('payroll.view'),
   validateSearch: z.object({
-    tab: z.enum(['policy', 'daily-rate', 'salary', 'preflight']).optional(),
+    tab: z.enum(['policy', 'daily-rate', 'salary', 'minimum-wage']).optional(),
     site: z.string().trim().min(1).max(20).optional(),
     employeeType: z
       .enum(['BORONGAN', 'HARIAN', 'TRAINING', 'BULANAN'])
       .optional(),
     status: z.enum(['ACTIVE', 'CANCELLED']).optional(),
     query: z.string().optional(),
+    year: z.coerce.number().int().min(2000).max(2100).optional(),
+    page: z.coerce.number().int().min(1).optional(),
+    pageSize: z.coerce.number().int().min(10).max(100).optional(),
     detailUid: z.string().uuid().optional(),
   }),
   component: RouteComponent,
