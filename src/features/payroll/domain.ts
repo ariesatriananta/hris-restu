@@ -117,6 +117,8 @@ export interface PayrollPeriodSummary {
   paymentDate: string | null
   payrollBasis: PayrollWageBasis
   employeeType?: PayrollEmployeeType
+  deductBpjs?: boolean
+  bpjsContributionMonth?: string | null
   payFrequency?: PayrollPayFrequency
   policyVersionUid?: string | null
   status: PayrollPeriodStatus
@@ -137,6 +139,34 @@ export interface PayrollPeriodDetail extends Omit<
 > {
   readiness: PayrollReadinessDetail
   policySnapshot?: Partial<PayrollPolicyVersion> | null
+}
+
+export interface PayrollPeriodResetPreview {
+  periodUid: string
+  periodCode: string
+  periodName: string
+  status: PayrollPeriodStatus
+  site: PayrollSite
+  runs: number
+  processingRuns: number
+  employeeResults: number
+  manualComponents: number
+  approvals: number
+  workflowActions: number
+  outputAudits: number
+  bpjsSettlements: number
+  productionTransactions: number
+  canReset: boolean
+  blockerMessage: string | null
+}
+
+export interface PayrollPeriodResetResult extends Omit<
+  PayrollPeriodResetPreview,
+  'periodName' | 'site' | 'status' | 'canReset' | 'blockerMessage'
+> {
+  previousStatus: PayrollPeriodStatus
+  productionTransactionsUnlocked: number
+  periodDeleted: boolean
 }
 
 export interface PayrollPeriodMeta {
@@ -370,6 +400,7 @@ export interface PayrollPayslipBundle {
       amount: string
       notes: string | null
     }>
+    bpjs?: PayrollBpjsSnapshot | null
     productionSummary: Array<{
       jobName: string
       unitName: string
@@ -453,7 +484,6 @@ export interface PayrollMonthlySnapshot {
 export interface PayrollMonthlyDetail extends PayrollMonthlySnapshot {
   currency: string
   salaryHistoryUid: string
-  salaryEffectiveFrom: string
 }
 
 export interface PayrollMonthlyDailySnapshot {
@@ -483,6 +513,26 @@ export interface PayrollComponentSnapshot {
   sourceType: 'RECURRING' | 'MANUAL' | 'SYSTEM'
   amount: string
   notes: string | null
+}
+
+export interface PayrollBpjsSnapshot {
+  contributionMonth: string
+  minimumWage: string
+  roundingUnit?: number
+  employee: {
+    health: string
+    jht: string
+    jp: string
+    total: string
+  }
+  employer: {
+    health: string
+    jht: string
+    jkk: string
+    jkm: string
+    jp: string
+    total: string
+  }
 }
 
 export interface PayrollEmployeeResultDetail {
@@ -529,6 +579,7 @@ export interface PayrollEmployeeResultDetail {
   trainingProduction: PayrollTrainingProductionSnapshot[]
   production: PayrollProductionSnapshot[]
   components: PayrollComponentSnapshot[]
+  bpjs?: PayrollBpjsSnapshot | null
   formulaTrace: {
     pieceRate: string | null
     timeBased: string | null
@@ -720,8 +771,6 @@ export interface PayrollPolicyVersion {
   cutoffDay: number | null
   roundingMode: 'HALF_UP'
   roundingScale: number
-  effectiveFrom: string
-  effectiveTo: string | null
   status: PayrollConfigurationStatus
   reason: string | null
   createdAt: string | null
@@ -731,7 +780,7 @@ export interface PayrollPolicyVersion {
 
 export interface PayrollPolicyListResult {
   data: PayrollPolicyVersion[]
-  meta: PayrollConfigurationMeta
+  meta: PayrollPaginationMeta
 }
 
 export interface PayrollPolicyPreview {
@@ -754,8 +803,6 @@ export interface PayrollEmployeeRate {
   amount: string | null
   amountMasked: boolean
   currency: 'IDR'
-  effectiveFrom: string
-  effectiveTo: string | null
   status: PayrollConfigurationStatus
   notes: string | null
   createdAt: string
@@ -763,11 +810,14 @@ export interface PayrollEmployeeRate {
 
 export interface PayrollEmployeeRateListResult {
   data: PayrollEmployeeRate[]
-  meta: {
-    sites: PayrollSite[]
-    employees: PayrollEmployeeOption[]
-    capabilities: PayrollConfigurationMeta['capabilities']
-  }
+  meta: PayrollPaginationMeta
+}
+
+export interface PayrollPaginationMeta {
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
 }
 
 export interface PayrollMinimumWage {
@@ -793,4 +843,79 @@ export interface PayrollMinimumWageListResult {
     total: number
     totalPages: number
   }
+}
+
+export interface PayrollBpjsPolicy {
+  uid: string
+  policyYear: number
+  healthEmployerEnabled: boolean
+  healthEmployerRate: string
+  healthEmployeeEnabled: boolean
+  healthEmployeeRate: string
+  jhtEmployerEnabled: boolean
+  jhtEmployerRate: string
+  jhtEmployeeEnabled: boolean
+  jhtEmployeeRate: string
+  jkkEmployerEnabled: boolean
+  jkkEmployerRate: string
+  jkmEmployerEnabled: boolean
+  jkmEmployerRate: string
+  jpEmployerEnabled: boolean
+  jpEmployerRate: string
+  jpEmployeeEnabled: boolean
+  jpEmployeeRate: string
+  healthWageCeiling: string | null
+  jpWageCeiling: string | null
+  roundingUnit: number
+  regulationReference: string | null
+  notes: string | null
+  status: PayrollConfigurationStatus
+  updatedAt: string
+}
+
+export interface PayrollBpjsConfiguration {
+  data: {
+    policy: PayrollBpjsPolicy | null
+    year: number
+  }
+  meta: {
+    capabilities: { canManagePolicy: boolean }
+  }
+}
+
+export interface PayrollBpjsEnrollment {
+  employee: { uid: string; employeeNumber: string; fullName: string }
+  site: PayrollSite
+  implicitDefault: boolean
+  healthEnabled: boolean
+  jhtEnabled: boolean
+  jkkEnabled: boolean
+  jkmEnabled: boolean
+  jpEnabled: boolean
+  hasHealthNumber: boolean
+  hasEmploymentNumber: boolean
+}
+
+export interface PayrollBpjsEnrollmentImportRow {
+  employeeNumber: string
+  healthEnabled: boolean
+  jhtEnabled: boolean
+  jkkEnabled: boolean
+  jkmEnabled: boolean
+  jpEnabled: boolean
+  reason: string
+}
+
+export interface PayrollBpjsEnrollmentImportPreview {
+  total: number
+  valid: number
+  invalid: number
+  rows: Array<{
+    rowNumber: number
+    employeeNumber: string
+    fullName: string | null
+    site: string | null
+    valid: boolean
+    issues: string[]
+  }>
 }

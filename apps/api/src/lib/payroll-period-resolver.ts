@@ -26,8 +26,6 @@ export type ResolvedPayrollPolicy = {
   roundingMode: string
   roundingScale: number
   currency: 'IDR'
-  effectiveFrom: string
-  effectiveTo: string | null
 }
 
 export async function resolvePayrollPeriodPolicy(
@@ -47,19 +45,16 @@ export async function resolvePayrollPeriodPolicy(
             week_starts_on weekStartsOn,prorate_basis prorateBasis,
             attendance_pay_rule attendancePayRule,
             deduction_divisor deductionDivisor,rounding_mode roundingMode,
-            rounding_scale roundingScale,currency,
-            DATE_FORMAT(effective_from,'%Y-%m-%d') effectiveFrom,
-            DATE_FORMAT(effective_to,'%Y-%m-%d') effectiveTo
+            rounding_scale roundingScale,currency
        FROM payroll_policy_versions
       WHERE site_id=? AND employee_type_code=? AND status='ACTIVE'
-        AND effective_from<=? AND (effective_to IS NULL OR effective_to>=?)
       ${input.lock ? 'FOR UPDATE' : ''}`,
-    [input.siteId, input.employeeType, input.periodStart, input.periodEnd]
+    [input.siteId, input.employeeType]
   )
   if (rows.length !== 1) {
     throw new ApiError(
       422,
-      'Policy Payroll efektif tidak tunggal atau tidak mencakup seluruh periode.'
+      'Policy Payroll aktif tidak tunggal atau belum dikonfigurasi.'
     )
   }
   const row = rows[0]
@@ -81,8 +76,6 @@ export async function resolvePayrollPeriodPolicy(
     roundingMode: String(row.roundingMode),
     roundingScale: Number(row.roundingScale),
     currency: String(row.currency) as 'IDR',
-    effectiveFrom: String(row.effectiveFrom),
-    effectiveTo: row.effectiveTo == null ? null : String(row.effectiveTo),
   }
   assertWagePolicyMatrix(policy)
   if (policy.wageBasis === 'PIECE_RATE') return policy
@@ -123,8 +116,6 @@ export function payrollPolicySnapshot(policy: ResolvedPayrollPolicy) {
     roundingMode: policy.roundingMode,
     roundingScale: policy.roundingScale,
     currency: policy.currency,
-    effectiveFrom: policy.effectiveFrom,
-    effectiveTo: policy.effectiveTo,
   }
 }
 
@@ -224,17 +215,11 @@ export async function previewTimeBasedPopulation(
      ), daily AS (
        SELECT eligible.*,
               (SELECT COUNT(*) FROM ${rateTable} rate
-                WHERE rate.employee_id=eligible.employee_id AND rate.status='ACTIVE' ${rateScope}
-                  AND rate.effective_from<=eligible.business_date
-                  AND (rate.effective_to IS NULL OR rate.effective_to>=eligible.business_date)) rate_matches,
+                WHERE rate.employee_id=eligible.employee_id AND rate.status='ACTIVE' ${rateScope}) rate_matches,
               (SELECT MAX(rate.${rateAmount}) FROM ${rateTable} rate
-                WHERE rate.employee_id=eligible.employee_id AND rate.status='ACTIVE' ${rateScope}
-                  AND rate.effective_from<=eligible.business_date
-                  AND (rate.effective_to IS NULL OR rate.effective_to>=eligible.business_date)) rate_amount,
+                WHERE rate.employee_id=eligible.employee_id AND rate.status='ACTIVE' ${rateScope}) rate_amount,
               (SELECT MAX(rate.currency) FROM ${rateTable} rate
-                WHERE rate.employee_id=eligible.employee_id AND rate.status='ACTIVE' ${rateScope}
-                  AND rate.effective_from<=eligible.business_date
-                  AND (rate.effective_to IS NULL OR rate.effective_to>=eligible.business_date)) currency,
+                WHERE rate.employee_id=eligible.employee_id AND rate.status='ACTIVE' ${rateScope}) currency,
               (SELECT COUNT(*) FROM employee_contracts contract
                 JOIN contract_types contract_type ON contract_type.id=contract.contract_type_id
                 WHERE contract.employee_id=eligible.employee_id

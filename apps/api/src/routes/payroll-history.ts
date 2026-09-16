@@ -120,7 +120,7 @@ async function companySnapshot(row:RowDataPacket) {
 
 async function payslipPayload(row:RowDataPacket, ids?:string[]) {
   assertCompleted(row); const official=isOfficial(row); const results=await employeeRows(Number(row.runId),{ids})
-  const resultIds=results.map(result=>Number(result.id)); const components=new Map<number,RowDataPacket[]>(),production=new Map<number,RowDataPacket[]>(),attendance=new Map<number,RowDataPacket>(),weeklyTime=new Map<number,RowDataPacket[]>(),monthly=new Map<number,RowDataPacket>()
+  const resultIds=results.map(result=>Number(result.id)); const components=new Map<number,RowDataPacket[]>(),production=new Map<number,RowDataPacket[]>(),attendance=new Map<number,RowDataPacket>(),weeklyTime=new Map<number,RowDataPacket[]>(),monthly=new Map<number,RowDataPacket>(),bpjs=new Map<number,RowDataPacket>()
   if(resultIds.length){
     const placeholders=resultIds.map(()=>'?').join(',')
     const [componentRows]=await pool.query<RowDataPacket[]>(`SELECT payroll_employee_result_id resultId,component_code_snapshot code,
@@ -151,9 +151,17 @@ async function payslipPayload(row:RowDataPacket, ids?:string[]) {
         FROM payroll_monthly_summaries WHERE payroll_employee_result_id IN (${placeholders})`,resultIds)
       for(const item of monthlyRows) monthly.set(Number(item.resultId),item)
     }
+    const [bpjsRows]=await pool.query<RowDataPacket[]>(`SELECT payroll_employee_result_id resultId,
+      DATE_FORMAT(contribution_month,'%Y-%m') contributionMonth,minimum_wage_snapshot minimumWage,
+      health_employee_amount healthEmployee,jht_employee_amount jhtEmployee,jp_employee_amount jpEmployee,
+      total_employee_deduction totalEmployeeDeduction,health_employer_amount healthEmployer,
+      jht_employer_amount jhtEmployer,jkk_employer_amount jkkEmployer,jkm_employer_amount jkmEmployer,
+      jp_employer_amount jpEmployer,total_employer_contribution totalEmployerContribution
+      FROM payroll_employee_bpjs_details WHERE payroll_employee_result_id IN (${placeholders})`,resultIds)
     for(const item of componentRows){const list=components.get(Number(item.resultId))??[];list.push(item);components.set(Number(item.resultId),list)}
     for(const item of productionRows){const list=production.get(Number(item.resultId))??[];list.push(item);production.set(Number(item.resultId),list)}
     for(const item of attendanceRows) attendance.set(Number(item.resultId),item)
+    for(const item of bpjsRows) bpjs.set(Number(item.resultId),item)
   }
   return { period:{uid:row.periodUid,periodCode:row.periodCode,periodName:row.periodName,periodStart:row.periodStart,periodEnd:row.periodEnd,
       paymentDate:row.paymentDate??null,status:row.periodStatus,payrollBasis:row.payrollBasis,payFrequency:row.payFrequency,
@@ -183,6 +191,12 @@ async function payslipPayload(row:RowDataPacket, ids?:string[]) {
       }:null,
       attendance:attendance.has(Number(result.id))?Object.fromEntries(['scheduledDays','presentDays','absentDays','leaveDays','sickDays','permissionDays','holidayDays','lateMinutes','earlyLeaveMinutes'].map(key=>[key,Number(attendance.get(Number(result.id))?.[key]??0)])):null,
       components:(components.get(Number(result.id))??[]).map(item=>({code:item.code,name:item.name,category:item.category,amount:money(item.amount),notes:item.notes??null})),
+      bpjs:bpjs.has(Number(result.id))?{
+        contributionMonth:bpjs.get(Number(result.id))?.contributionMonth,
+        minimumWage:money(bpjs.get(Number(result.id))?.minimumWage),
+        employee:{health:money(bpjs.get(Number(result.id))?.healthEmployee),jht:money(bpjs.get(Number(result.id))?.jhtEmployee),jp:money(bpjs.get(Number(result.id))?.jpEmployee),total:money(bpjs.get(Number(result.id))?.totalEmployeeDeduction)},
+        employer:{health:money(bpjs.get(Number(result.id))?.healthEmployer),jht:money(bpjs.get(Number(result.id))?.jhtEmployer),jkk:money(bpjs.get(Number(result.id))?.jkkEmployer),jkm:money(bpjs.get(Number(result.id))?.jkmEmployer),jp:money(bpjs.get(Number(result.id))?.jpEmployer),total:money(bpjs.get(Number(result.id))?.totalEmployerContribution)}
+      }:null,
       productionSummary:(production.get(Number(result.id))??[]).map(item=>({jobName:item.jobName,unitName:item.unitName,quantity:String(item.quantity),amount:money(item.amount)}))})) }
 }
 

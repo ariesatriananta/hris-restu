@@ -17,8 +17,8 @@ lulus test dan exit criteria sebelum milestone berikutnya dimulai.
 - Karyawan resign tetap dibayar atas fakta Produksi historis dalam periode.
 - Hasil Produksi karyawan `TRAINING` tetap dicatat untuk monitoring, tetapi
   tidak menjadi sumber nominal Payroll.
-- Komponen tambahan dikelola eksplisit per periode; pajak dan BPJS otomatis
-  belum termasuk scope awal.
+- Komponen tambahan dikelola eksplisit per periode. BPJS otomatis telah tersedia
+  untuk Borongan pada periode dan bulan iuran terpilih; pajak belum termasuk scope.
 - Net negatif memblokir approval dan closing.
 - Slip resmi hanya berasal dari periode `CLOSED`; closed bukan berarti dibayar.
 
@@ -113,8 +113,9 @@ Keputusan implementasi:
 - Komponen manual dikelola per periode dan karyawan. Satu jenis komponen hanya
   boleh memiliki satu baris aktif, sedangkan koreksi atau pembatalannya wajib
   beralasan dan dapat diaudit.
-- Rumus awal adalah bruto Produksi ditambah komponen pendapatan dikurangi
-  komponen potongan. Pajak dan BPJS belum dihitung otomatis.
+- Rumus Borongan adalah bruto Produksi ditambah komponen pendapatan dikurangi
+  komponen potongan. Jika dipilih pada periode, potongan BPJS karyawan ikut
+  mengurangi neto; pajak belum dihitung otomatis.
 - Nilai neto negatif tetap disimpan dan ditampilkan pada simulasi. Kondisi ini
   baru memblokir pengajuan serta closing dan tidak boleh diubah diam-diam
   menjadi nol.
@@ -269,25 +270,20 @@ kontrak `TRAINING`, sedangkan `BORONGAN`, `HARIAN`, dan `BULANAN` hanya memakai
 ### Milestone 5A1 - Skema upah, policy, dan master tarif
 
 - Normalisasi basis kalkulasi menjadi `PIECE_RATE` atau `TIME_BASED` dan simpan
-  frekuensi `WEEKLY` atau `MONTHLY` secara terpisah serta effective-dated.
-- Pertahankan riwayat gaji pokok untuk `BULANAN` dan sediakan riwayat tarif
-  harian khusus `HARIAN`/`TRAINING`. Tarif wajib positif, IDR, tidak overlap,
-  tidak dihapus, dan setiap koreksi atau pembatalan memiliki revision serta
-  alasan.
+  frekuensi `WEEKLY` atau `MONTHLY` secara terpisah.
+- Simpan satu gaji pokok terkini untuk `BULANAN` dan satu tarif harian terkini
+  untuk setiap karyawan `HARIAN`/`TRAINING`. Nilai wajib positif dan IDR;
+  setiap koreksi atau pembatalan tetap memiliki revision serta alasan.
 - Policy Payroll menggunakan pilihan bertipe dan tervalidasi, bukan formula
   SQL/JavaScript bebas. Pada M5A1 setiap policy wajib dimiliki satu site agar
-  resolusinya deterministik; policy memiliki versi, tanggal efektif, status,
-  alasan, audit, serta snapshot pada periode dan run. Inheritance global/site
+  resolusinya deterministik; policy memiliki status, alasan, audit, serta
+  snapshot pada periode dan run. Inheritance global/site
   belum dibuka.
 - Policy awal `TIME_BASED/MONTHLY` memakai cutoff `LAST_DAY`. Perubahan cutoff
-  hanya berlaku ke depan melalui versi baru, menampilkan preview minimal tiga
-  periode berikutnya, dan ditolak jika menimbulkan overlap atau gap.
-- Perubahan gaji pokok hanya boleh efektif tepat pada awal periode Payroll yang
-  terbentuk dari policy cutoff. Perubahan di tengah periode ditolak agar tidak
-  menghasilkan segmen nominal yang ambigu.
-- Gaji pokok pertama untuk karyawan yang join di tengah periode boleh efektif
-  pada tanggal awal eligibility/join. Pengecualian ini hanya berlaku untuk
-  initial salary, bukan perubahan nominal dari histori gaji sebelumnya.
+  langsung menjadi konfigurasi saat ini dan menampilkan preview minimal tiga
+  periode berikutnya.
+- Perubahan gaji pokok dan tarif harian berlaku untuk proses Payroll berikutnya.
+  Hasil run yang sudah dibuat tetap memakai snapshot nominal miliknya.
 - Policy awal hanya dapat dikelola `SUPER_ADMIN`. `PAYROLL_FINANCE` dapat
   melihat policy sesuai akses site, tetapi tidak mengubahnya tanpa permission
   eksplisit pada pengembangan selanjutnya.
@@ -296,23 +292,23 @@ kontrak `TRAINING`, sedangkan `BORONGAN`, `HARIAN`, dan `BULANAN` hanya memakai
 - Master UMK tersedia per site dan tahun dengan nominal IDR, referensi regulasi
   opsional, status aktif/dibatalkan, revision log, idempotency, audit, serta
   pembatasan akses site. Master ini belum masuk kalkulasi Payroll pada M5A1.
-- Implementasi BPJS berikutnya harus menyelesaikan tepat satu UMK berdasarkan
-  site dan tahun periode, lalu menyimpan UID sumber serta nominal sebagai
-  snapshot. Formula BPJS tidak boleh membaca ulang master untuk hasil lama.
+- Implementasi BPJS Borongan menyelesaikan tepat satu UMK berdasarkan site dan
+  tahun bulan iuran, lalu menyimpan UID sumber serta nominal sebagai snapshot.
+  Formula BPJS tidak membaca ulang master untuk hasil lama.
 
 ### Milestone 5A2 - Readiness dan preview segmentasi
 
 - Periode mingguan `HARIAN` dan `TRAINING` dibuat terpisah agar policy,
   populasi, snapshot, dan audit tetap deterministik.
 - Pembuatan periode memakai tanggal acuan. Server menyelesaikan tepat satu
-  policy historis, memvalidasi batas periode, lalu menyimpan identitas jenis,
+  policy aktif, memvalidasi batas periode, lalu menyimpan identitas jenis,
   basis, frekuensi, dan snapshot policy secara atomik bersama periode Draft.
 - Periode `TIME_BASED/WEEKLY` selalu Senin-Minggu selama tujuh hari dan boleh
   melintasi bulan. Periode `TIME_BASED/MONTHLY` dibentuk dari policy cutoff;
   default awal adalah tanggal 1 sampai akhir bulan.
 - Populasi memakai intersection periode, histori employment, kontrak, site,
-  jenis karyawan, policy, dan histori tarif/gaji yang efektif; data master saat
-  ini tidak boleh menggantikan fakta historis.
+  jenis karyawan, policy aktif, dan master tarif/gaji terkini. Fakta employment,
+  Attendance, dan Produksi tetap dibaca sesuai tanggal bisnisnya.
 - `HARIAN` dan `TRAINING` hanya membayar tanggal Attendance final berstatus
   `PRESENT`. Status lain bernilai nol, termasuk Alpha, Izin, Sakit, Cuti, dan
   hari libur tanpa kehadiran aktual.
@@ -385,9 +381,9 @@ kontrak `TRAINING`, sedangkan `BORONGAN`, `HARIAN`, dan `BULANAN` hanya memakai
   mengubah run sukses sebelumnya.
 - Komponen berulang tetap menjadi blocker. Komponen manual periode tetap boleh
   digunakan, sedangkan neto negatif tetap terlihat sebagai exception simulasi.
-- Pajak, BPJS, lembur, THR, dan bonus tahunan belum dihitung otomatis sampai
-  kebijakan regulasinya dikunci; penyesuaian awal tetap berupa komponen
-  eksplisit yang dapat diaudit.
+- Pajak, lembur, THR, dan bonus tahunan belum dihitung otomatis sampai kebijakan
+  regulasinya dikunci. BPJS pada fase ini hanya berlaku untuk Borongan; skema
+  TIME_BASED tetap belum memakai kalkulasi BPJS otomatis.
 - Pada tahap M5C, workflow dan output resmi `TIME_BASED` masih ditolak backend.
   M5D kemudian membukanya setelah pemeriksaan integritas lintas sumber lulus.
 
@@ -415,8 +411,8 @@ kontrak `TRAINING`, sedangkan `BORONGAN`, `HARIAN`, dan `BULANAN` hanya memakai
   potongan Izin. Ledger harian lengkap tetap berada di detail aplikasi agar
   slip cetak ringkas dan mudah dibaca.
 - M5D tidak mencatat status transfer, rekonsiliasi bank, jurnal Finance, pajak,
-  BPJS, THR, lembur, atau bonus otomatis. Closing tetap berarti hasil Payroll
-  disahkan, bukan bukti pembayaran.
+  THR, lembur, atau bonus otomatis. BPJS otomatis tersedia terpisah hanya untuk
+  Borongan. Closing tetap berarti hasil Payroll disahkan, bukan bukti pembayaran.
 
 ### Exit criteria Milestone 5D
 
@@ -447,7 +443,8 @@ kontrak `TRAINING`, sedangkan `BORONGAN`, `HARIAN`, dan `BULANAN` hanya memakai
 - Data demo hanya boleh disiapkan pada development/staging. Database production
   tidak boleh menerima seed dan mutation database tetap dijalankan owner.
 - M5E tidak menambah status pembayaran, transfer bank, rekonsiliasi, jurnal
-  Finance, pajak, BPJS, THR, lembur, bonus, atau rumus upah baru.
+  Finance, pajak, THR, lembur, bonus, atau rumus upah baru. BPJS Borongan
+  ditambahkan setelah milestone tersebut sebagai perluasan terpisah.
 
 ### Exit criteria Milestone 5E
 
@@ -463,10 +460,10 @@ kontrak `TRAINING`, sedangkan `BORONGAN`, `HARIAN`, dan `BULANAN` hanya memakai
 ### Exit criteria Milestone 5A
 
 - Matriks jenis karyawan-kontrak-skema ditegakkan oleh API dan readiness.
-- Tidak ada overlap/gap policy maupun histori tarif/gaji dan retry tidak
+- Tepat satu policy per site/jenis dan satu tarif/gaji per karyawan; retry tidak
   menggandakan baris atau revision.
 - Cutoff menghasilkan periode deterministik tanpa overlap/gap, termasuk bulan
-  28/29/30/31 hari dan perubahan policy future-effective.
+  28/29/30/31 hari dan perubahan policy saat ini.
 - Segmentasi benar untuk join, resign, transfer site, perubahan jenis/kontrak,
   serta periode mingguan lintas bulan.
 - Data Training lama dilaporkan secara aman; fakta Produksi tidak dihapus dan

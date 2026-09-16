@@ -222,6 +222,48 @@ describe('Payroll simulation service', () => {
     expect(mocks.commit).toHaveBeenCalledOnce()
   })
 
+  it('memakai kondisi kepesertaan BPJS terakhir tanpa rentang tanggal', async () => {
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const statement = String(sql)
+      if (statement.includes('FROM payroll_runs pr JOIN payroll_periods')) {
+        return [
+          [
+            {
+              ...run,
+              periodStatus: 'DRAFT',
+              deductBpjs: 1,
+              bpjsContributionMonth: '2026-08',
+            },
+          ],
+        ]
+      }
+      if (statement.includes('settlement.payroll_period_id<>'))
+        return [[{ total: 0 }]]
+      if (statement.includes('COUNT(*) total FROM payroll_employee_bpjs_details'))
+        return [[{ total: 1 }]]
+      if (statement.includes('COUNT(*) total FROM payroll_employee_results'))
+        return [[{ total: 1 }]]
+      return [[]]
+    })
+    mocks.execute.mockResolvedValue([{}])
+
+    await calculatePayrollRun(21, auth)
+
+    const enrollmentLock = mocks.query.mock.calls.find((call) =>
+      String(call[0]).includes('SELECT id FROM employee_bpjs_enrollments')
+    )
+    expect(String(enrollmentLock?.[0])).not.toContain('effective_from')
+    const bpjsInsert = mocks.execute.mock.calls.find((call) =>
+      String(call[0]).includes('INSERT INTO payroll_employee_bpjs_details')
+    )
+    expect(String(bpjsInsert?.[0])).toContain(
+      'ORDER BY latest.id DESC LIMIT 1'
+    )
+    expect(String(bpjsInsert?.[0])).not.toContain('latest.effective_from')
+    expect(String(bpjsInsert?.[0])).not.toContain('latest.effective_to')
+    expect(mocks.commit).toHaveBeenCalledOnce()
+  })
+
   it('menghitung hari terjadwal dan hadir hanya pada WORKDAY', async () => {
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement = String(sql)

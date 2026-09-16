@@ -71,7 +71,7 @@ Jangan menekan Hitung berulang ketika run masih `PROCESSING`.
 
 Dasar Borongan berasal dari snapshot transaksi Produksi `POSTED`:
 
-**Neto = hasil Produksi + komponen pendapatan - komponen potongan**
+**Neto = hasil Produksi + komponen pendapatan - komponen potongan - potongan BPJS karyawan**
 
 Payroll memakai nilai bruto yang sudah tersimpan pada transaksi. Sistem tidak
 mengalikan ulang kuantitas dengan tarif master terbaru. Transaksi `VOID` tidak
@@ -84,6 +84,12 @@ memang membuatnya menjadi populasi Payroll.
 Attendance Borongan disimpan sebagai informasi readiness dan snapshot. Alpha,
 terlambat, atau pulang awal tidak otomatis memotong upah; potongan harus memakai
 komponen eksplisit yang dapat diaudit.
+
+Jika periode mengaktifkan Potong BPJS, sistem menghitung bagian karyawan dari
+UMK site pada tahun bulan iuran dan membulatkan masing-masing program ke Rp1.000
+terdekat. Bagian perusahaan disimpan dalam snapshot terpisah, ditampilkan pada
+rincian dan slip, tetapi tidak mengurangi neto karyawan. Run lama tidak berubah
+ketika policy, UMK, atau kepesertaan kemudian dikoreksi.
 
 ## 5. Cara hitung Harian dan Training
 

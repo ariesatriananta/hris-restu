@@ -21,8 +21,6 @@ function policy(
     cutoffDay: null,
     roundingMode: 'HALF_UP',
     roundingScale: 0,
-    effectiveFrom: '2026-08-31',
-    effectiveTo: null,
     status: 'ACTIVE',
     reason: null,
     createdAt: null,

@@ -23,7 +23,10 @@ describe('Payroll approval integrity', () => {
     ])
     const result = await inspectPayrollRunIntegrity({ query }, run)
     expect(result).toEqual({ valid: true, issues: [], warnings: [] })
-    const sql = String(query.mock.calls[0]?.[0])
+    const integrityCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes('WITH live_attendance AS')
+    )
+    const sql = String(integrityCall?.[0])
     expect(sql).toContain('WITH live_attendance AS')
     expect(sql).toContain('snapshot.id IS NULL')
     expect(sql).toContain('resultDetailMismatch')
@@ -32,7 +35,7 @@ describe('Payroll approval integrity', () => {
     expect(sql).toContain('policy_snapshot.id IS NULL')
     expect(sql).not.toContain('LATERAL')
     expect((sql.match(/\?/g) ?? []).length).toBe(
-      (query.mock.calls[0]?.[1] as unknown[]).length
+      (integrityCall?.[1] as unknown[]).length
     )
   })
 
@@ -115,13 +118,35 @@ describe('Payroll approval integrity', () => {
       'POLICY_SNAPSHOT_DRIFT',
       'POPULATION_SNAPSHOT_DRIFT',
     ])
-    const sql = String(query.mock.calls[0]?.[0])
+    const integrityCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes('payroll_time_details')
+    )
+    const sql = String(integrityCall?.[0])
     expect(sql).toContain('payroll_time_details')
     expect(sql).toContain('employee_daily_rate_histories')
     expect(sql).toContain('payroll_period_policy_snapshots')
     expect(sql).not.toContain('0 scheduleDrift')
     expect((sql.match(/\?/g) ?? []).length).toBe(
-      (query.mock.calls[0]?.[1] as unknown[]).length
+      (integrityCall?.[1] as unknown[]).length
     )
+  })
+
+  it('memblokir snapshot BPJS yang tidak konsisten', async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([
+        [{ deductBpjs: 1, bpjsContributionMonth: '2026-08' }],
+      ])
+      .mockResolvedValueOnce([[{ resultEmployeeCount: 2 }]])
+      .mockResolvedValueOnce([[{ bpjsSnapshotMismatch: 1 }]])
+
+    const result = await inspectPayrollRunIntegrity({ query }, run)
+
+    expect(result.issues).toContainEqual({
+      code: 'BPJS_SNAPSHOT_MISMATCH',
+      message:
+        'Snapshot atau potongan BPJS tidak konsisten dengan hasil Payroll. Hitung ulang Payroll.',
+      count: 1,
+    })
   })
 })

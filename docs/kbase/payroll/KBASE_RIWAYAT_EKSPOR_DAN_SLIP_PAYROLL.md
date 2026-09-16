@@ -105,6 +105,9 @@ disetujui perusahaan.
 Slip menampilkan identitas snapshot, periode, dasar upah, komponen, bruto,
 potongan, neto, rekening yang disamarkan, dan ringkasan Attendance. Isi dasar
 menyesuaikan skema Borongan, Harian/Training, atau Bulanan.
+Untuk periode Borongan yang memotong BPJS, slip juga menampilkan bulan iuran,
+total potongan karyawan, dan total kontribusi perusahaan. Kontribusi perusahaan
+bersifat informasi biaya perusahaan dan tidak mengurangi neto.
 
 Pengguna dengan akses lihat boleh membuka preview. Tombol cetak individual,
 dipilih, dan massal hanya tersedia bagi pengguna dengan hak cetak Payroll.

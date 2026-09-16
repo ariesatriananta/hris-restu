@@ -16,7 +16,7 @@ keluaran Payroll. Buka panduan yang sesuai dengan tahap kerja Anda.
 
 | Panduan | Gunakan ketika |
 |---|---|
-| [Skema Upah dan Tarif](./kbase/payroll/KBASE_SKEMA_UPAH_DAN_TARIF.md) | Menyiapkan policy Payroll, tarif Harian/Training, gaji pokok Bulanan, atau memeriksa kesiapan histori Training. |
+| [Skema Upah dan Tarif](./kbase/payroll/KBASE_SKEMA_UPAH_DAN_TARIF.md) | Menyiapkan policy Payroll, tarif, gaji pokok, UMK, serta kebijakan dan kepesertaan BPJS Borongan. |
 | [Periode dan Kesiapan Payroll](./kbase/payroll/KBASE_PERIODE_DAN_KESIAPAN_PAYROLL.md) | Membuat periode Borongan atau berbasis waktu, membaca status kesiapan, menyelesaikan blocker, atau membatalkan Draft. |
 | [Simulasi dan Komponen Payroll](./kbase/payroll/KBASE_SIMULASI_DAN_KOMPONEN_PAYROLL.md) | Menambah komponen manual, menghitung atau menghitung ulang, membaca rumus dan hasil per karyawan, atau memulihkan run yang macet. |
 | [Approval dan Closing Payroll](./kbase/payroll/KBASE_APPROVAL_DAN_CLOSING_PAYROLL.md) | Mengajukan, menarik, menyetujui, menolak, atau menutup Payroll secara permanen. |
@@ -68,10 +68,13 @@ baru tanpa menghapus run sebelumnya. Closing menetapkan current run menjadi
 
 ## Batas sistem saat ini
 
-Sistem belum menghitung pajak atau BPJS secara otomatis, belum mencatat status
+Sistem belum menghitung pajak secara otomatis, belum mencatat status
 transfer sebagai workflow pembayaran, belum menyimpan PDF slip secara permanen,
 dan belum memakai tanda tangan elektronik pada slip. Kebutuhan tersebut tidak
 boleh disimpulkan dari status periode atau file keluaran Payroll.
+
+BPJS otomatis saat ini terbatas pada Payroll Borongan dan hanya dijalankan pada
+periode yang mengaktifkan **Potong BPJS** serta memilih bulan iuran.
 
 ## Urutan baca yang disarankan
 

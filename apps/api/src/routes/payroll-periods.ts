@@ -33,16 +33,30 @@ const periodStatus = z.enum(payrollPeriodStatuses)
 const employeeType = z.enum(['BORONGAN', 'HARIAN', 'TRAINING', 'BULANAN'])
 const payrollBasis = z.enum(['PIECE_RATE', 'TIME_BASED'])
 const payFrequency = z.enum(['WEEKLY', 'MONTHLY'])
-const createPeriodInput = z.object({
+const periodInputSchema = z.object({
   siteUid: uuid,
   employeeType: employeeType.default('BORONGAN'),
   periodStart: z.string().date(),
   periodEnd: z.string().date(),
   paymentDate: z.string().date().nullable().optional(),
+  deductBpjs: z.boolean().default(false),
+  bpjsContributionMonth: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable().optional(),
   periodName: z.string().trim().min(3).max(150).optional(),
   notes: z.string().trim().max(500).optional(),
 })
+const createPeriodInput = periodInputSchema.superRefine((value, context) => {
+  if (value.deductBpjs && value.employeeType !== 'BORONGAN')
+    context.addIssue({ code: 'custom', path: ['deductBpjs'], message: 'BPJS otomatis tahap ini hanya tersedia untuk Payroll Borongan.' })
+  if (value.deductBpjs && !value.bpjsContributionMonth)
+    context.addIssue({ code: 'custom', path: ['bpjsContributionMonth'], message: 'Bulan iuran wajib dipilih ketika Potong BPJS aktif.' })
+  if (!value.deductBpjs && value.bpjsContributionMonth)
+    context.addIssue({ code: 'custom', path: ['bpjsContributionMonth'], message: 'Bulan iuran hanya diisi ketika Potong BPJS aktif.' })
+})
 const cancelInput = z.object({ reason: z.string().trim().min(5).max(500) })
+const resetInput = z.object({
+  confirmation: z.string().trim().min(1).max(50),
+  reason: z.string().trim().min(5).max(500),
+})
 
 type PeriodRow = RowDataPacket & {
   id: number
@@ -59,6 +73,8 @@ type PeriodRow = RowDataPacket & {
   payrollBasis: 'PIECE_RATE' | 'TIME_BASED'
   payFrequency: 'WEEKLY' | 'MONTHLY'
   employeeType: 'BORONGAN' | 'HARIAN' | 'TRAINING' | 'BULANAN' | null
+  deductBpjs: number
+  bpjsContributionMonth: string | null
   policySnapshot: unknown | null
   status: (typeof payrollPeriodStatuses)[number]
   notes: string | null
@@ -69,6 +85,12 @@ type PeriodRow = RowDataPacket & {
 
 function isGlobalViewer(auth: AuthContext) {
   return auth.roles.includes('SUPER_ADMIN') || auth.roles.includes('DIRECTOR')
+}
+
+function assertSuperAdmin(auth: AuthContext) {
+  if (!auth.roles.includes('SUPER_ADMIN')) {
+    throw new ApiError(403, 'Reset periode Payroll hanya dapat dilakukan Super Admin.')
+  }
 }
 
 function enforceSite(auth: AuthContext, code: string) {
@@ -106,6 +128,8 @@ const periodProjection = `SELECT pp.id,pp.uid,pp.site_id siteId,
   DATE_FORMAT(pp.payment_date,'%Y-%m-%d') paymentDate,
   pp.payroll_basis payrollBasis,pp.pay_frequency payFrequency,
   pp.employee_type_code employeeType,pp.status,pp.notes,
+  pp.deduct_bpjs deductBpjs,
+  DATE_FORMAT(pp.bpjs_contribution_month,'%Y-%m') bpjsContributionMonth,
   ppps.policy_snapshot policySnapshot,
   CONCAT(DATE_FORMAT(pp.created_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') createdAt,
   IF(pp.cancelled_at IS NULL,NULL,CONCAT(DATE_FORMAT(pp.cancelled_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00')) cancelledAt,
@@ -134,6 +158,8 @@ function rowDto(row: PeriodRow, readiness: PayrollReadiness) {
     payrollBasis: row.payrollBasis,
     payFrequency: row.payFrequency,
     employeeType: row.employeeType,
+    deductBpjs: Boolean(row.deductBpjs),
+    bpjsContributionMonth: row.bpjsContributionMonth,
     policySnapshot: json(row.policySnapshot),
     status: row.status,
     notes: row.notes,
@@ -157,6 +183,8 @@ async function readinessFor(row: PeriodRow, executor: Executor = pool) {
     payFrequency: row.payFrequency,
     employeeType: row.employeeType,
     policySnapshot: json(row.policySnapshot),
+    deductBpjs: Boolean(row.deductBpjs),
+    bpjsContributionMonth: row.bpjsContributionMonth,
   })
   if (row.status === 'CANCELLED') {
     readiness.blockers.unshift({
@@ -259,6 +287,63 @@ async function loadPeriod(
   if (!row) throw new ApiError(404, 'Periode Payroll tidak ditemukan.')
   enforceSite(auth, row.siteCode)
   return row
+}
+
+type PayrollResetPreview = {
+  runs: number
+  processingRuns: number
+  employeeResults: number
+  manualComponents: number
+  approvals: number
+  workflowActions: number
+  outputAudits: number
+  bpjsSettlements: number
+  productionTransactions: number
+}
+
+async function payrollResetPreview(
+  executor: Executor,
+  payrollPeriodId: number
+): Promise<PayrollResetPreview> {
+  const parameters = Array.from({ length: 10 }, () => payrollPeriodId)
+  const [rows] = await executor.query<RowDataPacket[]>(
+    `SELECT
+       (SELECT COUNT(*) FROM payroll_runs WHERE payroll_period_id=?) runs,
+       (SELECT COUNT(*) FROM payroll_runs WHERE payroll_period_id=? AND status='PROCESSING') processingRuns,
+       (SELECT COUNT(*) FROM payroll_employee_results WHERE payroll_period_id=?) employeeResults,
+       (SELECT COUNT(*) FROM payroll_period_manual_components WHERE payroll_period_id=?) manualComponents,
+       (SELECT COUNT(*) FROM payroll_approvals WHERE payroll_period_id=?) approvals,
+       (SELECT COUNT(*) FROM payroll_workflow_actions WHERE payroll_period_id=?) workflowActions,
+       (SELECT COUNT(*) FROM payroll_output_audits WHERE payroll_period_id=?) outputAudits,
+       (SELECT COUNT(*) FROM payroll_bpjs_monthly_settlements WHERE payroll_period_id=?) bpjsSettlements,
+       (SELECT COUNT(DISTINCT referenced.production_transaction_id)
+          FROM (
+            SELECT detail.production_transaction_id
+              FROM payroll_production_details detail
+              JOIN payroll_employee_results result
+                ON result.id=detail.payroll_employee_result_id
+             WHERE result.payroll_period_id=?
+            UNION ALL
+            SELECT detail.production_transaction_id
+              FROM payroll_training_production_details detail
+              JOIN payroll_employee_results result
+                ON result.id=detail.payroll_employee_result_id
+             WHERE result.payroll_period_id=?
+          ) referenced) productionTransactions`,
+    parameters
+  )
+  const row = rows[0] ?? {}
+  return {
+    runs: Number(row.runs ?? 0),
+    processingRuns: Number(row.processingRuns ?? 0),
+    employeeResults: Number(row.employeeResults ?? 0),
+    manualComponents: Number(row.manualComponents ?? 0),
+    approvals: Number(row.approvals ?? 0),
+    workflowActions: Number(row.workflowActions ?? 0),
+    outputAudits: Number(row.outputAudits ?? 0),
+    bpjsSettlements: Number(row.bpjsSettlements ?? 0),
+    productionTransactions: Number(row.productionTransactions ?? 0),
+  }
 }
 
 export const payrollPeriodsRouter = Router()
@@ -453,12 +538,14 @@ payrollPeriodsRouter.post(
   async (req, res, next) => {
     try {
       const auth = res.locals.auth as AuthContext
-      const input = createPeriodInput
+      const input = periodInputSchema
         .pick({
           siteUid: true,
           employeeType: true,
           periodStart: true,
           periodEnd: true,
+          deductBpjs: true,
+          bpjsContributionMonth: true,
         })
         .parse(req.body)
       assertPayrollPeriodRange(input)
@@ -516,6 +603,8 @@ payrollPeriodsRouter.post(
         payFrequency: policy.payFrequency,
         employeeType: policy.employeeType,
         policySnapshot: payrollPolicySnapshot(policy),
+        deductBpjs: input.deductBpjs,
+        bpjsContributionMonth: input.bpjsContributionMonth ?? null,
         timePreviewRows: timeRows,
       })
       res.json({
@@ -663,6 +752,36 @@ payrollPeriodsRouter.get(
   }
 )
 
+payrollPeriodsRouter.get(
+  '/periods/:periodUid/reset-preview',
+  requirePermission('payroll.view'),
+  async (req, res, next) => {
+    try {
+      const auth = res.locals.auth as AuthContext
+      assertSuperAdmin(auth)
+      const row = await loadPeriod(auth, uuid.parse(req.params.periodUid))
+      const preview = await payrollResetPreview(pool, Number(row.id))
+      res.json({
+        data: {
+          periodUid: row.uid,
+          periodCode: row.periodCode,
+          periodName: row.periodName,
+          status: row.status,
+          site: { uid: row.siteUid, code: row.siteCode, name: row.siteName },
+          ...preview,
+          canReset: preview.processingRuns === 0,
+          blockerMessage:
+            preview.processingRuns > 0
+              ? 'Masih ada run Payroll berstatus PROCESSING. Tunggu proses selesai sebelum reset.'
+              : null,
+        },
+      })
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
 payrollPeriodsRouter.post(
   '/periods',
   requirePermission('payroll.calculate'),
@@ -709,8 +828,9 @@ payrollPeriodsRouter.post(
       const [result] = await conn.execute<ResultSetHeader>(
         `INSERT INTO payroll_periods(
          uid,site_id,period_code,period_name,period_start,period_end,payment_date,
-         payroll_basis,pay_frequency,employee_type_code,status,notes,created_by,updated_by
-       ) VALUES(?,?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?)`,
+         payroll_basis,pay_frequency,employee_type_code,deduct_bpjs,bpjs_contribution_month,
+         status,notes,created_by,updated_by
+       ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'DRAFT',?,?,?)`,
         [
           uidValue,
           site.id,
@@ -722,6 +842,8 @@ payrollPeriodsRouter.post(
           policy.wageBasis,
           policy.payFrequency,
           policy.employeeType,
+          input.deductBpjs,
+          input.deductBpjs ? `${input.bpjsContributionMonth}-01` : null,
           input.notes ?? null,
           auth.id,
           auth.id,
@@ -752,6 +874,8 @@ payrollPeriodsRouter.post(
             payrollBasis: policy.wageBasis,
             payFrequency: policy.payFrequency,
             employeeType: policy.employeeType,
+            deductBpjs: input.deductBpjs,
+            bpjsContributionMonth: input.bpjsContributionMonth ?? null,
             policyVersionUid: policy.uid,
             status: 'DRAFT',
           },
@@ -824,6 +948,237 @@ payrollPeriodsRouter.post(
       await conn.rollback()
       next(error)
     } finally {
+      conn.release()
+    }
+  }
+)
+
+payrollPeriodsRouter.post(
+  '/periods/:periodUid/reset',
+  requirePermission('payroll.view'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      const auth = res.locals.auth as AuthContext
+      assertSuperAdmin(auth)
+      const input = resetInput.parse(req.body)
+      const periodUid = uuid.parse(req.params.periodUid)
+
+      await conn.beginTransaction()
+      const current = await loadPeriod(auth, periodUid, true, conn)
+      if (input.confirmation !== current.periodCode) {
+        throw new ApiError(422, 'Nomor periode konfirmasi tidak sesuai.')
+      }
+
+      const preview = await payrollResetPreview(conn, Number(current.id))
+      if (preview.processingRuns > 0) {
+        throw new ApiError(
+          409,
+          'Masih ada run Payroll berstatus PROCESSING. Tunggu proses selesai sebelum reset.'
+        )
+      }
+
+      const [lockedRuns] = await conn.query<RowDataPacket[]>(
+        `SELECT id,status FROM payroll_runs WHERE payroll_period_id=? FOR UPDATE`,
+        [current.id]
+      )
+      if (lockedRuns.some((run) => run.status === 'PROCESSING')) {
+        throw new ApiError(
+          409,
+          'Masih ada run Payroll berstatus PROCESSING. Tunggu proses selesai sebelum reset.'
+        )
+      }
+      await conn.query(
+        `DROP TEMPORARY TABLE IF EXISTS tmp_payroll_ui_reset_production_ids`
+      )
+      await conn.query(
+        `CREATE TEMPORARY TABLE tmp_payroll_ui_reset_production_ids (
+           id BIGINT UNSIGNED NOT NULL PRIMARY KEY
+         ) ENGINE=InnoDB`
+      )
+      await conn.execute(
+        `INSERT IGNORE INTO tmp_payroll_ui_reset_production_ids(id)
+         SELECT detail.production_transaction_id
+           FROM payroll_production_details detail
+           JOIN payroll_employee_results result
+             ON result.id=detail.payroll_employee_result_id
+          WHERE result.payroll_period_id=?
+         UNION
+         SELECT detail.production_transaction_id
+           FROM payroll_training_production_details detail
+           JOIN payroll_employee_results result
+             ON result.id=detail.payroll_employee_result_id
+          WHERE result.payroll_period_id=?`,
+        [current.id, current.id]
+      )
+
+      await conn.execute(
+        `DELETE FROM payroll_workflow_actions WHERE payroll_period_id=?`,
+        [current.id]
+      )
+      await conn.execute(
+        `DELETE FROM payroll_output_audits WHERE payroll_period_id=?`,
+        [current.id]
+      )
+      await conn.execute(
+        `DELETE FROM payroll_approvals WHERE payroll_period_id=?`,
+        [current.id]
+      )
+
+      const resultScopedTables = [
+        'payroll_production_details',
+        'payroll_training_production_details',
+        'payroll_time_details',
+        'payroll_monthly_daily_details',
+        'payroll_monthly_summaries',
+        'payroll_attendance_summaries',
+        'payroll_employee_component_details',
+        'payroll_employee_bpjs_details',
+      ] as const
+      for (const table of resultScopedTables) {
+        await conn.execute(
+          `DELETE detail FROM ${table} detail
+            JOIN payroll_employee_results result
+              ON result.id=detail.payroll_employee_result_id
+           WHERE result.payroll_period_id=?`,
+          [current.id]
+        )
+      }
+      await conn.execute(
+        `DELETE FROM payroll_employee_results WHERE payroll_period_id=?`,
+        [current.id]
+      )
+
+      await conn.execute(
+        `DELETE revision
+           FROM payroll_period_manual_component_revisions revision
+           JOIN payroll_period_manual_components component
+             ON component.id=revision.payroll_period_manual_component_id
+          WHERE component.payroll_period_id=?`,
+        [current.id]
+      )
+      await conn.execute(
+        `DELETE FROM payroll_period_manual_components WHERE payroll_period_id=?`,
+        [current.id]
+      )
+      await conn.execute(
+        `DELETE FROM payroll_period_company_snapshots WHERE payroll_period_id=?`,
+        [current.id]
+      )
+      await conn.execute(
+        `DELETE FROM payroll_period_policy_snapshots WHERE payroll_period_id=?`,
+        [current.id]
+      )
+      await conn.execute(
+        `DELETE FROM payroll_bpjs_monthly_settlements WHERE payroll_period_id=?`,
+        [current.id]
+      )
+
+      const [unlocked] = await conn.execute<ResultSetHeader>(
+        `UPDATE production_transactions production
+           JOIN tmp_payroll_ui_reset_production_ids target
+             ON target.id=production.id
+            SET production.payroll_locked_at=NULL,
+                production.updated_by=?
+          WHERE NOT EXISTS (
+                  SELECT 1 FROM payroll_production_details remaining
+                   WHERE remaining.production_transaction_id=production.id
+                )
+            AND NOT EXISTS (
+                  SELECT 1 FROM payroll_training_production_details remaining
+                   WHERE remaining.production_transaction_id=production.id
+                )`,
+        [auth.id]
+      )
+
+      await conn.execute(
+        `UPDATE payroll_periods SET current_run_id=NULL,updated_by=? WHERE id=?`,
+        [auth.id, current.id]
+      )
+      await conn.execute(`DELETE FROM payroll_runs WHERE payroll_period_id=?`, [
+        current.id,
+      ])
+      const [deleted] = await conn.execute<ResultSetHeader>(
+        `DELETE FROM payroll_periods WHERE id=?`,
+        [current.id]
+      )
+      if (deleted.affectedRows !== 1) {
+        throw new ApiError(409, 'Periode Payroll gagal dihapus tepat satu baris.')
+      }
+
+      const [remaining] = await conn.query<RowDataPacket[]>(
+        `SELECT
+           (SELECT COUNT(*) FROM payroll_periods WHERE id=?) periods,
+           (SELECT COUNT(*) FROM payroll_runs WHERE payroll_period_id=?) runs,
+           (SELECT COUNT(*) FROM payroll_employee_results WHERE payroll_period_id=?) results,
+           (SELECT COUNT(*) FROM payroll_approvals WHERE payroll_period_id=?) approvals,
+           (SELECT COUNT(*) FROM payroll_workflow_actions WHERE payroll_period_id=?) actions,
+           (SELECT COUNT(*) FROM payroll_output_audits WHERE payroll_period_id=?) outputs,
+           (SELECT COUNT(*) FROM payroll_period_manual_components WHERE payroll_period_id=?) manualComponents,
+           (SELECT COUNT(*) FROM payroll_period_policy_snapshots WHERE payroll_period_id=?) policySnapshots,
+           (SELECT COUNT(*) FROM payroll_period_company_snapshots WHERE payroll_period_id=?) companySnapshots,
+           (SELECT COUNT(*) FROM payroll_bpjs_monthly_settlements WHERE payroll_period_id=?) bpjsSettlements`,
+        Array.from({ length: 10 }, () => current.id)
+      )
+      if (
+        Object.values(remaining[0] ?? {}).some((value) => Number(value) > 0)
+      ) {
+        throw new ApiError(
+          409,
+          'Reset dibatalkan karena masih ada data turunan Payroll yang tertinggal.'
+        )
+      }
+
+      await writeAudit(
+        {
+          auth,
+          request: req,
+          module: 'PAYROLL',
+          siteId: Number(current.siteId),
+          action: 'DELETE',
+          table: 'payroll_periods',
+          recordId: Number(current.id),
+          recordUid: current.uid,
+          description: `Reset end-to-end periode Payroll ${current.periodCode}.`,
+          reason: input.reason,
+          beforeData: {
+            periodCode: current.periodCode,
+            periodName: current.periodName,
+            periodStart: current.periodStart,
+            periodEnd: current.periodEnd,
+            status: current.status,
+            ...preview,
+          },
+          afterData: {
+            periodDeleted: true,
+            productionTransactionsUnlocked: unlocked.affectedRows,
+          },
+        },
+        conn
+      )
+
+      await conn.commit()
+      res.json({
+        data: {
+          periodUid: current.uid,
+          periodCode: current.periodCode,
+          previousStatus: current.status,
+          ...preview,
+          productionTransactionsUnlocked: unlocked.affectedRows,
+          periodDeleted: true,
+        },
+      })
+    } catch (error) {
+      await conn.rollback()
+      next(error)
+    } finally {
+      try {
+        await conn.query(
+          `DROP TEMPORARY TABLE IF EXISTS tmp_payroll_ui_reset_production_ids`
+        )
+      } catch {
+        // Koneksi akan dilepas; kegagalan cleanup tidak boleh menutupi hasil reset.
+      }
       conn.release()
     }
   }

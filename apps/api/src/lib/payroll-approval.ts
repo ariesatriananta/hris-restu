@@ -26,6 +26,8 @@ type RunScope = {
   payFrequency?: 'WEEKLY' | 'MONTHLY'
   employeeType?: 'BORONGAN' | 'HARIAN' | 'TRAINING' | 'BULANAN'
   policySnapshot?: unknown
+  deductBpjs?: boolean
+  bpjsContributionMonth?: string | null
 }
 
 function issue(code: string, message: string, count: unknown) {
@@ -70,6 +72,8 @@ function integrityFromFacts(
     issues.push(issue('RESULT_DETAIL_MISMATCH','Hasil per karyawan tidak konsisten dengan detail snapshot.',facts.resultDetailMismatch))
   if (Number(facts.populationDrift ?? 0) > 0)
     issues.push(issue('POPULATION_SNAPSHOT_DRIFT','Populasi Payroll berubah setelah simulasi. Hitung ulang Payroll.',facts.populationDrift))
+  if (Number(facts.bpjsSnapshotMismatch ?? 0) > 0)
+    issues.push(issue('BPJS_SNAPSHOT_MISMATCH','Snapshot atau potongan BPJS tidak konsisten dengan hasil Payroll. Hitung ulang Payroll.',facts.bpjsSnapshotMismatch))
   return { valid: issues.length === 0, issues, warnings }
 }
 
@@ -94,8 +98,6 @@ async function inspectTimeBasedRunIntegrity(
          LEFT JOIN employee_salary_histories salary ON salary.id=detail.employee_salary_history_id
         WHERE result.payroll_run_id=pr.id AND (
           salary.id IS NULL OR salary.status<>'ACTIVE' OR
-          salary.effective_from>detail.business_date OR
-          COALESCE(salary.effective_to,'9999-12-31')<detail.business_date OR
           NOT (salary.basic_salary<=>detail.full_basic_salary_snapshot) OR
           NOT (salary.currency<=>detail.currency_snapshot)
         )),0) salaryDrift, 0 rateDrift,`
@@ -104,8 +106,6 @@ async function inspectTimeBasedRunIntegrity(
          LEFT JOIN employee_daily_rate_histories rate ON rate.id=detail.employee_daily_rate_history_id
         WHERE result.payroll_run_id=pr.id AND (
           rate.id IS NULL OR rate.status<>'ACTIVE' OR rate.employee_type_code<>? OR
-          rate.effective_from>detail.business_date OR
-          COALESCE(rate.effective_to,'9999-12-31')<detail.business_date OR
           NOT (rate.daily_rate<=>detail.daily_rate_snapshot) OR
           NOT (rate.currency<=>'IDR')
         )),0) rateDrift, 0 salaryDrift,`
@@ -331,6 +331,16 @@ export async function inspectPayrollRunIntegrity(
   executor: Executor,
   run: RunScope
 ): Promise<PayrollRunIntegrity> {
+  const [periodConfigRows] = await executor.query<RowDataPacket[]>(
+    `SELECT deduct_bpjs deductBpjs,
+            DATE_FORMAT(bpjs_contribution_month,'%Y-%m') bpjsContributionMonth
+       FROM payroll_periods WHERE id=?`,
+    [run.periodId]
+  )
+  const periodConfig = periodConfigRows[0] ?? {}
+  const deductBpjs = Number(periodConfig.deductBpjs ?? run.deductBpjs ?? 0) === 1
+  const bpjsContributionMonth =
+    periodConfig.bpjsContributionMonth ?? run.bpjsContributionMonth ?? null
   const readiness = await evaluatePayrollReadiness(executor, {
     id: run.periodId,
     siteId: run.siteId,
@@ -340,6 +350,8 @@ export async function inspectPayrollRunIntegrity(
     payFrequency: run.payFrequency,
     employeeType: run.employeeType,
     policySnapshot: run.policySnapshot,
+    deductBpjs,
+    bpjsContributionMonth,
   })
   if (run.payrollBasis === 'TIME_BASED') {
     return inspectTimeBasedRunIntegrity(executor, run, readiness)
@@ -558,5 +570,41 @@ export async function inspectPayrollRunIntegrity(
       run.id,
     ]
   )
-  return integrityFromFacts(readiness, rows[0] ?? {})
+  const facts = rows[0] ?? {}
+  if (deductBpjs) {
+    const [bpjsRows] = await executor.query<RowDataPacket[]>(
+      `SELECT
+         ABS(
+           (SELECT COUNT(*) FROM payroll_employee_results result WHERE result.payroll_run_id=?) -
+           (SELECT COUNT(*) FROM payroll_employee_bpjs_details detail
+             JOIN payroll_employee_results result ON result.id=detail.payroll_employee_result_id
+            WHERE result.payroll_run_id=?)
+         ) +
+         (SELECT COUNT(*) FROM payroll_employee_bpjs_details detail
+           JOIN payroll_employee_results result ON result.id=detail.payroll_employee_result_id
+           LEFT JOIN payroll_bpjs_monthly_settlements settlement
+             ON settlement.id=detail.payroll_bpjs_settlement_id
+          WHERE result.payroll_run_id=? AND (
+            settlement.id IS NULL OR settlement.payroll_period_id<>? OR
+            DATE_FORMAT(settlement.contribution_month,'%Y-%m')<>? OR
+            NOT (detail.total_employee_deduction<=>
+              (detail.health_employee_amount+detail.jht_employee_amount+detail.jp_employee_amount)) OR
+            NOT (detail.total_employer_contribution<=>
+              (detail.health_employer_amount+detail.jht_employer_amount+
+               detail.jkk_employer_amount+detail.jkm_employer_amount+detail.jp_employer_amount)) OR
+            NOT (detail.total_employee_deduction<=>COALESCE((
+              SELECT SUM(component.amount)
+                FROM payroll_employee_component_details component
+               WHERE component.payroll_employee_result_id=result.id
+                 AND component.source_type='SYSTEM'
+                 AND component.component_code_snapshot IN (
+                   'BPJS_HEALTH_EMPLOYEE','BPJS_JHT_EMPLOYEE','BPJS_JP_EMPLOYEE'
+                 )
+            ),0))
+          )) bpjsSnapshotMismatch`,
+      [run.id, run.id, run.id, run.periodId, bpjsContributionMonth]
+    )
+    facts.bpjsSnapshotMismatch = bpjsRows[0]?.bpjsSnapshotMismatch ?? 0
+  }
+  return integrityFromFacts(readiness, facts)
 }

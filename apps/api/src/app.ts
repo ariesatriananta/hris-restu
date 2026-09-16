@@ -12,6 +12,7 @@ import { filesRouter } from './routes/files.js'
 import { healthRouter } from './routes/health.js'
 import { internalRouter } from './routes/internal.js'
 import { payrollApprovalsRouter } from './routes/payroll-approvals.js'
+import { payrollBpjsRouter } from './routes/payroll-bpjs.js'
 import { payrollConfigurationRouter } from './routes/payroll-configuration.js'
 import { payrollHistoryRouter } from './routes/payroll-history.js'
 import { payrollPeriodsRouter } from './routes/payroll-periods.js'
@@ -30,7 +31,7 @@ import { systemRouter } from './routes/system.js'
 export const app = express()
 if (env.NODE_ENV === 'production' && env.TRUST_PROXY) app.set('trust proxy', 1)
 app.use(cors({ origin: env.FRONTEND_ORIGIN, credentials: true }))
-app.use(express.json({ limit: '1mb' }))
+app.use(express.json({ limit: '5mb' }))
 app.use(cookieParser())
 app.use('/api/health', healthRouter)
 // Hanya route ini yang publik. Endpoint pengelolaan Rekrutmen tetap akan
@@ -52,6 +53,7 @@ app.use('/api/payroll', payrollSimulationsRouter)
 app.use('/api/payroll', payrollApprovalsRouter)
 app.use('/api/payroll', payrollHistoryRouter)
 app.use('/api/payroll', payrollConfigurationRouter)
+app.use('/api/payroll', payrollBpjsRouter)
 app.use('/api/system/access-management', systemUserAccessRouter)
 app.use('/api/system/audit-trail', systemAuditTrailRouter)
 app.use('/api/system', systemRouter)

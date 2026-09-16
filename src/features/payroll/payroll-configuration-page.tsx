@@ -1,26 +1,24 @@
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { isAxiosError } from 'axios'
 import { format, parseISO } from 'date-fns'
+import type { ColumnDef } from '@tanstack/react-table'
 import { id } from 'date-fns/locale'
 import {
-  AlertTriangle,
   BadgeDollarSign,
   Banknote,
   CalendarClock,
   Check,
   ChevronsUpDown,
-  CircleDollarSign,
   Eye,
   History,
+  HeartPulse,
   LoaderCircle,
   Landmark,
   PencilLine,
   Plus,
-  Search,
   Settings2,
   ShieldAlert,
   XCircle,
-  type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -29,7 +27,7 @@ import {
   useSiteScopeFilter,
 } from '@/hooks/use-site-scope-filter'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -69,16 +67,16 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { DatePicker } from '@/components/date-picker'
+import {
+  DataTableActionButton,
+  DataTableColumnHeader,
+} from '@/components/data-table'
 import { Main } from '@/components/layout/main'
 import { SiteScopeFilter } from '@/components/site-scope-filter'
-import {
-  dateOnlyFromInput,
-  dateOnlyToInput,
-} from '@/features/attendance/date-only'
+import { BpjsPolicySection } from './bpjs-policy-section'
+import { ConfigurationDataTable } from './configuration-data-table'
 import {
   useCancelPayrollRate,
   useCorrectPayrollRate,
@@ -101,7 +99,12 @@ import type {
 import { MinimumWageSection } from './minimum-wage-section'
 import { formatDecimalString } from './money'
 
-type ConfigurationTab = 'policy' | 'daily-rate' | 'salary' | 'minimum-wage'
+type ConfigurationTab =
+  | 'policy'
+  | 'daily-rate'
+  | 'salary'
+  | 'minimum-wage'
+  | 'bpjs'
 type SearchState = Record<string, unknown>
 type RateResource = 'daily-rates' | 'salaries'
 
@@ -117,6 +120,7 @@ const tabValues: ConfigurationTab[] = [
   'daily-rate',
   'salary',
   'minimum-wage',
+  'bpjs',
 ]
 
 function localDate(value: string | null) {
@@ -145,26 +149,6 @@ function createKey(prefix: string) {
   return `${prefix}-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`
 }
 
-function DateField({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string
-  onChange: (value: string) => void
-  placeholder: string
-}) {
-  return (
-    <DatePicker
-      selected={dateOnlyFromInput(value)}
-      onSelect={(date) => onChange(dateOnlyToInput(date))}
-      placeholder={placeholder}
-      fromYear={2020}
-      toYear={new Date().getFullYear() + 6}
-    />
-  )
-}
-
 export function PayrollConfigurationPage({
   search,
   navigate,
@@ -183,16 +167,13 @@ export function PayrollConfigurationPage({
   const site = effectiveSite ?? ''
   const employeeType =
     typeof search.employeeType === 'string' ? search.employeeType : ''
-  const status =
-    typeof search.status === 'string'
-      ? search.status
-      : tab === 'minimum-wage'
-        ? ''
-        : 'ACTIVE'
+  const status = typeof search.status === 'string' ? search.status : ''
   const query = typeof search.query === 'string' ? search.query : ''
   const year = typeof search.year === 'number' ? search.year : undefined
   const page = typeof search.page === 'number' ? search.page : 1
   const pageSize = typeof search.pageSize === 'number' ? search.pageSize : 50
+  const sortBy = typeof search.sortBy === 'string' ? search.sortBy : ''
+  const sortDirection = search.sortDirection === 'asc' ? 'asc' : 'desc'
   const selectedUid =
     typeof search.detailUid === 'string' ? search.detailUid : ''
   const patch = (value: SearchState) =>
@@ -204,6 +185,11 @@ export function PayrollConfigurationPage({
       site: site || undefined,
       employeeType: employeeType || undefined,
       status: status || undefined,
+      query: query || undefined,
+      sortBy: sortBy || undefined,
+      sortDirection,
+      page,
+      pageSize,
     },
     tab === 'policy'
   )
@@ -213,6 +199,10 @@ export function PayrollConfigurationPage({
       employeeType: employeeType || undefined,
       status: status || undefined,
       query: query || undefined,
+      sortBy: sortBy || undefined,
+      sortDirection,
+      page,
+      pageSize,
     },
     tab === 'daily-rate'
   )
@@ -221,6 +211,10 @@ export function PayrollConfigurationPage({
       site: site || undefined,
       status: status || undefined,
       query: query || undefined,
+      sortBy: sortBy || undefined,
+      sortDirection,
+      page,
+      pageSize,
     },
     tab === 'salary'
   )
@@ -231,6 +225,9 @@ export function PayrollConfigurationPage({
       status: status || undefined,
       page,
       pageSize,
+      query: query || undefined,
+      sortBy: sortBy || undefined,
+      sortDirection,
     },
     tab === 'minimum-wage'
   )
@@ -239,10 +236,7 @@ export function PayrollConfigurationPage({
     tab === 'salary' ? (salaries.data?.data ?? []) : (rates.data?.data ?? [])
   const selectedPolicy = policyItems.find((item) => item.uid === selectedUid)
   const selectedRate = rateItems.find((item) => item.uid === selectedUid)
-  const capabilities =
-    meta.data?.capabilities ??
-    policies.data?.meta.capabilities ??
-    rates.data?.meta.capabilities
+  const capabilities = meta.data?.capabilities
 
   return (
     <Main>
@@ -284,6 +278,12 @@ export function PayrollConfigurationPage({
               query: undefined,
               year: undefined,
               page: undefined,
+              bpjsNumberStatus: undefined,
+              bpjsParticipationStatus: undefined,
+              bpjsSortBy: undefined,
+              bpjsSortDirection: undefined,
+              sortBy: undefined,
+              sortDirection: undefined,
             })
           }
         >
@@ -304,6 +304,10 @@ export function PayrollConfigurationPage({
               <Landmark className='size-4' />
               UMK Site
             </TabsTrigger>
+            <TabsTrigger value='bpjs' className='h-10 gap-2 px-4'>
+              <HeartPulse className='size-4' />
+              Kebijakan BPJS
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value='policy' className='mt-4 space-y-4'>
@@ -317,6 +321,8 @@ export function PayrollConfigurationPage({
               canManage={capabilities?.canManagePolicy === true}
               onFilter={patch}
               onOpen={(uid: string) => patch({ detailUid: uid })}
+              search={search}
+              navigate={navigate}
             />
           </TabsContent>
 
@@ -327,17 +333,16 @@ export function PayrollConfigurationPage({
               resource='daily-rates'
               queryState={rates}
               items={rates.data?.data ?? []}
-              employees={
-                meta.data?.employees ?? rates.data?.meta.employees ?? []
-              }
-              sites={meta.data?.sites ?? rates.data?.meta.sites ?? []}
+              employees={meta.data?.employees ?? []}
+              sites={meta.data?.sites ?? []}
               site={site}
               employeeType={employeeType}
               status={status}
-              searchQuery={query}
               canManage={capabilities?.canManageRates === true}
               onFilter={patch}
               onOpen={(uid: string) => patch({ detailUid: uid })}
+              search={search}
+              navigate={navigate}
             />
           </TabsContent>
 
@@ -348,17 +353,16 @@ export function PayrollConfigurationPage({
               resource='salaries'
               queryState={salaries}
               items={salaries.data?.data ?? []}
-              employees={
-                meta.data?.employees ?? salaries.data?.meta.employees ?? []
-              }
-              sites={meta.data?.sites ?? salaries.data?.meta.sites ?? []}
+              employees={meta.data?.employees ?? []}
+              sites={meta.data?.sites ?? []}
               site={site}
               employeeType='BULANAN'
               status={status}
-              searchQuery={query}
               canManage={capabilities?.canManageRates === true}
               onFilter={patch}
               onOpen={(uid: string) => patch({ detailUid: uid })}
+              search={search}
+              navigate={navigate}
             />
           </TabsContent>
 
@@ -373,6 +377,20 @@ export function PayrollConfigurationPage({
               pageSize={pageSize}
               canManage={capabilities?.canManageRates === true}
               onFilter={patch}
+              search={search}
+              navigate={navigate}
+            />
+          </TabsContent>
+          <TabsContent value='bpjs' className='mt-4 space-y-4'>
+            <BpjsPolicySection
+              sites={meta.data?.sites ?? []}
+              site={site}
+              year={year}
+              canManagePolicy={capabilities?.canManagePolicy === true}
+              canManageEnrollment={capabilities?.canManageRates === true}
+              onFilter={patch}
+              search={search}
+              navigate={navigate}
             />
           </TabsContent>
         </Tabs>
@@ -395,7 +413,6 @@ function Filters({
   site,
   employeeType,
   status,
-  query,
   showEmployeeType,
   onChange,
 }: {
@@ -403,42 +420,19 @@ function Filters({
   site: string
   employeeType: string
   status: string
-  query?: string
   showEmployeeType: boolean
   onChange: (value: SearchState) => void
 }) {
   const { lockedSite } = useSiteScopeFilter(site ? [site] : undefined)
   return (
-    <div
-      className={cn(
-        'grid min-w-0 flex-1 gap-2 sm:grid-cols-2',
-        query !== undefined && showEmployeeType
-          ? 'lg:grid-cols-[minmax(240px,1fr)_repeat(3,minmax(150px,190px))]'
-          : query !== undefined
-            ? 'lg:grid-cols-[minmax(240px,1fr)_repeat(2,minmax(150px,190px))]'
-            : 'lg:grid-cols-3'
-      )}
-    >
-      {query !== undefined && (
-        <div className='relative min-w-0'>
-          <Search className='absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground' />
-          <Input
-            value={query}
-            onChange={(event) =>
-              onChange({ query: event.target.value || undefined })
-            }
-            placeholder='Cari nama atau nomor karyawan...'
-            className='pl-9'
-          />
-        </div>
-      )}
+    <div className='flex max-w-full flex-wrap gap-2'>
       {lockedSite ? (
         <SiteScopeFilter
           siteLabel={siteScopeLabel(
             lockedSite,
             sites.map((item) => ({ value: item.code, label: item.name }))
           )}
-          className='h-9 w-full'
+          className='h-8 w-full sm:w-auto'
         />
       ) : (
         <Select
@@ -447,7 +441,10 @@ function Filters({
             onChange({ site: value === 'ALL' ? undefined : value })
           }
         >
-          <SelectTrigger className='w-full' aria-label='Filter site'>
+          <SelectTrigger
+            className='h-8 w-full sm:w-44'
+            aria-label='Filter site'
+          >
             <SelectValue placeholder='Semua site' />
           </SelectTrigger>
           <SelectContent>
@@ -467,7 +464,10 @@ function Filters({
             onChange({ employeeType: value === 'ALL' ? undefined : value })
           }
         >
-          <SelectTrigger className='w-full' aria-label='Filter jenis karyawan'>
+          <SelectTrigger
+            className='h-8 w-full sm:w-40'
+            aria-label='Filter jenis karyawan'
+          >
             <SelectValue placeholder='Semua jenis' />
           </SelectTrigger>
           <SelectContent>
@@ -488,7 +488,10 @@ function Filters({
           onChange({ status: value === 'ALL' ? undefined : value })
         }
       >
-        <SelectTrigger className='w-full' aria-label='Filter status'>
+        <SelectTrigger
+          className='h-8 w-full sm:w-36'
+          aria-label='Filter status'
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -511,6 +514,8 @@ function PolicySection({
   canManage,
   onFilter,
   onOpen,
+  search,
+  navigate,
 }: {
   query: ReturnType<typeof usePayrollPolicies>
   items: PayrollPolicyVersion[]
@@ -521,47 +526,148 @@ function PolicySection({
   canManage: boolean
   onFilter: (value: SearchState) => void
   onOpen: (uid: string) => void
+  search: SearchState
+  navigate: NavigateFn
 }) {
   const [dialogOpen, setDialogOpen] = useState(false)
+  const sortBy =
+    search.sortBy === 'site' ||
+    search.sortBy === 'employeeType' ||
+    search.sortBy === 'status'
+      ? search.sortBy
+      : 'site'
+  const sortDirection = search.sortDirection === 'asc' ? 'asc' : 'desc'
+  const columns = useMemo<ColumnDef<PayrollPolicyVersion>[]>(
+    () => [
+      {
+        id: 'site',
+        accessorFn: (item) => item.site.name,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Site' />
+        ),
+        cell: ({ row }) => (
+          <div>
+            <p className='font-medium'>{row.original.site.name}</p>
+            <p className='text-xs text-muted-foreground'>
+              {row.original.site.code}
+            </p>
+          </div>
+        ),
+      },
+      {
+        id: 'employeeType',
+        accessorFn: (item) => item.employeeType,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Jenis karyawan' />
+        ),
+        cell: ({ row }) => employeeTypeLabels[row.original.employeeType],
+      },
+      {
+        id: 'scheme',
+        header: 'Skema',
+        cell: ({ row }) => (
+          <div>
+            <p>
+              {row.original.wageBasis === 'TIME_BASED'
+                ? 'Satuan waktu'
+                : 'Satuan hasil'}
+            </p>
+            <p className='text-xs text-muted-foreground'>
+              {row.original.payFrequency === 'WEEKLY' ? 'Mingguan' : 'Bulanan'}
+            </p>
+          </div>
+        ),
+        enableSorting: false,
+      },
+      {
+        id: 'status',
+        accessorFn: (item) => item.status,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Status' />
+        ),
+        cell: ({ row }) => (
+          <Badge
+            variant={row.original.status === 'ACTIVE' ? 'default' : 'secondary'}
+          >
+            {row.original.status === 'ACTIVE' ? 'Aktif' : 'Dibatalkan'}
+          </Badge>
+        ),
+      },
+      {
+        id: 'actions',
+        header: () => <span className='sr-only'>Aksi</span>,
+        cell: ({ row }) => (
+          <DataTableActionButton
+            label={`Lihat policy ${row.original.employeeType}`}
+            onClick={() => onOpen(row.original.uid)}
+          >
+            <Eye />
+          </DataTableActionButton>
+        ),
+        enableSorting: false,
+        enableHiding: false,
+      },
+    ],
+    [onOpen]
+  )
   return (
     <>
-      <div className='flex flex-wrap items-end justify-between gap-3'>
-        <Filters
-          sites={sites}
-          site={site}
-          employeeType={employeeType}
-          status={status}
-          showEmployeeType
-          onChange={onFilter}
-        />
+      <div className='flex flex-wrap items-start justify-between gap-3'>
+        <div>
+          <h2 className='text-lg font-semibold'>Kebijakan Payroll</h2>
+          <p className='text-sm text-muted-foreground'>
+            Skema dan periode Payroll yang berlaku saat ini per site.
+          </p>
+        </div>
         {canManage && (
           <Button onClick={() => setDialogOpen(true)}>
             <Plus className='size-4' />
-            Buat versi policy
+            Atur policy
           </Button>
         )}
       </div>
-      {query.isPending ? (
-        <CardsSkeleton />
-      ) : query.isError ? (
-        <ErrorState onRetry={() => query.refetch()} />
-      ) : items.length ? (
-        <div className='grid gap-3 lg:grid-cols-2 xl:grid-cols-3'>
-          {items.map((policy: PayrollPolicyVersion) => (
-            <PolicyCard
-              key={policy.uid}
-              policy={policy}
-              onOpen={() => onOpen(policy.uid)}
-            />
-          ))}
-        </div>
-      ) : (
-        <EmptyState
-          icon={Settings2}
-          title='Policy belum tersedia'
-          description='Buat versi policy pertama untuk mengunci skema dan periode Payroll.'
-        />
-      )}
+      <ConfigurationDataTable
+        data={items}
+        columns={columns}
+        search={search}
+        navigate={navigate}
+        total={query.data?.meta.total ?? 0}
+        totalPages={query.data?.meta.totalPages ?? 1}
+        isPending={query.isPending}
+        isError={query.isError}
+        onRetry={() => query.refetch()}
+        sortBy={sortBy}
+        sortDirection={sortDirection}
+        searchPlaceholder='Cari site atau jenis karyawan...'
+        emptyMessage='Belum ada kebijakan yang sesuai filter.'
+        additionalFilters={
+          <Filters
+            sites={sites}
+            site={site}
+            employeeType={employeeType}
+            status={status}
+            showEmployeeType
+            onChange={(value) => onFilter({ ...value, page: undefined })}
+          />
+        }
+        hasAdditionalFilters={Boolean(site || employeeType || status)}
+        onResetAdditionalFilters={() =>
+          onFilter({
+            site: undefined,
+            employeeType: undefined,
+            status: undefined,
+            page: undefined,
+          })
+        }
+        getRowId={(item) => item.uid}
+        mobileCard={(policy) => (
+          <PolicyCard
+            key={policy.uid}
+            policy={policy}
+            onOpen={() => onOpen(policy.uid)}
+          />
+        )}
+      />
       <PolicyDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
@@ -593,7 +699,7 @@ export function PolicyCard({
             </Badge>
           </div>
           <p className='text-sm text-muted-foreground'>
-            {policy.site.name} · Riwayat policy
+            {policy.site.name} · Konfigurasi saat ini
           </p>
         </div>
         <Button
@@ -626,12 +732,11 @@ export function PolicyCard({
                 : `Tanggal ${policy.cutoffDay}`
           }
         />
-        <Fact label='Efektif' value={localDate(policy.effectiveFrom)} />
+        <Fact label='Status' value={policy.status === 'ACTIVE' ? 'Aktif' : 'Nonaktif'} />
       </div>
-      <div className='mt-4 flex items-center gap-2 border-t pt-3 text-xs text-muted-foreground'>
-        <CalendarClock className='size-3.5' />
-        {localDate(policy.effectiveFrom)} — {localDate(policy.effectiveTo)}
-      </div>
+      <p className='mt-4 border-t pt-3 text-xs text-muted-foreground'>
+        Perubahan berlaku langsung untuk proses Payroll berikutnya.
+      </p>
     </article>
   )
 }
@@ -652,7 +757,6 @@ function PolicyDialog({
     'LAST_DAY'
   )
   const [cutoffDay, setCutoffDay] = useState('')
-  const [effectiveFrom, setEffectiveFrom] = useState('')
   const [reason, setReason] = useState('')
   const [previewSignature, setPreviewSignature] = useState('')
   const preview = usePreviewPayrollPolicy()
@@ -672,7 +776,6 @@ function PolicyDialog({
       matrix.payFrequency === 'MONTHLY' && cutoffType === 'DAY_OF_MONTH'
         ? Number(cutoffDay)
         : undefined,
-    effectiveFrom,
   }
   const currentSignature = JSON.stringify(input)
   const cutoffValid =
@@ -680,7 +783,7 @@ function PolicyDialog({
     matrix.payFrequency !== 'MONTHLY' ||
     (Number(cutoffDay) >= 1 && Number(cutoffDay) <= 31)
   const valid =
-    siteUid && effectiveFrom && reason.trim().length >= 5 && cutoffValid
+    siteUid && reason.trim().length >= 5 && cutoffValid
   const submit = async () => {
     try {
       await create.mutateAsync({
@@ -688,7 +791,7 @@ function PolicyDialog({
         reason: reason.trim(),
         idempotencyKey: createKey('payroll-policy'),
       })
-      toast.success('Versi policy berhasil dibuat.')
+      toast.success('Policy Payroll berhasil disimpan.')
       onOpenChange(false)
     } catch (error) {
       toast.error(apiMessage(error, 'Policy gagal disimpan.'))
@@ -707,10 +810,9 @@ function PolicyDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-2xl'>
         <DialogHeader>
-          <DialogTitle>Buat Versi Policy</DialogTitle>
+          <DialogTitle>Atur Policy Payroll</DialogTitle>
           <DialogDescription>
-            Policy baru hanya berlaku ke depan dan tidak mengubah periode yang
-            sudah berjalan.
+            Konfigurasi ini langsung menjadi policy aktif untuk proses Payroll berikutnya.
           </DialogDescription>
         </DialogHeader>
         <div className='grid gap-4 sm:grid-cols-2'>
@@ -753,13 +855,6 @@ function PolicyDialog({
             label='Skema terkunci'
             value={`${matrix.wageBasis === 'TIME_BASED' ? 'Satuan waktu' : 'Satuan hasil'} · ${matrix.payFrequency === 'WEEKLY' ? 'Mingguan' : 'Bulanan'}`}
           />
-          <Field label='Mulai berlaku'>
-            <DateField
-              value={effectiveFrom}
-              onChange={setEffectiveFrom}
-              placeholder='Pilih tanggal efektif'
-            />
-          </Field>
           {matrix.payFrequency === 'MONTHLY' && (
             <>
               <Field label='Aturan cutoff'>
@@ -806,7 +901,7 @@ function PolicyDialog({
           <Button
             variant='outline'
             disabled={
-              !siteUid || !effectiveFrom || !cutoffValid || preview.isPending
+              !siteUid || !cutoffValid || preview.isPending
             }
             onClick={runPreview}
           >
@@ -845,10 +940,11 @@ function RateSection({
   site,
   employeeType,
   status,
-  searchQuery,
   canManage,
   onFilter,
   onOpen,
+  search,
+  navigate,
 }: {
   title: string
   description: string
@@ -860,10 +956,11 @@ function RateSection({
   site: string
   employeeType: string
   status: string
-  searchQuery: string
   canManage: boolean
   onFilter: (value: SearchState) => void
   onOpen: (uid: string) => void
+  search: SearchState
+  navigate: NavigateFn
 }) {
   const [dialog, setDialog] = useState<{
     mode: 'create' | 'correct' | 'cancel'
@@ -874,6 +971,121 @@ function RateSection({
       resource === 'salaries'
         ? item.employeeType === 'BULANAN'
         : ['HARIAN', 'TRAINING'].includes(item.employeeType)
+  )
+  const sortBy =
+    search.sortBy === 'site' ||
+    search.sortBy === 'employeeType' ||
+    search.sortBy === 'amount' ||
+    search.sortBy === 'status'
+      ? search.sortBy
+      : 'employee'
+  const sortDirection = search.sortDirection === 'desc' ? 'desc' : 'asc'
+  const columns = useMemo<ColumnDef<PayrollEmployeeRate>[]>(
+    () => [
+      {
+        id: 'employee',
+        accessorFn: (item) => item.employee.fullName,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Karyawan' />
+        ),
+        cell: ({ row }) => (
+          <div className='min-w-44'>
+            <p className='font-medium'>{row.original.employee.fullName}</p>
+            <p className='text-xs text-muted-foreground'>
+              {row.original.employee.employeeNumber}
+            </p>
+          </div>
+        ),
+      },
+      {
+        id: 'site',
+        accessorFn: (item) => item.site.name,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Site' />
+        ),
+      },
+      {
+        id: 'employeeType',
+        accessorFn: (item) => item.employee.employeeType,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Jenis' />
+        ),
+        cell: ({ row }) =>
+          employeeTypeLabels[row.original.employee.employeeType],
+      },
+      {
+        id: 'amount',
+        accessorFn: (item) => item.amount,
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            column={column}
+            title={resource === 'salaries' ? 'Gaji pokok' : 'Tarif per hari'}
+          />
+        ),
+        cell: ({ row }) => (
+          <span
+            className={cn(
+              'font-semibold whitespace-nowrap tabular-nums',
+              row.original.amountMasked && 'text-muted-foreground'
+            )}
+          >
+            {money(row.original.amount)}
+          </span>
+        ),
+      },
+      {
+        id: 'status',
+        accessorFn: (item) => item.status,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Status' />
+        ),
+        cell: ({ row }) => (
+          <Badge
+            variant={row.original.status === 'ACTIVE' ? 'default' : 'secondary'}
+          >
+            {row.original.status === 'ACTIVE' ? 'Aktif' : 'Dibatalkan'}
+          </Badge>
+        ),
+      },
+      {
+        id: 'actions',
+        header: () => <span className='sr-only'>Aksi</span>,
+        cell: ({ row }) => (
+          <div className='flex justify-end gap-1'>
+            <DataTableActionButton
+              label={`Lihat histori ${row.original.employee.fullName}`}
+              onClick={() => onOpen(row.original.uid)}
+            >
+              <Eye />
+            </DataTableActionButton>
+            {canManage && row.original.status === 'ACTIVE' && (
+              <>
+                <DataTableActionButton
+                  label={`Koreksi ${row.original.employee.fullName}`}
+                  onClick={() =>
+                    setDialog({ mode: 'correct', item: row.original })
+                  }
+                >
+                  <PencilLine />
+                </DataTableActionButton>
+                <DataTableActionButton
+                  label={`Batalkan ${row.original.employee.fullName}`}
+                  className='text-destructive'
+                  onClick={() =>
+                    setDialog({ mode: 'cancel', item: row.original })
+                  }
+                >
+                  <XCircle />
+                </DataTableActionButton>
+              </>
+            )}
+          </div>
+        ),
+        enableSorting: false,
+        enableHiding: false,
+      },
+    ],
+    [canManage, onOpen, resource]
   )
   return (
     <>
@@ -889,101 +1101,93 @@ function RateSection({
           </Button>
         )}
       </div>
-      <Filters
-        sites={sites}
-        site={site}
-        employeeType={employeeType}
-        status={status}
-        query={searchQuery}
-        showEmployeeType={resource === 'daily-rates'}
-        onChange={onFilter}
-      />
-      {queryState.isPending ? (
-        <TimelineSkeleton />
-      ) : queryState.isError ? (
-        <ErrorState onRetry={() => queryState.refetch()} />
-      ) : items.length ? (
-        <div className='divide-y rounded-xl border bg-card'>
-          {items.map((item: PayrollEmployeeRate) => (
-            <article
-              key={item.uid}
-              className='grid gap-3 p-3 sm:grid-cols-[minmax(190px,1.4fr)_minmax(140px,1fr)_minmax(175px,1fr)_auto] sm:items-center'
-            >
+      <ConfigurationDataTable
+        data={items}
+        columns={columns}
+        search={search}
+        navigate={navigate}
+        total={queryState.data?.meta.total ?? 0}
+        totalPages={queryState.data?.meta.totalPages ?? 1}
+        isPending={queryState.isPending}
+        isError={queryState.isError}
+        onRetry={() => queryState.refetch()}
+        sortBy={sortBy}
+        sortDirection={sortDirection}
+        searchPlaceholder='Cari nama, nomor karyawan, atau site...'
+        emptyMessage={`${title} belum tersedia untuk filter ini.`}
+        additionalFilters={
+          <Filters
+            sites={sites}
+            site={site}
+            employeeType={employeeType}
+            status={status}
+            showEmployeeType={resource === 'daily-rates'}
+            onChange={(value) => onFilter({ ...value, page: undefined })}
+          />
+        }
+        hasAdditionalFilters={Boolean(
+          site || status || (resource === 'daily-rates' && employeeType)
+        )}
+        onResetAdditionalFilters={() =>
+          onFilter({
+            site: undefined,
+            employeeType: undefined,
+            status: undefined,
+            page: undefined,
+          })
+        }
+        getRowId={(item) => item.uid}
+        mobileCard={(item) => (
+          <article key={item.uid} className='rounded-md border p-3'>
+            <div className='flex items-start justify-between gap-2'>
               <div className='min-w-0'>
-                <p className='truncate font-semibold'>
-                  {item.employee.fullName}
-                </p>
+                <p className='truncate font-medium'>{item.employee.fullName}</p>
                 <p className='truncate text-xs text-muted-foreground'>
-                  {item.site.name} · {item.employee.employeeNumber} ·{' '}
-                  {employeeTypeLabels[item.employee.employeeType]}
+                  {item.employee.employeeNumber} · {item.site.name}
                 </p>
               </div>
+              <Badge
+                variant={item.status === 'ACTIVE' ? 'default' : 'secondary'}
+              >
+                {item.status === 'ACTIVE' ? 'Aktif' : 'Dibatalkan'}
+              </Badge>
+            </div>
+            <div className='mt-3 flex items-end justify-between gap-2'>
               <div>
-                <p className='text-xs text-muted-foreground'>
-                  {resource === 'salaries' ? 'Gaji pokok' : 'Tarif per hari'}
-                </p>
-                <p
-                  className={cn(
-                    'font-semibold tabular-nums',
-                    item.amountMasked && 'text-muted-foreground'
-                  )}
-                >
+                <p className='font-semibold tabular-nums'>
                   {money(item.amount)}
                 </p>
+                 <p className='text-xs text-muted-foreground'>Berlaku saat ini</p>
               </div>
-              <div>
-                <p className='text-sm'>
-                  {localDate(item.effectiveFrom)} —{' '}
-                  {localDate(item.effectiveTo)}
-                </p>
-                <Badge
-                  variant={item.status === 'ACTIVE' ? 'default' : 'secondary'}
-                  className='mt-1'
-                >
-                  {item.status === 'ACTIVE' ? 'Aktif' : 'Dibatalkan'}
-                </Badge>
-              </div>
-              <div className='flex justify-end gap-1'>
-                <Button
-                  variant='ghost'
-                  size='icon'
+              <div className='flex gap-1'>
+                <DataTableActionButton
+                  label='Lihat detail'
                   onClick={() => onOpen(item.uid)}
-                  aria-label={`Lihat histori ${item.employee.fullName}`}
                 >
-                  <Eye className='size-4' />
-                </Button>
+                  <Eye />
+                </DataTableActionButton>
                 {canManage && item.status === 'ACTIVE' && (
                   <>
-                    <Button
-                      variant='ghost'
-                      size='icon'
+                    <DataTableActionButton
+                      label='Koreksi'
                       onClick={() => setDialog({ mode: 'correct', item })}
-                      aria-label={`Koreksi ${item.employee.fullName}`}
                     >
-                      <PencilLine className='size-4' />
-                    </Button>
-                    <Button
-                      variant='ghost'
-                      size='icon'
+                      <PencilLine />
+                    </DataTableActionButton>
+                    <DataTableActionButton
+                      label='Batalkan'
                       className='text-destructive'
                       onClick={() => setDialog({ mode: 'cancel', item })}
-                      aria-label={`Batalkan ${item.employee.fullName}`}
                     >
-                      <XCircle className='size-4' />
-                    </Button>
+                      <XCircle />
+                    </DataTableActionButton>
                   </>
                 )}
               </div>
-            </article>
-          ))}
-        </div>
-      ) : (
-        <EmptyState
-          icon={CircleDollarSign}
-          title={`${title} belum tersedia`}
-          description='Tambahkan histori nominal pertama untuk karyawan yang eligible.'
-        />
-      )}
+            </div>
+          </article>
+        )}
+      />
       <RateDialog
         key={dialog ? `${dialog.mode}-${dialog.item?.uid ?? 'new'}` : 'closed'}
         state={dialog}
@@ -1015,8 +1219,6 @@ function RateDialog({
   const [employeeUid, setEmployeeUid] = useState('')
   const [siteUid, setSiteUid] = useState('')
   const [amount, setAmount] = useState('')
-  const [effectiveFrom, setEffectiveFrom] = useState('')
-  const [effectiveTo, setEffectiveTo] = useState('')
   const [notes, setNotes] = useState('')
   const [reason, setReason] = useState('')
   const create = useCreatePayrollRate()
@@ -1025,13 +1227,10 @@ function RateDialog({
   const mode = state?.mode
   const selected = state?.item
   const nominal = amount || selected?.amount || ''
-  const start = effectiveFrom || selected?.effectiveFrom || ''
-  const end = effectiveTo || selected?.effectiveTo || ''
   const valid =
     mode === 'cancel'
       ? reason.trim().length >= 5
       : Number(nominal) > 0 &&
-        Boolean(start) &&
         reason.trim().length >= 5 &&
         (mode === 'create'
           ? Boolean(employeeUid && (resource === 'salaries' || siteUid))
@@ -1048,15 +1247,11 @@ function RateDialog({
                 ? { siteUid, dailyRate: nominal, notes: notes || undefined }
                 : { basicSalary: nominal }),
               currency: 'IDR',
-              effectiveFrom: start,
-              effectiveTo: end || undefined,
               reason: reason.trim(),
               idempotencyKey: createKey('create-rate'),
             }
           : {
               amount: nominal,
-              effectiveFrom: start,
-              effectiveTo: end || undefined,
               notes: notes || selected?.notes || undefined,
               reason: reason.trim(),
               idempotencyKey: createKey('correct-rate'),
@@ -1068,8 +1263,8 @@ function RateDialog({
       else await cancel.mutateAsync({ resource, uid: selected?.uid, payload })
       toast.success(
         mode === 'cancel'
-          ? 'Histori nominal dibatalkan.'
-          : 'Histori nominal berhasil disimpan.'
+          ? 'Master nominal dinonaktifkan.'
+          : 'Master nominal saat ini berhasil disimpan.'
       )
       onClose()
     } catch (error) {
@@ -1084,15 +1279,15 @@ function RateDialog({
             {mode === 'create'
               ? `Tambah ${resource === 'salaries' ? 'Gaji Pokok' : 'Tarif Harian'}`
               : mode === 'correct'
-                ? 'Koreksi Histori Nominal'
-                : 'Batalkan Histori Nominal'}
+                ? 'Ubah Master Nominal'
+                : 'Nonaktifkan Master Nominal'}
           </DialogTitle>
           <DialogDescription>
             {mode === 'cancel'
               ? 'Data tidak dihapus dan tetap tercatat dalam histori audit.'
               : resource === 'salaries'
-                ? 'Perubahan gaji harus dimulai pada awal periode Payroll.'
-                : 'Tarif berlaku sesuai rentang tanggal efektif.'}
+                 ? 'Gaji pokok ini langsung berlaku untuk proses Payroll berikutnya.'
+                 : 'Tarif ini langsung berlaku untuk proses Payroll berikutnya.'}
           </DialogDescription>
         </DialogHeader>
         {mode !== 'cancel' && (
@@ -1145,20 +1340,6 @@ function RateDialog({
                   )
                 }
                 placeholder='Contoh: 150000'
-              />
-            </Field>
-            <Field label='Mulai berlaku'>
-              <DateField
-                value={start}
-                onChange={setEffectiveFrom}
-                placeholder='Pilih tanggal'
-              />
-            </Field>
-            <Field label='Tanggal selesai (opsional)'>
-              <DateField
-                value={end}
-                onChange={setEffectiveTo}
-                placeholder='Seterusnya'
               />
             </Field>
             {(resource === 'daily-rates' || mode === 'correct') && (
@@ -1219,7 +1400,7 @@ function PolicyDrawer({
     <Sheet open={Boolean(policy)} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className='w-full overflow-y-auto sm:max-w-xl'>
         <SheetHeader>
-          <SheetTitle>Detail Versi Policy</SheetTitle>
+          <SheetTitle>Detail Policy Payroll</SheetTitle>
           <SheetDescription>
             {policy
               ? `${employeeTypeLabels[policy.employeeType]} · ${policy.site.name}`
@@ -1250,15 +1431,14 @@ function PolicyDrawer({
               />
             </div>
             <section>
-              <h3 className='font-semibold'>Masa berlaku</h3>
+              <h3 className='font-semibold'>Penerapan</h3>
               <p className='mt-2 rounded-lg border bg-muted/30 p-3 text-sm'>
-                {localDate(policy.effectiveFrom)} —{' '}
-                {localDate(policy.effectiveTo)}
+                Berlaku saat ini untuk proses Payroll berikutnya.
               </p>
             </section>
             <PeriodPreview periods={policy.nextPeriods} />
             <section>
-              <h3 className='font-semibold'>Catatan versi</h3>
+              <h3 className='font-semibold'>Catatan</h3>
               <p className='mt-2 text-sm text-muted-foreground'>
                 {policy.reason || 'Tidak ada catatan.'}
               </p>
@@ -1287,7 +1467,7 @@ function RateDrawer({
     <Sheet open={Boolean(rate)} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className='w-full overflow-y-auto sm:max-w-lg'>
         <SheetHeader>
-          <SheetTitle>Detail Histori Nominal</SheetTitle>
+          <SheetTitle>Detail Master Nominal</SheetTitle>
           <SheetDescription>
             {rate
               ? `${rate.employee.fullName} · ${rate.employee.employeeNumber}`
@@ -1308,8 +1488,8 @@ function RateDrawer({
                 label='Jenis'
                 value={employeeTypeLabels[rate.employee.employeeType]}
               />
-              <FactBox label='Mulai' value={localDate(rate.effectiveFrom)} />
-              <FactBox label='Selesai' value={localDate(rate.effectiveTo)} />
+              <FactBox label='Berlaku' value='Saat ini' />
+              <FactBox label='Status' value={rate.status === 'ACTIVE' ? 'Aktif' : 'Nonaktif'} />
             </div>
             <div>
               <p className='text-sm font-medium'>Catatan</p>
@@ -1455,57 +1635,6 @@ function FactBox({ label, value }: { label: string; value: string }) {
     <div className='rounded-lg border bg-muted/25 px-3 py-2'>
       <p className='text-xs text-muted-foreground'>{label}</p>
       <p className='mt-0.5 text-sm font-semibold'>{value}</p>
-    </div>
-  )
-}
-function EmptyState({
-  icon: Icon,
-  title,
-  description,
-}: {
-  icon: LucideIcon
-  title: string
-  description: string
-}) {
-  return (
-    <div className='rounded-xl border border-dashed px-4 py-12 text-center'>
-      <Icon className='mx-auto size-8 text-muted-foreground' />
-      <p className='mt-3 font-medium'>{title}</p>
-      <p className='mx-auto mt-1 max-w-xl text-sm text-muted-foreground'>
-        {description}
-      </p>
-    </div>
-  )
-}
-function ErrorState({ onRetry }: { onRetry: () => void }) {
-  return (
-    <Alert variant='destructive'>
-      <AlertTriangle className='size-4' />
-      <AlertTitle>Data gagal dimuat</AlertTitle>
-      <AlertDescription className='flex items-center justify-between gap-3'>
-        Terjadi gangguan pada layanan Payroll.
-        <Button variant='outline' size='sm' onClick={onRetry}>
-          Coba lagi
-        </Button>
-      </AlertDescription>
-    </Alert>
-  )
-}
-function CardsSkeleton() {
-  return (
-    <div className='grid gap-3 lg:grid-cols-3'>
-      {Array.from({ length: 3 }).map((_, index) => (
-        <Skeleton key={index} className='h-48 rounded-xl' />
-      ))}
-    </div>
-  )
-}
-function TimelineSkeleton() {
-  return (
-    <div className='space-y-2'>
-      {Array.from({ length: 5 }).map((_, index) => (
-        <Skeleton key={index} className='h-20 rounded-lg' />
-      ))}
     </div>
   )
 }

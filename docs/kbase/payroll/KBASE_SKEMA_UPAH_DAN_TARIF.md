@@ -6,10 +6,10 @@
 >
 > Audiens: Super Admin, Payroll Finance, dan pengguna Payroll read-only
 >
-> Terakhir diverifikasi: 14 September 2026
+> Terakhir diverifikasi: 16 September 2026
 
-Panduan ini menjelaskan policy Payroll, tarif harian, gaji pokok, dan master UMK
-yang tersedia pada **Payroll > Skema Upah & Tarif**.
+Panduan ini menjelaskan policy Payroll, tarif harian, gaji pokok, master UMK,
+serta kebijakan dan kepesertaan BPJS pada **Payroll > Skema Upah & Tarif**.
 
 ## 1. Kapan panduan ini digunakan
 
@@ -17,6 +17,7 @@ yang tersedia pada **Payroll > Skema Upah & Tarif**.
 - menambahkan atau memperbaiki tarif Harian dan Training;
 - menambahkan atau memperbaiki gaji pokok Bulanan;
 - mencatat Upah Minimum Kabupaten/Kota (UMK) per site dan tahun;
+- mengatur persentase, switch program, dan kepesertaan BPJS Borongan;
 - memahami mengapa periode tidak menemukan policy atau nominal yang sesuai.
 
 ## 2. Hak akses
@@ -46,32 +47,28 @@ nilai brutonya tidak menambah upah dasar, bruto, atau neto Payroll Training.
 ## 4. Tab Kebijakan
 
 Policy menentukan identitas dan aturan periode Payroll untuk kombinasi site dan
-jenis karyawan. Policy bersifat versioned dan effective-dated: perubahan tidak
-menimpa histori lama.
+jenis karyawan. Setiap kombinasi hanya memiliki satu konfigurasi saat ini.
 
 Informasi utamanya meliputi site, jenis karyawan, dasar upah, frekuensi bayar,
-cutoff, prorata, aturan Attendance, pembagi potongan, pembulatan, mata uang, dan
-rentang tanggal berlaku.
+cutoff, prorata, aturan Attendance, pembagi potongan, pembulatan, dan mata uang.
 
-### 4.1 Membuat versi policy
+### 4.1 Mengatur policy
 
 1. Buka tab **Kebijakan**.
-2. Pilih **Buat versi policy**.
-3. Pilih site, jenis karyawan, dan tanggal mulai berlaku.
+2. Pilih **Atur policy**.
+3. Pilih site dan jenis karyawan.
 4. Periksa preview periode dan aturan yang dibentuk sistem.
 5. Isi alasan atau catatan perubahan dengan jelas.
-6. Simpan versi baru setelah seluruh informasi benar.
+6. Simpan setelah seluruh informasi benar.
 
-Policy baru hanya berlaku untuk periode baru yang tercakup tanggal efektifnya.
-Perubahan tidak boleh mengubah Payroll yang sudah diajukan, disetujui, atau
-ditutup.
+Nilai yang terakhir disimpan langsung menjadi policy aktif untuk proses Payroll
+berikutnya. Periode yang sudah dihitung tetap menyimpan snapshot policy sendiri.
 
 ### 4.2 Membatalkan policy
 
-Pembatalan wajib beralasan dan tersimpan pada histori revisi. Sistem dapat
-memulihkan akhir masa berlaku versi sebelumnya jika memenuhi aturan. Jangan
-mengubah policy untuk memaksa hasil Payroll lama berubah; periode yang sudah
-memiliki snapshot tetap menggunakan policy snapshot miliknya.
+Pembatalan wajib beralasan dan tersimpan pada histori revisi. Setelah dibatalkan,
+site dan jenis karyawan tersebut tidak mempunyai policy aktif sampai policy
+disimpan kembali.
 
 ## 5. Tab Tarif harian
 
@@ -81,39 +78,36 @@ dengan Attendance final berstatus Hadir yang membentuk upah dasar.
 ### 5.1 Menambah tarif
 
 1. Pilih tab **Tarif harian**.
-2. Pilih karyawan yang eligible dan tanggal mulai tarif.
+2. Pilih karyawan yang eligible.
 3. Isi nominal dalam IDR.
 4. Periksa site dan jenis karyawan.
-5. Simpan histori tarif.
+5. Simpan tarif.
 
-Tarif harus mencakup setiap tanggal eligible yang akan dihitung. Tarif hilang,
-bertumpang tindih, nonaktif, atau memakai mata uang selain IDR menjadi blocker.
+Setiap karyawan hanya mempunyai satu tarif saat ini. Tarif yang hilang,
+nonaktif, atau memakai mata uang selain IDR menjadi blocker.
 
 ### 5.2 Mengoreksi atau membatalkan tarif
 
-Gunakan **Koreksi** jika tanggal atau nominal histori salah. Gunakan **Batalkan**
-jika histori tidak seharusnya berlaku. Kedua tindakan membutuhkan alasan dan
-tidak menghapus jejak perubahan. Jika dilakukan setelah simulasi, jalankan
-**Hitung ulang**.
+Gunakan **Koreksi** untuk mengganti nominal saat ini. Gunakan **Batalkan** jika
+tarif tidak boleh digunakan. Kedua tindakan membutuhkan alasan dan tetap
+tercatat di audit. Jika dilakukan setelah simulasi, jalankan **Hitung ulang**.
 
 ## 6. Tab Gaji pokok
 
 Gaji pokok hanya digunakan untuk karyawan **Bulanan**.
 
-- Gaji pertama karyawan baru boleh mulai pada tanggal awal eligibility walaupun
-  karyawan bergabung di tengah periode.
-- Perubahan gaji berikutnya harus efektif tepat pada awal periode Payroll.
-- Lebih dari satu segmen gaji pokok dalam satu periode Bulanan menjadi blocker.
+- Setiap karyawan hanya mempunyai satu gaji pokok saat ini.
+- Nilai terakhir yang disimpan dipakai pada proses Payroll berikutnya.
 - Join atau resign di tengah periode diprorata berdasarkan hari kalender eligible.
 
-Gunakan **Koreksi** atau **Batalkan** dengan alasan. Jangan menimpa atau menghapus
-nilai lama secara langsung.
+Gunakan **Koreksi** atau **Batalkan** dengan alasan. Jejak perubahan tetap tersedia
+di audit meskipun master hanya menyimpan kondisi terkini.
 
 ## 7. Tab UMK Site
 
 UMK disimpan satu kali untuk setiap kombinasi **site dan tahun kalender**.
-Nominal ini disiapkan sebagai fondasi formula BPJS yang akan dibangun kemudian;
-saat ini UMK belum mengubah bruto, potongan, atau neto Payroll.
+Nominal ini menjadi dasar perhitungan BPJS Borongan ketika periode mengaktifkan
+**Potong BPJS**. UMK bukan pengganti hasil Produksi dan tidak menambah bruto.
 
 1. Pilih tab **UMK Site**.
 2. Gunakan **Tambah UMK**, lalu pilih site dan tahun.
@@ -127,7 +121,45 @@ memerlukan alasan serta dicatat pada revision log dan audit trail. Data tidak
 dihapus permanen. Nilai UMK boleh dilihat pengguna `payroll.view` sesuai scope
 site karena merupakan nilai regulasi wilayah, bukan gaji pribadi karyawan.
 
-## 8. Rumus penting skema Bulanan
+## 8. Tab Kebijakan BPJS
+
+Tab ini terdiri dari dua lapisan pengaturan:
+
+1. **Kebijakan global per tahun** untuk persentase Kesehatan, JHT, JKK, JKM,
+   dan JP, unit pembulatan, serta switch bagian perusahaan/karyawan.
+2. **Kepesertaan karyawan Borongan** untuk mengaktifkan atau menonaktifkan
+   Kesehatan, JHT, JKK, JKM, dan JP secara individual. Kondisi terakhir yang
+   disimpan langsung menjadi kondisi yang berlaku.
+
+Karyawan tanpa pengaturan kepesertaan khusus dianggap mengikuti seluruh program.
+Default policy menyalakan JP karyawan 1% dan mematikan JP perusahaan 2%; kedua
+switch tetap dapat diubah secara terpisah. UMK tidak dipilih ulang pada tab ini;
+sistem otomatis memakai UMK aktif sesuai site dan tahun bulan iuran.
+
+Potongan bagian karyawan dibulatkan ke Rp1.000 terdekat per program. Kontribusi
+perusahaan dihitung dan disimpan terpisah, sehingga tidak mengurangi neto.
+Perubahan konfigurasi membutuhkan alasan dan hanya memengaruhi run berikutnya.
+
+Nomor BPJS Kesehatan atau Ketenagakerjaan yang kosong akan ditampilkan sebagai
+peringatan, tetapi tidak memblokir simulasi. Pastikan identitas tersebut
+dilengkapi sebelum proses operasional resmi.
+
+### 8.1 Memperbarui banyak kepesertaan melalui Excel
+
+1. Atur filter site atau pencarian karyawan pada tabel kepesertaan.
+2. Pilih **Import Excel**, lalu **Unduh template**. Template sudah berisi
+   karyawan Borongan sesuai filter tersebut beserta pilihan program saat ini.
+3. Ubah hanya pilihan `YA`/`TIDAK` dan alasan. Perubahan otomatis berlaku pada
+   tanggal file diunggah.
+4. Unggah kembali file dan periksa preview validasi.
+5. Pilih **Simpan** setelah seluruh baris berstatus Valid.
+
+Import dibatasi 2.000 karyawan dan diproses sekaligus. Jika satu baris tidak
+valid, seluruh import dibatalkan agar tidak meninggalkan pembaruan parsial.
+Kolom Employee ID, nama, dan site merupakan identitas acuan dan tidak boleh
+diubah. Nomor peserta BPJS tetap dikelola melalui Master Karyawan.
+
+## 9. Rumus penting skema Bulanan
 
 **Gaji setelah prorata = gaji pokok x hari kalender eligible / hari kalender periode**
 
@@ -139,31 +171,32 @@ Alpha dan Izin disimpan sebagai komponen sistem terpisah dan dibulatkan
 `HALF_UP` ke Rp1 per komponen. Sakit, Cuti, hari libur, dan hari nonkerja tidak
 membentuk potongan otomatis saat ini.
 
-## 9. Pemeriksaan sebelum membuat periode
+## 10. Pemeriksaan sebelum membuat periode
 
-- [ ] Tepat satu policy aktif mencakup site, jenis karyawan, dan rentang periode.
-- [ ] Tarif Harian/Training mencakup seluruh tanggal eligible tanpa overlap.
-- [ ] Gaji pokok Bulanan tersedia dan tidak berubah di tengah periode.
+- [ ] Tepat satu policy aktif tersedia untuk site dan jenis karyawan.
+- [ ] Tarif Harian/Training aktif tersedia untuk setiap karyawan eligible.
+- [ ] Gaji pokok Bulanan aktif tersedia.
 - [ ] Mata uang nominal adalah IDR.
-- [ ] Histori yang dikoreksi memiliki alasan dan jejak revisi.
+- [ ] Perubahan master memiliki alasan dan jejak audit.
 - [ ] Perubahan master tidak ditujukan untuk mengubah Payroll final lama.
-- [ ] UMK site dan tahun terkait sudah dicatat bila akan dipakai pada formula BPJS mendatang.
+- [ ] Untuk Potong BPJS: policy tahun dan UMK site sudah aktif.
+- [ ] Bulan iuran belum pernah dipakai untuk karyawan yang sama pada periode lain.
 
-## 10. Solusi masalah umum
+## 11. Solusi masalah umum
 
 | Kondisi | Tindakan |
 |---|---|
-| Policy aktif tidak ditemukan | Periksa site, jenis karyawan, dan cakupan tanggal efektif policy. |
-| Policy ambigu | Rapikan versi policy sampai resolusinya tunggal. |
-| Tarif dasar belum mencakup periode | Tambahkan atau koreksi histori tarif pada tanggal yang hilang. |
-| Tarif dasar bertumpang tindih | Koreksi rentang agar hanya satu tarif berlaku per tanggal. |
-| Gaji berubah di tengah periode | Mulai perubahan pada awal periode yang benar, kecuali gaji pertama karyawan baru. |
+| Policy aktif tidak ditemukan | Simpan policy untuk site dan jenis karyawan terkait. |
+| Tarif dasar belum tersedia | Tambahkan atau aktifkan kembali tarif karyawan. |
+| Gaji pokok belum tersedia | Tambahkan atau aktifkan kembali gaji pokok karyawan. |
 | Nominal tidak terlihat | Periksa kewenangan nominal dan akses site akun. |
 | Hasil simulasi tertinggal dari master | Jalankan Hitung ulang dan gunakan current run terbaru. |
 | UMK site dan tahun sudah ada | Buka data yang ada lalu koreksi atau aktifkan kembali; jangan membuat duplikat. |
-| UMK tidak memengaruhi hasil Payroll | Sesuai scope saat ini; integrasi formula dan snapshot BPJS belum diaktifkan. |
+| Potongan BPJS nol | Periksa switch periode, bulan iuran, policy global, UMK site, dan kepesertaan karyawan. |
+| Bulan iuran sudah dipotong | Pilih periode tanpa Potong BPJS atau gunakan bulan iuran yang benar; satu karyawan hanya boleh satu settlement per bulan. |
+| Nomor peserta BPJS belum lengkap | Lengkapi data karyawan. Kondisi ini peringatan dan tidak menghentikan kalkulasi. |
 
-## 11. Navigasi KBase Payroll
+## 12. Navigasi KBase Payroll
 
 - Kembali ke [Indeks Payroll](../../KBASE_PAYROLL.md).
 - Lanjut ke [Periode dan Kesiapan Payroll](./KBASE_PERIODE_DAN_KESIAPAN_PAYROLL.md).

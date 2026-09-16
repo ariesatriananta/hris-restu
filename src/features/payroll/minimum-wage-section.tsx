@@ -1,13 +1,7 @@
 import { useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
 import { format, parseISO } from 'date-fns'
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-  type ColumnDef,
-  type PaginationState,
-} from '@tanstack/react-table'
+import { type ColumnDef } from '@tanstack/react-table'
 import { id } from 'date-fns/locale'
 import {
   CircleOff,
@@ -21,6 +15,7 @@ import {
   siteScopeLabel,
   useSiteScopeFilter,
 } from '@/hooks/use-site-scope-filter'
+import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -40,17 +35,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { DataTablePagination } from '@/components/data-table'
+import {
+  DataTableActionButton,
+  DataTableColumnHeader,
+} from '@/components/data-table'
 import { SiteScopeFilter } from '@/components/site-scope-filter'
+import { ConfigurationDataTable } from './configuration-data-table'
 import {
   useChangePayrollMinimumWageStatus,
   useCorrectPayrollMinimumWage,
@@ -88,10 +79,10 @@ export function MinimumWageSection({
   site,
   year,
   status,
-  page,
-  pageSize,
   canManage,
   onFilter,
+  search,
+  navigate,
 }: {
   queryState: ReturnType<typeof import('./data/queries').usePayrollMinimumWages>
   sites: PayrollSite[]
@@ -102,15 +93,28 @@ export function MinimumWageSection({
   pageSize: number
   canManage: boolean
   onFilter: (value: Record<string, unknown>) => void
+  search: Record<string, unknown>
+  navigate: NavigateFn
 }) {
   const [dialog, setDialog] = useState<DialogState>(null)
   const { lockedSite } = useSiteScopeFilter<string>()
   const data = queryState.data
+  const sortBy =
+    search.sortBy === 'site' ||
+    search.sortBy === 'amount' ||
+    search.sortBy === 'status' ||
+    search.sortBy === 'updatedAt'
+      ? search.sortBy
+      : 'wageYear'
+  const sortDirection = search.sortDirection === 'asc' ? 'asc' : 'desc'
   const columns = useMemo<ColumnDef<PayrollMinimumWage>[]>(
     () => [
       {
-        accessorKey: 'site',
-        header: 'Site',
+        id: 'site',
+        accessorFn: (item) => item.site.name,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Site' />
+        ),
         cell: ({ row }) => (
           <div className='min-w-36'>
             <p className='font-medium'>{row.original.site.name}</p>
@@ -121,8 +125,11 @@ export function MinimumWageSection({
         ),
       },
       {
-        accessorKey: 'wageYear',
-        header: 'Tahun',
+        id: 'wageYear',
+        accessorFn: (item) => item.wageYear,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Tahun' />
+        ),
         cell: ({ row }) => (
           <span className='font-medium tabular-nums'>
             {row.original.wageYear}
@@ -130,16 +137,20 @@ export function MinimumWageSection({
         ),
       },
       {
-        accessorKey: 'amount',
-        header: 'Nominal UMK',
+        id: 'amount',
+        accessorFn: (item) => item.amount,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Nominal UMK' />
+        ),
         cell: ({ row }) => (
-          <span className='font-semibold tabular-nums'>
+          <span className='font-semibold whitespace-nowrap tabular-nums'>
             {rupiah(row.original.amount)}
           </span>
         ),
       },
       {
-        accessorKey: 'regulationReference',
+        id: 'regulationReference',
+        accessorFn: (item) => item.regulationReference,
         header: 'Referensi regulasi',
         cell: ({ row }) => (
           <span
@@ -149,10 +160,14 @@ export function MinimumWageSection({
             {row.original.regulationReference || '—'}
           </span>
         ),
+        enableSorting: false,
       },
       {
-        accessorKey: 'status',
-        header: 'Status',
+        id: 'status',
+        accessorFn: (item) => item.status,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Status' />
+        ),
         cell: ({ row }) => (
           <Badge
             variant={row.original.status === 'ACTIVE' ? 'default' : 'secondary'}
@@ -162,8 +177,11 @@ export function MinimumWageSection({
         ),
       },
       {
-        accessorKey: 'updatedAt',
-        header: 'Terakhir diubah',
+        id: 'updatedAt',
+        accessorFn: (item) => item.updatedAt,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Terakhir diubah' />
+        ),
         cell: ({ row }) => (
           <span className='text-xs whitespace-nowrap text-muted-foreground'>
             {format(parseISO(row.original.updatedAt), 'd MMM yyyy, HH.mm', {
@@ -180,63 +198,118 @@ export function MinimumWageSection({
             <div className='flex justify-end gap-1'>
               {row.original.status === 'ACTIVE' ? (
                 <>
-                  <Button
-                    variant='ghost'
-                    size='icon'
-                    aria-label='Koreksi UMK'
+                  <DataTableActionButton
+                    label='Koreksi UMK'
                     onClick={() =>
                       setDialog({ mode: 'correct', item: row.original })
                     }
                   >
-                    <PencilLine className='size-4' />
-                  </Button>
-                  <Button
-                    variant='ghost'
-                    size='icon'
+                    <PencilLine />
+                  </DataTableActionButton>
+                  <DataTableActionButton
+                    label='Batalkan UMK'
                     className='text-destructive'
-                    aria-label='Batalkan UMK'
                     onClick={() =>
                       setDialog({ mode: 'cancel', item: row.original })
                     }
                   >
-                    <CircleOff className='size-4' />
-                  </Button>
+                    <CircleOff />
+                  </DataTableActionButton>
                 </>
               ) : (
-                <Button
-                  variant='ghost'
-                  size='icon'
-                  aria-label='Aktifkan ulang UMK'
+                <DataTableActionButton
+                  label='Aktifkan ulang UMK'
                   onClick={() =>
                     setDialog({ mode: 'reactivate', item: row.original })
                   }
                 >
-                  <RotateCcw className='size-4' />
-                </Button>
+                  <RotateCcw />
+                </DataTableActionButton>
               )}
             </div>
           ) : null,
+        enableSorting: false,
+        enableHiding: false,
       },
     ],
     [canManage]
   )
-  const pagination = { pageIndex: page - 1, pageSize }
-  const onPaginationChange = (
-    updater: PaginationState | ((old: PaginationState) => PaginationState)
-  ) => {
-    const next = typeof updater === 'function' ? updater(pagination) : updater
-    onFilter({ page: next.pageIndex + 1, pageSize: next.pageSize })
-  }
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const table = useReactTable({
-    data: data?.data ?? [],
-    columns,
-    state: { pagination },
-    manualPagination: true,
-    pageCount: data?.meta.totalPages ?? 1,
-    onPaginationChange,
-    getCoreRowModel: getCoreRowModel(),
-  })
+
+  const filters = (
+    <div className='flex max-w-full flex-wrap gap-2'>
+      {lockedSite ? (
+        <SiteScopeFilter
+          siteLabel={siteScopeLabel(
+            lockedSite,
+            sites.map((item) => ({ value: item.code, label: item.name }))
+          )}
+        />
+      ) : (
+        <Select
+          value={site || 'ALL'}
+          onValueChange={(value) =>
+            onFilter({
+              site: value === 'ALL' ? undefined : value,
+              page: undefined,
+            })
+          }
+        >
+          <SelectTrigger className='h-8 w-full sm:w-44'>
+            <SelectValue placeholder='Semua site' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='ALL'>Semua site</SelectItem>
+            {sites.map((item) => (
+              <SelectItem key={item.uid} value={item.code}>
+                {item.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      <Input
+        key={year ?? 'all-years'}
+        type='number'
+        min={2000}
+        max={2100}
+        defaultValue={year ?? ''}
+        placeholder='Semua tahun'
+        className='h-8 w-full sm:w-36'
+        onBlur={(event) => {
+          const value = event.target.value
+          if (!value) {
+            onFilter({ year: undefined, page: undefined })
+            return
+          }
+          const parsed = Number(value)
+          if (Number.isInteger(parsed) && parsed >= 2000 && parsed <= 2100) {
+            onFilter({ year: parsed, page: undefined })
+          } else {
+            toast.error('Tahun UMK harus antara 2000 sampai 2100.')
+            event.target.value = year ? String(year) : ''
+          }
+        }}
+      />
+      <Select
+        value={status || 'ALL'}
+        onValueChange={(value) =>
+          onFilter({
+            status: value === 'ALL' ? undefined : value,
+            page: undefined,
+          })
+        }
+      >
+        <SelectTrigger className='h-8 w-full sm:w-40'>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value='ALL'>Semua status</SelectItem>
+          <SelectItem value='ACTIVE'>Aktif</SelectItem>
+          <SelectItem value='CANCELLED'>Dibatalkan</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  )
 
   return (
     <>
@@ -245,7 +318,7 @@ export function MinimumWageSection({
           <h2 className='text-lg font-semibold'>UMK Site</h2>
           <p className='text-sm text-muted-foreground'>
             Upah Minimum Kabupaten/Kota per site dan tahun sebagai fondasi
-            perhitungan BPJS mendatang.
+            perhitungan BPJS.
           </p>
         </div>
         {canManage && (
@@ -256,142 +329,88 @@ export function MinimumWageSection({
         )}
       </div>
 
-      <div className='flex flex-wrap gap-2'>
-        {lockedSite ? (
-          <SiteScopeFilter
-            siteLabel={siteScopeLabel(
-              lockedSite,
-              sites.map((item) => ({ value: item.code, label: item.name }))
-            )}
-          />
-        ) : (
-          <Select
-            value={site || 'ALL'}
-            onValueChange={(value) =>
-              onFilter({
-                site: value === 'ALL' ? undefined : value,
-                page: undefined,
-              })
-            }
-          >
-            <SelectTrigger className='h-8 w-full sm:w-52'>
-              <SelectValue placeholder='Semua site' />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value='ALL'>Semua site</SelectItem>
-              {sites.map((item) => (
-                <SelectItem key={item.uid} value={item.code}>
-                  {item.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      <ConfigurationDataTable
+        data={data?.data ?? []}
+        columns={columns}
+        search={search}
+        navigate={navigate}
+        total={data?.meta.total ?? 0}
+        totalPages={data?.meta.totalPages ?? 1}
+        isPending={queryState.isPending}
+        isError={queryState.isError}
+        onRetry={() => queryState.refetch()}
+        sortBy={sortBy}
+        sortDirection={sortDirection}
+        searchPlaceholder='Cari site atau referensi regulasi...'
+        emptyMessage='Belum ada UMK yang sesuai filter.'
+        additionalFilters={filters}
+        hasAdditionalFilters={Boolean(site || year || status)}
+        onResetAdditionalFilters={() =>
+          onFilter({
+            site: undefined,
+            year: undefined,
+            status: undefined,
+            page: undefined,
+          })
+        }
+        getRowId={(item) => item.uid}
+        mobileCard={(item) => (
+          <article key={item.uid} className='rounded-md border p-3'>
+            <div className='flex items-start justify-between gap-2'>
+              <div>
+                <p className='font-medium'>{item.site.name}</p>
+                <p className='text-xs text-muted-foreground'>
+                  {item.site.code} · {item.wageYear}
+                </p>
+              </div>
+              <Badge
+                variant={item.status === 'ACTIVE' ? 'default' : 'secondary'}
+              >
+                {item.status === 'ACTIVE' ? 'Aktif' : 'Dibatalkan'}
+              </Badge>
+            </div>
+            <div className='mt-3 flex items-end justify-between gap-2'>
+              <div>
+                <p className='font-semibold tabular-nums'>
+                  {rupiah(item.amount)}
+                </p>
+                <p className='max-w-56 truncate text-xs text-muted-foreground'>
+                  {item.regulationReference || 'Tanpa referensi regulasi'}
+                </p>
+              </div>
+              {canManage && (
+                <div className='flex gap-1'>
+                  <DataTableActionButton
+                    label={
+                      item.status === 'ACTIVE'
+                        ? 'Koreksi UMK'
+                        : 'Aktifkan ulang UMK'
+                    }
+                    onClick={() =>
+                      setDialog({
+                        mode:
+                          item.status === 'ACTIVE' ? 'correct' : 'reactivate',
+                        item,
+                      })
+                    }
+                  >
+                    {item.status === 'ACTIVE' ? <PencilLine /> : <RotateCcw />}
+                  </DataTableActionButton>
+                  {item.status === 'ACTIVE' && (
+                    <DataTableActionButton
+                      label='Batalkan UMK'
+                      className='text-destructive'
+                      onClick={() => setDialog({ mode: 'cancel', item })}
+                    >
+                      <CircleOff />
+                    </DataTableActionButton>
+                  )}
+                </div>
+              )}
+            </div>
+          </article>
         )}
-        <Input
-          key={year ?? 'all-years'}
-          type='number'
-          min={2000}
-          max={2100}
-          defaultValue={year ?? ''}
-          placeholder='Semua tahun'
-          className='h-8 w-full sm:w-36'
-          onBlur={(event) => {
-            const value = event.target.value
-            if (!value) {
-              onFilter({ year: undefined, page: undefined })
-              return
-            }
-            const parsed = Number(value)
-            if (Number.isInteger(parsed) && parsed >= 2000 && parsed <= 2100) {
-              onFilter({ year: parsed, page: undefined })
-            } else {
-              toast.error('Tahun UMK harus antara 2000 sampai 2100.')
-              event.target.value = year ? String(year) : ''
-            }
-          }}
-        />
-        <Select
-          value={status || 'ALL'}
-          onValueChange={(value) =>
-            onFilter({
-              status: value === 'ALL' ? undefined : value,
-              page: undefined,
-            })
-          }
-        >
-          <SelectTrigger className='h-8 w-full sm:w-40'>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='ALL'>Semua status</SelectItem>
-            <SelectItem value='ACTIVE'>Aktif</SelectItem>
-            <SelectItem value='CANCELLED'>Dibatalkan</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {queryState.isPending ? (
-        <div className='h-48 animate-pulse rounded-xl border bg-muted/30' />
-      ) : queryState.isError ? (
-        <div className='rounded-xl border p-8 text-center'>
-          <p className='text-sm text-muted-foreground'>
-            Master UMK gagal dimuat.
-          </p>
-          <Button
-            variant='outline'
-            className='mt-3'
-            onClick={() => queryState.refetch()}
-          >
-            Coba lagi
-          </Button>
-        </div>
-      ) : !data?.data.length ? (
-        <div className='rounded-xl border p-10 text-center text-sm text-muted-foreground'>
-          Belum ada UMK yang sesuai filter.
-        </div>
-      ) : (
-        <div className='space-y-3'>
-          <div className='overflow-x-auto rounded-xl border bg-card'>
-            <Table className='text-sm'>
-              <TableHeader>
-                {table.getHeaderGroups().map((group) => (
-                  <TableRow key={group.id}>
-                    {group.headers.map((header) => (
-                      <TableHead key={header.id} className='h-10'>
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(
-                              header.column.columnDef.header,
-                              header.getContext()
-                            )}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableHeader>
-              <TableBody>
-                {table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className='py-2.5'>
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          <DataTablePagination
-            table={table}
-            pageSizeOptions={[10, 25, 50, 100]}
-            summary={`Menampilkan ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, data.meta.total)} dari ${data.meta.total} data.`}
-          />
-        </div>
-      )}
+      />
 
       <MinimumWageDialog
         key={dialog ? `${dialog.mode}-${dialog.item?.uid ?? 'new'}` : 'closed'}

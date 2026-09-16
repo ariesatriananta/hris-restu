@@ -34,13 +34,19 @@ Periode Borongan memakai rentang tanggal yang dipilih sendiri.
 2. Pilih site.
 3. Pilih jenis Payroll **Borongan**.
 4. Isi **Dari tanggal** dan **Sampai tanggal**.
-5. Klik **Periksa kesiapan**.
-6. Periksa policy, populasi, blocker, dan peringatan.
-7. Isi tanggal pembayaran, nama periode, dan catatan jika diperlukan.
-8. Simpan periode.
+5. Jika BPJS akan dipotong pada periode ini, aktifkan **Potong BPJS** lalu pilih
+   **Bulan Iuran**. Biarkan nonaktif jika iuran bulan tersebut dipotong pada
+   periode Borongan lain.
+6. Klik **Periksa kesiapan**.
+7. Periksa policy, populasi, blocker, dan peringatan.
+8. Isi tanggal pembayaran, nama periode, dan catatan jika diperlukan.
+9. Simpan periode.
 
 Rentang maksimal adalah 31 hari termasuk tanggal awal dan akhir. Rentang
 Borongan tidak harus Senin-Minggu dan boleh melintasi pergantian bulan.
+Satu karyawan tidak dapat dipotong BPJS dua kali untuk bulan iuran yang sama.
+Nomor peserta BPJS yang kosong hanya menghasilkan peringatan; policy global dan
+UMK site pada tahun terkait wajib tersedia.
 
 ## 3. Membuat periode Harian, Training, atau Bulanan
 
@@ -163,7 +169,27 @@ Periode hanya dapat dibatalkan saat berstatus **Draft**.
 Pembatalan tidak menghapus Attendance, Produksi, policy, atau histori karyawan.
 Rentang periode yang dibatalkan dapat digunakan untuk periode pengganti.
 
-## 11. Pemeriksaan akhir sebelum menghitung
+## 11. Reset dan hapus periode
+
+Aksi ini hanya tersedia untuk **Super Admin** dan digunakan ketika seluruh
+proses Payroll perlu diulang dari awal. Berbeda dengan pembatalan, reset benar-
+benar menghapus periode beserta run, hasil karyawan, komponen manual, snapshot,
+approval, workflow, output, dan settlement BPJS turunannya.
+
+1. Buka detail periode.
+2. Pilih **Reset & hapus periode**.
+3. Periksa ringkasan data yang akan dihapus.
+4. Ketik nomor periode persis seperti yang ditampilkan.
+5. Isi alasan minimal lima karakter, lalu konfirmasi reset.
+
+Reset dapat dilakukan pada status Draft, Sudah dihitung, Disetujui, Ditutup,
+atau Dibatalkan. Reset ditolak bila masih ada run berstatus `PROCESSING`.
+Transaksi Produksi yang hanya dipakai periode tersebut akan dilepas dari lock
+Payroll. Fakta Attendance, Produksi, master karyawan, dan Audit Trail tidak
+dihapus. Setelah reset berhasil, buat kembali periode dari halaman Periode
+Payroll.
+
+## 12. Pemeriksaan akhir sebelum menghitung
 
 - [ ] Site, jenis Payroll, dan rentang tanggal benar.
 - [ ] Policy snapshot sesuai jenis periode.
@@ -173,7 +199,7 @@ Rentang periode yang dibatalkan dapat digunakan untuk periode pengganti.
 - [ ] Pending koreksi dan klasifikasi Attendance sudah diselesaikan.
 - [ ] Data rekening diperiksa jika Daftar Pembayaran bank akan dibutuhkan.
 
-## 12. Solusi masalah umum
+## 13. Solusi masalah umum
 
 | Kondisi | Tindakan |
 |---|---|
@@ -185,8 +211,10 @@ Rentang periode yang dibatalkan dapat digunakan untuk periode pengganti.
 | Tanggal pembayaran ditolak | Pilih tanggal yang sama dengan atau setelah tanggal akhir periode. |
 | Rekening tidak lengkap | Boleh lanjut Payroll, tetapi lengkapi lalu hitung ulang sebelum closing jika Daftar Pembayaran dibutuhkan. |
 | Periode salah tetapi tidak dapat dibatalkan | Pembatalan hanya untuk Draft; periode yang sudah dihitung mengikuti workflow Payroll. |
+| Reset tidak dapat dijalankan | Tunggu run `PROCESSING` selesai, lalu muat ulang preview reset. |
+| Periode hilang setelah reset | Ini hasil yang benar; buat kembali periode agar proses dimulai dari awal. |
 
-## 13. Navigasi KBase Payroll
+## 14. Navigasi KBase Payroll
 
 - Kembali ke [Indeks Payroll](../../KBASE_PAYROLL.md).
 - Sebelumnya: [Skema Upah dan Tarif](./KBASE_SKEMA_UPAH_DAN_TARIF.md).

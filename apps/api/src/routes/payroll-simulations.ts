@@ -950,8 +950,7 @@ payrollSimulationsRouter.get(
                 summary.alpha_days alphaDays,summary.permission_days permissionDays,
                 summary.alpha_deduction alphaDeduction,
                 summary.permission_deduction permissionDeduction,
-                salary.uid salaryHistoryUid,
-                DATE_FORMAT(salary.effective_from,'%Y-%m-%d') salaryEffectiveFrom
+                salary.uid salaryHistoryUid
            FROM payroll_monthly_summaries summary
            JOIN employee_salary_histories salary
              ON salary.id=summary.employee_salary_history_id
@@ -975,6 +974,24 @@ payrollSimulationsRouter.get(
       )
       const [components] = await pool.query<RowDataPacket[]>(
         `SELECT component_code_snapshot code,component_name_snapshot name,component_category category,source_type sourceType,amount,notes FROM payroll_employee_component_details WHERE payroll_employee_result_id=? ORDER BY component_category,component_name_snapshot,id`,
+        [result.id]
+      )
+      const [bpjsRows] = await pool.query<RowDataPacket[]>(
+        `SELECT DATE_FORMAT(contribution_month,'%Y-%m') contributionMonth,
+                minimum_wage_snapshot minimumWage,
+                rounding_unit_snapshot roundingUnit,
+                health_employee_amount healthEmployee,
+                health_employer_amount healthEmployer,
+                jht_employee_amount jhtEmployee,
+                jht_employer_amount jhtEmployer,
+                jkk_employer_amount jkkEmployer,
+                jkm_employer_amount jkmEmployer,
+                jp_employee_amount jpEmployee,
+                jp_employer_amount jpEmployer,
+                total_employee_deduction totalEmployeeDeduction,
+                total_employer_contribution totalEmployerContribution
+           FROM payroll_employee_bpjs_details
+          WHERE payroll_employee_result_id=?`,
         [result.id]
       )
       const [attendance] = await pool.query<RowDataPacket[]>(
@@ -1065,7 +1082,6 @@ payrollSimulationsRouter.get(
                   monthlyRows[0].permissionDeduction
                 ),
                 salaryHistoryUid: monthlyRows[0].salaryHistoryUid,
-                salaryEffectiveFrom: monthlyRows[0].salaryEffectiveFrom,
               }
             : null,
           monthlyDailyDetails: monthlyDailyRows.map((row) => ({
@@ -1084,6 +1100,27 @@ payrollSimulationsRouter.get(
             ...row,
             amount: amount(row.amount),
           })),
+          bpjs: bpjsRows[0]
+            ? {
+                contributionMonth: bpjsRows[0].contributionMonth,
+                minimumWage: amount(bpjsRows[0].minimumWage),
+                roundingUnit: Number(bpjsRows[0].roundingUnit),
+                employee: {
+                  health: amount(bpjsRows[0].healthEmployee),
+                  jht: amount(bpjsRows[0].jhtEmployee),
+                  jp: amount(bpjsRows[0].jpEmployee),
+                  total: amount(bpjsRows[0].totalEmployeeDeduction),
+                },
+                employer: {
+                  health: amount(bpjsRows[0].healthEmployer),
+                  jht: amount(bpjsRows[0].jhtEmployer),
+                  jkk: amount(bpjsRows[0].jkkEmployer),
+                  jkm: amount(bpjsRows[0].jkmEmployer),
+                  jp: amount(bpjsRows[0].jpEmployer),
+                  total: amount(bpjsRows[0].totalEmployerContribution),
+                },
+              }
+            : null,
           attendance: attendance[0] ?? null,
           formulaTrace: {
             pieceRate:

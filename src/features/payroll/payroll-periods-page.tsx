@@ -21,6 +21,7 @@ import {
   LockKeyhole,
   Plus,
   RefreshCcw,
+  Trash2,
   Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -55,6 +56,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import {
   Table,
   TableBody,
@@ -71,6 +73,7 @@ import {
 } from '@/components/data-table'
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
+import { MonthPicker } from '@/components/month-picker'
 import { hasPermission } from '@/features/auth/permissions'
 import {
   useCancelPayrollPeriod,
@@ -79,8 +82,10 @@ import {
   usePayrollPeriod,
   usePayrollPeriodEmployees,
   usePayrollPeriodMeta,
+  usePayrollPeriodResetPreview,
   usePayrollPeriods,
   usePreviewPayrollPeriod,
+  useResetPayrollPeriod,
 } from './data/queries'
 import type {
   PayrollEmployeeType,
@@ -112,6 +117,15 @@ const employeeTypeLabels: Record<PayrollEmployeeType, string> = {
 }
 function employeeTypeLabel(value?: PayrollEmployeeType) {
   return value ? employeeTypeLabels[value] : 'Borongan'
+}
+
+function monthFromInput(value: string) {
+  const match = /^(\d{4})-(\d{2})$/.exec(value)
+  if (!match) return undefined
+  const year = Number(match[1])
+  const month = Number(match[2])
+  if (month < 1 || month > 12) return undefined
+  return new Date(year, month - 1, 1)
 }
 
 function dateLabel(value: string | null) {
@@ -148,6 +162,9 @@ export function PayrollPeriodsPage({
 }) {
   const session = useAuthStore((state) => state.session)
   const canCalculate = hasPermission(session, 'payroll.calculate')
+  const canReset =
+    session?.user.role === 'SUPER_ADMIN' ||
+    session?.user.roles.includes('SUPER_ADMIN') === true
   const params = {
     page: typeof search.page === 'number' ? search.page : 1,
     pageSize: typeof search.pageSize === 'number' ? search.pageSize : 50,
@@ -232,6 +249,12 @@ export function PayrollPeriodsPage({
           })
         }
         canCalculate={canCalculate}
+        canReset={canReset}
+        onReset={() =>
+          navigate({
+            search: (previous) => ({ ...previous, detailUid: undefined }),
+          })
+        }
       />
     </Main>
   )
@@ -689,6 +712,10 @@ function CreatePeriodDialog({
   const [payment, setPayment] = useState<Date>()
   const [name, setName] = useState('')
   const [notes, setNotes] = useState('')
+  const [deductBpjs, setDeductBpjs] = useState(false)
+  const [bpjsContributionMonth, setBpjsContributionMonth] = useState(
+    format(new Date(), 'yyyy-MM')
+  )
   const selectedSite = sites.find((site) => site.uid === siteUid)
   const policies = usePayrollPolicies(
     {
@@ -698,18 +725,9 @@ function CreatePeriodDialog({
     },
     open && Boolean(selectedSite)
   )
-  const anchorDate = inputDate(periodAnchor)!
   const pieceRatePeriod = pieceRatePeriodForDates(pieceRateStart, pieceRateEnd)
-  const policyDateFrom =
-    employeeType === 'BORONGAN' ? pieceRatePeriod.periodStart : anchorDate
-  const policyDateTo =
-    employeeType === 'BORONGAN' ? pieceRatePeriod.periodEnd : anchorDate
   const policy = policies.data?.data.find(
-    (item) =>
-      item.employeeType === employeeType &&
-      item.status === 'ACTIVE' &&
-      item.effectiveFrom <= policyDateFrom &&
-      (item.effectiveTo == null || item.effectiveTo >= policyDateTo)
+    (item) => item.employeeType === employeeType && item.status === 'ACTIVE'
   )
   const selectedPeriod = policy
     ? employeeType === 'BORONGAN'
@@ -721,7 +739,11 @@ function CreatePeriodDialog({
     preview.data.policy.employeeType === employeeType &&
     preview.data.period.periodStart === selectedPeriod?.periodStart &&
     preview.data.period.periodEnd === selectedPeriod?.periodEnd
-  const invalid = !siteUid || !selectedPeriod || !previewMatches
+  const invalid =
+    !siteUid ||
+    !selectedPeriod ||
+    !previewMatches ||
+    (deductBpjs && !bpjsContributionMonth)
 
   const resetPreview = () => {
     preview.reset()
@@ -739,6 +761,8 @@ function CreatePeriodDialog({
       setPayment(undefined)
       setName('')
       setNotes('')
+      setDeductBpjs(false)
+      setBpjsContributionMonth(format(new Date(), 'yyyy-MM'))
       preview.reset()
     }
   }
@@ -751,6 +775,8 @@ function CreatePeriodDialog({
         periodStart: selectedPeriod.periodStart,
         periodEnd: selectedPeriod.periodEnd,
         paymentDate: inputDate(payment) ?? null,
+        deductBpjs,
+        bpjsContributionMonth: deductBpjs ? bpjsContributionMonth : null,
         periodName: name.trim() || undefined,
         notes: notes.trim() || undefined,
       })
@@ -882,14 +908,13 @@ function CreatePeriodDialog({
                   <p className='font-semibold'>
                     {employeeTypeLabels[policy.employeeType]}
                   </p>
-                  <Badge variant='outline'>Versi {policy.version}</Badge>
+                  <Badge variant='outline'>Konfigurasi aktif</Badge>
                 </div>
                 <p className='mt-1 text-xs text-muted-foreground'>
                   {policy.wageBasis === 'PIECE_RATE'
                     ? 'Satuan hasil'
                     : 'Satuan waktu'}{' '}
-                  · {policy.payFrequency === 'WEEKLY' ? 'Mingguan' : 'Bulanan'}{' '}
-                  · efektif {dateLabel(policy.effectiveFrom)}
+                  · {policy.payFrequency === 'WEEKLY' ? 'Mingguan' : 'Bulanan'}
                 </p>
               </div>
             ) : (
@@ -937,6 +962,10 @@ function CreatePeriodDialog({
                       employeeType,
                       periodStart: selectedPeriod.periodStart,
                       periodEnd: selectedPeriod.periodEnd,
+                      deductBpjs,
+                      bpjsContributionMonth: deductBpjs
+                        ? bpjsContributionMonth
+                        : null,
                     })
                     .catch((error) =>
                       toast.error(
@@ -957,6 +986,47 @@ function CreatePeriodDialog({
           ) : null}
           {previewMatches && preview.data ? (
             <PreviewSummary preview={preview.data} />
+          ) : null}
+          {employeeType === 'BORONGAN' ? (
+            <div className='space-y-3 rounded-lg border p-3 sm:col-span-2'>
+              <div className='flex items-start justify-between gap-3'>
+                <div>
+                  <Label htmlFor='deduct-bpjs'>Potong BPJS</Label>
+                  <p className='text-xs text-muted-foreground'>
+                    Aktifkan hanya pada satu periode yang menanggung iuran bulan
+                    terpilih.
+                  </p>
+                </div>
+                <Switch
+                  id='deduct-bpjs'
+                  checked={deductBpjs}
+                  onCheckedChange={(checked) => {
+                    setDeductBpjs(checked)
+                    resetPreview()
+                  }}
+                />
+              </div>
+              {deductBpjs ? (
+                <div className='space-y-1'>
+                  <Label htmlFor='bpjs-contribution-month'>Bulan iuran</Label>
+                  <MonthPicker
+                    id='bpjs-contribution-month'
+                    selected={monthFromInput(bpjsContributionMonth)}
+                    onSelect={(date) => {
+                      setBpjsContributionMonth(
+                        date ? format(date, 'yyyy-MM') : ''
+                      )
+                      resetPreview()
+                    }}
+                    placeholder='Pilih bulan iuran'
+                  />
+                  <p className='text-xs text-muted-foreground'>
+                    UMK, policy, dan proteksi potongan ganda mengikuti bulan
+                    ini.
+                  </p>
+                </div>
+              ) : null}
+            </div>
           ) : null}
           <div className='space-y-2'>
             <Label>Tanggal pembayaran (opsional)</Label>
@@ -1101,15 +1171,20 @@ function PeriodDetailSheet({
   open,
   onOpenChange,
   canCalculate,
+  canReset,
+  onReset,
 }: {
   uid?: string
   open: boolean
   onOpenChange: (open: boolean) => void
   canCalculate: boolean
+  canReset: boolean
+  onReset: () => void
 }) {
   const detail = usePayrollPeriod(uid)
   const employees = usePayrollPeriodEmployees(uid)
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [resetOpen, setResetOpen] = useState(false)
   const [employee, setEmployee] = useState<PayrollPeriodReadinessEmployee>()
   return (
     <>
@@ -1155,6 +1230,14 @@ function PeriodDetailSheet({
                 <p className='text-sm text-muted-foreground'>
                   Pembayaran: {dateLabel(detail.data.paymentDate)}
                 </p>
+                {detail.data.employeeType === 'BORONGAN' ? (
+                  <p className='mt-1 text-sm text-muted-foreground'>
+                    BPJS:{' '}
+                    {detail.data.deductBpjs
+                      ? `Dipotong untuk ${detail.data.bpjsContributionMonth}`
+                      : 'Tidak dipotong pada periode ini'}
+                  </p>
+                ) : null}
               </div>
               <SchemeMetrics period={detail.data} />
               <section className='space-y-2'>
@@ -1298,6 +1381,25 @@ function PeriodDetailSheet({
                   <Ban /> Batalkan periode
                 </Button>
               )}
+              {canReset && (
+                <div className='rounded-lg border border-destructive/30 bg-destructive/5 p-3'>
+                  <p className='text-sm font-medium text-destructive'>
+                    Reset untuk proses ulang
+                  </p>
+                  <p className='mt-1 text-xs text-muted-foreground'>
+                    Menghapus periode beserta seluruh hasil Payroll turunannya.
+                    Attendance, Produksi, dan master karyawan tetap
+                    dipertahankan.
+                  </p>
+                  <Button
+                    variant='destructive'
+                    className='mt-3 w-full'
+                    onClick={() => setResetOpen(true)}
+                  >
+                    <Trash2 /> Reset & hapus periode
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </SheetContent>
@@ -1307,6 +1409,12 @@ function PeriodDetailSheet({
         onOpenChange={setCancelOpen}
         uid={uid}
         onCancelled={() => onOpenChange(false)}
+      />
+      <ResetPeriodDialog
+        open={resetOpen}
+        onOpenChange={setResetOpen}
+        uid={uid}
+        onReset={onReset}
       />
       <EmployeeReadinessSheet
         employee={employee}
@@ -1638,6 +1746,177 @@ function CancelPeriodDialog({
           >
             {mutation.isPending && <LoaderCircle className='animate-spin' />}
             Ya, batalkan
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ResetPeriodDialog({
+  open,
+  onOpenChange,
+  uid,
+  onReset,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  uid?: string
+  onReset: () => void
+}) {
+  const preview = usePayrollPeriodResetPreview(uid, open)
+  const mutation = useResetPayrollPeriod()
+  const [confirmation, setConfirmation] = useState('')
+  const [reason, setReason] = useState('')
+  const expectedCode = preview.data?.periodCode ?? ''
+  const valid =
+    Boolean(uid) &&
+    preview.data?.canReset === true &&
+    confirmation.trim() === expectedCode &&
+    reason.trim().length >= 5
+
+  const close = (next: boolean) => {
+    if (mutation.isPending) return
+    onOpenChange(next)
+    if (!next) {
+      setConfirmation('')
+      setReason('')
+    }
+  }
+  const submit = async () => {
+    if (!uid || !valid) return
+    try {
+      await mutation.mutateAsync({
+        uid,
+        confirmation: confirmation.trim(),
+        reason: reason.trim(),
+      })
+      toast.success('Periode Payroll berhasil di-reset dan dapat dibuat ulang.')
+      close(false)
+      onReset()
+    } catch (error) {
+      toast.error(apiMessage(error, 'Periode Payroll gagal di-reset.'))
+    }
+  }
+  const impact = preview.data
+    ? [
+        ['Run Payroll', preview.data.runs],
+        ['Hasil karyawan', preview.data.employeeResults],
+        ['Komponen manual', preview.data.manualComponents],
+        ['Approval', preview.data.approvals],
+        ['Riwayat workflow', preview.data.workflowActions],
+        ['Riwayat output', preview.data.outputAudits],
+        ['Settlement BPJS', preview.data.bpjsSettlements],
+        ['Transaksi Produksi dilepas', preview.data.productionTransactions],
+      ]
+    : []
+
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-xl'>
+        <DialogHeader>
+          <DialogTitle>Reset & hapus periode Payroll?</DialogTitle>
+          <DialogDescription>
+            Periode dan seluruh hasil prosesnya akan dihapus agar Payroll dapat
+            dibuat ulang dari awal. Tindakan ini tetap dicatat di Audit Trail.
+          </DialogDescription>
+        </DialogHeader>
+
+        {preview.isPending ? (
+          <div className='space-y-2'>
+            <Skeleton className='h-20 w-full' />
+            <Skeleton className='h-28 w-full' />
+          </div>
+        ) : preview.isError || !preview.data ? (
+          <Alert variant='destructive'>
+            <AlertTriangle />
+            <AlertTitle>Preview reset gagal dimuat</AlertTitle>
+            <AlertDescription>
+              Tidak ada data yang diubah. Tutup dialog lalu coba kembali.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <div className='space-y-4'>
+            <Alert variant='destructive'>
+              <Trash2 />
+              <AlertTitle>{preview.data.periodCode}</AlertTitle>
+              <AlertDescription>
+                {preview.data.site.name} · {preview.data.periodName} · status{' '}
+                {statusLabels[preview.data.status]}
+              </AlertDescription>
+            </Alert>
+
+            {preview.data.blockerMessage ? (
+              <Alert variant='destructive'>
+                <AlertTriangle />
+                <AlertTitle>Reset belum dapat dijalankan</AlertTitle>
+                <AlertDescription>
+                  {preview.data.blockerMessage}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
+            <section>
+              <p className='mb-2 text-sm font-medium'>Dampak reset</p>
+              <dl className='grid grid-cols-2 gap-2'>
+                {impact.map(([label, value]) => (
+                  <div key={String(label)} className='rounded-md border p-2.5'>
+                    <dt className='text-xs text-muted-foreground'>{label}</dt>
+                    <dd className='mt-0.5 font-semibold'>
+                      {Number(value).toLocaleString('id-ID')}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+
+            <div className='space-y-2'>
+              <Label htmlFor='reset-payroll-confirmation'>
+                Ketik nomor periode untuk konfirmasi
+              </Label>
+              <Input
+                id='reset-payroll-confirmation'
+                value={confirmation}
+                onChange={(event) => setConfirmation(event.target.value)}
+                placeholder={preview.data.periodCode}
+                autoComplete='off'
+              />
+            </div>
+            <div className='space-y-2'>
+              <Label htmlFor='reset-payroll-reason'>Alasan reset</Label>
+              <Textarea
+                id='reset-payroll-reason'
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder='Contoh: Mengulang demo Payroll setelah perubahan konfigurasi.'
+                maxLength={500}
+              />
+              <p className='text-xs text-muted-foreground'>
+                Minimal 5 karakter dan akan disimpan di Audit Trail.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button
+            variant='outline'
+            onClick={() => close(false)}
+            disabled={mutation.isPending}
+          >
+            Batal
+          </Button>
+          <Button
+            variant='destructive'
+            onClick={() => void submit()}
+            disabled={!valid || preview.isPending || mutation.isPending}
+          >
+            {mutation.isPending ? (
+              <LoaderCircle className='animate-spin' />
+            ) : (
+              <Trash2 />
+            )}
+            Reset & hapus periode
           </Button>
         </DialogFooter>
       </DialogContent>

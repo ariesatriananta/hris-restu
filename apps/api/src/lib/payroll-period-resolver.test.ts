@@ -20,8 +20,6 @@ const policy = {
   roundingMode: 'HALF_UP',
   roundingScale: 0,
   currency: 'IDR',
-  effectiveFrom: '2026-01-01',
-  effectiveTo: null,
 }
 
 describe('payroll period resolver', () => {

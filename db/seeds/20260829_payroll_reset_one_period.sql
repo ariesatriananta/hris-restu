@@ -220,6 +220,11 @@ BEGIN
     ON result.id=summary.payroll_employee_result_id;
 
   DELETE detail
+  FROM payroll_employee_bpjs_details detail
+  JOIN tmp_payroll_reset_result_ids result
+    ON result.id=detail.payroll_employee_result_id;
+
+  DELETE detail
   FROM payroll_employee_component_details detail
   JOIN tmp_payroll_reset_result_ids result
     ON result.id=detail.payroll_employee_result_id;
@@ -242,6 +247,11 @@ BEGIN
   WHERE payroll_period_id=target_period_id;
 
   DELETE FROM payroll_period_policy_snapshots
+  WHERE payroll_period_id=target_period_id;
+
+  -- Bulan iuran kembali tersedia agar periode demo dapat dibuat ulang dan
+  -- pilihan Potong BPJS dapat dipakai lagi tanpa bentrok settlement lama.
+  DELETE FROM payroll_bpjs_monthly_settlements
   WHERE payroll_period_id=target_period_id;
 
   -- Lepas lock hanya bila transaksi tidak lagi dipakai snapshot Payroll lain.

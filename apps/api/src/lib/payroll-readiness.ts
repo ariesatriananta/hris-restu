@@ -77,6 +77,8 @@ type PeriodScope = {
   payFrequency?: 'WEEKLY' | 'MONTHLY'
   employeeType?: 'BORONGAN' | 'HARIAN' | 'TRAINING' | 'BULANAN' | null
   policySnapshot?: unknown
+  deductBpjs?: boolean
+  bpjsContributionMonth?: string | null
   timePreviewRows?: Awaited<ReturnType<typeof previewTimeBasedPopulation>>
 }
 
@@ -494,6 +496,45 @@ async function evaluatePieceRatePayrollReadiness(
       )
     )
   }
+  if (period.deductBpjs) {
+    const contributionMonth = period.bpjsContributionMonth
+    if (!contributionMonth) {
+      blockers.push(issue('BPJS_MONTH_MISSING','Bulan iuran BPJS belum dipilih.',1,'BLOCKER','POLICY','/payroll/periode'))
+    } else {
+      const [bpjsRows] = await executor.query<RowDataPacket[]>(
+         `WITH population AS (
+            SELECT employee_id FROM production_transactions WHERE site_id=? AND status='POSTED' AND business_date BETWEEN ? AND ? GROUP BY employee_id
+            UNION SELECT recurring.employee_id
+              FROM employee_payroll_components recurring
+             WHERE recurring.is_active=1
+               AND recurring.effective_from<=?
+               AND (recurring.effective_to IS NULL OR recurring.effective_to>=?)
+               AND EXISTS (
+                 SELECT 1 FROM employee_employment_histories history
+                  JOIN employee_types employee_type
+                    ON employee_type.id=history.employee_type_id
+                   AND employee_type.payroll_basis='PIECE_RATE'
+                  WHERE history.employee_id=recurring.employee_id
+                    AND history.site_id=?
+                    AND history.effective_from<=?
+                    AND (history.effective_to IS NULL OR history.effective_to>=?)
+               )
+            UNION SELECT manual.employee_id FROM payroll_period_manual_components manual WHERE manual.payroll_period_id=? AND manual.status='ACTIVE'
+          )
+         SELECT
+          (SELECT COUNT(*) FROM payroll_bpjs_policies policy WHERE policy.policy_year=YEAR(?) AND policy.status='ACTIVE') policyCount,
+          (SELECT COUNT(*) FROM site_minimum_wages wage WHERE wage.site_id=? AND wage.wage_year=YEAR(?) AND wage.status='ACTIVE') minimumWageCount,
+          (SELECT COUNT(*) FROM payroll_bpjs_monthly_settlements settlement JOIN population ON population.employee_id=settlement.employee_id WHERE settlement.contribution_month=CONCAT(?,'-01') AND settlement.payroll_period_id<>?) duplicateSettlements,
+          (SELECT COUNT(*) FROM employees employee JOIN population ON population.employee_id=employee.id WHERE (employee.bpjs_health_number IS NULL OR TRIM(employee.bpjs_health_number)='' OR employee.bpjs_employment_number IS NULL OR TRIM(employee.bpjs_employment_number)='')) missingBpjsNumbers`,
+        [period.siteId,period.periodStart,period.periodEnd,period.periodEnd,period.periodStart,period.siteId,period.periodEnd,period.periodStart,period.id,`${contributionMonth}-01`,period.siteId,`${contributionMonth}-01`,contributionMonth,period.id]
+      )
+      const bpjs=bpjsRows[0]??{}
+      if(number(bpjs.policyCount)!==1) blockers.push(issue('BPJS_POLICY_MISSING','Kebijakan BPJS aktif untuk tahun iuran belum tersedia.',1,'BLOCKER','POLICY','/payroll/skema-upah?tab=bpjs'))
+      if(number(bpjs.minimumWageCount)!==1) blockers.push(issue('BPJS_UMK_MISSING','UMK aktif untuk site dan tahun iuran belum tersedia.',1,'BLOCKER','POLICY','/payroll/skema-upah?tab=minimum-wage'))
+      if(number(bpjs.duplicateSettlements)>0) blockers.push(issue('BPJS_ALREADY_DEDUCTED','Sebagian karyawan sudah memiliki potongan BPJS pada bulan iuran yang sama.',number(bpjs.duplicateSettlements),'BLOCKER','POLICY',null))
+      if(number(bpjs.missingBpjsNumbers)>0) warnings.push(issue('BPJS_NUMBER_INCOMPLETE','Nomor kepesertaan BPJS sebagian karyawan belum lengkap. Kalkulasi tetap dapat dilanjutkan.',number(bpjs.missingBpjsNumbers),'WARNING','EMPLOYMENT','/karyawan/data-karyawan'))
+    }
+  }
   if (missingBankAccounts > 0)
     warnings.push(
       issue(
@@ -833,7 +874,7 @@ async function evaluateTimeBasedPayrollReadiness(
     blockers.push(
       issue(
         'BASE_RATE_MISSING',
-        'Tarif harian atau gaji pokok belum mencakup seluruh tanggal eligible.',
+        'Tarif harian atau gaji pokok aktif belum tersedia untuk seluruh karyawan eligible.',
         missingBaseAmountEmployees,
         'BLOCKER',
         'RATE',
@@ -844,7 +885,7 @@ async function evaluateTimeBasedPayrollReadiness(
     blockers.push(
       issue(
         'BASE_RATE_AMBIGUOUS',
-        'Lebih dari satu tarif harian atau gaji pokok berlaku pada tanggal yang sama.',
+        'Master tarif harian atau gaji pokok karyawan tidak tunggal.',
         ambiguousBaseAmountEmployees,
         'BLOCKER',
         'RATE',
@@ -910,7 +951,7 @@ async function evaluateTimeBasedPayrollReadiness(
     blockers.push(
       issue(
         'SALARY_SEGMENT_INVALID',
-        'Perubahan gaji pokok ditemukan di tengah periode. Gaji baru wajib mulai pada awal periode Payroll.',
+        'Master gaji pokok karyawan tidak tunggal untuk periode Payroll.',
         invalidSalarySegmentEmployees,
         'BLOCKER',
         'RATE',

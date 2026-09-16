@@ -668,6 +668,14 @@ export function Payslip({
       {employee.attendance && (
         <AttendanceSummary employee={employee} scheme={scheme} />
       )}
+      {employee.bpjs && (
+        <div className='mt-2 rounded border border-slate-300 px-2 py-1.5 text-[9px] text-slate-700'>
+          <b>BPJS bulan {employee.bpjs.contributionMonth}:</b> potongan karyawan{' '}
+          {money(employee.bpjs.employee.total)} · kontribusi perusahaan{' '}
+          {money(employee.bpjs.employer.total)}. Kontribusi perusahaan tidak
+          mengurangi neto.
+        </div>
+      )}
       <div className='mt-3 flex items-end justify-between border-t-2 border-slate-900 pt-3'>
         <div className='max-w-[60%] text-[9px] text-slate-600'>
           {bundle.document.official

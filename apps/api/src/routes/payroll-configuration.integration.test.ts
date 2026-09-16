@@ -21,12 +21,12 @@ describe('Payroll M5A1 configuration API',()=>{
   beforeEach(()=>{vi.clearAllMocks();mocks.begin.mockResolvedValue(undefined);mocks.commit.mockResolvedValue(undefined);mocks.rollback.mockResolvedValue(undefined);mocks.query.mockResolvedValue([[]])})
 
   it('menolak Finance membuat policy meskipun dapat melihatnya',async()=>{
-    const response=await request('/configuration/policies',{method:'POST',body:{siteUid:'11111111-1111-4111-8111-111111111111',employeeType:'TRAINING',wageBasis:'TIME_BASED',payFrequency:'WEEKLY',cutoffType:'WEEK_END',effectiveFrom:'2026-09-01',reason:'Policy baru',idempotencyKey:'policy-training-20260901'}})
+    const response=await request('/configuration/policies',{method:'POST',body:{siteUid:'11111111-1111-4111-8111-111111111111',employeeType:'TRAINING',wageBasis:'TIME_BASED',payFrequency:'WEEKLY',cutoffType:'WEEK_END',reason:'Policy baru',idempotencyKey:'policy-training-current'}})
     expect(response.status).toBe(403);expect(mocks.begin).not.toHaveBeenCalled()
   })
 
   it('menolak matriks upah Training berbasis hasil sebelum query database',async()=>{
-    const response=await request('/configuration/policies',{method:'POST',auth:superAdmin,body:{siteUid:'11111111-1111-4111-8111-111111111111',employeeType:'TRAINING',wageBasis:'PIECE_RATE',payFrequency:'WEEKLY',cutoffType:'WEEK_END',effectiveFrom:'2026-09-01',reason:'Policy salah',idempotencyKey:'policy-training-invalid'}})
+    const response=await request('/configuration/policies',{method:'POST',auth:superAdmin,body:{siteUid:'11111111-1111-4111-8111-111111111111',employeeType:'TRAINING',wageBasis:'PIECE_RATE',payFrequency:'WEEKLY',cutoffType:'WEEK_END',reason:'Policy salah',idempotencyKey:'policy-training-invalid'}})
     expect(response.status).toBe(422);expect(mocks.rollback).toHaveBeenCalled()
   })
 
@@ -54,6 +54,33 @@ describe('Payroll M5A1 configuration API',()=>{
     expect(mocks.query.mock.calls[0][1]).toEqual(['JEPARA',2026])
     const body=await response.json() as {data:Array<{amount:string}>}
     expect(body.data[0].amount).toBe('2450000.00')
+  })
+
+  it('memaginasi dan mengurutkan daftar policy dari server',async()=>{
+    mocks.query
+      .mockResolvedValueOnce([[{total:51}]])
+      .mockResolvedValueOnce([[]])
+    const response=await request('/configuration/policies?page=2&pageSize=50&sortBy=site&sortDirection=asc&query=jepara')
+    expect(response.status).toBe(200)
+    expect(String(mocks.query.mock.calls[0][0])).toContain('COUNT(*) total')
+    expect(mocks.query.mock.calls[0][1]).toEqual(['JEPARA','%jepara%','%jepara%','%jepara%'])
+    expect(String(mocks.query.mock.calls[1][0])).toContain('ORDER BY s.name ASC')
+    expect(mocks.query.mock.calls[1][1]).toEqual(['JEPARA','%jepara%','%jepara%','%jepara%',50,50])
+    const body=await response.json() as {meta:{page:number;total:number;totalPages:number}}
+    expect(body.meta).toEqual({page:2,pageSize:50,total:51,totalPages:2})
+  })
+
+  it('memaginasi daftar tarif harian beserta pencarian dan sorting',async()=>{
+    mocks.query
+      .mockResolvedValueOnce([[{total:4}]])
+      .mockResolvedValueOnce([[]])
+    const response=await request('/configuration/daily-rates?pageSize=100&sortBy=amount&sortDirection=desc&query=siti')
+    expect(response.status).toBe(200)
+    expect(String(mocks.query.mock.calls[0][0])).toContain('employee_daily_rate_histories')
+    expect(String(mocks.query.mock.calls[1][0])).toContain('ORDER BY r.daily_rate DESC')
+    expect(mocks.query.mock.calls[1][1]).toEqual(['JEPARA','%siti%','%siti%','%siti%','%siti%',100,0])
+    const body=await response.json() as {meta:{page:number;pageSize:number;total:number;totalPages:number}}
+    expect(body.meta).toEqual({page:1,pageSize:100,total:4,totalPages:1})
   })
 
   it('menolak Finance membaca UMK site di luar aksesnya',async()=>{

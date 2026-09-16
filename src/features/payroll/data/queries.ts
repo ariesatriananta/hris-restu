@@ -8,6 +8,8 @@ import { apiClient } from '@/lib/api-client'
 import type {
   PayrollPeriodDetail,
   PayrollPeriodMeta,
+  PayrollPeriodResetPreview,
+  PayrollPeriodResetResult,
   PayrollPeriodSummary,
   PayrollPeriodPreview,
   PayrollPeriodReadinessEmployee,
@@ -32,6 +34,11 @@ import type {
   PayrollEmployeeRateListResult,
   PayrollMinimumWage,
   PayrollMinimumWageListResult,
+  PayrollBpjsConfiguration,
+  PayrollBpjsEnrollment,
+  PayrollBpjsEnrollmentImportPreview,
+  PayrollBpjsEnrollmentImportRow,
+  PayrollBpjsPolicy,
 } from '../domain'
 
 const keys = {
@@ -41,6 +48,8 @@ const keys = {
     [...keys.all, 'list', input] as const,
   detail: (uid: string) => [...keys.all, 'detail', uid] as const,
   periodEmployees: (uid: string) => [...keys.detail(uid), 'employees'] as const,
+  resetPreview: (uid: string) =>
+    [...keys.detail(uid), 'reset-preview'] as const,
   periodPreview: () => [...keys.all, 'preview'] as const,
   runs: (periodUid: string) => [...keys.all, periodUid, 'runs'] as const,
   run: (runUid: string) => [...keys.all, 'run', runUid] as const,
@@ -74,6 +83,10 @@ const keys = {
     [...keys.configuration, 'salaries', input] as const,
   minimumWages: (input: Record<string, unknown>) =>
     [...keys.configuration, 'minimum-wages', input] as const,
+  bpjs: (input: Record<string, unknown>) =>
+    [...keys.configuration, 'bpjs', input] as const,
+  bpjsEnrollments: (input: Record<string, unknown>) =>
+    [...keys.configuration, 'bpjs-enrollments', input] as const,
 }
 
 export type PayrollPolicyInput = {
@@ -83,15 +96,19 @@ export type PayrollPolicyInput = {
   payFrequency: 'WEEKLY' | 'MONTHLY'
   cutoffType: 'WEEK_END' | 'LAST_DAY' | 'DAY_OF_MONTH'
   cutoffDay?: number
-  effectiveFrom: string
+}
+
+type PaginationMeta = {
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
 }
 
 export type PayrollRateInput = {
   employeeUid: string
   siteUid: string
   amount: string
-  effectiveFrom: string
-  effectiveTo?: string
   notes?: string
 }
 
@@ -104,6 +121,149 @@ export type PayrollMinimumWageInput = {
   notes?: string | null
   reason: string
   idempotencyKey: string
+}
+
+export type PayrollBpjsPolicyInput = Omit<
+  PayrollBpjsPolicy,
+  'uid' | 'status' | 'updatedAt'
+> & { reason: string; idempotencyKey: string }
+
+export function usePayrollBpjsConfiguration(
+  input: Record<string, unknown>,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: keys.bpjs(input),
+    queryFn: async () =>
+      (
+        await apiClient.get<PayrollBpjsConfiguration>(
+          `/payroll/configuration/bpjs?${params(input)}`
+        )
+      ).data,
+    enabled,
+  })
+}
+
+export function useSavePayrollBpjsPolicy() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: PayrollBpjsPolicyInput) =>
+      (
+        await apiClient.post<{ data: PayrollBpjsPolicy }>(
+          '/payroll/configuration/bpjs/policy',
+          input
+        )
+      ).data.data,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: keys.configuration }),
+  })
+}
+
+export function usePayrollBpjsEnrollments(
+  input: Record<string, unknown>,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: keys.bpjsEnrollments(input),
+    queryFn: async () =>
+      (
+        await apiClient.get<{
+          data: PayrollBpjsEnrollment[]
+          meta: {
+            page: number
+            pageSize: number
+            total: number
+            totalPages: number
+          }
+        }>(`/payroll/configuration/bpjs/enrollments?${params(input)}`)
+      ).data,
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+}
+
+export function useSavePayrollBpjsEnrollment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      employeeUid,
+      ...input
+    }: {
+      employeeUid: string
+      healthEnabled: boolean
+      jhtEnabled: boolean
+      jkkEnabled: boolean
+      jkmEnabled: boolean
+      jpEnabled: boolean
+      reason: string
+      idempotencyKey: string
+    }) =>
+      (
+        await apiClient.post(
+          `/payroll/configuration/bpjs/enrollments/${employeeUid}`,
+          input
+        )
+      ).data,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: keys.configuration }),
+  })
+}
+
+export async function fetchAllPayrollBpjsEnrollments(
+  input: Record<string, unknown>
+) {
+  const first = await apiClient.get<{
+    data: PayrollBpjsEnrollment[]
+    meta: PaginationMeta
+  }>(
+    `/payroll/configuration/bpjs/enrollments?${params({ ...input, page: 1, pageSize: 500 })}`
+  )
+  const rows = [...first.data.data]
+  for (let page = 2; page <= first.data.meta.totalPages; page += 1) {
+    const response = await apiClient.get<{
+      data: PayrollBpjsEnrollment[]
+      meta: PaginationMeta
+    }>(
+      `/payroll/configuration/bpjs/enrollments?${params({ ...input, page, pageSize: 500 })}`
+    )
+    rows.push(...response.data.data)
+  }
+  return rows
+}
+
+export function usePreviewPayrollBpjsEnrollmentImport() {
+  return useMutation({
+    mutationFn: async (rows: PayrollBpjsEnrollmentImportRow[]) =>
+      (
+        await apiClient.post<{ data: PayrollBpjsEnrollmentImportPreview }>(
+          '/payroll/configuration/bpjs/enrollments/import/preview',
+          { rows }
+        )
+      ).data.data,
+  })
+}
+
+export function useImportPayrollBpjsEnrollments() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      rows,
+      idempotencyKey,
+    }: {
+      rows: PayrollBpjsEnrollmentImportRow[]
+      idempotencyKey: string
+    }) =>
+      (
+        await apiClient.post<{
+          data: { total: number; changed: number; replayed: number }
+        }>('/payroll/configuration/bpjs/enrollments/import', {
+          rows,
+          idempotencyKey,
+        })
+      ).data.data,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: keys.configuration }),
+  })
 }
 
 export function usePayrollConfigurationMeta() {
@@ -131,7 +291,7 @@ export function usePayrollPolicies(
         (
           await apiClient.get<{
             data: BackendPolicy[]
-            meta: { total: number }
+            meta: PaginationMeta
           }>(`/payroll/configuration/policies?${params(input)}`)
         ).data
       ),
@@ -271,7 +431,7 @@ function usePayrollEmployeeRates(
         (
           await apiClient.get<{
             data: BackendNominal[]
-            meta: { total: number }
+            meta: PaginationMeta
           }>(`/payroll/configuration/${resource}?${params(input)}`)
         ).data,
         resource
@@ -367,8 +527,6 @@ type BackendNominal = {
   basicSalary?: string | null
   nominalMasked: boolean
   currency: 'IDR'
-  effectiveFrom: string
-  effectiveTo: string | null
   status: PayrollEmployeeRate['status']
   notes: string | null
 }
@@ -415,21 +573,13 @@ function normalizePolicy(
 
 function normalizePolicies(input: {
   data: BackendPolicy[]
-  meta: { total: number }
+  meta: PaginationMeta
 }): PayrollPolicyListResult {
   return {
     data: input.data.map((policy, index) =>
       normalizePolicy(policy, input.data.length - index)
     ),
-    meta: {
-      sites: [],
-      employeeTypes: [],
-      capabilities: {
-        canManagePolicy: false,
-        canManageRates: false,
-        canViewAmounts: false,
-      },
-    },
+    meta: input.meta,
   }
 }
 
@@ -440,7 +590,7 @@ function normalizePolicyPreview(
 }
 
 function normalizeNominalList(
-  input: { data: BackendNominal[]; meta: { total: number } },
+  input: { data: BackendNominal[]; meta: PaginationMeta },
   resource: 'daily-rates' | 'salaries'
 ): PayrollEmployeeRateListResult {
   return {
@@ -454,21 +604,11 @@ function normalizeNominalList(
           : (item.basicSalary ?? null),
       amountMasked: item.nominalMasked,
       currency: item.currency,
-      effectiveFrom: item.effectiveFrom,
-      effectiveTo: item.effectiveTo,
       status: item.status,
       notes: item.notes,
       createdAt: '',
     })),
-    meta: {
-      sites: [],
-      employees: [],
-      capabilities: {
-        canManagePolicy: false,
-        canManageRates: false,
-        canViewAmounts: false,
-      },
-    },
+    meta: input.meta,
   }
 }
 
@@ -756,6 +896,8 @@ export function useCreatePayrollPeriod() {
       periodStart: string
       periodEnd: string
       paymentDate?: string | null
+      deductBpjs?: boolean
+      bpjsContributionMonth?: string | null
       periodName?: string
       notes?: string
     }) =>
@@ -776,6 +918,8 @@ export function usePreviewPayrollPeriod() {
       employeeType: 'BORONGAN' | 'HARIAN' | 'TRAINING' | 'BULANAN'
       periodStart: string
       periodEnd: string
+      deductBpjs?: boolean
+      bpjsContributionMonth?: string | null
     }) =>
       (
         await apiClient.post<{ data: PayrollPeriodPreview }>(
@@ -794,6 +938,41 @@ export function useCancelPayrollPeriod() {
         await apiClient.post<{ data: PayrollPeriodSummary }>(
           `/payroll/periods/${uid}/cancel`,
           { reason }
+        )
+      ).data.data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),
+  })
+}
+
+export function usePayrollPeriodResetPreview(uid?: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.resetPreview(uid ?? ''),
+    queryFn: async () =>
+      (
+        await apiClient.get<{ data: PayrollPeriodResetPreview }>(
+          `/payroll/periods/${uid}/reset-preview`
+        )
+      ).data.data,
+    enabled: Boolean(uid) && enabled,
+  })
+}
+
+export function useResetPayrollPeriod() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      uid,
+      confirmation,
+      reason,
+    }: {
+      uid: string
+      confirmation: string
+      reason: string
+    }) =>
+      (
+        await apiClient.post<{ data: PayrollPeriodResetResult }>(
+          `/payroll/periods/${uid}/reset`,
+          { confirmation, reason }
         )
       ).data.data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),

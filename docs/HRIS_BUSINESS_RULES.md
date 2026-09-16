@@ -152,11 +152,17 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   sedangkan kelompok kerja mengikuti snapshot `production_transactions`.
   Status Payroll pada rekap berarti belum, sebagian, atau seluruh transaksi
   sudah disnapshot; status tersebut tidak menyatakan gaji sudah dibayar.
-- Payroll draft/simulasi dapat dihitung ulang. Payroll yang sudah closing bersifat immutable.
+- Payroll draft/simulasi dapat dihitung ulang. Payroll yang sudah closing bersifat immutable
+  dalam workflow normal. `SUPER_ADMIN` memiliki aksi darurat **Reset & hapus
+  periode** untuk mengulang proses dari awal pada status apa pun, selama tidak
+  ada run `PROCESSING`. Aksi ini menghapus periode beserta seluruh snapshot,
+  hasil, approval, workflow, dan output turunannya; melepas lock Produksi serta
+  settlement BPJS terkait; mempertahankan fakta Attendance, Produksi, dan master;
+  serta wajib meminta konfirmasi nomor periode, alasan, dan menulis Audit Trail.
 - Koreksi setelah payroll closing tidak termasuk scope saat ini.
 - Implementasi Payroll pertama hanya untuk `PIECE_RATE/WEEKLY`. Perluasan
   berikutnya mencakup `TIME_BASED/WEEKLY` untuk HARIAN/TRAINING dan
-  `TIME_BASED/MONTHLY` untuk BULANAN dengan policy effective-dated yang
+  `TIME_BASED/MONTHLY` untuk BULANAN dengan policy current-state yang
   disnapshot pada periode serta run.
 - Periode Payroll `PIECE_RATE` dibuat fleksibel per site dengan rentang maksimal
   31 hari dan tidak boleh overlap dengan periode non-cancelled pada site serta
@@ -180,12 +186,12 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   Periode `TIME_BASED/MONTHLY` mengikuti policy cutoff; default awal adalah
   `LAST_DAY` sehingga periodenya tanggal 1 sampai akhir bulan.
 - Periode mingguan `HARIAN` dan `TRAINING` dibuat terpisah. Pembuatan periode
-  memakai tanggal acuan, menyelesaikan tepat satu policy historis, dan menyimpan
+  memakai tanggal acuan, membaca tepat satu policy aktif, dan menyimpan
   snapshot policy secara atomik bersama periode Draft.
 - Kehadiran final `PRESENT` pada hari nonkerja untuk HARIAN/TRAINING tetap
   dihitung sebagai satu hari bayar dan ditandai sebagai warning operasional.
 - Preview kesiapan berbasis waktu tidak membuat run atau hasil finansial
-  permanen. Policy, kontrak, histori tarif/gaji, Attendance, dan currency yang
+  permanen. Policy, kontrak, master tarif/gaji aktif, Attendance, dan currency yang
   tidak lengkap tetap menjadi blocker walaupun ada komponen manual.
 - Simulasi mingguan HARIAN/TRAINING menyertakan seluruh karyawan eligible,
   termasuk karyawan tanpa Attendance `PRESENT`; upah dasar karyawan tersebut
@@ -206,18 +212,13 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   sumber, neto negatif, rekening tidak lengkap, atau current run yang stale.
 - Closing mengesahkan hasil Payroll dan membuat current run menjadi `FINAL`,
   tetapi tidak menyatakan gaji sudah ditransfer atau diterima karyawan.
-- Perubahan gaji pokok Bulanan di tengah periode atau snapshot policy yang tidak
-  cocok dengan identitas periode menjadi blocker dan wajib diperbaiki sebelum
-  perhitungan resmi.
-- Policy Payroll bersifat versioned, effective-dated, wajib per site,
-  tervalidasi, dan disnapshot. Inheritance policy global/site belum digunakan
-  pada M5A1 agar resolusi policy tetap tunggal. Perubahan hanya berlaku ke
-  periode baru dan tidak boleh mengubah Payroll yang sudah diajukan,
-  disetujui, atau ditutup.
-- Perubahan gaji pokok BULANAN hanya boleh efektif tepat pada awal periode
-  Payroll. Gaji pokok pertama karyawan yang join di tengah periode boleh mulai
-  pada tanggal awal eligibility; pengecualian ini tidak berlaku untuk perubahan
-  nominal lanjutan. Join/resign diprorata memakai hari kalender eligible.
+- Policy Payroll wajib tersedia satu baris aktif per site dan jenis karyawan,
+  tervalidasi, dan disnapshot saat periode dibuat. Perubahan master berlaku
+  langsung untuk proses berikutnya; periode yang sudah dihitung tetap memakai
+  snapshot miliknya.
+- Tarif harian dan gaji pokok menyimpan satu kondisi terkini per karyawan tanpa
+  tanggal efektif. Join/resign tetap diprorata memakai histori employment dan
+  hari kalender eligible.
 - Alpha dan Izin karyawan BULANAN dicatat sebagai potongan eksplisit dengan
   rumus default `gaji pokok / jumlah hari kerja terjadwal dalam periode x
   jumlah hari Alpha/Izin`. Kalkulasi dibulatkan `HALF_UP` ke Rp1 per komponen
@@ -234,15 +235,37 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   `PAYROLL_FINANCE` hanya melihat policy sesuai akses site; pembatasan ini
   wajib ditegakkan API.
 - Bonus, tunjangan, penalti, pinjaman, dan potongan lain dikelola sebagai
-  komponen eksplisit per periode. Pajak dan BPJS belum dihitung otomatis pada
-  fase awal.
+  komponen eksplisit per periode. Pajak belum dihitung otomatis.
 - UMK berarti Upah Minimum Kabupaten/Kota dan dikelola per site serta tahun
   kalender. Dalam satu site hanya boleh ada satu master UMK untuk satu tahun.
 - Koreksi, pembatalan, dan aktivasi ulang UMK wajib beralasan, idempotent,
   tercatat dalam revision log serta audit trail, dan tidak menghapus histori.
-- Master UMK belum memengaruhi bruto, potongan, atau neto Payroll. Integrasi
-  BPJS berikutnya wajib menyimpan snapshot UID sumber UMK dan nominalnya agar
-  perubahan master tidak mengubah hasil Payroll lama.
+- Pada tahap pertama, kalkulasi BPJS hanya berlaku untuk Payroll `BORONGAN`.
+  Hasil Produksi tetap menjadi dasar pendapatan; UMK site pada tahun bulan
+  iuran hanya menjadi dasar nominal BPJS.
+- BPJS hanya dipotong ketika pembuat periode mengaktifkan **Potong BPJS** dan
+  memilih **Bulan Iuran**. Periode boleh mingguan atau lintas bulan, tetapi
+  setiap karyawan hanya boleh memiliki satu settlement pada bulan iuran yang
+  sama. Potongan tidak dibagi ke beberapa periode.
+- Kepesertaan BPJS default aktif. Pengaturan terkini per karyawan dapat
+  menonaktifkan Kesehatan, JHT, JKK, JKM, atau JP secara terpisah. Nomor peserta
+  yang belum lengkap menjadi peringatan, bukan blocker kalkulasi.
+- Kepesertaan memakai model current state: nilai terakhir yang disimpan langsung
+  berlaku dan digunakan oleh run Payroll berikutnya. Perubahan tidak membentuk
+  jadwal versi baru, tetapi tetap dicatat pada revision log serta audit trail.
+- Import Excel kepesertaan BPJS hanya mengelola switch program karyawan
+  `BORONGAN`, wajib divalidasi terhadap cakupan site pengguna, dan bersifat
+  atomik: satu baris tidak valid membatalkan seluruh batch. Nomor peserta BPJS
+  tetap dikelola melalui Master Karyawan.
+- Persentase Kesehatan, JHT, JKK, JKM, dan JP dikelola dalam satu kebijakan
+  global per tahun. JP perusahaan dan JP karyawan memakai switch terpisah;
+  default JP perusahaan nonaktif dan JP karyawan aktif.
+- Potongan bagian karyawan dibulatkan ke Rp1.000 terdekat per program. Bagian
+  perusahaan dicatat terpisah sebagai biaya perusahaan dan tidak mengurangi
+  bruto maupun neto karyawan.
+- Kalkulasi wajib menyimpan sumber policy, UMK site, kepesertaan, tarif, dan
+  nominal sebagai snapshot agar perubahan master tidak mengubah run Payroll
+  lama.
 - Jika total potongan melebihi pendapatan, approval dan closing diblokir sampai
   komponen diperbaiki; sistem tidak boleh diam-diam membulatkan net pay menjadi
   nol.

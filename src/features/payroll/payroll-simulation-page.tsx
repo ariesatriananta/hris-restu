@@ -1172,6 +1172,58 @@ function EmployeeResultSheet({
                 items={detail.data.trainingProduction}
               />
             )}
+            {detail.data.bpjs && (
+              <section className='space-y-3 rounded-lg border border-sky-200 bg-sky-50/50 p-4 dark:border-sky-900 dark:bg-sky-950/20'>
+                <div>
+                  <h3 className='font-semibold'>Rincian BPJS</h3>
+                  <p className='text-xs text-muted-foreground'>
+                    Bulan iuran {detail.data.bpjs.contributionMonth} · dasar UMK{' '}
+                    {amount(detail.data.bpjs.minimumWage)}. Kontribusi
+                    perusahaan dicatat sebagai biaya perusahaan dan tidak
+                    mengurangi neto.
+                  </p>
+                </div>
+                <div className='grid grid-cols-2 gap-3 text-sm sm:grid-cols-4'>
+                  <ResultFact
+                    label='Kesehatan karyawan'
+                    value={amount(detail.data.bpjs.employee.health)}
+                  />
+                  <ResultFact
+                    label='JHT karyawan'
+                    value={amount(detail.data.bpjs.employee.jht)}
+                  />
+                  <ResultFact
+                    label='JP karyawan'
+                    value={amount(detail.data.bpjs.employee.jp)}
+                  />
+                  <ResultFact
+                    label='Total potongan'
+                    value={amount(detail.data.bpjs.employee.total)}
+                    strong
+                  />
+                  <ResultFact
+                    label='Kesehatan perusahaan'
+                    value={amount(detail.data.bpjs.employer.health)}
+                  />
+                  <ResultFact
+                    label='JHT/JKK/JKM/JP perusahaan'
+                    value={amount(
+                      String(
+                        Number(detail.data.bpjs.employer.jht) +
+                          Number(detail.data.bpjs.employer.jkk) +
+                          Number(detail.data.bpjs.employer.jkm) +
+                          Number(detail.data.bpjs.employer.jp)
+                      )
+                    )}
+                  />
+                  <ResultFact
+                    label='Total perusahaan'
+                    value={amount(detail.data.bpjs.employer.total)}
+                    strong
+                  />
+                </div>
+              </section>
+            )}
             <section className='space-y-2'>
               <h3 className='font-semibold'>
                 Komponen Payroll ({detail.data.components.length})
@@ -1371,8 +1423,7 @@ function MonthlyFormulaEvidence({
         />
       </div>
       <p className='text-xs text-muted-foreground'>
-        Gaji berlaku sejak {date(snapshot.salaryEffectiveFrom)} /{' '}
-        {snapshot.currency}.
+        Gaji pokok aktif dalam {snapshot.currency}.
       </p>
       <div className='rounded-md bg-background/80 px-3 py-2 text-xs text-muted-foreground'>
         Prorata = gaji pokok x hari kalender eligible / hari kalender periode.

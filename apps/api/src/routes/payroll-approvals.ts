@@ -242,19 +242,17 @@ async function lockIntegritySources(conn: PoolConnection, row: RowDataPacket) {
     if (row.employeeTypeCode === 'BULANAN') {
       await conn.query(
         `SELECT salary.id FROM employee_salary_histories salary
-          JOIN payroll_employee_results result ON result.employee_id=salary.employee_id
-         WHERE result.payroll_run_id=? AND salary.status='ACTIVE'
-           AND salary.effective_from<=? AND (salary.effective_to IS NULL OR salary.effective_to>=?) FOR UPDATE`,
-        [row.runId,row.periodEnd,row.periodStart]
+         JOIN payroll_employee_results result ON result.employee_id=salary.employee_id
+         WHERE result.payroll_run_id=? AND salary.status='ACTIVE' FOR UPDATE`,
+        [row.runId]
       )
     } else {
       await conn.query(
         `SELECT rate.id FROM employee_daily_rate_histories rate
-          JOIN payroll_employee_results result ON result.employee_id=rate.employee_id
+         JOIN payroll_employee_results result ON result.employee_id=rate.employee_id
          WHERE result.payroll_run_id=? AND rate.site_id=? AND rate.employee_type_code=?
-           AND rate.status='ACTIVE' AND rate.effective_from<=?
-           AND (rate.effective_to IS NULL OR rate.effective_to>=?) FOR UPDATE`,
-        [row.runId,row.siteId,row.employeeTypeCode,row.periodEnd,row.periodStart]
+           AND rate.status='ACTIVE' FOR UPDATE`,
+        [row.runId,row.siteId,row.employeeTypeCode]
       )
     }
   }

@@ -25,6 +25,8 @@ export type PayrollRunRow = RowDataPacket & {
   payrollBasis: 'PIECE_RATE' | 'TIME_BASED'
   payFrequency: 'WEEKLY' | 'MONTHLY'
   employeeType: 'BORONGAN' | 'HARIAN' | 'TRAINING' | 'BULANAN'
+  deductBpjs: number
+  bpjsContributionMonth: string | null
   runNumber: number
   runType: 'SIMULATION' | 'FINAL'
   status: PayrollRunStatus
@@ -54,6 +56,7 @@ export const runProjection = `SELECT pr.id,pr.uid,pr.payroll_period_id periodId,
   DATE_FORMAT(pp.period_end,'%Y-%m-%d') periodEnd,
   pp.payroll_basis payrollBasis,pp.pay_frequency payFrequency,
   pp.employee_type_code employeeType,
+  pp.deduct_bpjs deductBpjs,DATE_FORMAT(pp.bpjs_contribution_month,'%Y-%m') bpjsContributionMonth,
   pr.run_number runNumber,pr.run_type runType,pr.status,
   CONCAT(DATE_FORMAT(pr.calculation_started_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') startedAt,
   IF(pr.calculation_finished_at IS NULL,NULL,CONCAT(DATE_FORMAT(pr.calculation_finished_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00')) finishedAt,
@@ -117,6 +120,8 @@ export function runDto(row: PayrollRunRow) {
     payrollBasis: row.payrollBasis,
     payFrequency: row.payFrequency,
     employeeType: row.employeeType,
+    deductBpjs: Boolean(row.deductBpjs),
+    bpjsContributionMonth: row.bpjsContributionMonth,
     totalPieceRateAmount: String(row.totalPieceRateAmount ?? '0.00'),
     totalBasicSalaryAmount: String(row.totalBasicSalaryAmount ?? '0.00'),
     totalEarnings: String(row.totalEarnings ?? '0.00'),
@@ -487,9 +492,7 @@ async function calculateWeeklyTimeBasedRun(
         AND attendance.business_date=eligible.business_date
        JOIN employee_daily_rate_histories rate
          ON rate.employee_id=eligible.employee_id AND rate.site_id=eligible.site_id
-        AND rate.employee_type_code=? AND rate.status='ACTIVE'
-        AND rate.effective_from<=eligible.business_date
-        AND (rate.effective_to IS NULL OR rate.effective_to>=eligible.business_date)`,
+        AND rate.employee_type_code=? AND rate.status='ACTIVE'`,
     [
       run.periodStart,
       run.periodEnd,
@@ -784,8 +787,6 @@ async function calculateMonthlyTimeBasedRun(
           AND attendance.business_date=eligible.business_date
          JOIN employee_salary_histories salary
            ON salary.employee_id=eligible.employee_id AND salary.status='ACTIVE'
-          AND salary.effective_from<=eligible.business_date
-          AND (salary.effective_to IS NULL OR salary.effective_to>=eligible.business_date)
      )
      SELECT UUID(),result_id,attendance_id,salary_id,business_date,
             attendance_status,calendar_day_type,calendar_reason_type,is_scheduled,
@@ -1047,6 +1048,8 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
               pp.site_id siteId,pp.status periodStatus,
               pp.payroll_basis payrollBasis,pp.pay_frequency payFrequency,
               pp.employee_type_code employeeType,
+              pp.deduct_bpjs deductBpjs,
+              DATE_FORMAT(pp.bpjs_contribution_month,'%Y-%m') bpjsContributionMonth,
               snapshot.policy_snapshot policySnapshot,
               DATE_FORMAT(pp.period_start,'%Y-%m-%d') periodStart,
               DATE_FORMAT(pp.period_end,'%Y-%m-%d') periodEnd
@@ -1113,9 +1116,7 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
       if (run.employeeType === 'BULANAN') {
         await conn.query(
           `SELECT salary.id FROM employee_salary_histories salary
-            WHERE salary.status='ACTIVE' AND salary.effective_from<=?
-              AND (salary.effective_to IS NULL OR salary.effective_to>=?)
-              AND EXISTS (
+            WHERE salary.status='ACTIVE' AND EXISTS (
                 SELECT 1 FROM employee_employment_histories salary_history
                  WHERE salary_history.employee_id=salary.employee_id
                    AND salary_history.site_id=?
@@ -1123,8 +1124,6 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
                    AND (salary_history.effective_to IS NULL OR salary_history.effective_to>=?)
               ) FOR UPDATE`,
           [
-            run.periodEnd,
-            run.periodStart,
             run.siteId,
             run.periodEnd,
             run.periodStart,
@@ -1134,9 +1133,8 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
         await conn.query(
           `SELECT rate.id FROM employee_daily_rate_histories rate
             WHERE rate.site_id=? AND rate.employee_type_code=? AND rate.status='ACTIVE'
-              AND rate.effective_from<=?
-              AND (rate.effective_to IS NULL OR rate.effective_to>=?) FOR UPDATE`,
-          [run.siteId, run.employeeType, run.periodEnd, run.periodStart]
+              FOR UPDATE`,
+          [run.siteId, run.employeeType]
         )
       }
     }
@@ -1159,6 +1157,12 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
         run.periodStart,
       ]
     )
+    if (Number(run.deductBpjs) === 1) {
+      await conn.query(`SELECT id FROM payroll_bpjs_policies WHERE policy_year=YEAR(?) AND status='ACTIVE' FOR UPDATE`,[`${run.bpjsContributionMonth}-01`])
+      await conn.query(`SELECT id FROM site_minimum_wages WHERE site_id=? AND wage_year=YEAR(?) AND status='ACTIVE' FOR UPDATE`,[run.siteId,`${run.bpjsContributionMonth}-01`])
+      await conn.query(`SELECT id FROM employee_bpjs_enrollments FOR UPDATE`)
+      await conn.query(`SELECT id FROM payroll_bpjs_monthly_settlements WHERE site_id=? AND contribution_month=? FOR UPDATE`,[run.siteId,`${run.bpjsContributionMonth}-01`])
+    }
     await conn.query(
       `SELECT id FROM payroll_period_manual_components
         WHERE payroll_period_id=? FOR UPDATE`,
@@ -1179,6 +1183,8 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
       payFrequency: run.payFrequency,
       employeeType: run.employeeType,
       policySnapshot: run.policySnapshot,
+      deductBpjs: Number(run.deductBpjs) === 1,
+      bpjsContributionMonth: run.bpjsContributionMonth ?? null,
     })
     if (readiness.status === 'BLOCKED') {
       throw new ApiError(
@@ -1352,6 +1358,81 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
         WHERE result.payroll_run_id=?`,
       [auth.id, auth.id, run.periodId, run.id]
     )
+
+    if (Number(run.deductBpjs) === 1) {
+      const contributionDate=`${String(run.bpjsContributionMonth)}-01`
+      await conn.execute(
+        `INSERT IGNORE INTO payroll_bpjs_monthly_settlements(uid,employee_id,site_id,contribution_month,payroll_period_id,created_by)
+         SELECT UUID(),result.employee_id,result.site_id,?,result.payroll_period_id,?
+           FROM payroll_employee_results result WHERE result.payroll_run_id=?`,
+        [contributionDate,auth.id,run.id]
+      )
+      const [conflicts]=await conn.query<RowDataPacket[]>(
+        `SELECT COUNT(*) total FROM payroll_employee_results result
+         JOIN payroll_bpjs_monthly_settlements settlement ON settlement.employee_id=result.employee_id AND settlement.contribution_month=?
+         WHERE result.payroll_run_id=? AND settlement.payroll_period_id<>result.payroll_period_id`,
+        [contributionDate,run.id]
+      )
+      if(Number(conflicts[0]?.total??0)>0)throw new ApiError(409,'Potongan BPJS bulan iuran ini sudah dialokasikan ke periode Payroll lain.')
+
+      await conn.execute(
+        `INSERT INTO payroll_employee_bpjs_details(
+          uid,payroll_employee_result_id,payroll_bpjs_settlement_id,payroll_bpjs_policy_id,
+          site_bpjs_setting_id,site_minimum_wage_id,employee_bpjs_enrollment_id,
+          contribution_month,minimum_wage_snapshot,rounding_unit_snapshot,
+          health_employer_rate_snapshot,health_employer_amount,health_employee_rate_snapshot,health_employee_amount,
+          jht_employer_rate_snapshot,jht_employer_amount,jht_employee_rate_snapshot,jht_employee_amount,
+          jkk_employer_rate_snapshot,jkk_employer_amount,jkm_employer_rate_snapshot,jkm_employer_amount,
+          jp_employer_rate_snapshot,jp_employer_amount,jp_employee_rate_snapshot,jp_employee_amount,
+          total_employee_deduction,total_employer_contribution,policy_snapshot,created_by,updated_by
+        )
+        SELECT UUID(),result.id,settlement.id,policy.id,NULL,wage.id,enrollment.id,
+          ?,wage.amount,policy.rounding_unit,
+          policy.health_employer_rate,
+          IF(policy.health_employer_enabled=1 AND COALESCE(enrollment.health_enabled,1)=1,ROUND(LEAST(wage.amount,COALESCE(policy.health_wage_ceiling,wage.amount))*policy.health_employer_rate/100,2),0),
+          policy.health_employee_rate,
+          IF(policy.health_employee_enabled=1 AND COALESCE(enrollment.health_enabled,1)=1,ROUND((LEAST(wage.amount,COALESCE(policy.health_wage_ceiling,wage.amount))*policy.health_employee_rate/100)/policy.rounding_unit,0)*policy.rounding_unit,0),
+          policy.jht_employer_rate,
+          IF(policy.jht_employer_enabled=1 AND COALESCE(enrollment.jht_enabled,1)=1,ROUND(wage.amount*policy.jht_employer_rate/100,2),0),
+          policy.jht_employee_rate,
+          IF(policy.jht_employee_enabled=1 AND COALESCE(enrollment.jht_enabled,1)=1,ROUND((wage.amount*policy.jht_employee_rate/100)/policy.rounding_unit,0)*policy.rounding_unit,0),
+          policy.jkk_employer_rate,
+          IF(policy.jkk_employer_enabled=1 AND COALESCE(enrollment.jkk_enabled,1)=1,ROUND(wage.amount*policy.jkk_employer_rate/100,2),0),
+          policy.jkm_employer_rate,
+          IF(policy.jkm_employer_enabled=1 AND COALESCE(enrollment.jkm_enabled,1)=1,ROUND(wage.amount*policy.jkm_employer_rate/100,2),0),
+          policy.jp_employer_rate,
+          IF(policy.jp_employer_enabled=1 AND COALESCE(enrollment.jp_enabled,1)=1,ROUND(LEAST(wage.amount,COALESCE(policy.jp_wage_ceiling,wage.amount))*policy.jp_employer_rate/100,2),0),
+          policy.jp_employee_rate,
+          IF(policy.jp_employee_enabled=1 AND COALESCE(enrollment.jp_enabled,1)=1,ROUND((LEAST(wage.amount,COALESCE(policy.jp_wage_ceiling,wage.amount))*policy.jp_employee_rate/100)/policy.rounding_unit,0)*policy.rounding_unit,0),
+          0,0,
+          JSON_OBJECT('policyUid',policy.uid,'policyYear',policy.policy_year,'minimumWageUid',wage.uid,'minimumWage',wage.amount,'roundingUnit',policy.rounding_unit),
+          ?,?
+        FROM payroll_employee_results result
+        JOIN payroll_bpjs_monthly_settlements settlement ON settlement.employee_id=result.employee_id AND settlement.contribution_month=? AND settlement.payroll_period_id=result.payroll_period_id
+        JOIN payroll_bpjs_policies policy ON policy.policy_year=YEAR(?) AND policy.status='ACTIVE'
+        JOIN site_minimum_wages wage ON wage.site_id=result.site_id AND wage.wage_year=YEAR(?) AND wage.status='ACTIVE'
+        LEFT JOIN employee_bpjs_enrollments enrollment ON enrollment.id=(SELECT latest.id FROM employee_bpjs_enrollments latest WHERE latest.employee_id=result.employee_id ORDER BY latest.id DESC LIMIT 1)
+        WHERE result.payroll_run_id=?`,
+        [contributionDate,auth.id,auth.id,contributionDate,contributionDate,contributionDate,run.id]
+      )
+      const [bpjsCounts]=await conn.query<RowDataPacket[]>(`SELECT COUNT(*) total FROM payroll_employee_bpjs_details detail JOIN payroll_employee_results result ON result.id=detail.payroll_employee_result_id WHERE result.payroll_run_id=?`,[run.id])
+      const expectedBpjs=Number(resultCountRows[0]?.total??0)
+      if(Number(bpjsCounts[0]?.total??0)!==expectedBpjs)throw new ApiError(409,'Snapshot BPJS tidak lengkap. Periksa kebijakan BPJS dan UMK site.')
+      await conn.execute(`UPDATE payroll_employee_bpjs_details SET total_employee_deduction=health_employee_amount+jht_employee_amount+jp_employee_amount,total_employer_contribution=health_employer_amount+jht_employer_amount+jkk_employer_amount+jkm_employer_amount+jp_employer_amount WHERE payroll_employee_result_id IN (SELECT id FROM payroll_employee_results WHERE payroll_run_id=?)`,[run.id])
+      await conn.execute(
+        `INSERT INTO payroll_employee_component_details(uid,payroll_employee_result_id,payroll_component_type_id,component_code_snapshot,component_name_snapshot,component_category,source_type,source_id,amount,notes,created_by,updated_by)
+         SELECT UUID(),detail.payroll_employee_result_id,type.id,type.code,type.name,'DEDUCTION','SYSTEM',detail.id,amounts.amount,CONCAT('Bulan iuran ',DATE_FORMAT(detail.contribution_month,'%Y-%m')),?,?
+         FROM payroll_employee_bpjs_details detail
+         JOIN payroll_employee_results result ON result.id=detail.payroll_employee_result_id AND result.payroll_run_id=?
+         JOIN (
+           SELECT id,'BPJS_HEALTH_EMPLOYEE' code,health_employee_amount amount FROM payroll_employee_bpjs_details
+           UNION ALL SELECT id,'BPJS_JHT_EMPLOYEE',jht_employee_amount FROM payroll_employee_bpjs_details
+           UNION ALL SELECT id,'BPJS_JP_EMPLOYEE',jp_employee_amount FROM payroll_employee_bpjs_details
+         ) amounts ON amounts.id=detail.id AND amounts.amount>0
+         JOIN payroll_component_types type ON type.code=amounts.code AND type.is_active=1`,
+        [auth.id,auth.id,run.id]
+      )
+    }
 
     await conn.execute(
       `INSERT INTO payroll_attendance_summaries(

@@ -283,4 +283,130 @@ describe('Payroll periods API', () => {
     expect(response.status).toBe(200)
     expect(String(mocks.query.mock.calls[0]?.[0])).not.toContain('s.code IN')
   })
+
+  it('menolak preview reset untuk akun selain SUPER_ADMIN', async () => {
+    const response = await request(`/periods/${periodRow.uid}/reset-preview`)
+    expect(response.status).toBe(403)
+    expect(mocks.query).not.toHaveBeenCalled()
+  })
+
+  it('menampilkan dampak reset untuk SUPER_ADMIN', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[periodRow]])
+      .mockResolvedValueOnce([[{
+        runs: 2,
+        processingRuns: 0,
+        employeeResults: 12,
+        manualComponents: 1,
+        approvals: 1,
+        workflowActions: 2,
+        outputAudits: 1,
+        bpjsSettlements: 12,
+        productionTransactions: 20,
+      }]])
+    const response = await request(`/periods/${periodRow.uid}/reset-preview`, {
+      auth: auth({ roles: ['SUPER_ADMIN'], permissions: [], siteAccess: [] }),
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      data: expect.objectContaining({
+        periodCode: periodRow.periodCode,
+        runs: 2,
+        productionTransactions: 20,
+        canReset: true,
+        blockerMessage: null,
+      }),
+    })
+  })
+
+  it('memblokir reset ketika masih ada run PROCESSING', async () => {
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const statement = String(sql)
+      if (statement.includes('WHERE pp.uid=?')) return [[periodRow]]
+      if (statement.includes('processingRuns'))
+        return [[{ runs: 1, processingRuns: 1 }]]
+      return [[]]
+    })
+    const response = await request(`/periods/${periodRow.uid}/reset`, {
+      method: 'POST',
+      auth: auth({ roles: ['SUPER_ADMIN'], permissions: [], siteAccess: [] }),
+      body: {
+        confirmation: periodRow.periodCode,
+        reason: 'Mengulang pengujian Payroll.',
+      },
+    })
+    expect(response.status).toBe(409)
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.rollback).toHaveBeenCalledOnce()
+  })
+
+  it('SUPER_ADMIN mereset periode end-to-end dan menulis audit DELETE', async () => {
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const statement = String(sql)
+      if (statement.includes('WHERE pp.uid=?')) return [[periodRow]]
+      if (statement.includes('processingRuns'))
+        return [[{
+          runs: 2,
+          processingRuns: 0,
+          employeeResults: 12,
+          manualComponents: 1,
+          approvals: 1,
+          workflowActions: 2,
+          outputAudits: 1,
+          bpjsSettlements: 12,
+          productionTransactions: 20,
+        }]]
+      if (statement.includes('(SELECT COUNT(*) FROM payroll_periods WHERE id=?)'))
+        return [[{
+          periods: 0,
+          runs: 0,
+          results: 0,
+          approvals: 0,
+          actions: 0,
+          outputs: 0,
+          manualComponents: 0,
+          policySnapshots: 0,
+          companySnapshots: 0,
+          bpjsSettlements: 0,
+        }]]
+      return [[]]
+    })
+    mocks.execute.mockImplementation(async (sql: unknown) => {
+      const statement = String(sql)
+      if (statement.includes('UPDATE production_transactions'))
+        return [{ affectedRows: 20 }]
+      if (statement.includes('DELETE FROM payroll_periods WHERE id=?'))
+        return [{ affectedRows: 1 }]
+      return [{ affectedRows: 0 }]
+    })
+
+    const response = await request(`/periods/${periodRow.uid}/reset`, {
+      method: 'POST',
+      auth: auth({ roles: ['SUPER_ADMIN'], permissions: [], siteAccess: [] }),
+      body: {
+        confirmation: periodRow.periodCode,
+        reason: 'Mengulang pengujian Payroll.',
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.commit).toHaveBeenCalledOnce()
+    expect(mocks.audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'DELETE',
+        table: 'payroll_periods',
+        reason: 'Mengulang pengujian Payroll.',
+      }),
+      connection
+    )
+    expect(
+      mocks.execute.mock.calls.some((call) =>
+        String(call[0]).includes('DELETE FROM payroll_employee_results')
+      )
+    ).toBe(true)
+    expect(
+      mocks.execute.mock.calls.some((call) =>
+        String(call[0]).includes('payroll_locked_at=NULL')
+      )
+    ).toBe(true)
+  })
 })

@@ -114,9 +114,9 @@ BEGIN
   IF EXISTS (
     SELECT 1
     FROM (
-      SELECT 'HARIAN' employee_type_code,@weekly_start effective_date
-      UNION ALL SELECT 'TRAINING',@weekly_start
-      UNION ALL SELECT 'BULANAN',@monthly_start
+      SELECT 'HARIAN' employee_type_code
+      UNION ALL SELECT 'TRAINING'
+      UNION ALL SELECT 'BULANAN'
     ) required
     WHERE (
       SELECT COUNT(*)
@@ -124,8 +124,6 @@ BEGIN
       WHERE policy.site_id=target_site_id
         AND policy.employee_type_code=required.employee_type_code
         AND policy.status='ACTIVE'
-        AND policy.effective_from<=required.effective_date
-        AND (policy.effective_to IS NULL OR policy.effective_to>=required.effective_date)
     )<>1
   ) THEN
     SIGNAL SQLSTATE '45000'
@@ -166,22 +164,19 @@ BEGIN
 
   INSERT INTO employee_daily_rate_histories(
     uid,employee_id,site_id,employee_type_code,daily_rate,currency,
-    effective_from,effective_to,status,notes,created_by,updated_by
+    status,notes,created_by,updated_by
   )
   SELECT
     UUID(),candidate.employee_id,candidate.site_id,candidate.employee_type_code,
     CASE WHEN candidate.employee_type_code='HARIAN'
       THEN @uat_harian_rate ELSE @uat_training_rate END,
-    'IDR',candidate.effective_from,candidate.effective_to,'ACTIVE',
+    'IDR','ACTIVE',
     CONCAT('Seed UAT M5E: ',@seed_version),seed_user_id,seed_user_id
   FROM tmp_payroll_uat_candidates candidate
   WHERE candidate.employee_type_code IN ('HARIAN','TRAINING')
     AND NOT EXISTS (
       SELECT 1 FROM employee_daily_rate_histories existing
       WHERE existing.employee_id=candidate.employee_id
-        AND existing.status='ACTIVE'
-        AND existing.effective_from<=COALESCE(candidate.effective_to,'9999-12-31')
-        AND (existing.effective_to IS NULL OR existing.effective_to>=candidate.effective_from)
     );
 
   INSERT INTO employee_daily_rate_revisions(
@@ -193,8 +188,7 @@ BEGIN
     JSON_OBJECT(
       'employeeId',rate.employee_id,'siteId',rate.site_id,
       'employeeType',rate.employee_type_code,'dailyRate',rate.daily_rate,
-      'currency',rate.currency,'effectiveFrom',rate.effective_from,
-      'effectiveTo',rate.effective_to,'status',rate.status
+      'currency',rate.currency,'status',rate.status
     ),
     'Membuat tarif harian khusus dataset UAT Payroll.',seed_user_id
   FROM employee_daily_rate_histories rate
@@ -206,21 +200,17 @@ BEGIN
     );
 
   INSERT INTO employee_salary_histories(
-    uid,employee_id,effective_from,effective_to,basic_salary,currency,
+    uid,employee_id,basic_salary,currency,
     reason,status,created_by,updated_by
   )
   SELECT
-    UUID(),candidate.employee_id,candidate.effective_from,candidate.effective_to,
-    @uat_monthly_salary,'IDR',CONCAT('Seed UAT M5E: ',@seed_version),
+    UUID(),candidate.employee_id,@uat_monthly_salary,'IDR',CONCAT('Seed UAT M5E: ',@seed_version),
     'ACTIVE',seed_user_id,seed_user_id
   FROM tmp_payroll_uat_candidates candidate
   WHERE candidate.employee_type_code='BULANAN'
     AND NOT EXISTS (
       SELECT 1 FROM employee_salary_histories existing
       WHERE existing.employee_id=candidate.employee_id
-        AND COALESCE(existing.status,'ACTIVE')='ACTIVE'
-        AND existing.effective_from<=COALESCE(candidate.effective_to,'9999-12-31')
-        AND (existing.effective_to IS NULL OR existing.effective_to>=candidate.effective_from)
     );
 
   INSERT INTO employee_salary_history_revisions(
@@ -231,8 +221,7 @@ BEGIN
     UUID(),salary.id,'CREATE',CONCAT('SEED-PAYROLL-UAT-SALARY-',salary.id),NULL,
     JSON_OBJECT(
       'employeeId',salary.employee_id,'basicSalary',salary.basic_salary,
-      'currency',salary.currency,'effectiveFrom',salary.effective_from,
-      'effectiveTo',salary.effective_to,'status',salary.status
+      'currency',salary.currency,'status',salary.status
     ),
     'Membuat gaji pokok khusus dataset UAT Payroll.',seed_user_id
   FROM employee_salary_histories salary
@@ -256,8 +245,6 @@ BEGIN
           ON scoped.employee_id=salary.employee_id
          AND scoped.employee_type_code='BULANAN'
         WHERE COALESCE(salary.status,'ACTIVE')='ACTIVE'
-          AND salary.effective_from<=@monthly_end
-          AND (salary.effective_to IS NULL OR salary.effective_to>=@monthly_start)
       )
       ELSE (
         SELECT COUNT(DISTINCT rate.employee_id)
@@ -266,8 +253,6 @@ BEGIN
           ON scoped.employee_id=rate.employee_id
          AND scoped.employee_type_code=candidate.employee_type_code
         WHERE rate.status='ACTIVE'
-          AND rate.effective_from<=@weekly_end
-          AND (rate.effective_to IS NULL OR rate.effective_to>=@weekly_start)
       )
     END employees_with_master_nominal
   FROM tmp_payroll_uat_candidates candidate
