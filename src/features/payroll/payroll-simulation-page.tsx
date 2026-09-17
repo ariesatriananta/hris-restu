@@ -104,6 +104,8 @@ import {
   isValidPayrollAuditReason,
 } from './manual-component-validation'
 import { formatDecimalString } from './money'
+import { PayrollProcessNav } from './payroll-process-nav'
+import { payrollProcessHref } from './payroll-process-navigation'
 
 type SearchState = Record<string, unknown>
 
@@ -203,14 +205,14 @@ export function PayrollSimulationPage({
               </Badge>
             </div>
             <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
-              Simulasi Payroll
+              Proses Payroll
             </h1>
             <p className='text-sm text-muted-foreground'>
               {timeBased
                 ? monthly
-                  ? 'Simulasikan gaji bulanan, prorata kalender, serta potongan Alpha dan Izin.'
-                  : 'Simulasikan upah dari kehadiran dan tarif harian tanpa menerbitkan slip resmi.'
-                : 'Hitung snapshot hasil Produksi dan komponen tanpa menerbitkan slip resmi.'}
+                  ? 'Hitung gaji bulanan, periksa prorata, serta potongan Alpha dan Izin.'
+                  : 'Hitung upah dari kehadiran dan tarif harian, lalu periksa hasilnya.'
+                : 'Hitung hasil Produksi dan komponen, lalu periksa hasilnya.'}
             </p>
           </div>
           <div className='flex flex-col gap-2 sm:flex-row'>
@@ -261,6 +263,11 @@ export function PayrollSimulationPage({
           </div>
         </header>
 
+        <PayrollProcessNav
+          active='CALCULATION'
+          periodUid={periodUid || undefined}
+        />
+
         {!periodUid ? (
           <EmptySelection />
         ) : period.isPending ? (
@@ -280,8 +287,8 @@ export function PayrollSimulationPage({
                 <AlertTitle>Hasil masih berupa simulasi</AlertTitle>
                 <AlertDescription>
                   Periksa prorata dan potongan per karyawan sebelum diajukan.
-                  Slip resmi baru tersedia setelah periode ditutup dengan run
-                  FINAL.
+                  Slip resmi baru tersedia setelah periode selesai disetujui dan
+                  ditutup.
                 </AlertDescription>
               </Alert>
             )}
@@ -297,7 +304,7 @@ export function PayrollSimulationPage({
                     variant={runUid === item.uid ? 'secondary' : 'outline'}
                     onClick={() => patch({ runUid: item.uid, page: undefined })}
                   >
-                    Run #{item.runNumber}
+                    Perhitungan #{item.runNumber}
                     {item.isCurrent && (
                       <span className='text-positive'>• Aktif</span>
                     )}
@@ -310,7 +317,7 @@ export function PayrollSimulationPage({
                 <Calculator className='mx-auto size-8 text-muted-foreground' />
                 <p className='mt-2 font-semibold'>Belum ada hasil simulasi</p>
                 <p className='text-sm text-muted-foreground'>
-                  Periksa readiness lalu pilih Hitung untuk membuat snapshot.
+                  Periksa kesiapan lalu pilih Hitung untuk membuat hasil.
                 </p>
               </div>
             ) : run.isError ? (
@@ -324,11 +331,11 @@ export function PayrollSimulationPage({
                   try {
                     await recover.mutateAsync(run.data!.uid)
                     toast.success(
-                      'Run macet ditandai gagal. Perhitungan dapat diulang.'
+                      'Perhitungan macet ditandai gagal dan dapat diulang.'
                     )
                   } catch (error) {
                     toast.error(
-                      errorMessage(error, 'Run belum dapat dipulihkan.')
+                      errorMessage(error, 'Perhitungan belum dapat dipulihkan.')
                     )
                   }
                 }}
@@ -339,7 +346,7 @@ export function PayrollSimulationPage({
                 <AlertTitle>Simulasi gagal</AlertTitle>
                 <AlertDescription>
                   {run.data.errorMessage ||
-                    'Tidak ada snapshot yang digunakan.'}
+                    'Tidak ada data hasil yang disimpan.'}
                 </AlertDescription>
               </Alert>
             ) : run.data?.status === 'CANCELLED' ? (
@@ -347,12 +354,26 @@ export function PayrollSimulationPage({
                 <AlertTriangle />
                 <AlertTitle>Simulasi dibatalkan</AlertTitle>
                 <AlertDescription>
-                  Run ini tidak memiliki hasil aktif. Jalankan Hitung untuk
-                  membuat simulasi baru.
+                  Perhitungan ini tidak memiliki hasil aktif. Jalankan Hitung
+                  untuk membuat simulasi baru.
                 </AlertDescription>
               </Alert>
             ) : run.data?.status === 'COMPLETED' ? (
               <>
+                <div className='flex flex-col gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3 sm:flex-row sm:items-center sm:justify-between'>
+                  <div>
+                    <p className='text-sm font-semibold'>Perhitungan selesai</p>
+                    <p className='text-xs text-muted-foreground'>
+                      Periksa hasil di bawah. Jika sudah sesuai, lanjutkan ke
+                      persetujuan.
+                    </p>
+                  </div>
+                  <Button asChild className='shrink-0'>
+                    <a href={payrollProcessHref('APPROVAL', periodUid)}>
+                      Lanjut ke persetujuan
+                    </a>
+                  </Button>
+                </div>
                 <SimulationKpis
                   run={run.data}
                   payrollBasis={payrollBasis}
@@ -425,8 +446,8 @@ function ReadinessBanner({
             : 'Perhitungan masih diblokir'}
       </AlertTitle>
       <AlertDescription>
-        {blockers} blocker · {warnings} peringatan. Detail dapat diperiksa pada
-        menu Periode Payroll.
+        {blockers} harus diperbaiki · {warnings} peringatan. Detail dapat
+        diperiksa pada menu Periode Payroll.
       </AlertDescription>
     </Alert>
   )
@@ -1001,7 +1022,7 @@ function EmployeeResultSheet({
             <Badge variant='outline'>SIMULASI</Badge>
           </div>
           <SheetDescription>
-            Snapshot perhitungan pada run terpilih, bukan slip gaji resmi.
+            Data dari perhitungan yang dipilih, bukan slip gaji resmi.
           </SheetDescription>
         </SheetHeader>
         {detail.isPending ? (
@@ -1064,10 +1085,12 @@ function EmployeeResultSheet({
             {monthly && !detail.data.monthlyDetail && (
               <Alert variant='destructive'>
                 <AlertTriangle />
-                <AlertTitle>Snapshot Bulanan tidak tersedia</AlertTitle>
+                <AlertTitle>
+                  Rincian perhitungan bulanan tidak tersedia
+                </AlertTitle>
                 <AlertDescription>
-                  Run ini tidak memiliki dasar prorata dan potongan yang dapat
-                  diaudit. Jalankan ulang simulasi setelah memeriksa readiness.
+                  Perhitungan ini tidak memiliki dasar prorata dan potongan yang
+                  dapat diaudit. Jalankan ulang setelah memeriksa kesiapan data.
                 </AlertDescription>
               </Alert>
             )}
@@ -1085,7 +1108,7 @@ function EmployeeResultSheet({
               )}
               <p className='text-xs text-muted-foreground'>
                 {detail.data.bank.accountNumber
-                  ? 'Snapshot rekening yang digunakan pada simulasi ini.'
+                  ? 'Rekening yang tersimpan saat simulasi ini dihitung.'
                   : 'Nomor rekening disamarkan untuk melindungi data karyawan.'}
               </p>
             </section>
@@ -1116,7 +1139,7 @@ function EmployeeResultSheet({
                 </div>
               ) : (
                 <p className='mt-2 text-sm text-muted-foreground'>
-                  Snapshot Attendance tidak tersedia.
+                  Data Attendance saat perhitungan tidak tersedia.
                 </p>
               )}
               <p className='mt-2 text-xs text-muted-foreground'>
@@ -1369,7 +1392,7 @@ function TimeLedger({ details }: { details: PayrollTimeSnapshot[] }) {
         <div className='rounded-lg border border-dashed p-5 text-center'>
           <CalendarCheck2 className='mx-auto size-6 text-muted-foreground' />
           <p className='mt-2 text-sm text-muted-foreground'>
-            Rincian upah harian belum tersedia pada snapshot ini.
+            Rincian upah harian belum tersedia pada perhitungan ini.
           </p>
         </div>
       )}
@@ -1392,7 +1415,8 @@ function MonthlyFormulaEvidence({
           Dasar Perhitungan Bulanan
         </h3>
         <p className='text-xs text-muted-foreground'>
-          Snapshot formula pada run ini tetap sama walaupun master berubah.
+          Rumus yang tersimpan pada perhitungan ini tetap sama walaupun master
+          berubah.
         </p>
       </div>
       <div className='grid grid-cols-2 gap-3 text-sm sm:grid-cols-3'>
@@ -1516,7 +1540,7 @@ function MonthlyAttendanceLedger({
         <div className='rounded-lg border border-dashed p-5 text-center'>
           <CalendarCheck2 className='mx-auto size-6 text-muted-foreground' />
           <p className='mt-2 text-sm text-muted-foreground'>
-            Ledger Attendance bulanan belum tersedia pada snapshot ini.
+            Rincian Attendance bulanan belum tersedia pada perhitungan ini.
           </p>
         </div>
       )}
@@ -2013,7 +2037,7 @@ function ProcessingPanel({
           ) : (
             <RefreshCcw />
           )}
-          Pulihkan run macet
+          Pulihkan perhitungan macet
         </Button>
       )}
     </div>

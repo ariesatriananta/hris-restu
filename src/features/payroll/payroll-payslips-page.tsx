@@ -42,10 +42,10 @@ import {
   useIssuePayrollPayslips,
   usePayrollHistory,
   usePayrollPayslips,
-  usePayrollRuns,
 } from './data/queries'
 import type { PayrollPayslipBundle } from './domain'
 import { formatDecimalString } from './money'
+import { payrollPeriodsWithOfficialPayslips } from './payroll-history-policy'
 import { employeeBaseLabel, payrollSchemeName } from './payroll-presentation'
 
 type SearchState = Record<string, unknown>
@@ -77,7 +77,6 @@ export function PayrollPayslipsPage({
   navigate: NavigateFn
 }) {
   const periodUid = typeof search.periodUid === 'string' ? search.periodUid : ''
-  const selectedRunUid = typeof search.runUid === 'string' ? search.runUid : ''
   const query = typeof search.query === 'string' ? search.query : ''
   const detailUid =
     typeof search.employeeResultUid === 'string'
@@ -86,9 +85,12 @@ export function PayrollPayslipsPage({
   const history = usePayrollHistory({
     pageSize: 500,
   })
-  const runs = usePayrollRuns(periodUid || undefined)
-  const runUid =
-    selectedRunUid || runs.data?.find((item) => item.isCurrent)?.uid || ''
+  const officialPeriods = payrollPeriodsWithOfficialPayslips(
+    history.data?.data ?? []
+  )
+  const selectedPeriod = officialPeriods.find((item) => item.uid === periodUid)
+  const selectedRun = selectedPeriod?.currentRun ?? null
+  const runUid = selectedRun?.uid ?? ''
   const bundle = usePayrollPayslips(runUid || undefined)
   const issue = useIssuePayrollPayslips()
   const [selection, setSelection] = useState<{
@@ -129,10 +131,6 @@ export function PayrollPayslipsPage({
         .includes(normalized)
     )
   }, [bundle.data, query])
-  const selectedPeriod = history.data?.data.find(
-    (item) => item.uid === periodUid
-  )
-  const selectedRun = runs.data?.find((item) => item.uid === runUid)
   const canPrint = history.data?.meta.capabilities.canPrint === true
 
   const print = async (employeeResultUids?: string[]) => {
@@ -175,8 +173,8 @@ export function PayrollPayslipsPage({
               Slip Gaji
             </h1>
             <p className='text-sm text-muted-foreground'>
-              Preview hasil simulasi atau cetak slip resmi dari snapshot Payroll
-              yang telah ditutup.
+              Lihat dan cetak slip resmi dari periode Payroll yang telah
+              ditutup.
             </p>
           </div>
           {canPrint && bundle.data?.employees.length ? (
@@ -204,18 +202,17 @@ export function PayrollPayslipsPage({
         <Alert className='border-sky-200 bg-sky-50/70 text-sky-950 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100'>
           <AlertCircle className='size-4' />
           <AlertDescription>
-            Slip resmi hanya tersedia untuk Payroll berstatus Ditutup dan run
-            FINAL. Ditutup bukan berarti sudah dibayar.
+            Sistem otomatis memakai hasil perhitungan resmi dari periode yang
+            dipilih. Status Ditutup bukan berarti gaji sudah dibayar.
           </AlertDescription>
         </Alert>
 
-        <section className='grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_220px_minmax(220px,1fr)]'>
+        <section className='grid gap-2 md:grid-cols-2'>
           <Select
-            value={periodUid || 'NONE'}
+            value={selectedPeriod?.uid ?? 'NONE'}
             onValueChange={(value) =>
               patch({
                 periodUid: value === 'NONE' ? undefined : value,
-                runUid: undefined,
                 employeeResultUid: undefined,
               })
             }
@@ -228,41 +225,11 @@ export function PayrollPayslipsPage({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value='NONE'>Pilih periode</SelectItem>
-              {history.data?.data
-                .filter((period) =>
-                  ['CALCULATED', 'APPROVED', 'CLOSED'].includes(period.status)
-                )
-                .map((period) => (
-                  <SelectItem key={period.uid} value={period.uid}>
-                    {period.periodName} · {period.site.name}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={runUid || 'NONE'}
-            disabled={!periodUid || runs.isPending}
-            onValueChange={(value) =>
-              patch({
-                runUid: value === 'NONE' ? undefined : value,
-                employeeResultUid: undefined,
-              })
-            }
-          >
-            <SelectTrigger className='w-full' aria-label='Pilih run Payroll'>
-              <SelectValue placeholder='Pilih run' />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value='NONE'>Pilih run</SelectItem>
-              {runs.data
-                ?.filter((run) => run.status === 'COMPLETED')
-                .map((run) => (
-                  <SelectItem key={run.uid} value={run.uid}>
-                    Run #{run.runNumber} ·{' '}
-                    {run.runType === 'FINAL' ? 'FINAL' : 'Simulasi'}
-                    {run.isCurrent ? ' · terbaru' : ''}
-                  </SelectItem>
-                ))}
+              {officialPeriods.map((period) => (
+                <SelectItem key={period.uid} value={period.uid}>
+                  {period.periodName} · {period.site.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <div className='relative'>
@@ -314,11 +281,17 @@ export function PayrollPayslipsPage({
           </section>
         )}
 
-        {!periodUid ? (
+        {!selectedPeriod ? (
           <Empty
             icon={FileText}
-            title='Pilih periode Payroll'
-            text='Pilih periode dan run untuk menampilkan slip berdasarkan snapshot.'
+            title={
+              periodUid ? 'Slip resmi belum tersedia' : 'Pilih periode Payroll'
+            }
+            text={
+              periodUid
+                ? 'Periode ini belum ditutup atau belum memiliki hasil perhitungan resmi.'
+                : 'Pilih periode yang telah ditutup untuk menampilkan slip gaji resmi.'
+            }
           />
         ) : bundle.isPending ? (
           <div className='grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3'>
@@ -378,7 +351,7 @@ export function PayrollPayslipsPage({
           <Empty
             icon={Search}
             title='Slip tidak ditemukan'
-            text='Ubah kata pencarian atau pilih run lain.'
+            text='Ubah kata pencarian untuk menemukan slip karyawan.'
           />
         )}
       </div>

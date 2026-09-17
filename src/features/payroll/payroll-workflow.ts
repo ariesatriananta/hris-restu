@@ -5,6 +5,21 @@ import type {
   PayrollWorkflowAction,
 } from './domain'
 
+export type PayrollWorkflowNextStep =
+  | 'CALCULATE'
+  | 'RECALCULATE'
+  | 'SUBMIT'
+  | 'APPROVE'
+  | 'REJECT'
+  | 'WITHDRAW'
+  | 'WAIT_APPROVAL'
+  | 'WAIT_CORRECTION'
+  | 'CLOSE'
+  | 'WAIT_CLOSE'
+  | 'REVIEW_PERIOD'
+  | 'PAYSLIP'
+  | 'NONE'
+
 export const payrollWorkflowStages = [
   { key: 'SIMULATION', label: 'Simulasi' },
   { key: 'SUBMITTED', label: 'Diajukan' },
@@ -17,6 +32,38 @@ export function payrollWorkflowStageIndex(workflow: PayrollWorkflow) {
   if (workflow.approval?.status === 'APPROVED') return 2
   if (workflow.approval?.status === 'PENDING') return 1
   return workflow.currentRun ? 0 : -1
+}
+
+export function payrollWorkflowNextStep(
+  workflow: PayrollWorkflow
+): PayrollWorkflowNextStep {
+  if (workflow.periodStatus === 'CLOSED') return 'PAYSLIP'
+
+  if (
+    workflow.periodStatus === 'APPROVED' ||
+    workflow.approval?.status === 'APPROVED'
+  ) {
+    if (!workflow.integrity.valid) return 'REVIEW_PERIOD'
+    return workflow.capabilities.canClose ? 'CLOSE' : 'WAIT_CLOSE'
+  }
+
+  if (!workflow.currentRun || workflow.periodStatus === 'DRAFT') {
+    return 'CALCULATE'
+  }
+
+  if (workflow.approval?.status === 'PENDING') {
+    if (!workflow.integrity.valid) {
+      if (workflow.capabilities.canReject) return 'REJECT'
+      if (workflow.capabilities.canWithdraw) return 'WITHDRAW'
+      return 'WAIT_CORRECTION'
+    }
+    return workflow.capabilities.canApprove ? 'APPROVE' : 'WAIT_APPROVAL'
+  }
+
+  if (!workflow.integrity.valid) return 'RECALCULATE'
+
+  if (workflow.capabilities.canSubmit) return 'SUBMIT'
+  return 'NONE'
 }
 
 export function payrollPeriodStatusLabel(status: PayrollPeriodStatus) {

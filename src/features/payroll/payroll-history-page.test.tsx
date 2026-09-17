@@ -1,9 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { PayrollRunComparison } from './domain'
-import {
-  ComparisonPanel,
-} from './payroll-history-page'
+import { ComparisonPanel } from './payroll-history-page'
 import {
   canExportPayrollPayment,
   emptyPayrollHistoryFilters,
@@ -20,9 +18,9 @@ describe('Riwayat Payroll M4', () => {
     expect(
       updatePayrollComparisonSelection(['run-1', 'run-2'], 'run-3')
     ).toEqual(['run-2', 'run-3'])
-    expect(updatePayrollComparisonSelection(['run-2', 'run-3'], 'run-2')).toEqual([
-      'run-3',
-    ])
+    expect(
+      updatePayrollComparisonSelection(['run-2', 'run-3'], 'run-2')
+    ).toEqual(['run-3'])
   })
 
   it('hanya membuka export pembayaran untuk current FINAL yang sudah ditutup', () => {
@@ -37,10 +35,18 @@ describe('Riwayat Payroll M4', () => {
       )
     ).toBe(false)
     expect(
-      canExportPayrollPayment({ runType: 'FINAL', isCurrent: true }, false, true)
+      canExportPayrollPayment(
+        { runType: 'FINAL', isCurrent: true },
+        false,
+        true
+      )
     ).toBe(false)
     expect(
-      canExportPayrollPayment({ runType: 'FINAL', isCurrent: true }, true, false)
+      canExportPayrollPayment(
+        { runType: 'FINAL', isCurrent: true },
+        true,
+        false
+      )
     ).toBe(false)
   })
 
@@ -87,7 +93,12 @@ describe('Riwayat Payroll M4', () => {
         periodEnd: '2026-08-28',
       },
       baseRun: run,
-      targetRun: { ...run, uid: crypto.randomUUID(), runNumber: 2, isCurrent: true },
+      targetRun: {
+        ...run,
+        uid: crypto.randomUUID(),
+        runNumber: 2,
+        isCurrent: true,
+      },
       summary: {
         employeeCountDelta: 1,
         totalPieceRateAmountDelta: '10.00',
@@ -108,11 +119,16 @@ describe('Riwayat Payroll M4', () => {
       ],
     }
     const html = renderToStaticMarkup(
-      <ComparisonPanel data={data} pending={false} error={false} retry={() => undefined} />
+      <ComparisonPanel
+        data={data}
+        pending={false}
+        error={false}
+        retry={() => undefined}
+      />
     )
 
-    expect(html).toContain('Run #1')
-    expect(html).toContain('Run #2')
+    expect(html).toContain('Perhitungan #1')
+    expect(html).toContain('Perhitungan #2')
     expect(html).toContain('BUDI BERUBAH')
     expect(html).toContain('Nominal berubah')
   })

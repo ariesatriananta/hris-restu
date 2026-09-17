@@ -1,4 +1,16 @@
-import type { PayrollRunSummary } from './domain'
+import type { PayrollHistoryPeriod, PayrollRunSummary } from './domain'
+
+export function payrollPeriodsWithOfficialPayslips(
+  periods: PayrollHistoryPeriod[]
+) {
+  return periods.filter(
+    (period) =>
+      period.status === 'CLOSED' &&
+      period.currentRun?.status === 'COMPLETED' &&
+      period.currentRun.runType === 'FINAL' &&
+      period.currentRun.isCurrent
+  )
+}
 
 export function updatePayrollComparisonSelection(
   current: string[],

@@ -71,8 +71,13 @@ describe('Payroll periods page', () => {
   it('menampilkan empty state jujur dan menyembunyikan mutasi tanpa izin hitung', async () => {
     const screen = await renderPage()
 
+    await expect.element(screen.getByText('Proses Payroll')).toBeInTheDocument()
     await expect
-      .element(screen.getByText('Periode Payroll'))
+      .element(screen.getByText('Periode & kesiapan'))
+      .toBeInTheDocument()
+    await expect.element(screen.getByText('Perhitungan')).toBeInTheDocument()
+    await expect
+      .element(screen.getByText('Persetujuan & penutupan'))
       .toBeInTheDocument()
     await expect
       .element(

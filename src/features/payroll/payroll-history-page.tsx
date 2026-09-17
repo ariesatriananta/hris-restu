@@ -201,13 +201,13 @@ export function PayrollHistoryPage({
           />
           <Kpi
             icon={FileClock}
-            label='Run di halaman ini'
+            label='Perhitungan di halaman ini'
             value={summary.runs}
             tone='violet'
           />
           <Kpi
             icon={AlertCircle}
-            label='Run gagal'
+            label='Perhitungan gagal'
             value={summary.failed}
             tone='amber'
           />
@@ -445,7 +445,7 @@ function PeriodCard({
           {localDate(period.periodStart)}–{localDate(period.periodEnd)}
         </p>
         <div className='mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground'>
-          <span>{period.runCount} run</span>
+          <span>{period.runCount} perhitungan</span>
           <span>{period.completedRunCount} selesai</span>
           {period.failedRunCount > 0 && (
             <span className='font-medium text-destructive'>
@@ -525,7 +525,7 @@ function HistoryDrawer({
             <div>
               <h3 className='font-semibold'>Timeline perhitungan</h3>
               <p className='text-xs text-muted-foreground'>
-                Pilih tepat dua run selesai untuk membandingkan hasil.
+                Pilih tepat dua hasil perhitungan untuk dibandingkan.
               </p>
             </div>
             <Badge variant='outline'>{selectedRunUids.length}/2 dipilih</Badge>
@@ -549,7 +549,7 @@ function HistoryDrawer({
             </div>
           ) : (
             <p className='rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground'>
-              Belum ada run.
+              Belum ada hasil perhitungan.
             </p>
           )}
           {selectedRunUids.length === 2 && (
@@ -619,12 +619,12 @@ function RunCard({
           checked={checked}
           disabled={!selectable}
           onCheckedChange={onToggle}
-          aria-label={`Pilih run ${run.runNumber} untuk perbandingan`}
+          aria-label={`Pilih perhitungan ${run.runNumber} untuk perbandingan`}
           className='mt-1'
         />
         <div className='min-w-0 flex-1'>
           <div className='flex flex-wrap items-center gap-2'>
-            <p className='font-semibold'>Run #{run.runNumber}</p>
+            <p className='font-semibold'>Perhitungan #{run.runNumber}</p>
             <Badge
               variant={
                 run.status === 'COMPLETED'
@@ -743,7 +743,7 @@ export function ComparisonPanel({
       <div className='flex items-center gap-2'>
         <GitCompareArrows className='size-4 text-primary' />
         <h3 className='font-semibold'>
-          Perbandingan Run #{data.baseRun.runNumber} → Run #
+          Perbandingan Perhitungan #{data.baseRun.runNumber} → Perhitungan #
           {data.targetRun.runNumber}
         </h3>
       </div>

@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import type { PayrollPayslipBundle } from './domain'
+import type { PayrollHistoryPeriod, PayrollPayslipBundle } from './domain'
+import { payrollPeriodsWithOfficialPayslips } from './payroll-history-policy'
 import { PayrollPrintDocument, Payslip } from './payroll-payslips-page'
 
 function bundle(kind: 'SIMULATION' | 'OFFICIAL'): PayrollPayslipBundle {
@@ -96,6 +97,38 @@ function bundle(kind: 'SIMULATION' | 'OFFICIAL'): PayrollPayslipBundle {
 }
 
 describe('Slip Payroll M4', () => {
+  it('hanya menawarkan periode ditutup dengan hasil FINAL resmi', () => {
+    const period = {
+      uid: crypto.randomUUID(),
+      periodCode: 'PAY-JPR-202608',
+      periodName: 'Payroll Agustus',
+      periodStart: '2026-08-01',
+      periodEnd: '2026-08-22',
+      paymentDate: null,
+      status: 'CLOSED',
+      payrollBasis: 'PIECE_RATE',
+      site: { code: 'JEPARA', name: 'Jepara' },
+      currentRun: bundle('OFFICIAL').run,
+      runCount: 2,
+      completedRunCount: 2,
+      failedRunCount: 0,
+      createdAt: '2026-08-23T08:00:00.000+07:00',
+      closedAt: '2026-08-23T10:00:00.000+07:00',
+    } satisfies PayrollHistoryPeriod
+
+    expect(
+      payrollPeriodsWithOfficialPayslips([
+        period,
+        { ...period, uid: crypto.randomUUID(), status: 'CALCULATED' },
+        {
+          ...period,
+          uid: crypto.randomUUID(),
+          currentRun: { ...period.currentRun!, runType: 'SIMULATION' },
+        },
+      ])
+    ).toEqual([period])
+  })
+
   it('menandai preview sebagai simulasi dan menjelaskan Attendance bukan pengali upah', () => {
     const data = bundle('SIMULATION')
     const html = renderToStaticMarkup(

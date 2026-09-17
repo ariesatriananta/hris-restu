@@ -196,10 +196,7 @@ describe('Payroll approval closing page', () => {
       .element(screen.getByText('Perlu hitung ulang'))
       .toBeInTheDocument()
     await expect
-      .element(screen.getByRole('button', { name: 'Setujui' }))
-      .toBeDisabled()
-    await expect
-      .element(screen.getByRole('button', { name: 'Tolak' }))
+      .element(screen.getByRole('button', { name: 'Tolak untuk diperbaiki' }))
       .toBeInTheDocument()
     await expect
       .element(screen.getByText('Override Super Admin'))
@@ -284,7 +281,7 @@ describe('Payroll approval closing page', () => {
       .element(screen.getByText('Snapshot rekening pembayaran belum lengkap.'))
       .toBeInTheDocument()
     await expect
-      .element(screen.getByRole('button', { name: 'Ajukan' }))
+      .element(screen.getByRole('button', { name: 'Ajukan Payroll' }))
       .toBeInTheDocument()
   })
 })

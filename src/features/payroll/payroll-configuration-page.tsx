@@ -262,9 +262,9 @@ export function PayrollConfigurationPage({
         <Alert className='border-sky-200 bg-sky-50/70 dark:border-sky-900 dark:bg-sky-950/30'>
           <ShieldAlert className='size-4' />
           <AlertDescription>
-            Perubahan tersimpan sebagai versi histori atau revisi. Policy hanya
-            dapat dikelola Super Admin; nominal mengikuti akses site dan
-            kewenangan pengguna.
+            Perubahan aturan tetap tercatat pada histori dan audit. Aturan
+            Payroll hanya dapat dikelola Super Admin; nominal mengikuti akses
+            site dan kewenangan pengguna.
           </AlertDescription>
         </Alert>
 
@@ -598,7 +598,7 @@ function PolicySection({
         header: () => <span className='sr-only'>Aksi</span>,
         cell: ({ row }) => (
           <DataTableActionButton
-            label={`Lihat policy ${row.original.employeeType}`}
+            label={`Lihat aturan ${row.original.employeeType}`}
             onClick={() => onOpen(row.original.uid)}
           >
             <Eye />
@@ -622,7 +622,7 @@ function PolicySection({
         {canManage && (
           <Button onClick={() => setDialogOpen(true)}>
             <Plus className='size-4' />
-            Atur policy
+            Atur aturan
           </Button>
         )}
       </div>
@@ -706,7 +706,7 @@ export function PolicyCard({
           variant='ghost'
           size='icon'
           onClick={onOpen}
-          aria-label={`Lihat policy ${policy.employeeType}`}
+          aria-label={`Lihat aturan ${policy.employeeType}`}
         >
           <Eye className='size-4' />
         </Button>
@@ -732,7 +732,10 @@ export function PolicyCard({
                 : `Tanggal ${policy.cutoffDay}`
           }
         />
-        <Fact label='Status' value={policy.status === 'ACTIVE' ? 'Aktif' : 'Nonaktif'} />
+        <Fact
+          label='Status'
+          value={policy.status === 'ACTIVE' ? 'Aktif' : 'Nonaktif'}
+        />
       </div>
       <p className='mt-4 border-t pt-3 text-xs text-muted-foreground'>
         Perubahan berlaku langsung untuk proses Payroll berikutnya.
@@ -782,8 +785,7 @@ function PolicyDialog({
     cutoffType !== 'DAY_OF_MONTH' ||
     matrix.payFrequency !== 'MONTHLY' ||
     (Number(cutoffDay) >= 1 && Number(cutoffDay) <= 31)
-  const valid =
-    siteUid && reason.trim().length >= 5 && cutoffValid
+  const valid = siteUid && reason.trim().length >= 5 && cutoffValid
   const submit = async () => {
     try {
       await create.mutateAsync({
@@ -791,10 +793,10 @@ function PolicyDialog({
         reason: reason.trim(),
         idempotencyKey: createKey('payroll-policy'),
       })
-      toast.success('Policy Payroll berhasil disimpan.')
+      toast.success('Aturan Payroll berhasil disimpan.')
       onOpenChange(false)
     } catch (error) {
-      toast.error(apiMessage(error, 'Policy gagal disimpan.'))
+      toast.error(apiMessage(error, 'Aturan Payroll gagal disimpan.'))
     }
   }
   const runPreview = async () => {
@@ -810,9 +812,10 @@ function PolicyDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-2xl'>
         <DialogHeader>
-          <DialogTitle>Atur Policy Payroll</DialogTitle>
+          <DialogTitle>Pengaturan Payroll</DialogTitle>
           <DialogDescription>
-            Konfigurasi ini langsung menjadi policy aktif untuk proses Payroll berikutnya.
+            Konfigurasi ini langsung menjadi aturan aktif untuk proses Payroll
+            berikutnya.
           </DialogDescription>
         </DialogHeader>
         <div className='grid gap-4 sm:grid-cols-2'>
@@ -900,9 +903,7 @@ function PolicyDialog({
         <DialogFooter className='gap-2'>
           <Button
             variant='outline'
-            disabled={
-              !siteUid || !cutoffValid || preview.isPending
-            }
+            disabled={!siteUid || !cutoffValid || preview.isPending}
             onClick={runPreview}
           >
             {preview.isPending ? (
@@ -1157,7 +1158,9 @@ function RateSection({
                 <p className='font-semibold tabular-nums'>
                   {money(item.amount)}
                 </p>
-                 <p className='text-xs text-muted-foreground'>Berlaku saat ini</p>
+                <p className='text-xs text-muted-foreground'>
+                  Berlaku saat ini
+                </p>
               </div>
               <div className='flex gap-1'>
                 <DataTableActionButton
@@ -1286,8 +1289,8 @@ function RateDialog({
             {mode === 'cancel'
               ? 'Data tidak dihapus dan tetap tercatat dalam histori audit.'
               : resource === 'salaries'
-                 ? 'Gaji pokok ini langsung berlaku untuk proses Payroll berikutnya.'
-                 : 'Tarif ini langsung berlaku untuk proses Payroll berikutnya.'}
+                ? 'Gaji pokok ini langsung berlaku untuk proses Payroll berikutnya.'
+                : 'Tarif ini langsung berlaku untuk proses Payroll berikutnya.'}
           </DialogDescription>
         </DialogHeader>
         {mode !== 'cancel' && (
@@ -1400,7 +1403,7 @@ function PolicyDrawer({
     <Sheet open={Boolean(policy)} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className='w-full overflow-y-auto sm:max-w-xl'>
         <SheetHeader>
-          <SheetTitle>Detail Policy Payroll</SheetTitle>
+          <SheetTitle>Detail Aturan Payroll</SheetTitle>
           <SheetDescription>
             {policy
               ? `${employeeTypeLabels[policy.employeeType]} · ${policy.site.name}`
@@ -1489,7 +1492,10 @@ function RateDrawer({
                 value={employeeTypeLabels[rate.employee.employeeType]}
               />
               <FactBox label='Berlaku' value='Saat ini' />
-              <FactBox label='Status' value={rate.status === 'ACTIVE' ? 'Aktif' : 'Nonaktif'} />
+              <FactBox
+                label='Status'
+                value={rate.status === 'ACTIVE' ? 'Aktif' : 'Nonaktif'}
+              />
             </div>
             <div>
               <p className='text-sm font-medium'>Catatan</p>

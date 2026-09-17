@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Banknote,
+  Calculator,
   Check,
   CheckCircle2,
   Clock3,
@@ -14,6 +15,8 @@ import {
   History,
   LoaderCircle,
   LockKeyhole,
+  MoreHorizontal,
+  ReceiptText,
   RotateCcw,
   Search,
   Send,
@@ -41,6 +44,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -86,11 +97,13 @@ import {
   payrollGrossAmount,
   payrollSchemeName,
 } from './payroll-presentation'
+import { PayrollProcessNav } from './payroll-process-nav'
 import {
   isRecalculationIssue,
   payrollApprovalStatusLabel,
   payrollPeriodStatusLabel,
   payrollWorkflowActionLabel,
+  payrollWorkflowNextStep,
   payrollWorkflowStageIndex,
   payrollWorkflowStages,
 } from './payroll-workflow'
@@ -191,13 +204,15 @@ export function PayrollApprovalClosingPage({
         <header>
           <p className='text-sm font-medium text-primary'>Payroll</p>
           <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
-            Approval & Closing
+            Proses Payroll
           </h1>
           <p className='max-w-3xl text-sm text-muted-foreground'>
-            Periksa hasil simulasi, kelola persetujuan, lalu kunci periode
-            secara permanen. Status ditutup tidak berarti gaji sudah dibayarkan.
+            Periksa hasil, kelola persetujuan, lalu tutup periode. Status
+            ditutup tidak berarti gaji sudah dibayarkan.
           </p>
         </header>
+
+        <PayrollProcessNav active='APPROVAL' periodUid={periodUid} />
 
         <WorkflowLegend />
 
@@ -386,7 +401,7 @@ function PendingCard({
             )}
           </div>
           <p className='text-sm text-muted-foreground'>
-            {item.siteName} / {item.periodCode} / Run #{item.runNumber}
+            {item.siteName} / {item.periodCode} / Perhitungan #{item.runNumber}
           </p>
           <Badge variant='outline' className='mt-2'>
             {payrollSchemeName(item)}
@@ -448,7 +463,7 @@ function PeriodCard({
         </Badge>
         {item.readiness.blockerCount > 0 && (
           <Badge variant='destructive'>
-            {item.readiness.blockerCount} blocker
+            {item.readiness.blockerCount} harus diperbaiki
           </Badge>
         )}
         {item.readiness.warningCount > 0 && (
@@ -581,7 +596,7 @@ function PeriodSummary({
       </div>
       <div className='mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4'>
         <Metric
-          label='Run aktif'
+          label='Perhitungan terbaru'
           value={
             workflow.currentRun
               ? `#${workflow.currentRun.runNumber}`
@@ -643,7 +658,7 @@ function IntegrityPanel({ workflow }: { workflow: PayrollWorkflow }) {
         <CheckCircle2 className='text-positive' />
         <AlertTitle>Data siap diproses</AlertTitle>
         <AlertDescription>
-          Run aktif dan snapshot sumber masih konsisten.
+          Hasil perhitungan terbaru masih sesuai dengan data sumber.
         </AlertDescription>
       </Alert>
     )
@@ -710,53 +725,201 @@ function WorkflowActions({
   onAction: (action: ActionKind) => void
 }) {
   const capabilities = workflow.capabilities
-  const hasAction = Object.values(capabilities).some(Boolean)
-  if (!hasAction) {
-    return (
-      <div className='rounded-lg border border-dashed p-3 text-sm text-muted-foreground'>
-        Tidak ada tindakan yang tersedia untuk status dan akses Anda saat ini.
-      </div>
-    )
-  }
+  const nextStep = payrollWorkflowNextStep(workflow)
+  const secondaryActions = [
+    capabilities.canReject && nextStep !== 'REJECT'
+      ? ('REJECT' as const)
+      : null,
+    capabilities.canWithdraw && nextStep !== 'WITHDRAW'
+      ? ('WITHDRAW' as const)
+      : null,
+  ].filter((action): action is 'REJECT' | 'WITHDRAW' => action !== null)
+
+  const guidance = {
+    CALCULATE: {
+      title: 'Periode siap dihitung',
+      description:
+        'Buat perhitungan Payroll terlebih dahulu sebelum mengajukannya.',
+      audience: 'Berikutnya: petugas Payroll melakukan perhitungan.',
+    },
+    RECALCULATE: {
+      title: 'Perhitungan perlu diperbarui',
+      description:
+        'Data sumber berubah. Hitung ulang agar hasil kembali sesuai sebelum proses dilanjutkan.',
+      audience: 'Berikutnya: petugas Payroll memperbarui perhitungan.',
+    },
+    SUBMIT: {
+      title: 'Hasil siap diajukan',
+      description:
+        'Periksa ringkasan di atas, lalu ajukan hasil kepada penyetuju Payroll.',
+      audience: 'Berikutnya: penyetuju Payroll memeriksa pengajuan.',
+    },
+    APPROVE: {
+      title: 'Pengajuan menunggu keputusan Anda',
+      description:
+        'Periksa nominal dan konsistensi data sebelum menyetujui hasil Payroll.',
+      audience: 'Anda memiliki hak untuk menyetujui pengajuan ini.',
+    },
+    REJECT: {
+      title: 'Pengajuan perlu dikembalikan',
+      description:
+        'Data sumber berubah setelah dihitung. Tolak pengajuan agar petugas dapat menghitung ulang.',
+      audience: 'Berikutnya: petugas Payroll memperbarui perhitungan.',
+    },
+    WITHDRAW: {
+      title: 'Pengajuan perlu ditarik',
+      description:
+        'Data sumber berubah setelah dihitung. Tarik pengajuan agar hasil dapat dihitung ulang.',
+      audience: 'Berikutnya: petugas Payroll memperbarui perhitungan.',
+    },
+    WAIT_APPROVAL: {
+      title: 'Menunggu persetujuan',
+      description:
+        'Pengajuan sudah dikirim dan sedang menunggu keputusan penyetuju Payroll.',
+      audience: 'Berikutnya: penyetuju Payroll memberi keputusan.',
+    },
+    WAIT_CORRECTION: {
+      title: 'Pengajuan perlu diperbaiki',
+      description:
+        'Data sumber berubah, tetapi akun ini tidak dapat menolak atau menarik pengajuan.',
+      audience:
+        'Berikutnya: penyetuju atau pengaju menyelesaikan pengajuan ini.',
+    },
+    CLOSE: {
+      title: 'Payroll siap ditutup',
+      description:
+        'Hasil sudah disetujui. Tutup periode untuk menetapkan hasil resmi dan menerbitkan slip.',
+      audience: 'Anda memiliki hak untuk menutup periode ini.',
+    },
+    WAIT_CLOSE: {
+      title: 'Menunggu penutupan periode',
+      description:
+        'Hasil sudah disetujui dan menunggu petugas berwenang menutup periode.',
+      audience: 'Berikutnya: petugas Payroll menutup periode.',
+    },
+    REVIEW_PERIOD: {
+      title: 'Periode perlu ditinjau ulang',
+      description:
+        'Data berubah setelah Payroll disetujui. Periksa detail periode sebelum menentukan tindakan selanjutnya.',
+      audience: 'Berikutnya: petugas Payroll meninjau atau mereset periode.',
+    },
+    PAYSLIP: {
+      title: 'Proses Payroll selesai',
+      description:
+        'Periode sudah ditutup. Slip gaji resmi sekarang dapat diperiksa dan dicetak.',
+      audience: 'Tidak ada persetujuan lanjutan yang diperlukan.',
+    },
+    NONE: {
+      title: 'Tidak ada tindakan untuk akun ini',
+      description:
+        'Status Payroll dapat dilihat, tetapi tidak ada tindakan yang tersedia untuk akses Anda saat ini.',
+      audience: 'Hubungi pengelola Payroll jika proses perlu dilanjutkan.',
+    },
+  }[nextStep]
+
   return (
     <section
       aria-label='Tindakan workflow Payroll'
-      className='flex flex-wrap gap-2'
+      className='rounded-lg border border-primary/30 bg-primary/5 p-3'
     >
-      {capabilities.canSubmit && (
-        <Button
-          disabled={!workflow.integrity.valid}
-          onClick={() => onAction('SUBMIT')}
-        >
-          <Send /> Ajukan
-        </Button>
-      )}
-      {capabilities.canApprove && (
-        <Button
-          disabled={!workflow.integrity.valid}
-          onClick={() => onAction('APPROVE')}
-        >
-          <ShieldCheck /> Setujui
-        </Button>
-      )}
-      {capabilities.canReject && (
-        <Button variant='destructive' onClick={() => onAction('REJECT')}>
-          <XCircle /> Tolak
-        </Button>
-      )}
-      {capabilities.canWithdraw && (
-        <Button variant='outline' onClick={() => onAction('WITHDRAW')}>
-          <RotateCcw /> Tarik pengajuan
-        </Button>
-      )}
-      {capabilities.canClose && (
-        <Button
-          disabled={!workflow.integrity.valid}
-          onClick={() => onAction('CLOSE')}
-        >
-          <LockKeyhole /> Tutup periode
-        </Button>
-      )}
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+        <div className='min-w-0'>
+          <p className='text-xs font-medium text-primary'>Langkah berikutnya</p>
+          <h3 className='mt-0.5 font-semibold'>{guidance.title}</h3>
+          <p className='mt-1 text-sm text-muted-foreground'>
+            {guidance.description}
+          </p>
+          <p className='mt-1 text-xs text-muted-foreground'>
+            {guidance.audience}
+          </p>
+        </div>
+
+        <div className='flex shrink-0 items-center gap-2'>
+          {(nextStep === 'CALCULATE' || nextStep === 'RECALCULATE') && (
+            <Button asChild>
+              <a
+                href={`/payroll/simulasi?periodUid=${encodeURIComponent(workflow.periodUid)}`}
+              >
+                <Calculator />
+                {nextStep === 'RECALCULATE'
+                  ? 'Hitung ulang Payroll'
+                  : 'Hitung Payroll'}
+              </a>
+            </Button>
+          )}
+          {nextStep === 'SUBMIT' && (
+            <Button onClick={() => onAction('SUBMIT')}>
+              <Send /> Ajukan Payroll
+            </Button>
+          )}
+          {nextStep === 'APPROVE' && (
+            <Button onClick={() => onAction('APPROVE')}>
+              <ShieldCheck /> Setujui Payroll
+            </Button>
+          )}
+          {nextStep === 'REJECT' && (
+            <Button variant='destructive' onClick={() => onAction('REJECT')}>
+              <XCircle /> Tolak untuk diperbaiki
+            </Button>
+          )}
+          {nextStep === 'WITHDRAW' && (
+            <Button variant='outline' onClick={() => onAction('WITHDRAW')}>
+              <RotateCcw /> Tarik untuk diperbaiki
+            </Button>
+          )}
+          {nextStep === 'CLOSE' && (
+            <Button onClick={() => onAction('CLOSE')}>
+              <LockKeyhole /> Tutup periode
+            </Button>
+          )}
+          {nextStep === 'PAYSLIP' && (
+            <Button asChild>
+              <a
+                href={`/payroll/slip-gaji?periodUid=${encodeURIComponent(workflow.periodUid)}`}
+              >
+                <ReceiptText /> Lihat slip gaji
+              </a>
+            </Button>
+          )}
+          {nextStep === 'REVIEW_PERIOD' && (
+            <Button asChild>
+              <a
+                href={`/payroll/periode?detailUid=${encodeURIComponent(workflow.periodUid)}`}
+              >
+                <FileCheck2 /> Periksa detail periode
+              </a>
+            </Button>
+          )}
+
+          {secondaryActions.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant='outline' aria-label='Tindakan lain'>
+                  <MoreHorizontal />
+                  <span className='hidden sm:inline'>Tindakan lain</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end' className='w-52'>
+                <DropdownMenuLabel>Tindakan korektif</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {capabilities.canReject && (
+                  <DropdownMenuItem
+                    variant='destructive'
+                    onSelect={() => onAction('REJECT')}
+                  >
+                    <XCircle /> Tolak pengajuan
+                  </DropdownMenuItem>
+                )}
+                {capabilities.canWithdraw && (
+                  <DropdownMenuItem onSelect={() => onAction('WITHDRAW')}>
+                    <RotateCcw /> Tarik pengajuan
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      </div>
     </section>
   )
 }
@@ -842,13 +1005,13 @@ function WorkflowActionDialog({
     SUBMIT: {
       title: 'Ajukan Payroll',
       description:
-        'Pastikan run, periode, dan nilai berikut sudah benar sebelum diteruskan ke penyetuju.',
+        'Pastikan periode dan nilai berikut sudah benar sebelum diteruskan ke penyetuju.',
       button: 'Ajukan Payroll',
     },
     APPROVE: {
       title: 'Setujui Payroll',
       description:
-        'Persetujuan berlaku untuk run yang tampil. Periksa ringkasan sebelum melanjutkan.',
+        'Persetujuan berlaku untuk hasil perhitungan yang tampil. Periksa ringkasan sebelum melanjutkan.',
       button: 'Setujui',
     },
     REJECT: {
@@ -924,7 +1087,7 @@ function WorkflowActionDialog({
             <SummaryRow label='Site' value={period.site.name} />
             <SummaryRow label='Periode' value={period.periodName} />
             <SummaryRow
-              label='Run'
+              label='Perhitungan'
               value={`#${workflow.currentRun?.runNumber ?? '-'}`}
             />
             <SummaryRow

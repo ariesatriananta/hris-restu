@@ -11,7 +11,8 @@ describe('Payroll foundation frontend', () => {
     const payrollItems = Array.isArray(payroll?.items) ? payroll.items : []
 
     expect(payroll?.anyOfPermissions).toEqual(['payroll.view'])
-    expect(payrollItems).toHaveLength(6)
+    expect(payrollItems).toHaveLength(4)
+    expect(payrollItems.map((item) => item.title)).toContain('Proses Payroll')
     expect(
       payrollItems.every(
         (item) =>

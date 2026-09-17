@@ -96,6 +96,11 @@ import type {
   PayrollReadinessStatus,
 } from './domain'
 import { periodForDate, pieceRatePeriodForDates } from './payroll-period-policy'
+import { PayrollProcessNav } from './payroll-process-nav'
+import {
+  nextPayrollProcessStage,
+  payrollProcessHref,
+} from './payroll-process-navigation'
 
 const statusLabels: Record<PayrollPeriodStatus, string> = {
   DRAFT: 'Draft',
@@ -190,11 +195,11 @@ export function PayrollPeriodsPage({
           <div>
             <p className='text-sm font-medium text-primary'>Payroll</p>
             <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
-              Periode Payroll
+              Proses Payroll
             </h1>
             <p className='max-w-3xl text-sm text-muted-foreground'>
-              Siapkan periode per site dan skema upah, lalu periksa sumber data
-              sebelum proses Payroll dilanjutkan.
+              Selesaikan Payroll dari menyiapkan periode sampai menutup hasil
+              melalui tiga tahap yang jelas.
             </p>
           </div>
           {canCalculate && (
@@ -204,12 +209,14 @@ export function PayrollPeriodsPage({
           )}
         </header>
 
+        <PayrollProcessNav active='PERIOD' periodUid={detailUid} />
+
         <Alert className='border-sky-500/40 bg-sky-500/5'>
           <CircleDollarSign className='text-sky-700' />
           <AlertTitle>Belum menghitung gaji</AlertTitle>
           <AlertDescription>
-            Periode Draft hanya memeriksa kesiapan data. Belum ada hasil Payroll
-            atau snapshot finansial yang dibuat pada tahap ini.
+            Periode Draft hanya memeriksa kesiapan data. Belum ada hasil atau
+            data finansial Payroll yang disimpan pada tahap ini.
           </AlertDescription>
         </Alert>
 
@@ -410,7 +417,7 @@ function PayrollPeriodsTable({
             <ReadinessBadge status={row.original.readiness.status} />
             <p className='text-xs text-muted-foreground'>
               {row.original.readiness.populationCount} karyawan ·{' '}
-              {row.original.readiness.blockerCount} blocker
+              {row.original.readiness.blockerCount} harus diperbaiki
             </p>
           </div>
         ),
@@ -793,7 +800,7 @@ function CreatePeriodDialog({
           <DialogTitle>Buat Periode Payroll</DialogTitle>
           <DialogDescription>
             Periode Borongan dapat memakai rentang fleksibel maksimal 31 hari.
-            Jenis Payroll lainnya mengikuti policy aktif.
+            Jenis Payroll lainnya mengikuti aturan Payroll aktif.
           </DialogDescription>
         </DialogHeader>
         <div className='grid gap-4 sm:grid-cols-2'>
@@ -889,16 +896,16 @@ function CreatePeriodDialog({
               />
               <p className='text-xs text-muted-foreground'>
                 Pilih satu tanggal di dalam periode yang ingin diproses. Sistem
-                menentukan awal dan akhir periode dari policy yang berlaku saat
+                menentukan awal dan akhir periode dari aturan yang berlaku saat
                 itu.
               </p>
             </div>
           )}
           <div className='space-y-2 sm:col-span-2'>
-            <Label>Policy yang digunakan</Label>
+            <Label>Aturan Payroll yang digunakan</Label>
             {!siteUid ? (
               <div className='rounded-lg border border-dashed p-4 text-sm text-muted-foreground'>
-                Pilih site untuk mencari policy aktif.
+                Pilih site untuk mencari aturan Payroll aktif.
               </div>
             ) : policies.isPending ? (
               <Skeleton className='h-20 w-full' />
@@ -920,9 +927,9 @@ function CreatePeriodDialog({
             ) : (
               <Alert variant='destructive'>
                 <AlertTriangle />
-                <AlertTitle>Policy aktif belum tersedia</AlertTitle>
+                <AlertTitle>Aturan Payroll belum tersedia</AlertTitle>
                 <AlertDescription>
-                  Lengkapi policy {employeeTypeLabels[employeeType]} untuk site
+                  Lengkapi aturan {employeeTypeLabels[employeeType]} untuk site
                   ini di menu Skema Upah & Tarif.
                 </AlertDescription>
               </Alert>
@@ -933,7 +940,7 @@ function CreatePeriodDialog({
               <Label>
                 {employeeType === 'BORONGAN'
                   ? 'Rentang pilihan'
-                  : 'Rentang hasil policy'}
+                  : 'Rentang berdasarkan aturan'}
               </Label>
               <div className='rounded-lg border bg-muted/30 p-3 text-sm'>
                 <span className='font-semibold'>
@@ -945,7 +952,7 @@ function CreatePeriodDialog({
                     ? 'Periode Borongan fleksibel mengikuti fakta Produksi.'
                     : policy.payFrequency === 'WEEKLY'
                       ? 'Periode mingguan Senin–Minggu.'
-                      : 'Periode bulanan mengikuti cutoff policy.'}
+                      : 'Periode bulanan mengikuti tanggal tutup buku pada aturan.'}
                 </p>
               </div>
             </div>
@@ -1093,7 +1100,7 @@ function PreviewSummary({
     return (
       <Alert className='sm:col-span-2'>
         <CheckCircle2 />
-        <AlertTitle>Policy Borongan valid</AlertTitle>
+        <AlertTitle>Aturan Borongan tersedia</AlertTitle>
         <AlertDescription>
           Populasi dan transaksi Produksi diperiksa kembali setelah periode
           Draft dibuat.
@@ -1160,7 +1167,7 @@ function PreviewSummary({
         </div>
       ) : null}
       <p className='text-xs text-muted-foreground'>
-        Preview ini belum membuat run Payroll atau hasil finansial permanen.
+        Pemeriksaan ini belum membuat perhitungan atau hasil finansial permanen.
       </p>
     </div>
   )
@@ -1246,10 +1253,10 @@ function PeriodDetailSheet({
                   <ReadinessBadge status={detail.data.readiness.status} />
                 </div>
                 <IssueGroup
-                  title='Blocker'
+                  title='Harus diperbaiki'
                   items={detail.data.readiness.blockers}
                   tone='danger'
-                  empty='Tidak ada blocker.'
+                  empty='Tidak ada masalah yang harus diperbaiki.'
                 />
                 <IssueGroup
                   title='Perlu perhatian'
@@ -1372,6 +1379,40 @@ function PeriodDetailSheet({
                     </AlertDescription>
                   </Alert>
                 )}
+              {detail.data.status !== 'CANCELLED' && (
+                <div className='rounded-lg border border-primary/30 bg-primary/5 p-3'>
+                  <p className='text-sm font-semibold'>Tindakan selanjutnya</p>
+                  <p className='mt-1 text-xs text-muted-foreground'>
+                    {detail.data.readiness.status === 'BLOCKED'
+                      ? 'Perbaiki masalah kesiapan di atas. Setelah siap, lanjutkan ke perhitungan.'
+                      : detail.data.status === 'DRAFT'
+                        ? 'Data siap diperiksa dan dihitung pada tahap Perhitungan.'
+                        : detail.data.status === 'CALCULATED'
+                          ? 'Hasil perhitungan siap diperiksa sebelum diajukan.'
+                          : 'Buka tahap Persetujuan & penutupan untuk melihat status proses ini.'}
+                  </p>
+                  {detail.data.readiness.status === 'BLOCKED' ? (
+                    <Button className='mt-3 w-full' disabled>
+                      Perbaiki kesiapan terlebih dahulu
+                    </Button>
+                  ) : (
+                    <Button asChild className='mt-3 w-full'>
+                      <a
+                        href={payrollProcessHref(
+                          nextPayrollProcessStage(detail.data.status),
+                          detail.data.uid
+                        )}
+                      >
+                        {nextPayrollProcessStage(detail.data.status) ===
+                        'APPROVAL'
+                          ? 'Buka persetujuan & penutupan'
+                          : 'Lanjut ke perhitungan'}{' '}
+                        <ExternalLink />
+                      </a>
+                    </Button>
+                  )}
+                </div>
+              )}
               {canCalculate && detail.data.status === 'DRAFT' && (
                 <Button
                   variant='destructive'
@@ -1800,7 +1841,7 @@ function ResetPeriodDialog({
   }
   const impact = preview.data
     ? [
-        ['Run Payroll', preview.data.runs],
+        ['Perhitungan Payroll', preview.data.runs],
         ['Hasil karyawan', preview.data.employeeResults],
         ['Komponen manual', preview.data.manualComponents],
         ['Approval', preview.data.approvals],

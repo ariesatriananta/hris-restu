@@ -7,7 +7,6 @@ export const Route = createFileRoute('/_authenticated/payroll/slip-gaji')({
   beforeLoad: () => requirePermission('payroll.view'),
   validateSearch: z.object({
     periodUid: z.string().uuid().optional(),
-    runUid: z.string().uuid().optional(),
     query: z.string().optional(),
     employeeResultUid: z.string().uuid().optional(),
   }),
@@ -16,5 +15,10 @@ export const Route = createFileRoute('/_authenticated/payroll/slip-gaji')({
 
 // eslint-disable-next-line react-refresh/only-export-components
 function RouteComponent() {
-  return <PayrollPayslipsPage search={Route.useSearch()} navigate={Route.useNavigate()} />
+  return (
+    <PayrollPayslipsPage
+      search={Route.useSearch()}
+      navigate={Route.useNavigate()}
+    />
+  )
 }

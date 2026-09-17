@@ -42,10 +42,10 @@ const sectionContent: Record<
   simulation: {
     title: 'Simulasi Payroll',
     description:
-      'Menyiapkan perhitungan borongan yang mengambil snapshot transaksi Produksi dan dapat dihitung ulang sebelum diajukan.',
+      'Menyiapkan perhitungan borongan dari transaksi Produksi dan dapat dihitung ulang sebelum diajukan.',
     icon: ClipboardCheck,
     preparations: [
-      'Snapshot transaksi Produksi yang memenuhi syarat',
+      'Data transaksi Produksi yang memenuhi syarat',
       'Komponen pendapatan dan potongan yang dapat ditelusuri',
       'Preview hasil sebelum pengajuan',
     ],
@@ -56,7 +56,7 @@ const sectionContent: Record<
       'Menyiapkan persetujuan terhadap satu versi perhitungan dan closing yang tidak dapat diubah kembali.',
     icon: LockKeyhole,
     preparations: [
-      'Persetujuan terhadap run yang spesifik',
+      'Persetujuan terhadap hasil perhitungan yang spesifik',
       'Pemisahan kewenangan hitung, setujui, dan closing',
       'Penguncian hasil Payroll yang sudah ditutup',
     ],
@@ -64,12 +64,12 @@ const sectionContent: Record<
   history: {
     title: 'Riwayat Payroll',
     description:
-      'Menyiapkan histori run dan keputusan Payroll tanpa menimpa hasil perhitungan sebelumnya.',
+      'Menyiapkan histori perhitungan dan keputusan Payroll tanpa menimpa hasil sebelumnya.',
     icon: ShieldCheck,
     preparations: [
       'Riwayat perhitungan ulang per periode',
       'Jejak pengajuan, persetujuan, dan penolakan',
-      'Detail snapshot karyawan yang dapat diaudit',
+      'Detail data karyawan saat dihitung yang dapat diaudit',
     ],
   },
   payslips: {
@@ -97,11 +97,11 @@ const milestones = [
   },
   {
     title: 'Simulasi Borongan',
-    description: 'Snapshot Produksi, komponen, dan preview hasil.',
+    description: 'Data Produksi, komponen, dan pratinjau hasil.',
   },
   {
     title: 'Approval & Closing',
-    description: 'Persetujuan run spesifik dan penguncian hasil akhir.',
+    description: 'Persetujuan hasil perhitungan dan penguncian hasil akhir.',
   },
   {
     title: 'Riwayat, Ekspor & Slip',

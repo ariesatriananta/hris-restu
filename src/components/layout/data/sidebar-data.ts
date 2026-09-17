@@ -148,18 +148,8 @@ export const sidebarData: SidebarData = {
               anyOfPermissions: ['payroll.view'],
             },
             {
-              title: 'Periode Payroll',
+              title: 'Proses Payroll',
               url: '/payroll/periode',
-              anyOfPermissions: ['payroll.view'],
-            },
-            {
-              title: 'Simulasi Payroll',
-              url: '/payroll/simulasi',
-              anyOfPermissions: ['payroll.view'],
-            },
-            {
-              title: 'Approval & Closing',
-              url: '/payroll/approval-closing',
               anyOfPermissions: ['payroll.view'],
             },
             {
