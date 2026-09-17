@@ -6,19 +6,19 @@
 >
 > Audiens: Super Admin, Payroll Finance, dan pengguna Payroll read-only
 >
-> Terakhir diverifikasi: 16 September 2026
+> Terakhir diverifikasi: 17 September 2026
 
-Panduan ini menjelaskan policy Payroll, tarif harian, gaji pokok, master UMK,
+Panduan ini menjelaskan aturan Payroll, tarif harian, gaji pokok, master UMK,
 serta kebijakan dan kepesertaan BPJS pada **Payroll > Skema Upah & Tarif**.
 
 ## 1. Kapan panduan ini digunakan
 
-- menyiapkan policy Payroll per site dan jenis karyawan;
+- menyiapkan aturan Payroll per site dan jenis karyawan;
 - menambahkan atau memperbaiki tarif Harian dan Training;
 - menambahkan atau memperbaiki gaji pokok Bulanan;
 - mencatat Upah Minimum Kabupaten/Kota (UMK) per site dan tahun;
 - mengatur persentase, switch program, dan kepesertaan BPJS Borongan;
-- memahami mengapa periode tidak menemukan policy atau nominal yang sesuai.
+- memahami mengapa periode tidak menemukan aturan atau nominal yang sesuai.
 
 ## 2. Hak akses
 
@@ -46,28 +46,29 @@ nilai brutonya tidak menambah upah dasar, bruto, atau neto Payroll Training.
 
 ## 4. Tab Kebijakan
 
-Policy menentukan identitas dan aturan periode Payroll untuk kombinasi site dan
+Kebijakan menentukan identitas dan aturan periode Payroll untuk kombinasi site dan
 jenis karyawan. Setiap kombinasi hanya memiliki satu konfigurasi saat ini.
 
 Informasi utamanya meliputi site, jenis karyawan, dasar upah, frekuensi bayar,
 cutoff, prorata, aturan Attendance, pembagi potongan, pembulatan, dan mata uang.
 
-### 4.1 Mengatur policy
+### 4.1 Mengatur kebijakan
 
 1. Buka tab **Kebijakan**.
-2. Pilih **Atur policy**.
+2. Pilih **Atur aturan**.
 3. Pilih site dan jenis karyawan.
 4. Periksa preview periode dan aturan yang dibentuk sistem.
 5. Isi alasan atau catatan perubahan dengan jelas.
 6. Simpan setelah seluruh informasi benar.
 
-Nilai yang terakhir disimpan langsung menjadi policy aktif untuk proses Payroll
-berikutnya. Periode yang sudah dihitung tetap menyimpan snapshot policy sendiri.
+Nilai terakhir yang disimpan langsung menjadi aturan aktif untuk proses Payroll
+berikutnya. Periode yang sudah dibuat menyimpan salinan aturan yang dipilih;
+hasil perhitungan yang sudah tersimpan tidak berubah diam-diam.
 
-### 4.2 Membatalkan policy
+### 4.2 Membatalkan kebijakan
 
 Pembatalan wajib beralasan dan tersimpan pada histori revisi. Setelah dibatalkan,
-site dan jenis karyawan tersebut tidak mempunyai policy aktif sampai policy
+site dan jenis karyawan tersebut tidak mempunyai aturan aktif sampai aturan
 disimpan kembali.
 
 ## 5. Tab Tarif harian
@@ -83,7 +84,8 @@ dengan Attendance final berstatus Hadir yang membentuk upah dasar.
 4. Periksa site dan jenis karyawan.
 5. Simpan tarif.
 
-Setiap karyawan hanya mempunyai satu tarif saat ini. Tarif yang hilang,
+Setiap karyawan hanya mempunyai satu tarif saat ini, tanpa memilih tanggal
+efektif. Tarif yang hilang,
 nonaktif, atau memakai mata uang selain IDR menjadi blocker.
 
 ### 5.2 Mengoreksi atau membatalkan tarif
@@ -96,7 +98,7 @@ tercatat di audit. Jika dilakukan setelah simulasi, jalankan **Hitung ulang**.
 
 Gaji pokok hanya digunakan untuk karyawan **Bulanan**.
 
-- Setiap karyawan hanya mempunyai satu gaji pokok saat ini.
+- Setiap karyawan hanya mempunyai satu gaji pokok saat ini, tanpa tanggal efektif.
 - Nilai terakhir yang disimpan dipakai pada proses Payroll berikutnya.
 - Join atau resign di tengah periode diprorata berdasarkan hari kalender eligible.
 
@@ -138,7 +140,8 @@ sistem otomatis memakai UMK aktif sesuai site dan tahun bulan iuran.
 
 Potongan bagian karyawan dibulatkan ke Rp1.000 terdekat per program. Kontribusi
 perusahaan dihitung dan disimpan terpisah, sehingga tidak mengurangi neto.
-Perubahan konfigurasi membutuhkan alasan dan hanya memengaruhi run berikutnya.
+Perubahan konfigurasi membutuhkan alasan dan berlaku pada perhitungan berikutnya;
+hasil lama tetap dapat ditelusuri.
 
 Nomor BPJS Kesehatan atau Ketenagakerjaan yang kosong akan ditampilkan sebagai
 peringatan, tetapi tidak memblokir simulasi. Pastikan identitas tersebut
@@ -173,26 +176,26 @@ membentuk potongan otomatis saat ini.
 
 ## 10. Pemeriksaan sebelum membuat periode
 
-- [ ] Tepat satu policy aktif tersedia untuk site dan jenis karyawan.
+- [ ] Satu aturan aktif tersedia untuk site dan jenis karyawan.
 - [ ] Tarif Harian/Training aktif tersedia untuk setiap karyawan eligible.
 - [ ] Gaji pokok Bulanan aktif tersedia.
 - [ ] Mata uang nominal adalah IDR.
 - [ ] Perubahan master memiliki alasan dan jejak audit.
 - [ ] Perubahan master tidak ditujukan untuk mengubah Payroll final lama.
-- [ ] Untuk Potong BPJS: policy tahun dan UMK site sudah aktif.
+- [ ] Untuk Potong BPJS: kebijakan BPJS tahun dan UMK site sudah aktif.
 - [ ] Bulan iuran belum pernah dipakai untuk karyawan yang sama pada periode lain.
 
 ## 11. Solusi masalah umum
 
 | Kondisi | Tindakan |
 |---|---|
-| Policy aktif tidak ditemukan | Simpan policy untuk site dan jenis karyawan terkait. |
+| Aturan Payroll tidak ditemukan | Simpan aturan untuk site dan jenis karyawan terkait. |
 | Tarif dasar belum tersedia | Tambahkan atau aktifkan kembali tarif karyawan. |
 | Gaji pokok belum tersedia | Tambahkan atau aktifkan kembali gaji pokok karyawan. |
 | Nominal tidak terlihat | Periksa kewenangan nominal dan akses site akun. |
-| Hasil simulasi tertinggal dari master | Jalankan Hitung ulang dan gunakan current run terbaru. |
+| Hasil perhitungan tertinggal dari master | Jalankan Hitung ulang dan gunakan hasil terbaru. |
 | UMK site dan tahun sudah ada | Buka data yang ada lalu koreksi atau aktifkan kembali; jangan membuat duplikat. |
-| Potongan BPJS nol | Periksa switch periode, bulan iuran, policy global, UMK site, dan kepesertaan karyawan. |
+| Potongan BPJS nol | Periksa switch periode, bulan iuran, kebijakan BPJS global, UMK site, dan kepesertaan karyawan. |
 | Bulan iuran sudah dipotong | Pilih periode tanpa Potong BPJS atau gunakan bulan iuran yang benar; satu karyawan hanya boleh satu settlement per bulan. |
 | Nomor peserta BPJS belum lengkap | Lengkapi data karyawan. Kondisi ini peringatan dan tidak menghentikan kalkulasi. |
 

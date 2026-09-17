@@ -4,40 +4,46 @@
 >
 > Audiens: Payroll Finance, Direksi, Super Admin, HR, dan pengguna laporan
 >
-> Terakhir diverifikasi: 7 September 2026
+> Terakhir diverifikasi: 17 September 2026
 >
 > Status: aktif; panduan dibagi berdasarkan pekerjaan pada aplikasi
 
-Knowledge Base Payroll membantu Anda menyiapkan skema upah, membuat periode,
-memeriksa kesiapan data, menghitung simulasi, mengesahkan hasil, dan menerbitkan
-keluaran Payroll. Buka panduan yang sesuai dengan tahap kerja Anda.
+Knowledge Base Payroll membantu Anda menyiapkan skema upah, menjalankan tiga
+tahap **Proses Payroll**, lalu membaca hasil resmi. Buka panduan yang sesuai
+dengan pekerjaan Anda; lima artikel di bawah adalah materi, bukan lima menu
+terpisah di sidebar.
 
 ## Pilih panduan
 
 | Panduan | Gunakan ketika |
 |---|---|
-| [Skema Upah dan Tarif](./kbase/payroll/KBASE_SKEMA_UPAH_DAN_TARIF.md) | Menyiapkan policy Payroll, tarif, gaji pokok, UMK, serta kebijakan dan kepesertaan BPJS Borongan. |
-| [Periode dan Kesiapan Payroll](./kbase/payroll/KBASE_PERIODE_DAN_KESIAPAN_PAYROLL.md) | Membuat periode Borongan atau berbasis waktu, membaca status kesiapan, menyelesaikan blocker, atau membatalkan Draft. |
-| [Simulasi dan Komponen Payroll](./kbase/payroll/KBASE_SIMULASI_DAN_KOMPONEN_PAYROLL.md) | Menambah komponen manual, menghitung atau menghitung ulang, membaca rumus dan hasil per karyawan, atau memulihkan run yang macet. |
-| [Approval dan Closing Payroll](./kbase/payroll/KBASE_APPROVAL_DAN_CLOSING_PAYROLL.md) | Mengajukan, menarik, menyetujui, menolak, atau menutup Payroll secara permanen. |
-| [Riwayat, Ekspor, dan Slip Payroll](./kbase/payroll/KBASE_RIWAYAT_EKSPOR_DAN_SLIP_PAYROLL.md) | Membandingkan run, mengunduh rekap atau Daftar Pembayaran, mencetak slip, atau membaca Laporan Payroll Final. |
+| [Skema Upah dan Tarif](./kbase/payroll/KBASE_SKEMA_UPAH_DAN_TARIF.md) | Mengatur kebijakan Payroll, tarif, gaji pokok, UMK, serta BPJS Borongan. |
+| [Periode dan Kesiapan Payroll](./kbase/payroll/KBASE_PERIODE_DAN_KESIAPAN_PAYROLL.md) | Tahap 1: membuat periode dan menyelesaikan masalah kesiapan data. |
+| [Perhitungan dan Komponen Payroll](./kbase/payroll/KBASE_SIMULASI_DAN_KOMPONEN_PAYROLL.md) | Tahap 2: menambah komponen manual, menghitung, dan memeriksa hasil per karyawan. |
+| [Persetujuan dan Penutupan Payroll](./kbase/payroll/KBASE_APPROVAL_DAN_CLOSING_PAYROLL.md) | Tahap 3: mengajukan, menyetujui/menolak, menarik, dan menutup periode. |
+| [Riwayat, Ekspor, dan Slip Payroll](./kbase/payroll/KBASE_RIWAYAT_EKSPOR_DAN_SLIP_PAYROLL.md) | Membandingkan perhitungan, mengunduh rekap/Daftar Pembayaran, dan mencetak slip resmi. |
 
 ## Alur kerja utama
 
-1. Siapkan policy dan nominal pada **Payroll > Skema Upah & Tarif**.
-2. Buat dan periksa periode pada **Payroll > Periode Payroll**.
-3. Selesaikan seluruh blocker Attendance, Produksi, penempatan, tarif, atau gaji.
-4. Hitung serta periksa hasil pada **Payroll > Simulasi Payroll**.
-5. Ajukan, setujui, dan tutup current run melalui **Payroll > Approval & Closing**.
-6. Gunakan **Riwayat Payroll**, **Slip Gaji**, atau **Laporan > Payroll Final** sesuai kebutuhan.
+1. Siapkan kebijakan dan nominal pada **Payroll > Skema Upah & Tarif**.
+2. Buka **Payroll > Proses Payroll**. Tahap **Periode & kesiapan**: buat periode dan selesaikan masalah yang harus diperbaiki.
+3. Tahap **Perhitungan**: hitung dan cocokkan hasil beberapa karyawan; bila perlu, atur komponen manual dan hitung ulang.
+4. Tahap **Persetujuan & penutupan**: ajukan, setujui, lalu tutup periode sesuai hak akses. Panel **Langkah berikutnya** menunjukkan tindakan utama yang tersedia.
+5. Setelah ditutup, buka **Riwayat Payroll**, **Slip Gaji**, atau **Laporan > Payroll Final** sesuai kebutuhan.
+
+Periode yang dipilih ikut terbawa saat berpindah tahap. Jika tidak punya hak
+untuk tindakan berikutnya, halaman tetap memperlihatkan status dan siapa yang
+perlu melanjutkan.
 
 Status normal periode adalah:
 
-**Draft -> Calculated -> Approved -> Closed**
+**Draft -> Siap diajukan -> Disetujui -> Ditutup**
 
-Status **Cancelled** hanya dapat berasal dari Draft. Hitung ulang membuat run
-baru tanpa menghapus run sebelumnya. Closing menetapkan current run menjadi
-**FINAL** dan tidak dapat dibuka kembali.
+Status **Dibatalkan** hanya dapat berasal dari Draft. Hitung ulang membuat
+perhitungan baru tanpa menghapus yang lama. Penutupan menetapkan perhitungan
+terbaru sebagai **FINAL**. Dalam alur operasional normal, periode tertutup tidak
+dihitung ulang; **Reset & hapus periode** khusus Super Admin menghapus periode
+dan hasil turunannya untuk dibuat ulang, dengan konfirmasi serta audit.
 
 ## Jenis Payroll yang tersedia
 
@@ -46,7 +52,7 @@ baru tanpa menghapus run sebelumnya. Closing menetapkan current run menjadi
 | Borongan | Hasil kerja (`PIECE_RATE`) | Rentang fleksibel, maksimal 31 hari | Transaksi Produksi berstatus Tercatat/`POSTED` |
 | Harian | Waktu (`TIME_BASED`) | Senin-Minggu | Attendance final Hadir dan tarif harian |
 | Training | Waktu (`TIME_BASED`) | Senin-Minggu | Attendance final Hadir dan tarif harian; hasil Produksi hanya informasi |
-| Bulanan | Waktu (`TIME_BASED`) | Bulanan sesuai cutoff policy | Gaji pokok, prorata, serta potongan Alpha dan Izin |
+| Bulanan | Waktu (`TIME_BASED`) | Bulanan sesuai aturan tanggal tutup buku | Gaji pokok, prorata, serta potongan Alpha dan Izin |
 
 ## Prinsip yang wajib diingat
 
@@ -58,12 +64,12 @@ baru tanpa menghapus run sebelumnya. Closing menetapkan current run menjadi
   snapshot rekening yang belum lengkap akan menolak Daftar Pembayaran.
 - Neto negatif tetap terlihat pada simulasi, tetapi memblokir pengajuan,
   persetujuan, dan closing.
-- Hanya current run `FINAL` pada periode `CLOSED` yang menghasilkan slip resmi
-  tanpa penanda **SIMULASI**.
+- Menu **Slip Gaji** hanya menawarkan periode **Ditutup** dengan perhitungan
+  terbaru `FINAL`; hasil simulasi tetap dapat ditelusuri melalui riwayat.
 - Status `CLOSED`, file Daftar Pembayaran, dan slip resmi tidak menyatakan dana
   sudah ditransfer atau diterima karyawan.
-- Data Payroll final bersifat immutable. Koreksi setelah closing belum tersedia
-  pada tahap sistem saat ini.
+- Perubahan pada hasil resmi tidak dilakukan dengan mengeditnya. Reset khusus
+  Super Admin dapat menghapus periode dan hasil turunannya untuk diproses ulang.
 - Akses site dan izin tindakan selalu diperiksa kembali oleh backend.
 
 ## Batas sistem saat ini
@@ -80,6 +86,6 @@ periode yang mengaktifkan **Potong BPJS** serta memilih bulan iuran.
 
 1. [Skema Upah dan Tarif](./kbase/payroll/KBASE_SKEMA_UPAH_DAN_TARIF.md)
 2. [Periode dan Kesiapan Payroll](./kbase/payroll/KBASE_PERIODE_DAN_KESIAPAN_PAYROLL.md)
-3. [Simulasi dan Komponen Payroll](./kbase/payroll/KBASE_SIMULASI_DAN_KOMPONEN_PAYROLL.md)
-4. [Approval dan Closing Payroll](./kbase/payroll/KBASE_APPROVAL_DAN_CLOSING_PAYROLL.md)
+3. [Perhitungan dan Komponen Payroll](./kbase/payroll/KBASE_SIMULASI_DAN_KOMPONEN_PAYROLL.md)
+4. [Persetujuan dan Penutupan Payroll](./kbase/payroll/KBASE_APPROVAL_DAN_CLOSING_PAYROLL.md)
 5. [Riwayat, Ekspor, dan Slip Payroll](./kbase/payroll/KBASE_RIWAYAT_EKSPOR_DAN_SLIP_PAYROLL.md)

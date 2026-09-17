@@ -202,7 +202,7 @@ const articles: ArticleDefinition[] = [
     value: 'payroll-skema-tarif',
     group: 'Payroll',
     label: 'Skema Upah & Tarif',
-    description: 'Borongan, Harian, Training, Bulanan, policy, dan tarif',
+    description: 'Kebijakan, tarif, gaji pokok, UMK, dan BPJS',
     icon: FileCog,
     sourceName: 'KBASE_SKEMA_UPAH_DAN_TARIF.md',
     content: payrollSchemeRates,
@@ -212,8 +212,7 @@ const articles: ArticleDefinition[] = [
     value: 'payroll-periode-kesiapan',
     group: 'Payroll',
     label: 'Periode & Kesiapan',
-    description:
-      'Membuat periode, membaca readiness, dan menyelesaikan blocker',
+    description: 'Tahap 1 Proses Payroll: periode dan kesiapan data',
     icon: CalendarCheck2,
     sourceName: 'KBASE_PERIODE_DAN_KESIAPAN_PAYROLL.md',
     content: payrollPeriodReadiness,
@@ -222,9 +221,8 @@ const articles: ArticleDefinition[] = [
   {
     value: 'payroll-simulasi-komponen',
     group: 'Payroll',
-    label: 'Simulasi & Komponen',
-    description:
-      'Perhitungan, komponen manual, hasil karyawan, dan hitung ulang',
+    label: 'Perhitungan & Komponen',
+    description: 'Tahap 2 Proses Payroll: hitung, komponen, dan hasil karyawan',
     icon: ClipboardList,
     sourceName: 'KBASE_SIMULASI_DAN_KOMPONEN_PAYROLL.md',
     content: payrollSimulationComponents,
@@ -233,8 +231,8 @@ const articles: ArticleDefinition[] = [
   {
     value: 'payroll-approval-closing',
     group: 'Payroll',
-    label: 'Approval & Closing',
-    description: 'Pengajuan, persetujuan, penolakan, penarikan, dan closing',
+    label: 'Persetujuan & Penutupan',
+    description: 'Tahap 3 Proses Payroll: ajukan, setujui, dan tutup',
     icon: Landmark,
     sourceName: 'KBASE_APPROVAL_DAN_CLOSING_PAYROLL.md',
     content: payrollApprovalClosing,
@@ -245,7 +243,7 @@ const articles: ArticleDefinition[] = [
     group: 'Payroll',
     label: 'Riwayat, Ekspor & Slip',
     description:
-      'Run Payroll, perbandingan, rekap, daftar pembayaran, dan slip',
+      'Histori perhitungan, rekap, daftar pembayaran, dan slip resmi',
     icon: FileText,
     sourceName: 'KBASE_RIWAYAT_EKSPOR_DAN_SLIP_PAYROLL.md',
     content: payrollHistoryExportPayslip,
