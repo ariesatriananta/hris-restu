@@ -915,9 +915,22 @@ payrollSimulationsRouter.get(
       if (!result)
         throw new ApiError(404, 'Hasil Payroll karyawan tidak ditemukan.')
       const [production] = await pool.query<RowDataPacket[]>(
-        `SELECT transaction_number_snapshot transactionNumber,DATE_FORMAT(business_date,'%Y-%m-%d') businessDate,job_name_snapshot jobName,unit_name_snapshot unitName,quantity_snapshot quantity,rate_snapshot rate,amount_snapshot amount FROM payroll_production_details WHERE payroll_employee_result_id=? ORDER BY business_date,transaction_number_snapshot`,
+        `SELECT id,transaction_number_snapshot transactionNumber,DATE_FORMAT(business_date,'%Y-%m-%d') businessDate,job_name_snapshot jobName,unit_name_snapshot unitName,quantity_snapshot quantity,rate_snapshot rate,amount_snapshot amount FROM payroll_production_details WHERE payroll_employee_result_id=? ORDER BY business_date,transaction_number_snapshot`,
         [result.id]
       )
+      const productionIds = production.map((row) => Number(row.id))
+      const [productionRates] = productionIds.length
+        ? await pool.query<RowDataPacket[]>(
+            `SELECT payroll_production_detail_id detailId,
+                    min_quantity_snapshot minQuantity,
+                    quantity_snapshot quantity,rate_snapshot rate,
+                    amount_snapshot amount
+               FROM payroll_production_rate_details
+              WHERE payroll_production_detail_id IN (${productionIds.map(() => '?').join(',')})
+              ORDER BY payroll_production_detail_id,min_quantity_snapshot`,
+            productionIds
+          )
+        : [[] as RowDataPacket[]]
       const [timeDetails] = await pool.query<RowDataPacket[]>(
         `SELECT DATE_FORMAT(detail.business_date,'%Y-%m-%d') businessDate,
                 detail.attendance_status_snapshot attendanceStatus,
@@ -1039,10 +1052,21 @@ payrollSimulationsRouter.get(
             ),
           },
           production: production.map((row) => ({
-            ...row,
+            transactionNumber: row.transactionNumber,
+            businessDate: row.businessDate,
+            jobName: row.jobName,
+            unitName: row.unitName,
             quantity: String(row.quantity),
             rate: String(row.rate),
             amount: amount(row.amount),
+            rateDetails: productionRates
+              .filter((tier) => Number(tier.detailId) === Number(row.id))
+              .map((tier) => ({
+                minQuantity: String(tier.minQuantity),
+                quantity: String(tier.quantity),
+                rate: String(tier.rate),
+                amount: amount(tier.amount),
+              })),
           })),
           timeDetails: timeDetails.map((row) => ({
             businessDate: row.businessDate,

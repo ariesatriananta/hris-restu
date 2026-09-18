@@ -121,6 +121,142 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
+type RateTierInput = { minQuantity: string; rateAmount: string }
+
+function rateTiersForForm(rate: ProductionRate): RateTierInput[] {
+  const tiers = rate.tiers?.length
+    ? rate.tiers
+    : [{ minQuantity: '1', rateAmount: rate.rateAmount }]
+  return tiers.map((tier) => ({
+    minQuantity: String(Number(tier.minQuantity)),
+    rateAmount: formatProductionDecimalInput(tier.rateAmount),
+  }))
+}
+
+function formatRateThreshold(value: string): string {
+  return Number(value).toLocaleString('id-ID', { maximumFractionDigits: 0 })
+}
+
+function normalizeRateTiers(tiers: RateTierInput[]): RateTierInput[] {
+  return tiers.map((tier) => ({
+    minQuantity: normalizeProductionDecimalInput(tier.minQuantity),
+    rateAmount: normalizeProductionDecimalInput(tier.rateAmount),
+  }))
+}
+
+function validRateTiers(tiers: RateTierInput[]): boolean {
+  if (!tiers.length || tiers[0].minQuantity !== '1') return false
+  return tiers.every((tier, index) => {
+    const minInput = tier.minQuantity.trim()
+    const amountInput = normalizeProductionDecimalInput(tier.rateAmount)
+    const min = Number(minInput)
+    const amount = Number(amountInput)
+    return (
+      /^\d+$/.test(minInput) &&
+      Number.isSafeInteger(min) &&
+      min >= 1 &&
+      /^\d+(?:\.\d{1,4})?$/.test(amountInput) &&
+      Number.isFinite(amount) &&
+      amount > 0 &&
+      (index === 0 || min > Number(tiers[index - 1].minQuantity))
+    )
+  })
+}
+
+function RateTierFields({
+  tiers,
+  onChange,
+  unitCode,
+}: {
+  tiers: RateTierInput[]
+  onChange: (tiers: RateTierInput[]) => void
+  unitCode: string
+}) {
+  const update = (index: number, patch: Partial<RateTierInput>) =>
+    onChange(
+      tiers.map((tier, position) =>
+        position === index ? { ...tier, ...patch } : tier
+      )
+    )
+  return (
+    <div className='space-y-3 rounded-lg border p-3'>
+      <div>
+        <p className='text-sm font-medium'>
+          Tarif bertingkat per karyawan, pekerjaan, dan hari
+        </p>
+        <p className='text-xs text-muted-foreground'>
+          Hanya hasil di atas ambang yang memakai tarif berikutnya.
+        </p>
+      </div>
+      {tiers.map((tier, index) => (
+        <div
+          key={index}
+          className='grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'
+        >
+          <Field
+            label={
+              index === 0 ? `Mulai ${unitCode}` : `Mulai ${unitCode} berikutnya`
+            }
+          >
+            <Input
+              inputMode='numeric'
+              value={tier.minQuantity}
+              disabled={index === 0}
+              onChange={(event) =>
+                update(index, { minQuantity: event.target.value })
+              }
+              placeholder='Contoh: 501'
+            />
+          </Field>
+          <Field label={`Tarif per ${unitCode}`}>
+            <Input
+              inputMode='decimal'
+              value={tier.rateAmount}
+              onChange={(event) =>
+                update(index, { rateAmount: event.target.value })
+              }
+              onBlur={() =>
+                update(index, {
+                  rateAmount: formatProductionDecimalInput(tier.rateAmount),
+                })
+              }
+              placeholder='Contoh: 121'
+            />
+          </Field>
+          {index > 0 && (
+            <Button
+              type='button'
+              variant='ghost'
+              size='icon'
+              aria-label={`Hapus tingkat ${index + 1}`}
+              onClick={() =>
+                onChange(tiers.filter((_, position) => position !== index))
+              }
+            >
+              <X className='size-4' />
+            </Button>
+          )}
+        </div>
+      ))}
+      <Button
+        type='button'
+        variant='outline'
+        size='sm'
+        onClick={() =>
+          onChange([...tiers, { minQuantity: '', rateAmount: '' }])
+        }
+      >
+        <Plus className='size-4' /> Tambah tingkat
+      </Button>
+      {!validRateTiers(tiers) && (
+        <p className='text-xs text-destructive'>
+          Isi tarif positif dan ambang PCS berurutan dari kecil ke besar.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function formatCurrency(value: string | number) {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
@@ -1191,7 +1327,7 @@ function RateDialog({ jobs }: { jobs: ProductionJob[] }) {
     jobUid: '',
     effectiveFrom: '',
     effectiveTo: '',
-    rateAmount: '',
+    tiers: [{ minQuantity: '1', rateAmount: '' }] as RateTierInput[],
     referenceNumber: '',
     notes: '',
   })
@@ -1203,7 +1339,8 @@ function RateDialog({ jobs }: { jobs: ProductionJob[] }) {
         path: '/production-structure/rates',
         body: {
           ...form,
-          rateAmount: normalizeProductionDecimalInput(form.rateAmount),
+          rateAmount: normalizeProductionDecimalInput(form.tiers[0].rateAmount),
+          tiers: normalizeRateTiers(form.tiers),
           unitUid: selectedJob?.defaultUnitUid,
           effectiveTo: form.effectiveTo || null,
           referenceNumber: form.referenceNumber || null,
@@ -1227,7 +1364,7 @@ function RateDialog({ jobs }: { jobs: ProductionJob[] }) {
           <Plus /> Buat Draft Tarif
         </Button>
       </DialogTrigger>
-      <DialogContent className='sm:max-w-xl'>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-2xl'>
         <DialogHeader>
           <DialogTitle>Buat Draft Tarif</DialogTitle>
           <DialogDescription>
@@ -1285,20 +1422,6 @@ function RateDialog({ jobs }: { jobs: ProductionJob[] }) {
               placeholder='Tanpa tanggal selesai'
             />
           </Field>
-          <Field label={`Tarif (${selectedJob?.defaultUnitCode ?? 'satuan'})`}>
-            <Input
-              inputMode='decimal'
-              value={form.rateAmount}
-              onChange={(e) => setForm({ ...form, rateAmount: e.target.value })}
-              onBlur={() =>
-                setForm({
-                  ...form,
-                  rateAmount: formatProductionDecimalInput(form.rateAmount),
-                })
-              }
-              placeholder='Contoh: 1200'
-            />
-          </Field>
           <Field label='Nomor referensi'>
             <Input
               value={form.referenceNumber}
@@ -1309,6 +1432,11 @@ function RateDialog({ jobs }: { jobs: ProductionJob[] }) {
             />
           </Field>
         </div>
+        <RateTierFields
+          tiers={form.tiers}
+          onChange={(tiers) => setForm({ ...form, tiers })}
+          unitCode={selectedJob?.defaultUnitCode ?? 'PCS'}
+        />
         <Field label='Catatan'>
           <Textarea
             value={form.notes}
@@ -1324,7 +1452,7 @@ function RateDialog({ jobs }: { jobs: ProductionJob[] }) {
             disabled={
               !form.jobUid ||
               !form.effectiveFrom ||
-              !form.rateAmount ||
+              !validRateTiers(form.tiers) ||
               command.isPending
             }
             onClick={save}
@@ -1340,7 +1468,7 @@ function RateDialog({ jobs }: { jobs: ProductionJob[] }) {
 function ActiveRateCorrectionDialog({ rate }: { rate: ProductionRate }) {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState({
-    rateAmount: formatProductionDecimalInput(rate.rateAmount),
+    tiers: rateTiersForForm(rate),
     effectiveTo: rate.effectiveTo ?? '',
     referenceNumber: rate.referenceNumber ?? '',
     notes: rate.notes ?? '',
@@ -1350,7 +1478,8 @@ function ActiveRateCorrectionDialog({ rate }: { rate: ProductionRate }) {
   const preview = usePreviewProductionRateCorrection(rate.uid)
   const correction = useCorrectProductionRate(rate.uid)
   const proposal = {
-    rateAmount: normalizeProductionDecimalInput(form.rateAmount),
+    rateAmount: normalizeProductionDecimalInput(form.tiers[0].rateAmount),
+    tiers: normalizeRateTiers(form.tiers),
     effectiveTo: form.effectiveTo || null,
     referenceNumber: form.referenceNumber || null,
     notes: form.notes || null,
@@ -1380,7 +1509,7 @@ function ActiveRateCorrectionDialog({ rate }: { rate: ProductionRate }) {
         setOpen(next)
         if (!next) return
         setForm({
-          rateAmount: formatProductionDecimalInput(rate.rateAmount),
+          tiers: rateTiersForForm(rate),
           effectiveTo: rate.effectiveTo ?? '',
           referenceNumber: rate.referenceNumber ?? '',
           notes: rate.notes ?? '',
@@ -1394,7 +1523,7 @@ function ActiveRateCorrectionDialog({ rate }: { rate: ProductionRate }) {
           <PencilLine className='size-4' />
         </Button>
       </DialogTrigger>
-      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-xl'>
+      <DialogContent className='max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-2xl'>
         <DialogHeader>
           <DialogTitle>Koreksi Tarif Aktif</DialogTitle>
           <DialogDescription>
@@ -1409,22 +1538,6 @@ function ActiveRateCorrectionDialog({ rate }: { rate: ProductionRate }) {
           </p>
         </div>
         <div className='grid gap-4 sm:grid-cols-2'>
-          <Field label={`Tarif (${rate.unitCode})`}>
-            <Input
-              value={form.rateAmount}
-              inputMode='decimal'
-              onChange={(event) => {
-                setForm({ ...form, rateAmount: event.target.value })
-                resetPreview()
-              }}
-              onBlur={() =>
-                setForm({
-                  ...form,
-                  rateAmount: formatProductionDecimalInput(form.rateAmount),
-                })
-              }
-            />
-          </Field>
           <Field label='Tanggal selesai (opsional)'>
             <DateField
               value={form.effectiveTo}
@@ -1456,11 +1569,19 @@ function ActiveRateCorrectionDialog({ rate }: { rate: ProductionRate }) {
             />
           </Field>
         </div>
+        <RateTierFields
+          tiers={form.tiers}
+          onChange={(tiers) => {
+            setForm({ ...form, tiers })
+            resetPreview()
+          }}
+          unitCode={rate.unitCode}
+        />
         <Button
           type='button'
           variant='secondary'
           className='w-fit'
-          disabled={!form.rateAmount || preview.isPending}
+          disabled={!validRateTiers(form.tiers) || preview.isPending}
           onClick={() =>
             preview.mutate(proposal, {
               onError: (error) =>
@@ -1480,12 +1601,30 @@ function ActiveRateCorrectionDialog({ rate }: { rate: ProductionRate }) {
               <p className='text-lg font-semibold'>
                 {formatCurrency(preview.data.source.rateAmount)}
               </p>
+              {(preview.data.source.tiers ?? []).slice(1).map((tier) => (
+                <p
+                  key={tier.minQuantity}
+                  className='text-xs text-muted-foreground'
+                >
+                  Mulai {formatRateThreshold(tier.minQuantity)} {rate.unitCode}:{' '}
+                  {formatCurrency(tier.rateAmount)}
+                </p>
+              ))}
             </div>
             <div className='rounded-lg border border-primary/30 bg-primary/[0.03] p-3 text-sm'>
               <p className='text-xs text-muted-foreground'>Tarif sesudah</p>
               <p className='text-lg font-semibold'>
                 {formatCurrency(preview.data.proposed.rateAmount)}
               </p>
+              {(preview.data.proposed.tiers ?? []).slice(1).map((tier) => (
+                <p
+                  key={tier.minQuantity}
+                  className='text-xs text-muted-foreground'
+                >
+                  Mulai {formatRateThreshold(tier.minQuantity)} {rate.unitCode}:{' '}
+                  {formatCurrency(tier.rateAmount)}
+                </p>
+              ))}
             </div>
           </div>
         )}
@@ -2274,7 +2413,18 @@ export function ProductionRatePage({ search, navigate }: PageProps) {
                   {rate.effectiveFrom} — {rate.effectiveTo ?? 'seterusnya'}
                 </TableCell>
                 <TableCell className='font-medium'>
-                  {formatCurrency(rate.rateAmount)}
+                  <div>
+                    {formatCurrency(rate.rateAmount)} / {rate.unitCode}
+                  </div>
+                  {(rate.tiers ?? []).slice(1).map((tier) => (
+                    <div
+                      key={tier.minQuantity}
+                      className='text-xs font-normal text-muted-foreground'
+                    >
+                      Mulai {formatRateThreshold(tier.minQuantity)}{' '}
+                      {rate.unitCode}: {formatCurrency(tier.rateAmount)}
+                    </div>
+                  ))}
                 </TableCell>
                 <TableCell>
                   <Badge

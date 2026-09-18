@@ -1,6 +1,11 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { APP_LOGO_SRC, APP_NAME, APP_SHORT_NAME } from '@/lib/app-branding'
+import {
+  APP_LOGO_SRC,
+  APP_NAME,
+  APP_SHORT_NAME,
+  SHOW_APP_LOGO,
+} from '@/lib/app-branding'
 import { cn } from '@/lib/utils'
 
 interface AppBrandProps {
@@ -17,18 +22,20 @@ export function AppBrand({ compact = false, className }: AppBrandProps) {
       aria-label={APP_NAME}
       className={cn('flex min-w-0 items-center gap-3', className)}
     >
-      <div className='flex size-11 shrink-0 items-center justify-center text-[10px] font-black tracking-wider text-primary'>
-        {!imageFailed ? (
-          <img
-            src={APP_LOGO_SRC}
-            alt={`Logo ${APP_NAME}`}
-            className='size-full object-contain'
-            onError={() => setImageFailed(true)}
-          />
-        ) : (
-          APP_SHORT_NAME
-        )}
-      </div>
+      {(SHOW_APP_LOGO || compact) && (
+        <div className='flex size-11 shrink-0 items-center justify-center text-[10px] font-black tracking-wider text-primary'>
+          {SHOW_APP_LOGO && !imageFailed ? (
+            <img
+              src={APP_LOGO_SRC}
+              alt={`Logo ${APP_NAME}`}
+              className='size-full object-contain'
+              onError={() => setImageFailed(true)}
+            />
+          ) : (
+            APP_SHORT_NAME
+          )}
+        </div>
+      )}
       {!compact && (
         <div className='min-w-0 leading-tight'>
           <p className='truncate text-sm font-bold'>{APP_NAME}</p>

@@ -578,6 +578,7 @@ export function usePreviewProductionRateCorrection(uid?: string) {
   return useProductionFoundationAction<
     {
       rateAmount: string
+      tiers: Array<{ minQuantity: string; rateAmount: string }>
       effectiveTo: string | null
       referenceNumber: string | null
       notes: string | null
@@ -590,6 +591,7 @@ export function useCorrectProductionRate(uid?: string) {
   return useProductionFoundationAction<
     {
       rateAmount: string
+      tiers: Array<{ minQuantity: string; rateAmount: string }>
       effectiveTo: string | null
       referenceNumber: string | null
       notes: string | null

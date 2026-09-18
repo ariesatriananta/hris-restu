@@ -147,6 +147,16 @@ BEGIN
    AND existing.effective_from='2026-01-01'
   WHERE existing.id IS NULL;
 
+  INSERT INTO production_job_rate_tiers
+    (uid,job_rate_id,min_quantity,rate_amount,created_by,updated_by)
+  SELECT UUID(),rate.id,1,rate.rate_amount,seed_user_id,seed_user_id
+  FROM production_job_rates rate
+  WHERE rate.reference_number='DEMO-PRODUCTION-2026'
+    AND NOT EXISTS (
+      SELECT 1 FROM production_job_rate_tiers tier
+      WHERE tier.job_rate_id=rate.id AND tier.min_quantity=1
+    );
+
   IF EXISTS (
     SELECT 1
     FROM production_job_rates first_rate

@@ -34,6 +34,8 @@ BEGIN
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
+    DROP TEMPORARY TABLE IF EXISTS tmp_production_one_day_allocations;
+    DROP TEMPORARY TABLE IF EXISTS tmp_production_one_day_totals;
     DROP TEMPORARY TABLE IF EXISTS tmp_production_one_day_expected;
     DROP TEMPORARY TABLE IF EXISTS tmp_production_one_day_sequences;
     DROP TEMPORARY TABLE IF EXISTS tmp_production_one_day_candidates;
@@ -303,8 +305,84 @@ BEGIN
       ) AS DECIMAL(18,4)
     );
 
-  UPDATE tmp_production_one_day_expected
-  SET gross_amount=ROUND(quantity*rate_amount,2);
+  -- Hitung kumulatif per pekerja/pekerjaan/hari. Seed tidak mencampur setoran
+  -- manual agar urutan transaksi dan alokasi tier tetap deterministik.
+  IF EXISTS (
+    SELECT 1 FROM production_transactions existing
+    JOIN tmp_production_one_day_candidates candidate
+      ON candidate.employee_id=existing.employee_id
+     AND candidate.production_job_id=existing.production_job_id
+    WHERE existing.business_date=@target_date AND existing.status='POSTED'
+      AND (existing.idempotency_key IS NULL OR existing.idempotency_key NOT LIKE
+        CONCAT('SEED-PRD-',DATE_FORMAT(@target_date,'%Y%m%d'),'-%'))
+  ) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT='Seed dibatalkan: ada setoran non-seed untuk kandidat pada hari yang sama.';
+  END IF;
+
+  DROP TEMPORARY TABLE IF EXISTS tmp_production_one_day_totals;
+  CREATE TEMPORARY TABLE tmp_production_one_day_totals AS
+  SELECT employee_id,sequence_no,
+         SUM(quantity) OVER (
+           PARTITION BY employee_id,production_job_id
+           ORDER BY sequence_no
+         ) end_quantity,
+         SUM(quantity) OVER (
+           PARTITION BY employee_id,production_job_id
+           ORDER BY sequence_no
+         )-quantity start_quantity
+  FROM tmp_production_one_day_expected;
+  ALTER TABLE tmp_production_one_day_totals
+    ADD PRIMARY KEY(employee_id,sequence_no);
+
+  DROP TEMPORARY TABLE IF EXISTS tmp_production_one_day_allocations;
+  CREATE TEMPORARY TABLE tmp_production_one_day_allocations AS
+  SELECT expected.employee_id,expected.sequence_no,
+         tier.id tier_id,tier.min_quantity,tier.rate_amount,
+         GREATEST(0,
+           LEAST(totals.end_quantity,
+             COALESCE((
+               SELECT MIN(next_tier.min_quantity)-1
+               FROM production_job_rate_tiers next_tier
+               WHERE next_tier.job_rate_id=tier.job_rate_id
+                 AND next_tier.min_quantity>tier.min_quantity
+             ),totals.end_quantity)
+           )-GREATEST(totals.start_quantity,tier.min_quantity-1)
+         ) allocated_quantity
+  FROM tmp_production_one_day_expected expected
+  JOIN tmp_production_one_day_totals totals
+    ON totals.employee_id=expected.employee_id
+   AND totals.sequence_no=expected.sequence_no
+  JOIN production_job_rate_tiers tier
+    ON tier.job_rate_id=expected.job_rate_id;
+  DELETE FROM tmp_production_one_day_allocations WHERE allocated_quantity<=0;
+  ALTER TABLE tmp_production_one_day_allocations
+    ADD PRIMARY KEY(employee_id,sequence_no,min_quantity);
+
+  IF EXISTS (
+    SELECT 1 FROM tmp_production_one_day_expected expected
+    LEFT JOIN (
+      SELECT employee_id,sequence_no,SUM(allocated_quantity) total_quantity
+      FROM tmp_production_one_day_allocations
+      GROUP BY employee_id,sequence_no
+    ) allocated ON allocated.employee_id=expected.employee_id
+      AND allocated.sequence_no=expected.sequence_no
+    WHERE allocated.total_quantity IS NULL
+       OR allocated.total_quantity<>expected.quantity
+  ) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT='Seed dibatalkan: tier tarif tidak menutup seluruh kuantitas setoran.';
+  END IF;
+
+  UPDATE tmp_production_one_day_expected expected
+  JOIN (
+    SELECT employee_id,sequence_no,
+           SUM(ROUND(allocated_quantity*rate_amount,2)) gross_amount
+    FROM tmp_production_one_day_allocations
+    GROUP BY employee_id,sequence_no
+  ) allocated ON allocated.employee_id=expected.employee_id
+    AND allocated.sequence_no=expected.sequence_no
+  SET expected.gross_amount=allocated.gross_amount;
 
   -- Idempotency key boleh mengembalikan transaksi lama hanya bila payload inti
   -- identik. Perbedaan berarti konfigurasi/fakta berubah dan harus diperiksa.
@@ -366,6 +444,44 @@ BEGIN
   );
 
   SET inserted_transactions=ROW_COUNT();
+
+  INSERT INTO production_transaction_rate_details (
+    uid,production_transaction_id,job_rate_tier_id,min_quantity_snapshot,
+    quantity,rate_snapshot,amount,created_by,updated_by
+  )
+  SELECT UUID(),existing.id,allocation.tier_id,allocation.min_quantity,
+         allocation.allocated_quantity,allocation.rate_amount,
+         ROUND(allocation.allocated_quantity*allocation.rate_amount,2),
+         seed_user_id,seed_user_id
+  FROM tmp_production_one_day_expected expected
+  JOIN tmp_production_one_day_allocations allocation
+    ON allocation.employee_id=expected.employee_id
+   AND allocation.sequence_no=expected.sequence_no
+  JOIN production_transactions existing
+    ON existing.idempotency_key=expected.idempotency_key
+  WHERE NOT EXISTS (
+    SELECT 1 FROM production_transaction_rate_details detail
+    WHERE detail.production_transaction_id=existing.id
+      AND detail.min_quantity_snapshot=allocation.min_quantity
+  );
+
+  IF EXISTS (
+    SELECT 1 FROM tmp_production_one_day_expected expected
+    JOIN production_transactions existing
+      ON existing.idempotency_key=expected.idempotency_key
+    LEFT JOIN (
+      SELECT production_transaction_id,
+             SUM(quantity) total_quantity,SUM(amount) total_amount
+      FROM production_transaction_rate_details
+      GROUP BY production_transaction_id
+    ) detail ON detail.production_transaction_id=existing.id
+    WHERE detail.total_quantity IS NULL
+       OR detail.total_quantity<>expected.quantity
+       OR detail.total_amount<>expected.gross_amount
+  ) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT='Seed dibatalkan: rincian tingkat tarif tidak sesuai dengan setoran.';
+  END IF;
 
   COMMIT;
 
@@ -471,6 +587,8 @@ BEGIN
   WHERE candidate.employee_id IS NULL
   ORDER BY site.code,employee.full_name;
 
+  DROP TEMPORARY TABLE IF EXISTS tmp_production_one_day_allocations;
+  DROP TEMPORARY TABLE IF EXISTS tmp_production_one_day_totals;
   DROP TEMPORARY TABLE IF EXISTS tmp_production_one_day_expected;
   DROP TEMPORARY TABLE IF EXISTS tmp_production_one_day_sequences;
   DROP TEMPORARY TABLE IF EXISTS tmp_production_one_day_candidates;

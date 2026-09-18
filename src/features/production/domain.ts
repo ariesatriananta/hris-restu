@@ -57,6 +57,7 @@ export type ProductionRate = {
   effectiveFrom: string
   effectiveTo?: string | null
   rateAmount: string
+  tiers?: Array<{ minQuantity: string; rateAmount: string }>
   currency: 'IDR'
   status: ProductionRateStatus
   referenceNumber?: string | null
@@ -224,6 +225,7 @@ export type ProductionTerminalLookup = {
       uid: string
       amount: string
       currency: 'IDR'
+      tiered?: boolean
     }
   }>
   defaultJobUid: string
@@ -241,6 +243,12 @@ export type ProductionTransaction = {
   quantity: string
   rateSnapshot: string
   grossAmount: string
+  rateDetails?: Array<{
+    minQuantity: string
+    quantity: string
+    rateAmount: string
+    amount: string
+  }>
   employee: {
     uid: string
     employeeNumber: string
@@ -403,7 +411,7 @@ export type ProductionRateCorrectionPreview = {
   source: ProductionRate
   proposed: Pick<
     ProductionRate,
-    'rateAmount' | 'effectiveTo' | 'referenceNumber' | 'notes'
+    'rateAmount' | 'tiers' | 'effectiveTo' | 'referenceNumber' | 'notes'
   >
   impact?: { transactionCount?: number }
   canApply: boolean

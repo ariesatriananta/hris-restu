@@ -6,7 +6,7 @@
 >
 > Audiens: Admin Produksi, operator terminal, pengguna yang menangani koreksi, dan Super Admin
 >
-> Terakhir diverifikasi: 7 September 2026
+> Terakhir diverifikasi: 17 September 2026
 
 Panduan ini menjelaskan cara mencatat hasil kerja melalui Terminal Setoran, memantau transaksi, mencatat Setoran Susulan, serta menangani kesalahan tanpa menghilangkan histori.
 
@@ -107,7 +107,7 @@ Jika identitas yang tampil salah, klik **Ganti pekerja** dan scan label yang ben
 1. Periksa pilihan **Pekerjaan**. Pekerjaan utama akan dipilih terlebih dahulu.
 2. Jika hasil berasal dari pekerjaan tambahan yang sah, pilih pekerjaan tersebut.
 3. Isi **Jumlah** sesuai satuan yang tampil.
-4. Periksa **Tarif aktif**, **Satuan**, dan **Estimasi bruto**.
+4. Periksa **Tarif dasar aktif**, **Satuan**, dan **Estimasi bruto**. Untuk pekerjaan bertingkat, nilai pasti baru tampil setelah setoran tersimpan.
 5. Klik tombol pencatatan setoran.
 6. Tunggu pesan berhasil sebelum label berikutnya dipindai.
 
@@ -115,11 +115,13 @@ Satu karyawan boleh melakukan beberapa setoran pada hari yang sama. Setiap nampa
 
 ### 6.3 Cara membaca Estimasi bruto
 
-Estimasi bruto adalah perkiraan awal:
+Untuk pekerjaan bertarif tunggal, estimasi bruto adalah perkiraan awal:
 
 **Jumlah hasil × tarif aktif pada tanggal setoran**
 
 Contoh: 25 PCS dengan tarif Rp1.200 menghasilkan estimasi bruto Rp30.000.
+
+Untuk tarif bertingkat, sistem mengakumulasi PCS karyawan pada pekerjaan dan hari yang sama. Hanya PCS di atas ambang yang mendapat tarif lebih tinggi. Contoh Packing Jepara: total 600 PCS menghasilkan 500 × Rp121 ditambah 100 × Rp158, yaitu Rp76.300. Terminal tidak menampilkan estimasi tunggal sebelum disimpan agar pengguna tidak membaca nominal dasar sebagai nilai final.
 
 Angka ini belum merupakan gaji bersih. Potongan, penyesuaian, perhitungan, dan persetujuan gaji berada pada proses Payroll.
 
@@ -188,7 +190,7 @@ Klik tombol lihat pada baris atau kartu transaksi. Drawer detail menampilkan:
 - histori revisi;
 - keterangan jika transaksi terkunci oleh Payroll.
 
-Tarif yang terlihat pada detail adalah tarif yang dipakai saat transaksi dicatat. Tarif tersebut tidak ikut berubah ketika master tarif diperbarui kemudian.
+Detail transaksi menampilkan tarif dasar serta rincian PCS dan nominal pada setiap tingkat yang terpakai. Jika Setoran Susulan, koreksi, atau pembatalan mengubah akumulasi harian sebelum kunci Payroll, rincian dan bruto setoran lain pada hari yang sama dapat dihitung ulang. Setelah dikunci Payroll, nilainya tidak berubah.
 
 ## 8. Mencatat Setoran Susulan
 

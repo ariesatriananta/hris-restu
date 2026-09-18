@@ -492,7 +492,9 @@ function ProductionTerminal({
 
                 <div className='grid gap-2 rounded-lg border p-3 text-sm sm:grid-cols-3'>
                   <div>
-                    <p className='text-xs text-muted-foreground'>Tarif aktif</p>
+                    <p className='text-xs text-muted-foreground'>
+                      Tarif dasar aktif
+                    </p>
                     <p className='font-medium'>
                       {formatCurrency(selectedJob?.rate.amount ?? '0')}
                     </p>
@@ -507,9 +509,16 @@ function ProductionTerminal({
                     <p className='text-xs text-muted-foreground'>
                       Estimasi bruto
                     </p>
-                    <p className='font-semibold text-primary'>
-                      {formatCurrency(estimatedGross)}
-                    </p>
+                    {selectedJob?.rate.tiered ? (
+                      <p className='text-xs font-medium text-primary'>
+                        Tarif bertingkat; nilai pasti tampil setelah setoran
+                        disimpan.
+                      </p>
+                    ) : (
+                      <p className='font-semibold text-primary'>
+                        {formatCurrency(estimatedGross)}
+                      </p>
+                    )}
                   </div>
                 </div>
 

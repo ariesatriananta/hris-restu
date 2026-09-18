@@ -123,13 +123,21 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Pekerja borongan dibayar berdasarkan hasil produksi, bukan durasi kerja.
 - Satu karyawan dapat melakukan setoran produksi lebih dari satu kali dalam sehari.
 - Tarif pekerjaan berbeda per site dan memiliki periode berlaku.
+- Tarif PCS dapat mempunyai tingkat progresif berdasarkan akumulasi hasil
+  per karyawan, site, pekerjaan, dan tanggal bisnis. Hanya PCS di atas ambang
+  yang memakai tarif tingkat berikutnya; setoran sebelumnya tidak berubah
+  kuantitasnya. Setoran yang melintasi ambang menyimpan rincian per tingkat.
+- Setoran susulan, koreksi, dan void sebelum Payroll dikunci menghitung ulang
+  alokasi tingkat pada grup harian yang terdampak. Setelah masuk snapshot atau
+  kunci Payroll, nilai produksi dan alokasinya tidak boleh diubah.
 - Tarif Produksi baru selalu dibuat sebagai `DRAFT` dan baru dipakai setelah
   aktivasi eksplisit. Tarif aktif untuk site dan pekerjaan yang sama tidak boleh
   overlap; penggantian tarif menutup histori lama pada H-1.
 - Penugasan pekerjaan Produksi disimpan sebagai histori, tidak dihapus atau
   ditimpa. Satu pekerja maksimal memiliki satu pekerjaan utama efektif pada
   tanggal yang sama.
-- Transaksi produksi menyimpan snapshot tarif agar histori tidak berubah saat tarif diperbarui.
+- Transaksi produksi menyimpan tarif dasar, rincian tingkat yang dipakai, dan
+  bruto sebagai snapshot agar histori tidak berubah saat master diperbarui.
 - Koreksi transaksi Produksi bersifat append-only dan dapat diterapkan langsung
   oleh pengguna dengan permission `production.correct` atau `SUPER_ADMIN`, tanpa
   approval. Koreksi hanya mengganti pekerjaan dan kuantitas: transaksi sumber

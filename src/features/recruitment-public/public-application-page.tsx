@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   UserRound,
 } from 'lucide-react'
+import { SHOW_APP_LOGO } from '@/lib/app-branding'
 import { cn } from '@/lib/utils'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -373,11 +374,13 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
     <PublicShell>
       <header className='border-b bg-gradient-to-br from-primary/[0.08] via-background to-positive/[0.08] px-5 py-6 sm:px-8'>
         <div className='flex items-center gap-4'>
-          <img
-            src={config.company.logoUrl || '/brand/restu-logo.png'}
-            alt={`Logo ${config.company.name}`}
-            className='size-16 rounded-2xl bg-white object-contain p-1.5 shadow-sm ring-1 ring-black/5 sm:size-20'
-          />
+          {SHOW_APP_LOGO && (
+            <img
+              src={config.company.logoUrl || '/brand/restu-logo.png'}
+              alt={`Logo ${config.company.name}`}
+              className='size-16 rounded-2xl bg-white object-contain p-1.5 shadow-sm ring-1 ring-black/5 sm:size-20'
+            />
+          )}
           <div className='min-w-0'>
             <p className='text-xs font-semibold tracking-[0.12em] text-positive uppercase'>
               Rekrutmen Karyawan
@@ -633,12 +636,13 @@ export function PublicApplicationPage({ siteToken }: { siteToken: string }) {
               >
                 <select
                   id='educationLevel'
-                  className='flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+                  className='flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none'
                   value={values.educationLevel}
                   onChange={(event) =>
                     updateValue(
                       'educationLevel',
-                      event.target.value as RecruitmentFormValues['educationLevel']
+                      event.target
+                        .value as RecruitmentFormValues['educationLevel']
                     )
                   }
                   aria-invalid={!!errors.educationLevel}

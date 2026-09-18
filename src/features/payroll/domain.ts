@@ -455,6 +455,12 @@ export interface PayrollProductionSnapshot {
   quantity: string
   rate: string
   amount: string
+  rateDetails?: Array<{
+    minQuantity: string
+    quantity: string
+    rate: string
+    amount: string
+  }>
 }
 
 export interface PayrollTimeSnapshot {

@@ -1179,8 +1179,19 @@ function EmployeeResultSheet({
                         <p className='font-semibold'>{amount(item.amount)}</p>
                       </div>
                       <p className='mt-1 text-xs text-muted-foreground'>
-                        {item.quantity} {item.unitName} × {amount(item.rate)}
+                        {item.quantity} {item.unitName} · tarif dasar{' '}
+                        {amount(item.rate)}
                       </p>
+                      {!!item.rateDetails?.length && (
+                        <div className='mt-2 space-y-1 border-t pt-2 text-xs text-muted-foreground'>
+                          {item.rateDetails.map((tier) => (
+                            <p key={tier.minQuantity}>
+                              Mulai PCS {tier.minQuantity}: {tier.quantity} ×{' '}
+                              {amount(tier.rate)} = {amount(tier.amount)}
+                            </p>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))
                 ) : (

@@ -15,6 +15,7 @@ import {
   Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { SHOW_APP_LOGO } from '@/lib/app-branding'
 import { cn } from '@/lib/utils'
 import { type NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -562,7 +563,7 @@ export function Payslip({
       )}
     >
       <div className='flex items-start justify-between gap-4 border-b border-slate-400 pb-3'>
-        {bundle.document.company.logoUrl ? (
+        {SHOW_APP_LOGO && bundle.document.company.logoUrl ? (
           <img
             src={bundle.document.company.logoUrl}
             alt=''

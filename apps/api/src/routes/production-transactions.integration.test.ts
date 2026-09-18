@@ -383,6 +383,16 @@ describe('Production transactions API', () => {
   })
 
   it('mencatat setoran atomik dengan snapshot dan gate scan Masuk sukses', async () => {
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const statement = String(sql)
+      if (statement.includes('SELECT pt.id,pt.uid') && statement.includes('WHERE pt.id=?')) {
+        return [[transactionRow()]]
+      }
+      if (statement.includes('SELECT rate_amount rateAmount FROM production_job_rates')) {
+        return [[{ rateAmount: '1175.0000' }]]
+      }
+      return [[]]
+    })
     mocks.query
       .mockResolvedValueOnce([[deviceRow()]])
       .mockResolvedValueOnce([[
@@ -410,7 +420,6 @@ describe('Production transactions API', () => {
         { rateId: 16, rateUid: 'rate', rateAmount: '1175.0000', currency: 'IDR', unitId: 17, unitUid: 'unit', unitCode: 'PCS', unitName: 'Pcs', decimalPrecision: 0 },
       ]])
       .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[transactionRow()]])
     mocks.execute.mockImplementation(async (sql: unknown) =>
       String(sql).includes('INSERT INTO production_transactions')
         ? [{ affectedRows: 1, insertId: 21 }]
@@ -527,7 +536,9 @@ describe('Production transactions API', () => {
       .mockResolvedValueOnce([[managedTransactionRow()]])
       .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([[transactionRow()]])
+      .mockResolvedValueOnce([[]])
     const superAdmin = {
       ...auth({ permissions: [] }),
       roles: ['SUPER_ADMIN'],
@@ -539,6 +550,36 @@ describe('Production transactions API', () => {
       auth: superAdmin,
     })
     expect(allowed.status).toBe(200)
+  })
+
+  it('preview void menghitung dampak seluruh setoran harian yang bergeser tier', async () => {
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const statement=String(sql)
+      if (statement.includes('SELECT pt.*')) {
+        return [[managedTransactionRow({quantity:'400.0000',gross_amount:'48400.00'})]]
+      }
+      if (statement.includes('SELECT id,job_rate_id rateId,quantity')) {
+        return [[
+          {id:21,rateId:16,quantity:'400.0000',transactionAt:'2026-08-21 09:00:00.000000',grossAmount:'48400.00'},
+          {id:22,rateId:16,quantity:'200.0000',transactionAt:'2026-08-21 10:00:00.000000',grossAmount:'27900.00'},
+        ]]
+      }
+      if (statement.includes('FROM production_job_rate_tiers')) {
+        return [[
+          {id:1,minQuantity:'1.0000',rateAmount:'121.0000'},
+          {id:2,minQuantity:'501.0000',rateAmount:'158.0000'},
+        ]]
+      }
+      if (statement.includes('WHERE pt.id=?')) return [[transactionRow()]]
+      return [[]]
+    })
+    const response=await request(`/transactions/${transactionUid}/void-preview`,{
+      method:'POST',body:{},auth:auth({permissions:['production.correct']}),
+    })
+    expect(response.status).toBe(200)
+    expect((await response.json()) as object).toMatchObject({
+      impact:{grossAmount:'-52100.00'},
+    })
   })
 
   it('memblokir revisi ketika payroll_locked_at sudah terisi', async () => {
@@ -642,10 +683,14 @@ describe('Production transactions API', () => {
       if (statement.includes('SELECT j.id jobId')) {
         return [[{ jobId: 15, rateId: 16, unitId: 17 }]]
       }
+      if (statement.includes('SELECT rate_amount rateAmount FROM production_job_rates')) {
+        return [[{ rateAmount: '1175.0000' }]]
+      }
       if (statement.includes('MAX(revision_number)')) {
         return [[{ revisionNumber: 1 }]]
       }
       if (statement.includes('SELECT pt.id,pt.uid')) {
+        if (statement.includes('ORDER BY pt.transaction_at,pt.id FOR UPDATE')) return [[]]
         const transactionId = Number((mocks.query.mock.calls.at(-1)?.[1] as unknown[])[0])
         return [[transactionId === 22 ? replacement : voidedSource]]
       }
@@ -715,6 +760,7 @@ describe('Production transactions API', () => {
         },
       ]])
       .mockResolvedValueOnce([[{ ...transactionRow(), status: 'VOID' }]])
+      .mockResolvedValueOnce([[]])
 
     const response = await request(`/transactions/${transactionUid}/void`, {
       method: 'POST',

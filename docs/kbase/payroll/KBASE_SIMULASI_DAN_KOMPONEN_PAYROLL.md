@@ -77,6 +77,9 @@ Dasar Borongan berasal dari snapshot transaksi Produksi `POSTED`:
 Payroll memakai nilai bruto yang sudah tersimpan pada transaksi. Sistem tidak
 mengalikan ulang kuantitas dengan tarif master terbaru. Transaksi `VOID` tidak
 dihitung.
+Jika tarif Produksi bertingkat, detail hasil menampilkan alokasi PCS dan nominal
+per tingkat yang disalin saat perhitungan; tarif dasar bukan satu-satunya tarif
+yang membentuk bruto setoran tersebut.
 
 Karyawan yang sudah resign tetap masuk jika memiliki transaksi eligible dalam
 periode. Karyawan tanpa transaksi hanya dapat masuk jika memiliki komponen yang

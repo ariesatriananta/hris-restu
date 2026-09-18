@@ -6,7 +6,7 @@
 >
 > Audiens: pengelola master Produksi, HR terkait, dan Super Admin
 >
-> Terakhir diverifikasi: 7 September 2026
+> Terakhir diverifikasi: 17 September 2026
 
 Panduan ini membantu Anda menyiapkan dasar operasional Produksi Borongan. Setelah selesai, setiap pekerja memiliki pekerjaan yang sesuai dan setiap pekerjaan yang dipakai memiliki tarif aktif pada site serta tanggal yang benar.
 
@@ -190,7 +190,7 @@ Jika pekerjaan yang salah sudah dipakai transaksi, koreksi atau batalkan transak
 
 Buka **Produksi Borongan → Tarif per Site**.
 
-Tarif ditentukan berdasarkan tiga hal: site, pekerjaan, dan tanggal berlaku. Tarif pekerjaan yang sama dapat berbeda antara Jepara, Klaten, dan Semarang.
+Tarif ditentukan berdasarkan site, pekerjaan, dan tanggal berlaku. Tarif pekerjaan yang sama dapat berbeda antara Jepara, Klaten, dan Semarang. Untuk pekerjaan PCS, tarif dapat memiliki beberapa tingkat berdasarkan total hasil seorang karyawan pada pekerjaan dan hari yang sama.
 
 ### 8.1 Arti status tarif
 
@@ -205,13 +205,13 @@ Tarif ditentukan berdasarkan tiga hal: site, pekerjaan, dan tanggal berlaku. Tar
 1. Klik **Buat Draft Tarif**.
 2. Pilih **Site** dan **Pekerjaan**.
 3. Isi tanggal mulai dan tanggal selesai bila ada.
-4. Isi nominal tarif sesuai satuan pekerjaan.
+4. Isi tarif dasar sesuai satuan pekerjaan. Bila ada kenaikan setelah ambang hasil, tambah tingkat tarif dan isi jumlah PCS mulai berlaku beserta tarifnya.
 5. Isi nomor referensi dan catatan agar dasar penetapan tarif mudah ditemukan.
 6. Simpan sebagai Draft.
 7. Periksa kembali site, pekerjaan, satuan, periode, dan nominal.
 8. Klik **Aktifkan** jika semuanya benar.
 
-Tarif Draft belum memengaruhi transaksi. Jangan lupa mengaktifkannya sebelum tanggal operasional dimulai.
+Tarif Draft belum memengaruhi transaksi. Jangan lupa mengaktifkannya sebelum tanggal operasional dimulai. Tingkat pertama dimulai dari PCS 1; contoh tingkat berikutnya mulai PCS 501 berarti PCS 1–500 tetap memakai tarif dasar. Ambang dihitung terpisah untuk setiap karyawan, pekerjaan, site, dan tanggal bisnis.
 
 ### 8.3 Mengganti tarif aktif
 

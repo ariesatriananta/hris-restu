@@ -1025,6 +1025,16 @@ payrollPeriodsRouter.post(
         [current.id]
       )
 
+      await conn.execute(
+        `DELETE tier FROM payroll_production_rate_details tier
+          JOIN payroll_production_details production
+            ON production.id=tier.payroll_production_detail_id
+          JOIN payroll_employee_results result
+            ON result.id=production.payroll_employee_result_id
+         WHERE result.payroll_period_id=?`,
+        [current.id]
+      )
+
       const resultScopedTables = [
         'payroll_production_details',
         'payroll_training_production_details',

@@ -50,6 +50,10 @@ export const productionRateInput = z
     effectiveFrom: z.string().date(),
     effectiveTo: z.string().date().optional().nullable(),
     rateAmount: z.union([z.string(), z.number()]).transform(String),
+    tiers: z.array(z.object({
+      minQuantity: z.union([z.string(), z.number()]).transform(String),
+      rateAmount: z.union([z.string(), z.number()]).transform(String),
+    }).strict()).min(1).max(20).optional(),
     referenceNumber: nullableText(100),
     notes: nullableText(500),
   })
@@ -69,7 +73,30 @@ export const productionRateInput = z
         message: 'Tarif maksimal memiliki empat angka desimal.',
       })
     }
+    validateRateTiers(value.tiers, value.rateAmount, context)
   })
+
+function validateRateTiers(
+  tiers: { minQuantity: string; rateAmount: string }[] | undefined,
+  baseRate: string,
+  context: z.RefinementCtx
+) {
+  if (!tiers) return
+  let previous = 0
+  tiers.forEach((tier, index) => {
+    const minimum = Number(tier.minQuantity)
+    if (!/^\d+$/.test(tier.minQuantity) || !Number.isSafeInteger(minimum) || minimum < 1 || minimum <= previous || (index === 0 && minimum !== 1)) {
+      context.addIssue({ code: 'custom', path: ['tiers', index, 'minQuantity'], message: 'Batas PCS harus bilangan bulat, dimulai dari 1, dan meningkat.' })
+    }
+    if (!/^\d+(\.\d{1,4})?$/.test(tier.rateAmount)) {
+      context.addIssue({ code: 'custom', path: ['tiers', index, 'rateAmount'], message: 'Tarif maksimal memiliki empat angka desimal.' })
+    }
+    previous = minimum
+  })
+  if (tiers.length && Number(tiers[0].rateAmount) !== Number(baseRate)) {
+    context.addIssue({ code: 'custom', path: ['tiers', 0, 'rateAmount'], message: 'Tarif tingkat pertama harus sama dengan tarif dasar.' })
+  }
+}
 
 export const rateActivationInput = z
   .object({
@@ -129,11 +156,18 @@ export const productionRateExceptionInput = z.object({
 
 export const productionActiveRateCorrectionInput = productionRateExceptionInput.extend({
   rateAmount: z.union([z.string(), z.number()]).transform(String),
+  tiers: z.array(z.object({
+    minQuantity: z.union([z.string(), z.number()]).transform(String),
+    rateAmount: z.union([z.string(), z.number()]).transform(String),
+  }).strict()).min(1).max(20).optional(),
   effectiveTo: z.string().date().optional().nullable(),
   referenceNumber: nullableText(100),
   notes: nullableText(500),
-}).strict().refine((value) => /^\d+(\.\d{1,4})?$/.test(value.rateAmount), {
-  path: ['rateAmount'], message: 'Tarif maksimal memiliki empat angka desimal.',
+}).strict().superRefine((value, context) => {
+  if (!/^\d+(\.\d{1,4})?$/.test(value.rateAmount)) {
+    context.addIssue({ code: 'custom', path: ['rateAmount'], message: 'Tarif maksimal memiliki empat angka desimal.' })
+  }
+  validateRateTiers(value.tiers, value.rateAmount, context)
 })
 
 export function pageParams(page: unknown, pageSize: unknown) {

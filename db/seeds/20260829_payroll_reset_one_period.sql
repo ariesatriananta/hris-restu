@@ -189,6 +189,13 @@ BEGIN
   WHERE approval.payroll_period_id=target_period_id;
 
   -- Detail snapshot hasil Payroll.
+  DELETE tier
+  FROM payroll_production_rate_details tier
+  JOIN payroll_production_details detail
+    ON detail.id=tier.payroll_production_detail_id
+  JOIN tmp_payroll_reset_result_ids result
+    ON result.id=detail.payroll_employee_result_id;
+
   DELETE detail
   FROM payroll_production_details detail
   JOIN tmp_payroll_reset_result_ids result

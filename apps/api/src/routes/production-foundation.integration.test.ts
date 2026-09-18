@@ -103,7 +103,7 @@ describe('Production foundation API', () => {
     mocks.commit.mockResolvedValue(undefined)
     mocks.rollback.mockResolvedValue(undefined)
     mocks.release.mockReturnValue(undefined)
-    mocks.execute.mockResolvedValue([{ affectedRows: 1 }])
+    mocks.execute.mockResolvedValue([{ affectedRows: 1, insertId: 1 }])
   })
 
   it('menolak pembacaan tanpa production.view sebelum query database', async () => {
@@ -442,6 +442,10 @@ describe('Production foundation API', () => {
         unitUid: '22222222-2222-4222-8222-222222222222',
         effectiveFrom: '2026-08-01',
         rateAmount: '1200',
+        tiers: [
+          { minQuantity: '1', rateAmount: '1200' },
+          { minQuantity: '501', rateAmount: '1600' },
+        ],
       },
     })
 
@@ -450,7 +454,34 @@ describe('Production foundation API', () => {
       String(call[0]).includes('INSERT INTO production_job_rates')
     )
     expect(insertCall?.[1]).toContain('DRAFT')
+    const tierCalls = mocks.execute.mock.calls.filter((call) =>
+      String(call[0]).includes('INSERT INTO production_job_rate_tiers')
+    )
+    expect(tierCalls).toHaveLength(2)
+    expect(tierCalls[1]?.[1]).toEqual([expect.any(String), 1, '501', '1600.0000', expect.any(Number), expect.any(Number)])
     expect(mocks.commit).toHaveBeenCalledOnce()
+  })
+
+  it('menolak ambang tarif yang tidak berurutan sebelum mengubah database', async () => {
+    const response = await request('/rates', {
+      method: 'POST',
+      auth: auth({ permissions: ['production.manage_master'], sites: ['JEPARA'] }),
+      body: {
+        site: 'JEPARA',
+        jobUid: '11111111-1111-4111-8111-111111111111',
+        unitUid: '22222222-2222-4222-8222-222222222222',
+        effectiveFrom: '2026-08-01',
+        rateAmount: '1200',
+        tiers: [
+          { minQuantity: '1', rateAmount: '1200' },
+          { minQuantity: '501', rateAmount: '1600' },
+          { minQuantity: '500', rateAmount: '1700' },
+        ],
+      },
+    })
+    expect(response.status).toBe(422)
+    expect(mocks.query).not.toHaveBeenCalled()
+    expect(mocks.execute).not.toHaveBeenCalled()
   })
 
   it('penugasan terbuka wajib berada pada histori Borongan/Training yang juga terbuka', async () => {

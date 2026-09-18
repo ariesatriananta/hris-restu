@@ -1,4 +1,9 @@
-import { APP_LOGO_SRC, APP_NAME, COMPANY_NAME } from '@/lib/app-branding'
+import {
+  APP_LOGO_SRC,
+  APP_NAME,
+  COMPANY_NAME,
+  SHOW_APP_LOGO,
+} from '@/lib/app-branding'
 
 const LOGIN_HERO_BACKGROUND = '/brand/login-factory-workers.png'
 
@@ -19,11 +24,13 @@ export function AuthLayout({ children }: { children: React.ReactNode }) {
 
       <section className='relative hidden p-10 text-white lg:flex lg:flex-col lg:justify-between'>
         <div className='inline-flex w-fit items-center gap-3 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 shadow-2xl backdrop-blur-md'>
-          <img
-            src={APP_LOGO_SRC}
-            alt={`Logo ${APP_NAME}`}
-            className='size-10 rounded-xl bg-white object-contain p-1'
-          />
+          {SHOW_APP_LOGO && (
+            <img
+              src={APP_LOGO_SRC}
+              alt={`Logo ${APP_NAME}`}
+              className='size-10 rounded-xl bg-white object-contain p-1'
+            />
+          )}
           <div className='leading-tight'>
             <p className='text-sm font-bold'>{APP_NAME}</p>
             <p className='text-xs text-white/65'>Sistem HR Terintegrasi</p>

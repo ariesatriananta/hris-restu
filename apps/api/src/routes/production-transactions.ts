@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { Router } from 'express'
+import { Router, type Request } from 'express'
 import type { RowDataPacket } from 'mysql2'
 import type { Pool, PoolConnection } from 'mysql2/promise'
 import { z } from 'zod'
@@ -13,6 +13,7 @@ import {
 import { writeAudit } from '../lib/audit.js'
 import { businessDate } from '../lib/contract-lifecycle.js'
 import { ApiError } from '../lib/errors.js'
+import { priceProductionTiers, type ProductionRateTier } from '../lib/production-tier-pricing.js'
 import {
   calculateGrossAmount,
   normalizeQuantity,
@@ -252,6 +253,8 @@ async function availableJobs(
     `SELECT a.id assignmentId,a.is_primary isPrimary,
             j.id jobId,j.uid jobUid,j.code jobCode,j.name jobName,
             r.id rateId,r.uid rateUid,r.rate_amount rateAmount,r.currency,
+            (SELECT COUNT(*) FROM production_job_rate_tiers tier
+              WHERE tier.job_rate_id=r.id) tierCount,
             u.id unitId,u.uid unitUid,u.code unitCode,u.name unitName,
             u.decimal_precision decimalPrecision
        FROM employee_job_assignments a
@@ -326,6 +329,7 @@ async function availableJobs(
         uid: row.rateUid,
         amount: normalizeStoredDecimal(row.rateAmount),
         currency: row.currency,
+        tiered: Number(row.tierCount ?? 0)>1,
       },
     })
   }
@@ -378,6 +382,10 @@ async function historicalProposal(
     [input.jobUid,input.businessDate,input.businessDate,employee.id,site.id,input.businessDate,input.businessDate]
   )
   if (targets.length !== 1) throw new ApiError(422, 'Penugasan atau tarif historis tidak lagi tunggal.')
+  const priced = await proposedTierAmount(conn, {
+    employeeId: Number(employee.id), siteId: Number(site.id),
+    jobId: Number(targets[0].jobId), businessDate: input.businessDate,
+  }, Number(targets[0].rateId), quantity)
   return {
     employee, history, attendance, site,
     jobs, defaultJobUid,
@@ -386,7 +394,11 @@ async function historicalProposal(
       job: { uid: job.uid, code: job.code, name: job.name },
       unit, rate, quantity,
       rateSnapshot: rate.amount,
-      grossAmount: calculateGrossAmount(quantity, rate.amount),
+      grossAmount: priced.grossAmount,
+      rateDetails: priced.slices.map((slice) => ({
+        minQuantity: slice.minQuantitySnapshot, quantity: slice.quantity,
+        rateAmount: slice.rateSnapshot, amount: slice.amount,
+      })),
     },
   }
 }
@@ -419,6 +431,13 @@ async function transactionResponse(conn: PoolConnection | Pool, transactionId: n
   )
   const row = rows[0]
   if (!row) throw new ApiError(500, 'Transaksi Produksi tidak dapat dimuat.')
+  const [detailRows] = await conn.query<RowDataPacket[]>(
+    `SELECT min_quantity_snapshot minQuantity,quantity,
+            rate_snapshot rateAmount,amount
+       FROM production_transaction_rate_details
+      WHERE production_transaction_id=? ORDER BY id`,
+    [transactionId]
+  )
   return {
     uid: row.uid,
     transactionNumber: row.transactionNumber,
@@ -429,6 +448,12 @@ async function transactionResponse(conn: PoolConnection | Pool, transactionId: n
     quantity: normalizeStoredDecimal(row.quantity),
     rateSnapshot: normalizeStoredDecimal(row.rateSnapshot),
     grossAmount: normalizeStoredDecimal(row.grossAmount, 2),
+    rateDetails: detailRows.map((detail) => ({
+      minQuantity: normalizeStoredDecimal(detail.minQuantity),
+      quantity: normalizeStoredDecimal(detail.quantity),
+      rateAmount: normalizeStoredDecimal(detail.rateAmount),
+      amount: normalizeStoredDecimal(detail.amount, 2),
+    })),
     notes: row.notes ?? null,
     payrollLockedAt: row.payrollLockedAt ?? null,
     voidedAt: row.voidedAt ?? null,
@@ -499,6 +524,196 @@ async function managedTransaction(
 }
 
 type PayrollLock = { locked: boolean; reasons: string[] }
+
+type DailyProductionKey = {
+  employeeId: number
+  siteId: number
+  jobId: number
+  businessDate: string
+}
+
+async function rateTiers(conn: SqlExecutor, rateId: number): Promise<ProductionRateTier[]> {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT id, min_quantity minQuantity, rate_amount rateAmount
+       FROM production_job_rate_tiers WHERE job_rate_id=? ORDER BY min_quantity`,
+    [rateId]
+  )
+  if (rows.length) return rows.map((row) => ({
+    id: Number(row.id),
+    minQuantity: normalizeStoredDecimal(row.minQuantity),
+    rateAmount: normalizeStoredDecimal(row.rateAmount),
+  }))
+  const [rates] = await conn.query<RowDataPacket[]>(
+    'SELECT rate_amount rateAmount FROM production_job_rates WHERE id=?',
+    [rateId]
+  )
+  if (!rates[0]) throw new ApiError(422, 'Tarif pekerjaan tidak ditemukan.')
+  return [{ id: null, minQuantity: '1.0000', rateAmount: normalizeStoredDecimal(rates[0].rateAmount) }]
+}
+
+async function proposedTierAmount(
+  conn: SqlExecutor,
+  key: DailyProductionKey,
+  rateId: number,
+  quantity: string,
+  beforeOrAt?: string,
+  excludedTransactionId?: number
+) {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT COALESCE(SUM(quantity),0) precedingQuantity
+       FROM production_transactions
+      WHERE employee_id=? AND site_id=? AND production_job_id=?
+        AND business_date=? AND status='POSTED'
+        ${beforeOrAt ? 'AND transaction_at<=?' : ''}
+        ${excludedTransactionId ? 'AND id<>?' : ''}`,
+    [key.employeeId,key.siteId,key.jobId,key.businessDate,
+      ...(beforeOrAt ? [beforeOrAt] : []),
+      ...(excludedTransactionId ? [excludedTransactionId] : [])]
+  )
+  return priceProductionTiers(
+    normalizeStoredDecimal(rows[0]?.precedingQuantity),
+    quantity,
+    await rateTiers(conn, rateId)
+  )
+}
+
+type PreviewProductionEntry = {
+  id: number
+  rateId: number
+  quantity: string
+  transactionAt: string
+  grossAmount: string
+}
+
+function amountCents(value: unknown): bigint {
+  return BigInt(normalizeStoredDecimal(value,2).replace('.', ''))
+}
+
+function centsAmount(value: bigint): string {
+  const sign = value<0n ? '-' : ''
+  const absolute = value<0n ? -value : value
+  return `${sign}${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`
+}
+
+async function previewDailyRepricing(
+  conn: PoolConnection,
+  key: DailyProductionKey,
+  excludedTransactionId?: number,
+  replacement?: Omit<PreviewProductionEntry,'grossAmount'>
+) {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT id,job_rate_id rateId,quantity,
+            DATE_FORMAT(transaction_at,'%Y-%m-%d %H:%i:%s.%f') transactionAt,
+            gross_amount grossAmount
+       FROM production_transactions
+      WHERE employee_id=? AND site_id=? AND production_job_id=?
+        AND business_date=? AND status='POSTED'
+      ORDER BY transaction_at,id`,
+    [key.employeeId,key.siteId,key.jobId,key.businessDate]
+  )
+  const existing = rows.map((row) => ({
+    id:Number(row.id),rateId:Number(row.rateId),
+    quantity:normalizeStoredDecimal(row.quantity),
+    transactionAt:String(row.transactionAt),
+    grossAmount:normalizeStoredDecimal(row.grossAmount,2),
+  }))
+  const before = existing.reduce((sum,row)=>sum+amountCents(row.grossAmount),0n)
+  const proposed = existing.filter((row)=>row.id!==excludedTransactionId)
+  if (replacement) proposed.push({...replacement,grossAmount:'0.00'})
+  proposed.sort((a,b)=>a.transactionAt.localeCompare(b.transactionAt)||a.id-b.id)
+  let cumulative=0n
+  let after=0n
+  const cache=new Map<number,ProductionRateTier[]>()
+  for (const row of proposed) {
+    let tiers=cache.get(row.rateId)
+    if (!tiers) {
+      tiers=await rateTiers(conn,row.rateId)
+      cache.set(row.rateId,tiers)
+    }
+    const startingQuantity=`${cumulative/10000n}.${String(cumulative%10000n).padStart(4,'0')}`
+    const priced=priceProductionTiers(startingQuantity,row.quantity,tiers)
+    cumulative+=BigInt(row.quantity.replace('.',''))
+    after+=amountCents(priced.grossAmount)
+  }
+  return {before,after}
+}
+
+async function repriceProductionDay(conn: PoolConnection, key: DailyProductionKey, auth: AuthContext, request: Request) {
+  // The employee row serializes inserts even when the employee has no earlier deposits.
+  await conn.query('SELECT id FROM employees WHERE id=? FOR UPDATE', [key.employeeId])
+  const dateLock = await payrollDateLockContext(conn, key.siteId, key.businessDate, true)
+  if (dateLock.locked) throw new ApiError(409, dateLock.reasons[0])
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT pt.id,pt.uid,pt.job_rate_id rateId,pt.quantity,pt.rate_snapshot rateSnapshot,
+            pt.gross_amount grossAmount,pt.payroll_locked_at payrollLockedAt,
+            EXISTS(SELECT 1 FROM payroll_production_details pd
+                    WHERE pd.production_transaction_id=pt.id) payrollSnapshot,
+            EXISTS(SELECT 1 FROM payroll_training_production_details td
+                    WHERE td.production_transaction_id=pt.id) trainingSnapshot
+       FROM production_transactions pt
+      WHERE pt.employee_id=? AND pt.site_id=? AND pt.production_job_id=?
+        AND pt.business_date=? AND pt.status='POSTED'
+      ORDER BY pt.transaction_at,pt.id FOR UPDATE`,
+    [key.employeeId, key.siteId, key.jobId, key.businessDate]
+  )
+  if (rows.some((row) => row.payrollLockedAt || Number(row.payrollSnapshot) || Number(row.trainingSnapshot))) {
+    throw new ApiError(409, 'Setoran harian sudah masuk atau dikunci Payroll; tarif tidak boleh dihitung ulang.')
+  }
+  let cumulative = 0n
+  const tierCache = new Map<number, ProductionRateTier[]>()
+  for (const row of rows) {
+    const rateId = Number(row.rateId)
+    let tiers = tierCache.get(rateId)
+    if (!tiers) {
+      tiers = await rateTiers(conn, rateId)
+      tierCache.set(rateId, tiers)
+    }
+    const startingQuantity = `${cumulative / 10000n}.${String(cumulative % 10000n).padStart(4, '0')}`
+    const priced = priceProductionTiers(startingQuantity, normalizeStoredDecimal(row.quantity), tiers)
+    cumulative += BigInt(normalizeStoredDecimal(row.quantity).replace('.', ''))
+    const [oldDetails] = await conn.query<RowDataPacket[]>(
+      `SELECT job_rate_tier_id tierId,min_quantity_snapshot minQuantitySnapshot,
+              quantity,rate_snapshot rateSnapshot,amount
+         FROM production_transaction_rate_details
+        WHERE production_transaction_id=? ORDER BY id`,
+      [row.id]
+    )
+    const desired = JSON.stringify(priced.slices.map((slice) => [slice.tierId,slice.minQuantitySnapshot,slice.quantity,slice.rateSnapshot,slice.amount]))
+    const previous = JSON.stringify(oldDetails.map((detail) => [
+      detail.tierId === null ? null : Number(detail.tierId),
+      normalizeStoredDecimal(detail.minQuantitySnapshot),
+      normalizeStoredDecimal(detail.quantity),
+      normalizeStoredDecimal(detail.rateSnapshot),
+      normalizeStoredDecimal(detail.amount,2),
+    ]))
+    if (desired !== previous) {
+      await conn.execute('DELETE FROM production_transaction_rate_details WHERE production_transaction_id=?', [row.id])
+      for (const slice of priced.slices) {
+        await conn.execute(
+          `INSERT INTO production_transaction_rate_details
+             (uid,production_transaction_id,job_rate_tier_id,min_quantity_snapshot,
+              quantity,rate_snapshot,amount,created_by,updated_by)
+           VALUES(?,?,?,?,?,?,?,?,?)`,
+          [randomUUID(),row.id,slice.tierId,slice.minQuantitySnapshot,
+            slice.quantity,slice.rateSnapshot,slice.amount,auth.id,auth.id]
+        )
+      }
+    }
+    if (normalizeStoredDecimal(row.grossAmount,2) !== priced.grossAmount) {
+      await conn.execute(
+        'UPDATE production_transactions SET gross_amount=?,updated_by=? WHERE id=?',
+        [priced.grossAmount,auth.id,row.id]
+      )
+      await writeAudit({
+        auth, request, module: 'PRODUCTION', siteId: key.siteId, action: 'UPDATE',
+        table: 'production_transactions', recordId: Number(row.id), recordUid: String(row.uid),
+        description: 'Menghitung ulang tarif progresif setoran harian.',
+        beforeData: { grossAmount: normalizeStoredDecimal(row.grossAmount,2) },
+        afterData: { grossAmount: priced.grossAmount, rateDetails: priced.slices },
+      }, conn)
+    }
+  }
+}
 
 async function payrollDateLockContext(
   conn: SqlExecutor,
@@ -589,6 +804,10 @@ async function correctionProposal(
       throw new ApiError(422, 'Koreksi tidak memiliki perubahan pekerjaan atau kuantitas.')
     }
     const rateSnapshot = normalizeStoredDecimal(transaction.rate_snapshot)
+    const priced = await proposedTierAmount(conn, {
+      employeeId: Number(transaction.employee_id), siteId: Number(transaction.site_id),
+      jobId: Number(transaction.production_job_id), businessDate: String(transaction.businessDateKey),
+    }, Number(transaction.job_rate_id), quantity, String(transaction.transactionTimestamp), Number(transaction.id))
     return {
       jobs: [sourceJobOption(transaction)],
       targetIds: {
@@ -615,7 +834,11 @@ async function correctionProposal(
         },
         quantity,
         rateSnapshot,
-        grossAmount: calculateGrossAmount(quantity, rateSnapshot),
+        grossAmount: priced.grossAmount,
+        rateDetails: priced.slices.map((slice) => ({
+          minQuantity: slice.minQuantitySnapshot, quantity: slice.quantity,
+          rateAmount: slice.rateSnapshot, amount: slice.amount,
+        })),
       },
     }
   }
@@ -641,7 +864,6 @@ async function correctionProposal(
   }
   const rate = job.rate as { uid: string; amount: string; currency: string }
   const quantity = normalizeQuantity(inputQuantity, unit.decimalPrecision)
-  const grossAmount = calculateGrossAmount(quantity, rate.amount)
   const [targets] = await conn.query<RowDataPacket[]>(
     `SELECT j.id jobId,r.id rateId,u.id unitId
        FROM employee_job_assignments a
@@ -669,6 +891,10 @@ async function correctionProposal(
   if (targets.length !== 1) {
     throw new ApiError(422, 'Pekerjaan atau tarif koreksi tidak lagi tunggal.')
   }
+  const priced = await proposedTierAmount(conn, {
+    employeeId: Number(transaction.employee_id), siteId: Number(transaction.site_id),
+    jobId: Number(targets[0].jobId), businessDate: String(transaction.businessDateKey),
+  }, Number(targets[0].rateId), quantity, String(transaction.transactionTimestamp), Number(transaction.id))
   return {
     jobs,
     targetIds: {
@@ -682,7 +908,11 @@ async function correctionProposal(
       rate,
       quantity,
       rateSnapshot: rate.amount,
-      grossAmount,
+      grossAmount: priced.grossAmount,
+      rateDetails: priced.slices.map((slice) => ({
+        minQuantity: slice.minQuantitySnapshot, quantity: slice.quantity,
+        rateAmount: slice.rateSnapshot, amount: slice.amount,
+      })),
     },
   }
 }
@@ -1221,6 +1451,11 @@ productionTransactionsRouter.post(
       const transactionId = Number(
         (insertResult as { insertId?: number }).insertId ?? 0
       )
+      await repriceProductionDay(conn, {
+        employeeId: Number(employee.id), siteId: Number(device.siteId),
+        jobId: Number(assignment.jobId), businessDate: String(time.businessDate),
+      }, auth, req)
+      const pricedTransaction = await transactionResponse(conn, transactionId)
       await writeAudit(
         {
           auth,
@@ -1239,7 +1474,7 @@ productionTransactionsRouter.post(
             businessDate: time.businessDate,
             quantity,
             rateSnapshot,
-            grossAmount,
+            grossAmount: pricedTransaction.grossAmount,
           },
         },
         conn
@@ -1350,7 +1585,12 @@ productionTransactionsRouter.post(
          proposal.proposed.grossAmount,input.idempotencyKey,`Setoran susulan: ${input.reason}`,auth.id,auth.id]
       )
       const transactionId = Number((insertResult as { insertId?: number }).insertId ?? 0)
-      await writeAudit({ auth,request:req,module:'PRODUCTION',siteId:Number(proposal.site.id),action:'CREATE',table:'production_transactions',recordId:transactionId,recordUid:uid,description:`Mencatat setoran susulan ${transactionNumber}.`,reason:input.reason,afterData:{...input,quantity:proposal.proposed.quantity,rateSnapshot:proposal.proposed.rateSnapshot,grossAmount:proposal.proposed.grossAmount} },conn)
+      await repriceProductionDay(conn, {
+        employeeId: Number(proposal.employee.id), siteId: Number(proposal.site.id),
+        jobId: proposal.targetIds.jobId, businessDate: input.businessDate,
+      }, auth, req)
+      const pricedTransaction = await transactionResponse(conn, transactionId)
+      await writeAudit({ auth,request:req,module:'PRODUCTION',siteId:Number(proposal.site.id),action:'CREATE',table:'production_transactions',recordId:transactionId,recordUid:uid,description:`Mencatat setoran susulan ${transactionNumber}.`,reason:input.reason,afterData:{...input,quantity:proposal.proposed.quantity,rateSnapshot:proposal.proposed.rateSnapshot,grossAmount:pricedTransaction.grossAmount} },conn)
       await conn.commit()
       res.status(201).json({ duplicate:false,message:'Setoran susulan berhasil dicatat.',transaction:await transactionResponse(conn,transactionId) })
     } catch (error) { await conn.rollback(); next(error) } finally { conn.release() }
@@ -1402,7 +1642,7 @@ productionTransactionsRouter.post(
       const payrollLock = await payrollLockContext(conn, source, false)
       assertPostedAndUnlocked(source, payrollLock)
       const target = await correctionTarget(conn, source, input.employeeUid, false)
-      const { proposed } = await correctionProposal(
+      const { proposed, targetIds } = await correctionProposal(
         conn,
         target.transaction,
         input.jobUid,
@@ -1410,6 +1650,27 @@ productionTransactionsRouter.post(
         false,
         target.employeeChanged
       )
+      const sourceKey = {
+        employeeId:Number(source.employee_id),siteId:Number(source.site_id),
+        jobId:Number(source.production_job_id),businessDate:String(source.businessDateKey),
+      }
+      const targetKey = {
+        employeeId:Number(target.transaction.employee_id),siteId:Number(source.site_id),
+        jobId:targetIds.jobId,businessDate:String(source.businessDateKey),
+      }
+      const replacement = {
+        id:Number.MAX_SAFE_INTEGER,rateId:targetIds.rateId,
+        quantity:proposed.quantity,transactionAt:String(source.transactionTimestamp),
+      }
+      const sameGroup = sourceKey.employeeId===targetKey.employeeId
+        && sourceKey.jobId===targetKey.jobId
+      const sourceImpact = await previewDailyRepricing(
+        conn,sourceKey,Number(source.id),sameGroup ? replacement : undefined
+      )
+      const targetImpact = sameGroup ? null
+        : await previewDailyRepricing(conn,targetKey,undefined,replacement)
+      const grossDelta=sourceImpact.after-sourceImpact.before
+        +(targetImpact ? targetImpact.after-targetImpact.before : 0n)
       res.json({
         source: await transactionResponse(conn, Number(source.id)),
         targetEmployee: {
@@ -1424,11 +1685,7 @@ productionTransactionsRouter.post(
             normalizeStoredDecimal(source.quantity),
             4
           ),
-          grossAmount: subtractDecimal(
-            proposed.grossAmount,
-            normalizeStoredDecimal(source.gross_amount, 2),
-            2
-          ),
+          grossAmount: centsAmount(grossDelta),
         },
         payrollLock,
         canApply: true,
@@ -1456,11 +1713,15 @@ productionTransactionsRouter.post(
       const source = await managedTransaction(conn, uid, auth)
       const payrollLock = await payrollLockContext(conn, source, false)
       assertPostedAndUnlocked(source, payrollLock)
+      const impact = await previewDailyRepricing(conn,{
+        employeeId:Number(source.employee_id),siteId:Number(source.site_id),
+        jobId:Number(source.production_job_id),businessDate:String(source.businessDateKey),
+      },Number(source.id))
       res.json({
         source: await transactionResponse(conn, Number(source.id)),
         impact: {
           quantity: `-${normalizeStoredDecimal(source.quantity)}`,
-          grossAmount: `-${normalizeStoredDecimal(source.gross_amount, 2)}`,
+          grossAmount: centsAmount(impact.after-impact.before),
         },
         payrollLock,
         canApply: true,
@@ -1622,6 +1883,24 @@ productionTransactionsRouter.post(
       if (Number((updateResult as { affectedRows?: number }).affectedRows) !== 1) {
         throw new ApiError(409, 'Status transaksi berubah saat koreksi diproses.')
       }
+      const sourceKey = {
+        employeeId: Number(source.employee_id), siteId: Number(source.site_id),
+        jobId: Number(source.production_job_id), businessDate: String(source.businessDateKey),
+      }
+      const targetKey = {
+        employeeId: Number(target.transaction.employee_id), siteId: Number(source.site_id),
+        jobId: targetIds.jobId, businessDate: String(source.businessDateKey),
+      }
+      await repriceProductionDay(conn, sourceKey, auth, req)
+      if (sourceKey.employeeId !== targetKey.employeeId || sourceKey.jobId !== targetKey.jobId) {
+        await repriceProductionDay(conn, targetKey, auth, req)
+      }
+      const pricedReplacement = await transactionResponse(conn, replacementId)
+      after.grossAmount = pricedReplacement.grossAmount
+      await conn.execute(
+        'UPDATE production_transaction_revisions SET after_data=? WHERE uid=?',
+        [JSON.stringify(after),revisionUid]
+      )
       await writeAudit(
         {
           auth,
@@ -1742,6 +2021,10 @@ productionTransactionsRouter.post(
       if (Number((updateResult as { affectedRows?: number }).affectedRows) !== 1) {
         throw new ApiError(409, 'Status transaksi berubah saat void diproses.')
       }
+      await repriceProductionDay(conn, {
+        employeeId: Number(source.employee_id), siteId: Number(source.site_id),
+        jobId: Number(source.production_job_id), businessDate: String(source.businessDateKey),
+      }, auth, req)
       await writeAudit(
         {
           auth,

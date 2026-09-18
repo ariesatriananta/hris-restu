@@ -61,6 +61,34 @@ function normalizeRate(value: string) {
   return amount.toFixed(4)
 }
 
+type RateTier = { minQuantity: string; rateAmount: string }
+
+function normalizedTiers(tiers: RateTier[] | undefined, baseRate: string): RateTier[] {
+  return (tiers ?? [{ minQuantity: '1', rateAmount: baseRate }]).map((tier) => ({
+    minQuantity: tier.minQuantity,
+    rateAmount: normalizeRate(tier.rateAmount),
+  }))
+}
+
+async function loadRateTiers(connection: PoolConnection, rateId: number): Promise<RateTier[]> {
+  const [rows] = await connection.query<RowDataPacket[]>(
+    `SELECT CAST(min_quantity AS CHAR) minQuantity,CAST(rate_amount AS CHAR) rateAmount
+       FROM production_job_rate_tiers WHERE job_rate_id=? ORDER BY min_quantity`,
+    [rateId]
+  )
+  return rows.map((row) => ({ minQuantity: String(row.minQuantity), rateAmount: String(row.rateAmount) }))
+}
+
+async function replaceRateTiers(connection: PoolConnection, rateId: number, tiers: RateTier[], userId: number) {
+  await connection.execute('DELETE FROM production_job_rate_tiers WHERE job_rate_id=?', [rateId])
+  for (const tier of tiers) {
+    await connection.execute(
+      'INSERT INTO production_job_rate_tiers(uid,job_rate_id,min_quantity,rate_amount,created_by,updated_by) VALUES(?,?,?,?,?,?)',
+      [randomUUID(), rateId, tier.minQuantity, tier.rateAmount, userId, userId]
+    )
+  }
+}
+
 async function resolveJobReferences(
   executor: Awaited<ReturnType<typeof pool.getConnection>>,
   input: { defaultUnitUid: string; positionUid?: string | null }
@@ -224,7 +252,7 @@ async function activeRateContext(connection: PoolConnection, uid: string, lock: 
       'Tarif sudah digunakan transaksi Produksi. Nilai snapshot tidak boleh direprice; gunakan adjustment Payroll.'
     )
   }
-  return rate
+  return Object.assign(rate, { tiers: await loadRateTiers(connection, Number(rate.id)) })
 }
 
 export const productionFoundationRouter = Router()
@@ -632,7 +660,7 @@ productionFoundationRouter.get(
         values
       )
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT r.uid,s.code site,j.uid jobUid,j.code jobCode,j.name jobName,
+        `SELECT r.id rateId,r.uid,s.code site,j.uid jobUid,j.code jobCode,j.name jobName,
                 u.uid unitUid,u.code unitCode,u.name unitName,
                 DATE_FORMAT(r.effective_from,'%Y-%m-%d') effectiveFrom,
                 DATE_FORMAT(r.effective_to,'%Y-%m-%d') effectiveTo,
@@ -642,7 +670,31 @@ productionFoundationRouter.get(
           ORDER BY r.created_at DESC,r.id DESC LIMIT ? OFFSET ?`,
         [...values, pageSize, (page - 1) * pageSize]
       )
-      res.json({ items: rows, total: Number(count[0]?.total ?? 0), page, pageSize })
+      const rateIds = rows.map((row) => Number(row.rateId))
+      const tierMap = new Map<number, RateTier[]>()
+      if (rateIds.length) {
+        const [tierRows] = await pool.query<RowDataPacket[]>(
+          `SELECT job_rate_id rateId,CAST(min_quantity AS CHAR) minQuantity,
+                  CAST(rate_amount AS CHAR) rateAmount
+             FROM production_job_rate_tiers
+            WHERE job_rate_id IN (${rateIds.map(() => '?').join(',')})
+            ORDER BY job_rate_id,min_quantity`,
+          rateIds
+        )
+        for (const tier of tierRows) {
+          const id = Number(tier.rateId)
+          const current = tierMap.get(id) ?? []
+          current.push({ minQuantity: String(tier.minQuantity), rateAmount: String(tier.rateAmount) })
+          tierMap.set(id, current)
+        }
+      }
+      res.json({
+        items: rows.map(({ rateId, ...row }) => ({
+          ...row,
+          tiers: tierMap.get(Number(rateId)) ?? normalizedTiers(undefined, String(row.rateAmount)),
+        })),
+        total: Number(count[0]?.total ?? 0), page, pageSize,
+      })
     } catch (error) {
       next(error)
     }
@@ -674,7 +726,7 @@ productionFoundationRouter.post(
       }
       const uid = randomUUID()
       const rateAmount = normalizeRate(input.rateAmount)
-      await connection.execute(
+      const [created] = await connection.execute<import('mysql2').ResultSetHeader>(
         `INSERT INTO production_job_rates(
            uid,site_id,production_job_id,unit_id,effective_from,effective_to,
            rate_amount,currency,status,reference_number,notes,created_by,updated_by
@@ -695,6 +747,8 @@ productionFoundationRouter.post(
           auth.id,
         ]
       )
+      const tiers = normalizedTiers(input.tiers, rateAmount)
+      await replaceRateTiers(connection, created.insertId, tiers, auth.id)
       await writeAudit(
         {
           auth,
@@ -705,7 +759,7 @@ productionFoundationRouter.post(
           table: 'production_job_rates',
           recordUid: uid,
           description: 'Membuat draft tarif Produksi.',
-          afterData: { ...input, rateAmount, status: 'DRAFT' },
+          afterData: { ...input, rateAmount, tiers, status: 'DRAFT' },
         },
         connection
       )
@@ -763,6 +817,7 @@ productionFoundationRouter.patch(
         throw new ApiError(422, 'Satuan tarif harus sama dengan satuan pekerjaan.')
       }
       const rateAmount = normalizeRate(input.rateAmount)
+      const before = { ...current, tiers: await loadRateTiers(connection, Number(current.id)) }
       await connection.execute(
         `UPDATE production_job_rates
             SET production_job_id=?,unit_id=?,effective_from=?,effective_to=?,
@@ -780,6 +835,8 @@ productionFoundationRouter.patch(
           current.id,
         ]
       )
+      const tiers = normalizedTiers(input.tiers, rateAmount)
+      await replaceRateTiers(connection, Number(current.id), tiers, auth.id)
       await writeAudit(
         {
           auth,
@@ -791,8 +848,8 @@ productionFoundationRouter.patch(
           recordId: Number(current.id),
           recordUid: uid,
           description: 'Memperbarui draft tarif Produksi.',
-          beforeData: current,
-          afterData: { ...input, rateAmount, status: 'DRAFT' },
+          beforeData: before,
+          afterData: { ...input, rateAmount, tiers, status: 'DRAFT' },
         },
         connection
       )
@@ -835,6 +892,10 @@ productionFoundationRouter.post(
       }
       if (Number(draft.rateAmount) <= 0) {
         throw new ApiError(422, 'Tarif Aktif harus lebih besar dari nol.')
+      }
+      const draftTiers = await loadRateTiers(connection, Number(draft.id))
+      if (draftTiers.length === 0 || draftTiers.some((tier) => Number(tier.rateAmount) <= 0)) {
+        throw new ApiError(422, 'Semua tingkat tarif Aktif harus lebih besar dari nol.')
       }
       const [overlaps] = await connection.query<RowDataPacket[]>(
         `SELECT id,uid,DATE_FORMAT(effective_from,'%Y-%m-%d') effectiveFrom,
@@ -905,6 +966,7 @@ productionFoundationRouter.post(
           beforeData: { status: 'DRAFT' },
           afterData: {
             status: 'ACTIVE',
+            tiers: draftTiers,
             replacedRateUid: input.replaceActiveRateUid ?? null,
           },
         },
@@ -1039,6 +1101,9 @@ productionFoundationRouter.post(
         source: rate,
         proposed: {
           rateAmount: normalizeRate(input.rateAmount),
+          tiers: input.tiers
+            ? normalizedTiers(input.tiers, input.rateAmount)
+            : [{ minQuantity: '1', rateAmount: normalizeRate(input.rateAmount) }, ...rate.tiers.slice(1)],
           effectiveTo: input.effectiveTo ?? null,
           referenceNumber: input.referenceNumber ?? null,
           notes: input.notes ?? null,
@@ -1064,6 +1129,7 @@ productionFoundationRouter.post(
       const rateUid = routeParam(req.params.uid)
       const after = {
         rateAmount: normalizeRate(input.rateAmount),
+        ...(input.tiers ? { tiers: normalizedTiers(input.tiers, input.rateAmount) } : {}),
         effectiveTo: input.effectiveTo ?? null,
         referenceNumber: input.referenceNumber ?? null,
         notes: input.notes ?? null,
@@ -1137,6 +1203,11 @@ productionFoundationRouter.post(
           rate.id,
         ]
       )
+      const resultingTiers = after.tiers ?? [
+        { minQuantity: '1', rateAmount: after.rateAmount },
+        ...rate.tiers.slice(1),
+      ]
+      await replaceRateTiers(connection, Number(rate.id), resultingTiers, auth.id)
       const revisionUid = randomUUID()
       await connection.execute(
         `INSERT INTO production_job_rate_revisions(
@@ -1166,7 +1237,7 @@ productionFoundationRouter.post(
           description: 'Mengoreksi tarif aktif yang belum digunakan.',
           reason: input.reason,
           beforeData: rate,
-          afterData: after,
+          afterData: { ...after, tiers: resultingTiers },
         },
         connection
       )

@@ -112,6 +112,11 @@ BEGIN
 
   START TRANSACTION;
 
+  DELETE detail
+  FROM production_transaction_rate_details detail
+  JOIN tmp_production_reset_transaction_ids target
+    ON target.id=detail.production_transaction_id;
+
   DELETE pt
   FROM production_transactions pt
   JOIN tmp_production_reset_transaction_ids target ON target.id=pt.id;

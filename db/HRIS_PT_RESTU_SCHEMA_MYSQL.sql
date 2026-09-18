@@ -1709,6 +1709,24 @@ CREATE TABLE production_job_rates (
   CONSTRAINT fk_production_job_rates_unit FOREIGN KEY (unit_id) REFERENCES work_units (id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE production_job_rate_tiers (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  job_rate_id BIGINT UNSIGNED NOT NULL,
+  min_quantity DECIMAL(18,4) NOT NULL,
+  rate_amount DECIMAL(18,4) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_production_job_rate_tiers_uid (uid),
+  UNIQUE KEY uq_production_job_rate_tiers_start (job_rate_id,min_quantity),
+  CONSTRAINT chk_production_job_rate_tiers_min CHECK (min_quantity >= 1),
+  CONSTRAINT chk_production_job_rate_tiers_amount CHECK (rate_amount >= 0),
+  CONSTRAINT fk_production_job_rate_tiers_rate FOREIGN KEY (job_rate_id) REFERENCES production_job_rates(id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE employee_job_assignments (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   uid CHAR(36) NOT NULL,
@@ -1786,6 +1804,30 @@ CREATE TABLE production_transactions (
   CONSTRAINT fk_production_rate FOREIGN KEY (job_rate_id) REFERENCES production_job_rates (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_production_attendance FOREIGN KEY (attendance_record_id) REFERENCES attendance_records (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_production_device FOREIGN KEY (scan_device_id) REFERENCES scan_devices (id) ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE production_transaction_rate_details (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  production_transaction_id BIGINT UNSIGNED NOT NULL,
+  job_rate_tier_id BIGINT UNSIGNED NULL,
+  min_quantity_snapshot DECIMAL(18,4) NOT NULL,
+  quantity DECIMAL(18,4) NOT NULL,
+  rate_snapshot DECIMAL(18,4) NOT NULL,
+  amount DECIMAL(18,2) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_production_transaction_rate_details_uid (uid),
+  UNIQUE KEY uq_production_transaction_rate_details_tier (production_transaction_id,min_quantity_snapshot),
+  KEY idx_production_transaction_rate_details_tier (job_rate_tier_id),
+  CONSTRAINT chk_production_transaction_rate_details_min CHECK (min_quantity_snapshot >= 1),
+  CONSTRAINT chk_production_transaction_rate_details_quantity CHECK (quantity > 0),
+  CONSTRAINT chk_production_transaction_rate_details_amount CHECK (rate_snapshot >= 0 AND amount >= 0),
+  CONSTRAINT fk_production_transaction_rate_details_transaction FOREIGN KEY (production_transaction_id) REFERENCES production_transactions(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_production_transaction_rate_details_tier FOREIGN KEY (job_rate_tier_id) REFERENCES production_job_rate_tiers(id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE production_transaction_revisions (
@@ -2209,6 +2251,25 @@ CREATE TABLE payroll_production_details (
   CONSTRAINT fk_payroll_production_result FOREIGN KEY (payroll_employee_result_id) REFERENCES payroll_employee_results (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_payroll_production_transaction FOREIGN KEY (production_transaction_id) REFERENCES production_transactions (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_payroll_production_job FOREIGN KEY (production_job_id) REFERENCES production_jobs (id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE payroll_production_rate_details (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  payroll_production_detail_id BIGINT UNSIGNED NOT NULL,
+  min_quantity_snapshot DECIMAL(18,4) NOT NULL,
+  quantity_snapshot DECIMAL(18,4) NOT NULL,
+  rate_snapshot DECIMAL(18,4) NOT NULL,
+  amount_snapshot DECIMAL(18,2) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_payroll_production_rate_details_uid (uid),
+  UNIQUE KEY uq_payroll_production_rate_details_tier (payroll_production_detail_id,min_quantity_snapshot),
+  CONSTRAINT chk_payroll_production_rate_details_values CHECK (min_quantity_snapshot>=1 AND quantity_snapshot>0 AND rate_snapshot>=0 AND amount_snapshot>=0),
+  CONSTRAINT fk_payroll_production_rate_details_parent FOREIGN KEY (payroll_production_detail_id) REFERENCES payroll_production_details(id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE payroll_time_details (

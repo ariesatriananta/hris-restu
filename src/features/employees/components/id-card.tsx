@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { Download, Printer } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { toast } from 'sonner'
-import { APP_LOGO_SRC, APP_NAME } from '@/lib/app-branding'
+import { APP_LOGO_SRC, APP_NAME, SHOW_APP_LOGO } from '@/lib/app-branding'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { Employee, EmployeeIdCardItem } from '../domain'
@@ -46,16 +46,18 @@ export function EmployeeIdCardFace({
       {training ? <TrainingDecoration /> : <EmployeeDecoration />}
       <div className='relative z-10 flex h-full flex-col items-center px-3 pt-3 pb-2 text-center'>
         <div className='flex w-full items-start justify-between gap-2'>
-          <div className='flex size-9 items-center justify-center rounded-full border border-white/70 bg-white p-1 shadow-sm'>
-            <img
-              src={APP_LOGO_SRC}
-              alt={`Logo ${APP_NAME}`}
-              className='size-full object-contain'
-            />
-          </div>
+          {SHOW_APP_LOGO && (
+            <div className='flex size-9 items-center justify-center rounded-full border border-white/70 bg-white p-1 shadow-sm'>
+              <img
+                src={APP_LOGO_SRC}
+                alt={`Logo ${APP_NAME}`}
+                className='size-full object-contain'
+              />
+            </div>
+          )}
           <div
             className={cn(
-              'rounded-full border px-2 py-0.5 text-[8px] font-bold tracking-[0.12em] uppercase',
+              'ml-auto rounded-full border px-2 py-0.5 text-[8px] font-bold tracking-[0.12em] uppercase',
               training
                 ? 'border-primary/20 bg-primary/5 text-primary'
                 : 'border-white/40 bg-white/15 text-white'
@@ -191,7 +193,7 @@ function IdCardActions({ employee }: { employee: IdCardEmployee }) {
     try {
       const qrSource = qrContainerRef.current?.querySelector('svg')
       if (!qrSource) throw new Error('QR belum siap.')
-      const logo = await imageToDataUrl(APP_LOGO_SRC)
+      const logo = SHOW_APP_LOGO ? await imageToDataUrl(APP_LOGO_SRC) : ''
       const photoUrl = employeePhotoUrl(employee)
       const photo = photoUrl
         ? await imageToDataUrl(photoUrl).catch(() => '')
@@ -221,8 +223,7 @@ function IdCardActions({ employee }: { employee: IdCardEmployee }) {
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="540" height="856" viewBox="0 0 540 856">
         <defs><clipPath id="photoClip"><circle cx="270" cy="210" r="95"/></clipPath></defs>
         ${decoration}
-        <rect x="28" y="28" width="76" height="76" rx="38" fill="#ffffff" stroke="#dbe3ef"/>
-        <image href="${logo}" x="38" y="38" width="56" height="56" preserveAspectRatio="xMidYMid meet"/>
+        ${SHOW_APP_LOGO ? `<rect x="28" y="28" width="76" height="76" rx="38" fill="#ffffff" stroke="#dbe3ef"/><image href="${logo}" x="38" y="38" width="56" height="56" preserveAspectRatio="xMidYMid meet"/>` : ''}
         <text x="500" y="76" text-anchor="end" font-family="Arial" font-size="18" font-weight="700" letter-spacing="3" fill="${training ? '#0E2459' : '#ffffff'}">${training ? 'TRAINING' : 'KARYAWAN'}</text>
         ${training ? '<text x="270" y="180" text-anchor="middle" font-family="Arial" font-size="58" font-weight="900" letter-spacing="9" fill="#0E2459">TRAINING</text><text x="270" y="215" text-anchor="middle" font-family="Arial" font-size="16" font-weight="700" letter-spacing="5" fill="#2B902E">KARTU IDENTITAS</text>' : ''}
         ${photoMarkup}

@@ -1327,6 +1327,62 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
       ]
     )
 
+    await conn.execute(
+      `INSERT INTO payroll_production_rate_details(
+         uid,payroll_production_detail_id,min_quantity_snapshot,
+         quantity_snapshot,rate_snapshot,amount_snapshot,created_by,updated_by
+       )
+       SELECT UUID(),payroll_detail.id,source.min_quantity_snapshot,
+              source.quantity,source.rate_snapshot,source.amount,?,?
+         FROM payroll_production_details payroll_detail
+         JOIN payroll_employee_results result
+           ON result.id=payroll_detail.payroll_employee_result_id
+         JOIN production_transaction_rate_details source
+           ON source.production_transaction_id=payroll_detail.production_transaction_id
+        WHERE result.payroll_run_id=?`,
+      [auth.id, auth.id, run.id]
+    )
+
+    await conn.execute(
+      `INSERT INTO payroll_production_rate_details(
+         uid,payroll_production_detail_id,min_quantity_snapshot,
+         quantity_snapshot,rate_snapshot,amount_snapshot,created_by,updated_by
+       )
+       SELECT UUID(),payroll_detail.id,1,payroll_detail.quantity_snapshot,
+              payroll_detail.rate_snapshot,payroll_detail.amount_snapshot,?,?
+         FROM payroll_production_details payroll_detail
+         JOIN payroll_employee_results result
+           ON result.id=payroll_detail.payroll_employee_result_id
+        WHERE result.payroll_run_id=?
+          AND NOT EXISTS (
+            SELECT 1 FROM payroll_production_rate_details source
+            WHERE source.payroll_production_detail_id=payroll_detail.id
+          )`,
+      [auth.id, auth.id, run.id]
+    )
+
+    const [tierIntegrity] = await conn.query<RowDataPacket[]>(
+      `SELECT COUNT(*) invalidCount
+         FROM payroll_production_details production
+         JOIN payroll_employee_results result
+           ON result.id=production.payroll_employee_result_id
+         LEFT JOIN (
+           SELECT payroll_production_detail_id,
+                  SUM(quantity_snapshot) totalQuantity,
+                  SUM(amount_snapshot) totalAmount
+             FROM payroll_production_rate_details
+            GROUP BY payroll_production_detail_id
+         ) tiers ON tiers.payroll_production_detail_id=production.id
+        WHERE result.payroll_run_id=?
+          AND (tiers.totalQuantity IS NULL
+            OR tiers.totalQuantity<>production.quantity_snapshot
+            OR tiers.totalAmount<>production.amount_snapshot)`,
+      [run.id]
+    )
+    if (Number(tierIntegrity[0]?.invalidCount ?? 0)>0) {
+      throw new ApiError(409, 'Rincian tarif bertingkat Produksi tidak sesuai dengan snapshot Payroll.')
+    }
+
     // Komponen berulang dibayar penuh satu kali bila periode efektif overlap.
     await conn.execute(
       `INSERT INTO payroll_employee_component_details(

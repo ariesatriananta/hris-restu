@@ -611,7 +611,7 @@ function TransactionTable({
       },
       {
         id: 'result',
-        header: 'Hasil & Tarif',
+        header: 'Hasil & Tarif Dasar',
         cell: ({ row }) => (
           <div className='min-w-0'>
             <p className='font-medium'>
@@ -622,7 +622,7 @@ function TransactionTable({
               {row.original.unit.code}
             </p>
             <p className='truncate text-xs text-muted-foreground'>
-              {formatCurrency(row.original.rateSnapshot)} /{' '}
+              Tarif dasar {formatCurrency(row.original.rateSnapshot)} /{' '}
               {row.original.unit.code}
             </p>
           </div>
@@ -979,10 +979,36 @@ function TransactionDetailSheet({
                     'Kuantitas',
                     `${formatNumber(item.quantity, item.unit.decimalPrecision)} ${item.unit.code}`,
                   ],
-                  ['Tarif snapshot', formatCurrency(item.rateSnapshot)],
+                  ['Tarif dasar snapshot', formatCurrency(item.rateSnapshot)],
                   ['Nilai bruto', formatCurrency(item.grossAmount)],
                 ]}
               />
+              {!!item.rateDetails?.length && (
+                <div className='rounded-lg border p-3 text-sm'>
+                  <p className='mb-2 font-medium'>Rincian tarif bertingkat</p>
+                  <div className='space-y-1.5'>
+                    {item.rateDetails.map((detail, index) => (
+                      <div
+                        key={`${detail.minQuantity}-${index}`}
+                        className='flex flex-wrap justify-between gap-x-3 gap-y-0.5 border-b pb-1.5 last:border-0 last:pb-0'
+                      >
+                        <span className='text-muted-foreground'>
+                          Mulai {formatNumber(detail.minQuantity, 0)}{' '}
+                          {item.unit.code}:{' '}
+                          {formatNumber(
+                            detail.quantity,
+                            item.unit.decimalPrecision
+                          )}{' '}
+                          x {formatCurrency(detail.rateAmount)}
+                        </span>
+                        <span className='font-medium'>
+                          {formatCurrency(detail.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <DetailGroup
                 title='Pencatatan'
                 rows={[
@@ -1421,7 +1447,9 @@ function CorrectionPreviewPanel({
           </p>
         </div>
         <div>
-          <p className='text-xs text-muted-foreground'>Selisih bruto</p>
+          <p className='text-xs text-muted-foreground'>
+            Selisih bruto hari ini
+          </p>
           <p className='font-semibold'>
             {formatSignedCurrency(preview.delta.grossAmount)}
           </p>
@@ -1461,7 +1489,9 @@ function PreviewColumn({
       )}
       <p className='font-medium'>{job}</p>
       <p>{quantity}</p>
-      <p className='text-xs text-muted-foreground'>{rate} / satuan</p>
+      <p className='text-xs text-muted-foreground'>
+        Tarif dasar {rate} / satuan
+      </p>
       <p className='mt-1 font-semibold'>{gross}</p>
     </div>
   )
@@ -1556,7 +1586,7 @@ function VoidDialog({
                   </p>
                 </div>
                 <div>
-                  <p className='text-muted-foreground'>Dampak bruto</p>
+                  <p className='text-muted-foreground'>Dampak bruto hari ini</p>
                   <p className='font-semibold text-destructive'>
                     {formatSignedCurrency(preview.data.impact.grossAmount)}
                   </p>
