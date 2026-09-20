@@ -12,7 +12,9 @@ import {
   AlertTriangle,
   CalendarCheck2,
   Calculator,
+  Check,
   CheckCircle2,
+  ChevronsUpDown,
   CircleAlert,
   CircleDollarSign,
   Eye,
@@ -31,6 +33,14 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -40,6 +50,11 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import {
   Select,
   SelectContent,
@@ -101,6 +116,7 @@ import type {
   PayrollPayFrequency,
   PayrollReadinessStatus,
   PayrollRunSummary,
+  PayrollSimulationMeta,
   PayrollTimeSnapshot,
   PayrollTrainingProductionSnapshot,
   PayrollWageBasis,
@@ -147,6 +163,10 @@ export function PayrollSimulationPage({
   const employeeUid =
     typeof search.employeeUid === 'string' ? search.employeeUid : undefined
   const issue = typeof search.issue === 'string' ? search.issue : undefined
+  const sectionUid =
+    typeof search.sectionUid === 'string' ? search.sectionUid : undefined
+  const moduleUid =
+    typeof search.moduleUid === 'string' ? search.moduleUid : undefined
   const filter = typeof search.filter === 'string' ? search.filter : ''
   const page = typeof search.page === 'number' ? search.page : 1
   const pageSize = typeof search.pageSize === 'number' ? search.pageSize : 50
@@ -166,6 +186,8 @@ export function PayrollSimulationPage({
       pageSize,
       query: filter || undefined,
       issue,
+      sectionUid,
+      moduleUid,
     },
     run.data?.status === 'COMPLETED'
   )
@@ -391,6 +413,14 @@ export function PayrollSimulationPage({
                   pending={employees.isPending}
                   filter={filter}
                   issue={issue}
+                  sectionUid={sectionUid}
+                  moduleUid={moduleUid}
+                  productionSections={
+                    employees.data?.meta.productionSections ?? []
+                  }
+                  productionModules={
+                    employees.data?.meta.productionModules ?? []
+                  }
                   page={page}
                   pageSize={pageSize}
                   payrollBasis={payrollBasis}
@@ -605,6 +635,10 @@ function EmployeeResults({
   pending,
   filter,
   issue,
+  sectionUid,
+  moduleUid,
+  productionSections,
+  productionModules,
   page,
   pageSize,
   payrollBasis,
@@ -616,6 +650,10 @@ function EmployeeResults({
   pending: boolean
   filter: string
   issue?: string
+  sectionUid?: string
+  moduleUid?: string
+  productionSections: Array<{ uid: string; name: string }>
+  productionModules: Array<{ uid: string; name: string }>
   page: number
   pageSize: number
   payrollBasis: PayrollWageBasis
@@ -629,6 +667,38 @@ function EmployeeResults({
         accessorKey: 'fullName',
         header: 'Karyawan',
         cell: ({ row }) => <EmployeeIdentity item={row.original} />,
+      },
+      {
+        id: 'productionSection',
+        accessorFn: (row) => row.productionSectionUid,
+        header: () => (
+          <span className='leading-tight'>
+            Bagian
+            <br />
+            Produksi
+          </span>
+        ),
+        cell: ({ row }) => (
+          <span
+            className='line-clamp-2 text-xs'
+            title={row.original.productionSection ?? undefined}
+          >
+            {row.original.productionSection ?? '—'}
+          </span>
+        ),
+      },
+      {
+        id: 'productionModule',
+        accessorFn: (row) => row.productionModuleUid,
+        header: 'Modul',
+        cell: ({ row }) => (
+          <span
+            className='line-clamp-2 text-xs'
+            title={row.original.productionModule ?? undefined}
+          >
+            {row.original.productionModule ?? '—'}
+          </span>
+        ),
       },
       {
         id: 'baseAmount',
@@ -690,9 +760,15 @@ function EmployeeResults({
     columns,
     state: {
       globalFilter: filter,
-      columnFilters: issue ? [{ id: 'issues', value: [issue] }] : [],
       pagination: { pageIndex: Math.max(0, page - 1), pageSize },
       columnVisibility: { issues: false },
+      columnFilters: [
+        ...(issue ? [{ id: 'issues', value: [issue] }] : []),
+        ...(sectionUid
+          ? [{ id: 'productionSection', value: [sectionUid] }]
+          : []),
+        ...(moduleUid ? [{ id: 'productionModule', value: [moduleUid] }] : []),
+      ],
     },
     manualFiltering: true,
     manualPagination: true,
@@ -703,13 +779,33 @@ function EmployeeResults({
       onPatch({ filter: next || undefined, page: undefined })
     },
     onColumnFiltersChange: (updater) => {
-      const current = issue ? [{ id: 'issues', value: [issue] }] : []
+      const current = [
+        ...(issue ? [{ id: 'issues', value: [issue] }] : []),
+        ...(sectionUid
+          ? [{ id: 'productionSection', value: [sectionUid] }]
+          : []),
+        ...(moduleUid ? [{ id: 'productionModule', value: [moduleUid] }] : []),
+      ]
       const next = typeof updater === 'function' ? updater(current) : updater
       const issueValue = next.find((item) => item.id === 'issues')?.value
+      const sectionValue = next.find(
+        (item) => item.id === 'productionSection'
+      )?.value
+      const moduleValue = next.find(
+        (item) => item.id === 'productionModule'
+      )?.value
       onPatch({
         issue:
           Array.isArray(issueValue) && issueValue.length
             ? String(issueValue[0])
+            : undefined,
+        sectionUid:
+          Array.isArray(sectionValue) && sectionValue.length
+            ? String(sectionValue[sectionValue.length - 1])
+            : undefined,
+        moduleUid:
+          Array.isArray(moduleValue) && moduleValue.length
+            ? String(moduleValue[moduleValue.length - 1])
             : undefined,
         page: undefined,
       })
@@ -740,6 +836,30 @@ function EmployeeResults({
               { value: 'NEGATIVE_NET', label: 'Neto negatif' },
             ],
           },
+          ...(productionSections.length
+            ? [
+                {
+                  columnId: 'productionSection',
+                  title: 'Bagian Produksi',
+                  options: productionSections.map((item) => ({
+                    value: item.uid,
+                    label: item.name,
+                  })),
+                },
+              ]
+            : []),
+          ...(productionModules.length
+            ? [
+                {
+                  columnId: 'productionModule',
+                  title: 'Modul',
+                  options: productionModules.map((item) => ({
+                    value: item.uid,
+                    label: item.name,
+                  })),
+                },
+              ]
+            : []),
         ]}
       />
       <div className='hidden overflow-hidden rounded-md border md:block'>
@@ -754,8 +874,12 @@ function EmployeeResults({
                       header.id === 'actions'
                         ? 'w-12'
                         : header.id === 'fullName'
-                          ? 'w-[28%]'
-                          : undefined
+                          ? 'w-[22%]'
+                          : header.id === 'productionSection'
+                            ? 'w-[11%]'
+                            : header.id === 'productionModule'
+                              ? 'w-[10%]'
+                              : undefined
                     }
                   >
                     {header.isPlaceholder
@@ -782,7 +906,7 @@ function EmployeeResults({
               table.getRowModel().rows.map((row) => (
                 <TableRow key={row.original.uid}>
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
+                    <TableCell key={cell.id} className='py-2'>
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext()
@@ -846,7 +970,7 @@ function PayrollIssueIndicators({
 
   return (
     <div
-      className='mt-1 flex items-center gap-1.5'
+      className='inline-flex shrink-0 items-center gap-1'
       aria-label='Kondisi Payroll'
     >
       {issues.map((issue) => {
@@ -886,10 +1010,12 @@ function EmployeeIdentity({ item }: { item: PayrollEmployeeResultSummary }) {
       <p className='truncate font-semibold' title={item.fullName}>
         {item.fullName}
       </p>
-      <p className='truncate text-xs text-muted-foreground'>
-        {item.employeeNumber} · {item.employeeType}
-      </p>
-      <PayrollIssueIndicators issues={item.issues} />
+      <div className='flex min-w-0 items-center gap-1.5'>
+        <p className='min-w-0 flex-1 truncate text-xs text-muted-foreground'>
+          {item.employeeNumber} · {item.employeeType}
+        </p>
+        <PayrollIssueIndicators issues={item.issues} />
+      </div>
     </div>
   )
 }
@@ -948,12 +1074,18 @@ function EmployeeResultRow({
   const monthly = payrollBasis === 'TIME_BASED' && payFrequency === 'MONTHLY'
   return (
     <div className='grid gap-2 rounded-lg border bg-card p-3'>
-      <div>
+      <div className='min-w-0'>
         <p className='font-semibold'>{item.fullName}</p>
-        <p className='text-xs text-muted-foreground'>
-          {item.employeeNumber} · {item.employeeType}
+        <div className='flex min-w-0 items-center gap-1.5'>
+          <p className='min-w-0 flex-1 truncate text-xs text-muted-foreground'>
+            {item.employeeNumber} · {item.employeeType}
+          </p>
+          <PayrollIssueIndicators issues={item.issues} />
+        </div>
+        <p className='truncate text-xs text-muted-foreground'>
+          {item.productionSection ?? 'Tanpa bagian produksi'} ·{' '}
+          {item.productionModule ?? 'Tanpa modul'}
         </p>
-        <PayrollIssueIndicators issues={item.issues} />
       </div>
       {monthly && item.monthly ? (
         <div className='flex justify-between gap-3 md:block'>
@@ -1803,22 +1935,12 @@ function ManualComponentDialog({
           <div className='space-y-4'>
             <div className='space-y-2'>
               <Label>Karyawan</Label>
-              <Select
+              <ManualEmployeePicker
                 value={employeeUid}
-                onValueChange={setEmployeeUid}
+                employees={meta.data?.employees ?? []}
+                onChange={setEmployeeUid}
                 disabled={Boolean(editUid)}
-              >
-                <SelectTrigger className='w-full'>
-                  <SelectValue placeholder='Pilih karyawan' />
-                </SelectTrigger>
-                <SelectContent>
-                  {meta.data?.employees.map((item) => (
-                    <SelectItem key={item.uid} value={item.uid}>
-                      {item.fullName} · {item.employeeNumber}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              />
             </div>
             <div className='space-y-2'>
               <Label>Jenis komponen</Label>
@@ -1833,8 +1955,22 @@ function ManualComponentDialog({
                 <SelectContent>
                   {meta.data?.componentTypes.map((item) => (
                     <SelectItem key={item.uid} value={item.uid}>
-                      {item.name} ·{' '}
-                      {item.category === 'EARNING' ? 'Tambahan' : 'Potongan'}
+                      <span className='flex min-w-0 items-center gap-2'>
+                        <span className='truncate'>{item.name}</span>
+                        <Badge
+                          variant='outline'
+                          className={cn(
+                            'shrink-0 px-1.5 py-0 text-[10px] font-medium',
+                            item.category === 'EARNING'
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+                              : 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200'
+                          )}
+                        >
+                          {item.category === 'EARNING'
+                            ? 'Tambahan'
+                            : 'Potongan'}
+                        </Badge>
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -2033,6 +2169,106 @@ function ManualComponentDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function ManualEmployeePicker({
+  value,
+  employees,
+  onChange,
+  disabled = false,
+}: {
+  value: string
+  employees: PayrollSimulationMeta['employees']
+  onChange: (value: string) => void
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const selected = employees.find((employee) => employee.uid === value)
+  const normalizedQuery = query.trim().toLocaleLowerCase('id-ID')
+  const options = normalizedQuery
+    ? employees.filter((employee) =>
+        [
+          employee.fullName,
+          employee.employeeNumber,
+          employee.employeeTypeName,
+          employee.productionSection,
+          employee.productionModule,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLocaleLowerCase('id-ID')
+          .includes(normalizedQuery)
+      )
+    : employees
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type='button'
+          variant='outline'
+          role='combobox'
+          aria-label='Pilih karyawan'
+          aria-expanded={open}
+          disabled={disabled}
+          className='w-full justify-between font-normal'
+        >
+          <span className='truncate'>
+            {selected
+              ? `${selected.fullName} · ${selected.employeeNumber}`
+              : 'Pilih karyawan'}
+          </span>
+          <ChevronsUpDown className='size-4 shrink-0 opacity-50' />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align='start'
+        className='w-[min(32rem,calc(100vw-2rem))] p-0'
+      >
+        <Command shouldFilter={false}>
+          <CommandInput
+            value={query}
+            onValueChange={setQuery}
+            placeholder='Cari nama, nomor, bagian, atau modul...'
+          />
+          <CommandList>
+            <CommandEmpty>Karyawan tidak ditemukan.</CommandEmpty>
+            <CommandGroup>
+              {options.map((employee) => (
+                <CommandItem
+                  key={employee.uid}
+                  value={employee.uid}
+                  onSelect={() => {
+                    onChange(employee.uid)
+                    setOpen(false)
+                    setQuery('')
+                  }}
+                >
+                  <Check
+                    className={cn(
+                      'mr-2 size-4 shrink-0',
+                      employee.uid === value ? 'opacity-100' : 'opacity-0'
+                    )}
+                  />
+                  <div className='min-w-0'>
+                    <p className='truncate font-medium'>
+                      {employee.fullName} · {employee.employeeNumber}
+                    </p>
+                    <p className='truncate text-xs text-muted-foreground'>
+                      {employee.employeeTypeName} ·{' '}
+                      {employee.productionSection ?? 'Bagian belum diatur'} ·{' '}
+                      {employee.productionModule ?? 'Modul belum diatur'}
+                    </p>
+                  </div>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   )
 }
 

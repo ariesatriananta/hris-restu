@@ -425,16 +425,38 @@ function PayrollPeriodsTable({
       {
         id: 'actions',
         header: () => <div className='text-right'>Aksi</div>,
-        cell: ({ row }) => (
-          <div className='text-right'>
-            <DataTableActionButton
-              label={`Lihat detail ${row.original.periodName}`}
-              onClick={() => onDetail(row.original.uid)}
-            >
-              <Eye className='size-4' />
-            </DataTableActionButton>
-          </div>
-        ),
+        cell: ({ row }) => {
+          const stage = nextPayrollProcessStage(row.original.status)
+          const actionLabel =
+            stage === 'APPROVAL'
+              ? 'Buka persetujuan & penutupan'
+              : 'Lanjut ke perhitungan'
+          return (
+            <div className='flex justify-end gap-1'>
+              <DataTableActionButton
+                label={`Lihat detail ${row.original.periodName}`}
+                onClick={() => onDetail(row.original.uid)}
+              >
+                <Eye className='size-4' />
+              </DataTableActionButton>
+              {row.original.status !== 'CANCELLED' &&
+                (row.original.readiness.status === 'BLOCKED' ? (
+                  <DataTableActionButton
+                    label='Perbaiki kesiapan terlebih dahulu'
+                    disabled
+                  >
+                    <ExternalLink className='size-4' />
+                  </DataTableActionButton>
+                ) : (
+                  <DataTableActionButton label={actionLabel} asChild>
+                    <a href={payrollProcessHref(stage, row.original.uid)}>
+                      <ExternalLink className='size-4' />
+                    </a>
+                  </DataTableActionButton>
+                ))}
+            </div>
+          )
+        },
         enableHiding: false,
       },
     ],
@@ -545,7 +567,7 @@ function PayrollPeriodsTable({
                   key={header.id}
                   className={
                     header.id === 'actions'
-                      ? 'w-16'
+                      ? 'w-24'
                       : header.id === 'status'
                         ? 'w-32'
                         : header.id === 'site'
@@ -645,13 +667,20 @@ function PayrollPeriodsTable({
 function StatusBadge({ status }: { status: PayrollPeriodStatus }) {
   return (
     <Badge
-      variant={
-        status === 'CANCELLED'
-          ? 'destructive'
-          : status === 'CLOSED'
-            ? 'default'
-            : 'secondary'
-      }
+      variant='outline'
+      className={cn(
+        'font-medium',
+        status === 'DRAFT' &&
+          'border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200',
+        status === 'CALCULATED' &&
+          'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200',
+        status === 'APPROVED' &&
+          'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200',
+        status === 'CLOSED' &&
+          'border-teal-200 bg-teal-50 text-teal-800 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-200',
+        status === 'CANCELLED' &&
+          'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-200'
+      )}
     >
       {statusLabels[status]}
     </Badge>

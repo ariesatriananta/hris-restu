@@ -166,6 +166,56 @@ describe('Payroll simulation API', () => {
     })
     expect(mocks.query).toHaveBeenCalledOnce()
   })
+  it('memberikan konteks produksi pada pilihan karyawan komponen manual', async () => {
+    mocks.query
+      .mockResolvedValueOnce([
+        [
+          {
+            id: 10,
+            siteId: 2,
+            status: 'DRAFT',
+            employeeType: 'BORONGAN',
+            periodStart: '2026-09-01',
+            periodEnd: '2026-09-07',
+            siteCode: 'JEPARA',
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([
+        [
+          {
+            uid: '44444444-4444-4444-8444-444444444444',
+            employeeNumber: 'PKDS-001',
+            fullName: 'Budi',
+            employeeType: 'BORONGAN',
+            employeeTypeName: 'Borongan',
+            productionSection: 'Linting',
+            productionModule: 'Modul A',
+          },
+        ],
+      ])
+
+    const response = await request(
+      '/periods/22222222-2222-4222-8222-222222222222/simulation-meta'
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      data: {
+        employees: [
+          {
+            employeeTypeName: 'Borongan',
+            productionSection: 'Linting',
+            productionModule: 'Modul A',
+          },
+        ],
+      },
+    })
+    expect(String(mocks.query.mock.calls[2]?.[0])).toContain(
+      'production_module_sections'
+    )
+  })
   it('menolak nominal manual nol', async () => {
     mocks.query.mockResolvedValueOnce([
       [
@@ -362,5 +412,96 @@ describe('Payroll simulation API', () => {
 
     expect(response.status).toBe(409)
     expect(mocks.query).toHaveBeenCalledOnce()
+  })
+
+  it('memfilter hasil Payroll berdasarkan bagian produksi dan modul', async () => {
+    const sectionUid = '88888888-8888-4888-8888-888888888888'
+    const moduleUid = '99999999-9999-4999-8999-999999999999'
+    mocks.query
+      .mockResolvedValueOnce([
+        [
+          {
+            id: 21,
+            uid: '77777777-7777-4777-8777-777777777777',
+            siteId: 2,
+            siteCode: 'JEPARA',
+            status: 'COMPLETED',
+            periodStart: '2026-09-01',
+            periodEnd: '2026-09-07',
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([[{ total: 1 }]])
+      .mockResolvedValueOnce([
+        [
+          {
+            uid: '66666666-6666-4666-8666-666666666666',
+            employeeNumber: 'PKDS-001',
+            fullName: 'Budi',
+            employeeType: 'BORONGAN',
+            productionSectionUid: sectionUid,
+            productionSection: 'Linting',
+            productionModuleUid: moduleUid,
+            productionModule: 'Modul A',
+            productionTransactionCount: 2,
+            attendanceDays: 4,
+            payablePresentDays: 4,
+            offdayPresentDays: 0,
+            pieceRateAmount: '125000.00',
+            basicSalaryAmount: '0.00',
+            additionalEarnings: '0.00',
+            grossEarnings: '125000.00',
+            totalDeductions: '0.00',
+            netPay: '125000.00',
+            bankName: 'BRI',
+            bankAccountNumber: '12345678',
+            fullBasicSalary: null,
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([
+        [
+          {
+            productionSectionUid: sectionUid,
+            productionSection: 'Linting',
+            productionModuleUid: moduleUid,
+            productionModule: 'Modul A',
+          },
+        ],
+      ])
+
+    const response = await request(
+      `/runs/77777777-7777-4777-8777-777777777777/employees?sectionUid=${sectionUid}&moduleUid=${moduleUid}`
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toMatchObject({
+      data: [
+        {
+          productionSectionUid: sectionUid,
+          productionSection: 'Linting',
+          productionModuleUid: moduleUid,
+          productionModule: 'Modul A',
+        },
+      ],
+      meta: {
+        productionSections: [{ uid: sectionUid, name: 'Linting' }],
+        productionModules: [{ uid: moduleUid, name: 'Modul A' }],
+      },
+    })
+    expect(String(mocks.query.mock.calls[1]?.[0])).toContain(
+      'production_section.uid=?'
+    )
+    expect(String(mocks.query.mock.calls[1]?.[0])).toContain(
+      'production_module.uid=?'
+    )
+    expect(mocks.query.mock.calls[1]?.[1]).toEqual([
+      '2026-09-07',
+      '2026-09-01',
+      21,
+      sectionUid,
+      moduleUid,
+    ])
   })
 })

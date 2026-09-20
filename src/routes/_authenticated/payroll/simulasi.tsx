@@ -11,6 +11,8 @@ export const Route = createFileRoute('/_authenticated/payroll/simulasi')({
     employeeUid: z.string().uuid().optional(),
     filter: z.string().optional(),
     issue: z.enum(['NEGATIVE_NET', 'MISSING_BANK']).optional(),
+    sectionUid: z.string().uuid().optional(),
+    moduleUid: z.string().uuid().optional(),
     page: z.number().int().positive().optional(),
     pageSize: z.number().int().min(1).max(500).optional(),
   }),

@@ -1125,6 +1125,8 @@ export function usePayrollRunEmployees(
             pageSize: number
             total: number
             totalPages: number
+            productionSections: Array<{ uid: string; name: string }>
+            productionModules: Array<{ uid: string; name: string }>
           }
         }>(`/payroll/runs/${runUid}/employees?${params(input)}`)
       ).data,

@@ -207,11 +207,23 @@ payrollSimulationsRouter.get(
         WHERE is_active=1 AND calculation_method='MANUAL' ORDER BY component_category,name`
       )
       const [employees] = await pool.query<RowDataPacket[]>(
-        `SELECT DISTINCT e.uid,e.employee_number employeeNumber,e.full_name fullName
+        `SELECT e.uid,e.employee_number employeeNumber,e.full_name fullName,
+                et.code employeeType,et.name employeeTypeName,
+                production_section.name productionSection,
+                production_module.name productionModule
          FROM employees e
-         JOIN employee_employment_histories eh ON eh.employee_id=e.id AND eh.site_id=?
-          AND eh.effective_from<=? AND (eh.effective_to IS NULL OR eh.effective_to>=?)
+         JOIN employee_employment_histories eh ON eh.id=(
+           SELECT latest.id FROM employee_employment_histories latest
+            WHERE latest.employee_id=e.id AND latest.site_id=?
+              AND latest.effective_from<=? AND (latest.effective_to IS NULL OR latest.effective_to>=?)
+            ORDER BY latest.effective_from DESC,latest.id DESC LIMIT 1)
          JOIN employee_types et ON et.id=eh.employee_type_id AND et.code=?
+         LEFT JOIN production_module_sections module_section
+           ON module_section.id=eh.production_module_section_id
+         LEFT JOIN production_sections production_section
+           ON production_section.id=module_section.production_section_id
+         LEFT JOIN production_modules production_module
+           ON production_module.id=module_section.production_module_id
         ORDER BY e.full_name,e.employee_number`,
         [
           current.siteId,
@@ -789,8 +801,22 @@ payrollSimulationsRouter.get(
         .enum(['NEGATIVE_NET', 'MISSING_BANK'])
         .optional()
         .parse(req.query.issue || undefined)
+      const sectionUid = req.query.sectionUid
+        ? uuid.parse(String(req.query.sectionUid))
+        : undefined
+      const moduleUid = req.query.moduleUid
+        ? uuid.parse(String(req.query.moduleUid))
+        : undefined
       const where = ['result.payroll_run_id=?']
-      const values: unknown[] = [run.id]
+      const placementJoin = `LEFT JOIN employee_employment_histories placement ON placement.id=(
+          SELECT latest.id FROM employee_employment_histories latest
+           WHERE latest.employee_id=result.employee_id AND latest.site_id=result.site_id
+             AND latest.effective_from<=? AND (latest.effective_to IS NULL OR latest.effective_to>=?)
+           ORDER BY latest.effective_from DESC,latest.id DESC LIMIT 1)
+        LEFT JOIN production_module_sections module_section ON module_section.id=placement.production_module_section_id
+        LEFT JOIN production_modules production_module ON production_module.id=module_section.production_module_id
+        LEFT JOIN production_sections production_section ON production_section.id=module_section.production_section_id`
+      const values: unknown[] = [run.periodEnd, run.periodStart, run.id]
       if (query) {
         where.push(
           '(result.employee_number_snapshot LIKE ? OR result.employee_name_snapshot LIKE ?)'
@@ -802,14 +828,24 @@ payrollSimulationsRouter.get(
         where.push(
           "(result.bank_account_number_snapshot IS NULL OR TRIM(result.bank_account_number_snapshot)='')"
         )
+      if (sectionUid) {
+        where.push('production_section.uid=?')
+        values.push(sectionUid)
+      }
+      if (moduleUid) {
+        where.push('production_module.uid=?')
+        values.push(moduleUid)
+      }
       const [counts] = await pool.query<RowDataPacket[]>(
-        `SELECT COUNT(*) total FROM payroll_employee_results result WHERE ${where.join(' AND ')}`,
+        `SELECT COUNT(*) total FROM payroll_employee_results result ${placementJoin} WHERE ${where.join(' AND ')}`,
         values
       )
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT result.uid,result.employee_number_snapshot employeeNumber,result.employee_name_snapshot fullName,
               result.employee_type_snapshot employeeType,result.department_name_snapshot departmentName,
               result.position_name_snapshot positionName,result.production_transaction_count productionTransactionCount,
+              production_section.uid productionSectionUid,production_section.name productionSection,
+              production_module.uid productionModuleUid,production_module.name productionModule,
               result.attendance_days attendanceDays,
               (SELECT COALESCE(SUM(time_detail.is_payable=1),0)
                  FROM payroll_time_details time_detail
@@ -830,11 +866,20 @@ payrollSimulationsRouter.get(
               monthly.alpha_deduction alphaDeduction,
               monthly.permission_deduction permissionDeduction
          FROM payroll_employee_results result
+         ${placementJoin}
          LEFT JOIN payroll_monthly_summaries monthly
            ON monthly.payroll_employee_result_id=result.id
         WHERE ${where.join(' AND ')}
         ORDER BY result.employee_name_snapshot,result.employee_number_snapshot LIMIT ? OFFSET ?`,
         [...values, pageSize, (page - 1) * pageSize]
+      )
+      const [placementRows] = await pool.query<RowDataPacket[]>(
+        `SELECT DISTINCT production_section.uid productionSectionUid,production_section.name productionSection,
+                production_module.uid productionModuleUid,production_module.name productionModule
+           FROM payroll_employee_results result ${placementJoin}
+          WHERE result.payroll_run_id=?
+          ORDER BY production_section.name,production_module.name`,
+        [run.periodEnd, run.periodStart, run.id]
       )
       const data = rows.map((row) => ({
         uid: row.uid,
@@ -843,6 +888,10 @@ payrollSimulationsRouter.get(
         employeeType: row.employeeType,
         departmentName: row.departmentName,
         positionName: row.positionName,
+        productionSectionUid: row.productionSectionUid ?? null,
+        productionSection: row.productionSection ?? null,
+        productionModuleUid: row.productionModuleUid ?? null,
+        productionModule: row.productionModule ?? null,
         productionTransactionCount: Number(row.productionTransactionCount),
         attendanceDays: Number(row.attendanceDays),
         payablePresentDays: Number(row.payablePresentDays ?? 0),
@@ -889,6 +938,32 @@ payrollSimulationsRouter.get(
           pageSize,
           total,
           totalPages: Math.ceil(total / pageSize),
+          productionSections: Array.from(
+            new Map(
+              placementRows
+                .filter((item) => item.productionSectionUid)
+                .map((item) => [
+                  String(item.productionSectionUid),
+                  {
+                    uid: String(item.productionSectionUid),
+                    name: String(item.productionSection),
+                  },
+                ])
+            ).values()
+          ),
+          productionModules: Array.from(
+            new Map(
+              placementRows
+                .filter((item) => item.productionModuleUid)
+                .map((item) => [
+                  String(item.productionModuleUid),
+                  {
+                    uid: String(item.productionModuleUid),
+                    name: String(item.productionModule),
+                  },
+                ])
+            ).values()
+          ),
         },
       })
     } catch (error) {

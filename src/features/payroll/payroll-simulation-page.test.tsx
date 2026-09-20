@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
+import { userEvent } from 'vitest/browser'
 import { useAuthStore } from '@/stores/auth-store'
 import { PayrollSimulationPage } from './payroll-simulation-page'
 
@@ -67,6 +68,94 @@ describe('Payroll simulation page', () => {
       .not.toBeInTheDocument()
   })
 
+  it('mencari karyawan komponen manual dengan konteks produksi', async () => {
+    useAuthStore.setState((state) => ({
+      session: state.session
+        ? {
+            ...state.session,
+            user: {
+              ...state.session.user,
+              role: 'PAYROLL_FINANCE',
+              roles: ['PAYROLL_FINANCE'],
+            },
+            permissions: ['payroll.view', 'payroll.calculate'],
+          }
+        : null,
+    }))
+    const screen = await renderPage({
+      search: { periodUid: 'period-manual' },
+      seed: (client) => {
+        client.setQueryData(['payroll-periods', 'detail', 'period-manual'], {
+          uid: 'period-manual',
+          payrollBasis: 'PIECE_RATE',
+          employeeType: 'BORONGAN',
+          readiness: { status: 'READY', blockers: [], warnings: [] },
+        })
+        client.setQueryData(['payroll-periods', 'period-manual', 'runs'], [])
+        client.setQueryData(
+          ['payroll-periods', 'period-manual', 'simulation-meta'],
+          {
+            componentTypes: [],
+            employees: [
+              {
+                uid: 'employee-1',
+                employeeNumber: 'PKDS-001',
+                fullName: 'BUDI PRODUKSI',
+                employeeType: 'BORONGAN',
+                employeeTypeName: 'Borongan',
+                productionSection: 'Linting',
+                productionModule: 'Modul A',
+              },
+              {
+                uid: 'employee-2',
+                employeeNumber: 'PKDS-002',
+                fullName: 'SITI PRODUKSI',
+                employeeType: 'BORONGAN',
+                employeeTypeName: 'Borongan',
+                productionSection: 'Packing',
+                productionModule: 'Modul B',
+              },
+            ],
+          }
+        )
+        client.setQueryData(
+          ['payroll-periods', 'period-manual', 'manual-components'],
+          []
+        )
+      },
+    })
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Komponen manual' })
+    )
+    await userEvent.click(
+      screen.getByRole('combobox', { name: 'Pilih karyawan' })
+    )
+
+    await expect
+      .element(
+        screen.getByPlaceholder('Cari nama, nomor, bagian, atau modul...')
+      )
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByText('BUDI PRODUKSI · PKDS-001'))
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByText('Borongan · Linting · Modul A'))
+      .toBeInTheDocument()
+
+    await userEvent.fill(
+      screen.getByPlaceholder('Cari nama, nomor, bagian, atau modul...'),
+      'Packing'
+    )
+    await expect
+      .element(screen.getByText('SITI PRODUKSI · PKDS-002'))
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByText('BUDI PRODUKSI · PKDS-001'))
+      .not.toBeInTheDocument()
+  })
+
   it('menyajikan simulasi TIME_BASED sebagai hari dan upah dasar', async () => {
     const screen = await renderPage({
       search: { periodUid: 'period-1', runUid: 'run-1' },
@@ -109,6 +198,8 @@ describe('Payroll simulation page', () => {
               pageSize: 50,
               query: undefined,
               issue: undefined,
+              sectionUid: undefined,
+              moduleUid: undefined,
             },
           ],
           {
@@ -118,6 +209,10 @@ describe('Payroll simulation page', () => {
                 employeeNumber: 'PKDS-001',
                 fullName: 'BUDI HARIAN',
                 employeeType: 'HARIAN',
+                productionSectionUid: 'section-1',
+                productionSection: 'Linting',
+                productionModuleUid: 'module-1',
+                productionModule: 'Modul A',
                 basicSalaryAmount: '750000.00',
                 attendanceDays: 5,
                 payablePresentDays: 5,
@@ -128,7 +223,14 @@ describe('Payroll simulation page', () => {
                 issues: ['NEGATIVE_NET', 'MISSING_BANK'],
               },
             ],
-            meta: { page: 1, pageSize: 50, total: 1, totalPages: 1 },
+            meta: {
+              page: 1,
+              pageSize: 50,
+              total: 1,
+              totalPages: 1,
+              productionSections: [{ uid: 'section-1', name: 'Linting' }],
+              productionModules: [{ uid: 'module-1', name: 'Modul A' }],
+            },
           }
         )
       },
@@ -148,6 +250,12 @@ describe('Payroll simulation page', () => {
       .toBeInTheDocument()
     await expect
       .element(screen.getByText('1 hari nonkerja', { exact: true }).first())
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByText('Linting').first())
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByText('Modul A').first())
       .toBeInTheDocument()
     await expect
       .element(screen.getByText('Bruto Produksi'))
@@ -208,6 +316,8 @@ describe('Payroll simulation page', () => {
               pageSize: 50,
               query: undefined,
               issue: undefined,
+              sectionUid: undefined,
+              moduleUid: undefined,
             },
           ],
           { data: [], meta: { page: 1, pageSize: 50, total: 0, totalPages: 0 } }
@@ -369,6 +479,8 @@ describe('Payroll simulation page', () => {
               pageSize: 50,
               query: undefined,
               issue: undefined,
+              sectionUid: undefined,
+              moduleUid: undefined,
             },
           ],
           {

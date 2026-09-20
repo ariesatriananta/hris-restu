@@ -500,6 +500,10 @@ export interface PayrollEmployeeResultSummary {
   employeeType: string
   departmentName: string | null
   positionName: string | null
+  productionSectionUid: string | null
+  productionSection: string | null
+  productionModuleUid: string | null
+  productionModule: string | null
   productionTransactionCount: number
   attendanceDays: number
   payablePresentDays: number
@@ -677,6 +681,10 @@ export interface PayrollSimulationMeta {
     uid: string
     employeeNumber: string
     fullName: string
+    employeeType: PayrollEmployeeType
+    employeeTypeName: string
+    productionSection: string | null
+    productionModule: string | null
   }>
   componentTypes: Array<{
     uid: string
