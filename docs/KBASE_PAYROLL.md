@@ -60,8 +60,8 @@ dan hasil turunannya untuk dibuat ulang, dengan konfirmasi serta audit.
 - Simulasi menyimpan snapshot. Perubahan sumber setelah simulasi dapat
   mewajibkan hitung ulang.
 - Rekening yang belum lengkap merupakan **peringatan**, bukan blocker hak atau
-  nominal Payroll. Namun, layar saat ini mengekspor seluruh run sehingga satu
-  snapshot rekening yang belum lengkap akan menolak Daftar Pembayaran.
+  nominal Payroll. Daftar Pembayaran tetap dapat diekspor; kolom rekening
+  kosong diberi tanda `-` dan harus diperiksa sebelum transfer.
 - Neto negatif tetap terlihat pada simulasi, tetapi memblokir pengajuan,
   persetujuan, dan closing.
 - Menu **Slip Gaji** hanya menawarkan periode **Ditutup** dengan perhitungan

@@ -70,13 +70,12 @@ peringatan. Kondisi ini:
 
 - tidak mengubah hak upah atau nominal karyawan;
 - tidak memblokir submit, approval, atau closing;
-- membuat Daftar Pembayaran ditolak bila snapshot nama bank, nomor rekening,
-  atau nama pemilik rekening salah satu karyawan belum lengkap, karena layar
-  saat ini mengekspor seluruh hasil run.
+- tidak menghalangi ekspor Daftar Pembayaran; kolom rekening yang kosong diberi
+  tanda `-` dan harus diperiksa sebelum transfer.
 
-Jika file pembayaran diperlukan, pilihan paling aman adalah melengkapi rekening,
-kembali ke tahap **Perhitungan**, dan Hitung ulang sebelum mengajukan atau menutup periode.
-Setelah periode Closed, snapshot final tidak dapat dihitung ulang.
+Jika file pembayaran diperlukan, sebaiknya lengkapi rekening dan Hitung ulang
+sebelum menutup periode. Setelah periode Closed, snapshot final tidak dapat
+dihitung ulang; tanda `-` pada file tetap memerlukan tindak lanjut manual.
 
 ## 6. Menyetujui pengajuan
 
@@ -146,7 +145,7 @@ Setelah closing:
 - perhitungan terbaru menjadi satu-satunya hasil FINAL untuk periode tersebut;
 - perhitungan lama tetap berjenis Simulasi;
 - slip dari hasil FINAL dapat diterbitkan tanpa penanda SIMULASI;
-- Daftar Pembayaran tersedia sesuai izin dan kelengkapan rekening;
+- Daftar Pembayaran tersedia sesuai izin; rekening kosong ditandai `-`;
 - data final dapat muncul pada Laporan Payroll Final;
 - periode tidak dapat diedit atau dihitung ulang melalui alur normal;
 - sumber Attendance dan Produksi terkait tetap terkunci sesuai aturan Payroll.

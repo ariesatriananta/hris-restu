@@ -2705,6 +2705,7 @@ INSERT INTO payroll_component_types
   (uid, code, name, component_category, calculation_method, is_taxable, description)
 VALUES
   (UUID(), 'BONUS', 'Bonus', 'EARNING', 'MANUAL', 0, 'Penambahan pendapatan manual atau berdasarkan kebijakan.'),
+  (UUID(), 'INCENTIVE', 'Insentif', 'EARNING', 'MANUAL', 0, 'Insentif tambahan yang diinput manual per periode Payroll.'),
   (UUID(), 'ALLOWANCE', 'Tunjangan', 'EARNING', 'FIXED', 0, 'Tunjangan tetap atau berkala.'),
   (UUID(), 'OTHER_EARNING', 'Pendapatan Lainnya', 'EARNING', 'MANUAL', 0, 'Komponen pendapatan lain.'),
   (UUID(), 'PENALTY', 'Penalti', 'DEDUCTION', 'MANUAL', 0, 'Pengurangan berdasarkan aturan operasional.'),

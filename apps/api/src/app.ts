@@ -15,6 +15,7 @@ import { payrollApprovalsRouter } from './routes/payroll-approvals.js'
 import { payrollBpjsRouter } from './routes/payroll-bpjs.js'
 import { payrollConfigurationRouter } from './routes/payroll-configuration.js'
 import { payrollHistoryRouter } from './routes/payroll-history.js'
+import { payrollHandoverRouter } from './routes/payroll-handover.js'
 import { payrollPeriodsRouter } from './routes/payroll-periods.js'
 import { payrollSimulationsRouter } from './routes/payroll-simulations.js'
 import { productionFoundationRouter } from './routes/production-foundation.js'
@@ -52,6 +53,7 @@ app.use('/api/payroll', payrollPeriodsRouter)
 app.use('/api/payroll', payrollSimulationsRouter)
 app.use('/api/payroll', payrollApprovalsRouter)
 app.use('/api/payroll', payrollHistoryRouter)
+app.use('/api/payroll', payrollHandoverRouter)
 app.use('/api/payroll', payrollConfigurationRouter)
 app.use('/api/payroll', payrollBpjsRouter)
 app.use('/api/system/access-management', systemUserAccessRouter)

@@ -6,7 +6,7 @@
 >
 > Audiens: Payroll Finance, Direksi, Super Admin, auditor, dan pengguna laporan
 >
-> Terakhir diverifikasi: 17 September 2026
+> Terakhir diverifikasi: 20 September 2026
 
 Panduan ini menjelaskan cara menelusuri perhitungan, membandingkan hasil, mengunduh
 rekap dan Daftar Pembayaran, melihat atau mencetak slip, serta membaca Laporan
@@ -17,7 +17,9 @@ Payroll Final.
 | Keluaran | Lokasi | Syarat utama |
 |---|---|---|
 | Rekap Payroll | Payroll > Riwayat Payroll | Perhitungan `COMPLETED` dan hak ekspor Payroll |
-| Daftar Pembayaran | Payroll > Riwayat Payroll | Perhitungan terbaru `FINAL`, periode `CLOSED`, hak ekspor pembayaran, rekening lengkap |
+| Ringkasan produksi harian | Payroll > Riwayat Payroll | Perhitungan Borongan `COMPLETED` |
+| Daftar Pembayaran | Payroll > Riwayat Payroll | Perhitungan terbaru `FINAL`, periode `CLOSED`, hak ekspor pembayaran |
+| Lembar serah terima upah Borongan | Payroll > Riwayat Payroll | Perhitungan `COMPLETED` (terbaru atau historis), periode `CALCULATED`/`APPROVED`/`CLOSED`, dan hak cetak/ekspor sesuai tindakan |
 | Preview Slip resmi | Payroll > Slip Gaji | Periode `CLOSED`, perhitungan terbaru `FINAL`, dan akses lihat Payroll |
 | Cetak Slip resmi | Payroll > Slip Gaji | Syarat slip resmi terpenuhi dan ada hak cetak Payroll |
 | Laporan Payroll Final | Laporan > Payroll Final | Perhitungan terbaru FINAL dari periode Ditutup dan hak laporan |
@@ -85,14 +87,46 @@ File ini memuat:
 - nama pemilik rekening;
 - nilai neto.
 
-Karena halaman saat ini mengekspor seluruh hasil perhitungan, adanya satu atau lebih
-snapshot rekening yang belum lengkap akan membuat ekspor ditolak. Lengkapi nama
-bank, nomor rekening, dan nama pemilik rekening sebelum hasil disahkan, lalu
-Hitung ulang sebelum pengajuan dan penutupan.
+File tetap dapat diunduh bila ada snapshot rekening yang belum lengkap. Kolom
+nama bank, nomor rekening, atau nama pemilik rekening yang kosong ditandai `-`.
+Tanda itu bukan rekening tujuan; periksa dan lengkapi data sebelum transfer.
+Jika memungkinkan, lengkapi data lalu Hitung ulang sebelum penutupan agar
+snapshot final ikut lengkap.
 
 Daftar Pembayaran adalah bahan kerja transfer, bukan bukti transfer. Perlakukan
 file sebagai data sensitif dan jangan membagikannya melalui kanal yang tidak
 disetujui perusahaan.
+
+### Lembar serah terima upah Borongan
+
+Pada baris periode Borongan yang sudah **Dihitung**, pilih **Serah terima upah**.
+Bagian Produksi dan Modul awalnya **Semua**; pratinjau langsung menampilkan
+seluruh pekerja meski mandor belum dipilih. **Unduh Excel** dapat dilakukan
+untuk semua pekerja sekaligus tanpa memilih mandor. Untuk **Cetak**, pilih
+Bagian Produksi, Modul, dan mandor dari daftar pengaturan sistem. Tanggal
+serah terima dapat diatur di panel kiri. Pilihan dokumen hanya berlaku untuk
+penerbitan saat itu dan tidak mengubah konfigurasi Payroll.
+
+Lembar cetak mengambil rincian upah harian, jenis karyawan, modul, potongan
+BPJS karyawan, dan total upah dari perhitungan yang dipilih. Run historis
+diberi penanda bukan hasil aktif. Blok
+tanda tangan Ops Manager, HRD, dan Roller Leader ada di kanan atas. Excel
+juga memuat kolom tambahan serta potongan lain agar total dapat ditelusuri.
+Saat mengekspor semua bagian, Excel menambah kolom Bagian Produksi.
+Kelengkapan rekening tidak menentukan apakah dokumen dapat diterbitkan.
+Sebelum periode **Ditutup**,
+pratinjau dan Excel diberi penanda **Hasil perhitungan / belum disahkan**.
+Lembar kosong pada kolom tanda tangan disiapkan untuk proses serah terima;
+penerbitan dokumen tidak berarti upah sudah dibayarkan.
+
+### Ringkasan produksi harian
+
+Pada aksi periode Payroll Borongan, pilih **Ringkasan produksi** untuk melihat
+total PCS, total upah, dan jumlah karyawan per tanggal. Filter **Bagian
+Produksi** dapat dibiarkan **Semua** atau diarahkan ke satu bagian. Angka dibaca
+dari snapshot run aktif yang sudah selesai, bukan dihitung ulang dari transaksi
+Produksi live. Jumlah karyawan pada setiap tanggal bersifat unik, sedangkan
+Grand Total merupakan akumulasi karyawan-hari seperti pivot Excel.
 
 ## 7. Melihat Slip Gaji
 
@@ -168,7 +202,7 @@ dan tujuannya adalah pelaporan, bukan instruksi transfer.
 
 - Akses lihat Payroll: riwayat dan preview slip sesuai site.
 - Hak ekspor Payroll: Rekap dan ekspor Laporan Payroll Final.
-- Hak ekspor pembayaran: Daftar Pembayaran dengan rekening lengkap.
+- Hak ekspor pembayaran: Daftar Pembayaran; rekening kosong ditandai `-`.
 - Hak cetak Payroll: cetak slip individual atau massal.
 - Laporan Payroll Final juga memerlukan akses Pusat Laporan.
 - Direksi dapat melihat lintas site, tetapi tidak memperoleh cetak massal atau
@@ -187,7 +221,7 @@ Jangan menyalin data rekening ke log, screenshot, tiket, atau pesan dukungan.
 |---|---|
 | Tombol Rekap tidak terlihat | Periksa status perhitungan Selesai dan hak ekspor Payroll. |
 | Tombol Daftar pembayaran tidak terlihat | Pastikan periode Ditutup, hasil FINAL + terbaru, dan hak ekspor pembayaran tersedia. |
-| Daftar Pembayaran ditolak | Ada data rekening yang belum lengkap pada hasil FINAL; perbaikan memerlukan peninjauan periode, bukan edit hasil final. |
+| Daftar Pembayaran memiliki tanda `-` | Snapshot rekening belum lengkap; periksa data karyawan dan lengkapi sebelum transfer. |
 | Periode tidak muncul di Slip Gaji | Pastikan periode Ditutup dan perhitungan terbaru FINAL berstatus Selesai. |
 | Tombol cetak tidak terlihat | Akun hanya memiliki akses preview dan tidak memiliki hak cetak Payroll. |
 | Profil slip salah pada simulasi | Simulasi memakai profil live; profil resmi disnapshot saat closing. |

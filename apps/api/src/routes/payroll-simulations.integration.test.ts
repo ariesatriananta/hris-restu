@@ -101,6 +101,8 @@ async function request(
 describe('Payroll simulation API', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.query.mockReset()
+    mocks.execute.mockReset()
     mocks.beginTransaction.mockResolvedValue(undefined)
     mocks.commit.mockResolvedValue(undefined)
     mocks.rollback.mockResolvedValue(undefined)
@@ -192,6 +194,64 @@ describe('Payroll simulation API', () => {
     expect(response.status).toBe(422)
     expect(mocks.execute).not.toHaveBeenCalled()
     expect(mocks.rollback).toHaveBeenCalledOnce()
+  })
+  it('menerima Insentif manual tanpa alasan', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[{
+        id: 10,
+        siteId: 2,
+        status: 'DRAFT',
+        employeeType: 'BORONGAN',
+        periodStart: '2026-08-01',
+        periodEnd: '2026-08-07',
+        siteCode: 'JEPARA',
+      }]])
+      .mockResolvedValueOnce([[{ processingRun: 0, lockedApproval: 0 }]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[{ id: 20, uid: '44444444-4444-4444-8444-444444444444' }]])
+      .mockResolvedValueOnce([[{
+        id: 30,
+        uid: '55555555-5555-4555-8555-555555555555',
+        code: 'INCENTIVE',
+        name: 'Insentif',
+        category: 'EARNING',
+      }]])
+      .mockResolvedValueOnce([[{
+        uid: '77777777-7777-4777-8777-777777777777',
+        status: 'ACTIVE',
+        employeeUid: '44444444-4444-4444-8444-444444444444',
+        employeeNumber: 'PKDS-001',
+        fullName: 'Budi',
+        componentTypeUid: '55555555-5555-4555-8555-555555555555',
+        componentCode: 'INCENTIVE',
+        componentName: 'Insentif',
+        componentCategory: 'EARNING',
+        amount: '150000.00',
+        notes: null,
+      }]])
+    mocks.execute.mockResolvedValueOnce([{ insertId: 40 }])
+
+    const response = await request(
+      '/periods/22222222-2222-4222-8222-222222222222/manual-components',
+      {
+        method: 'POST',
+        body: {
+          employeeUid: '44444444-4444-4444-8444-444444444444',
+          componentTypeUid: '55555555-5555-4555-8555-555555555555',
+          amount: '150000',
+          idempotencyKey: '66666666-6666-4666-8666-666666666666',
+        },
+      }
+    )
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toMatchObject({
+      data: { componentType: { code: 'INCENTIVE', category: 'EARNING' }, notes: null },
+    })
+    expect(mocks.execute).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO payroll_period_manual_components'),
+      expect.arrayContaining(['150000.00', null])
+    )
   })
   it('memblokir perubahan komponen manual saat run PROCESSING', async () => {
     mocks.query

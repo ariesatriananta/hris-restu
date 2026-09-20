@@ -30,13 +30,13 @@ baru terbentuk setelah seluruh komponen diterapkan.
 
 ## 2. Menyiapkan komponen manual
 
-Komponen manual dipakai untuk bonus, pendapatan lain, penalti, pinjaman, atau
+Komponen manual dipakai untuk bonus, insentif, pendapatan lain, penalti, pinjaman, atau
 potongan lain yang hanya berlaku pada satu periode.
 
 1. Pilih periode Draft atau Siap diajukan.
 2. Klik **Komponen manual**.
 3. Pilih karyawan dan jenis komponen.
-4. Isi nominal dan catatan.
+4. Isi nominal. Alasan opsional saat menambahkan komponen.
 5. Simpan.
 6. Jalankan **Hitung** atau **Hitung ulang** agar perubahan masuk ke hasil terbaru.
 
@@ -170,9 +170,9 @@ Run boleh selesai, tetapi pengajuan, persetujuan, dan closing diblokir sampai
 komponen diperbaiki dan hasil dihitung ulang.
 
 Rekening belum lengkap hanya menjadi peringatan. Simulasi dan workflow tetap
-dapat dilanjutkan. Namun, jika Daftar Pembayaran bank dibutuhkan, lengkapi nama
-bank, nomor rekening, dan nama pemilik rekening, lalu Hitung ulang **sebelum
-closing** agar snapshot final ikut lengkap.
+dapat dilanjutkan. Daftar Pembayaran tetap dapat diekspor; kolom kosong diberi
+tanda `-` dan harus diperiksa sebelum transfer. Sebaiknya lengkapi rekening
+dan Hitung ulang **sebelum closing** agar snapshot final ikut lengkap.
 
 ## 10. Jika perhitungan gagal atau macet
 
@@ -191,7 +191,7 @@ closing** agar snapshot final ikut lengkap.
 - [ ] Tidak ada karyawan dengan neto negatif.
 - [ ] Nilai dasar, tambahan, potongan, bruto, dan neto sudah dicocokkan.
 - [ ] Detail beberapa karyawan sudah diperiksa terhadap dokumen kerja.
-- [ ] Peringatan rekening dipahami; snapshot dilengkapi jika ekspor pembayaran diperlukan.
+- [ ] Peringatan rekening dipahami; data kosong ditindaklanjuti sebelum transfer.
 - [ ] Perbedaan dengan run sebelumnya masuk akal.
 
 ## 12. Solusi masalah umum

@@ -125,7 +125,7 @@ describe('Payroll simulation page', () => {
                 additionalEarnings: '0.00',
                 totalDeductions: '0.00',
                 netPay: '750000.00',
-                issues: [],
+                issues: ['NEGATIVE_NET', 'MISSING_BANK'],
               },
             ],
             meta: { page: 1, pageSize: 50, total: 1, totalPages: 1 },
@@ -152,6 +152,14 @@ describe('Payroll simulation page', () => {
     await expect
       .element(screen.getByText('Bruto Produksi'))
       .not.toBeInTheDocument()
+    await expect
+      .element(screen.getByRole('button', { name: 'Neto negatif' }).first())
+      .toBeInTheDocument()
+    await expect
+      .element(
+        screen.getByRole('button', { name: 'Rekening belum lengkap' }).first()
+      )
+      .toBeInTheDocument()
   })
 
   it('menampilkan ledger harian dan Produksi Training hanya sebagai monitoring', async () => {

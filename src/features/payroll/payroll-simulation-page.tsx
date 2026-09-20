@@ -13,6 +13,7 @@ import {
   CalendarCheck2,
   Calculator,
   CheckCircle2,
+  CircleAlert,
   CircleDollarSign,
   Eye,
   LoaderCircle,
@@ -63,6 +64,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import {
   DataTableActionButton,
   DataTablePagination,
@@ -831,6 +837,49 @@ function EmployeeResults({
   )
 }
 
+function PayrollIssueIndicators({
+  issues,
+}: {
+  issues: PayrollEmployeeResultSummary['issues']
+}) {
+  if (!issues.length) return null
+
+  return (
+    <div
+      className='mt-1 flex items-center gap-1.5'
+      aria-label='Kondisi Payroll'
+    >
+      {issues.map((issue) => {
+        const missingBank = issue === 'MISSING_BANK'
+        const label = missingBank ? 'Rekening belum lengkap' : 'Neto negatif'
+        const Icon = missingBank ? AlertTriangle : CircleAlert
+
+        return (
+          <Tooltip key={issue}>
+            <TooltipTrigger asChild>
+              <button
+                type='button'
+                className={cn(
+                  'inline-flex size-5 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+                  missingBank
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
+                    : 'bg-destructive/10 text-destructive'
+                )}
+                aria-label={label}
+              >
+                <Icon className='size-3.5' aria-hidden='true' />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side='top' sideOffset={6}>
+              {label}
+            </TooltipContent>
+          </Tooltip>
+        )
+      })}
+    </div>
+  )
+}
+
 function EmployeeIdentity({ item }: { item: PayrollEmployeeResultSummary }) {
   return (
     <div className='min-w-0'>
@@ -840,15 +889,7 @@ function EmployeeIdentity({ item }: { item: PayrollEmployeeResultSummary }) {
       <p className='truncate text-xs text-muted-foreground'>
         {item.employeeNumber} · {item.employeeType}
       </p>
-      <div className='mt-1 flex flex-wrap gap-1'>
-        {item.issues.map((itemIssue) => (
-          <Badge key={itemIssue} variant='destructive' className='text-[10px]'>
-            {itemIssue === 'MISSING_BANK'
-              ? 'Rekening belum lengkap'
-              : 'Neto negatif'}
-          </Badge>
-        ))}
-      </div>
+      <PayrollIssueIndicators issues={item.issues} />
     </div>
   )
 }
@@ -912,15 +953,7 @@ function EmployeeResultRow({
         <p className='text-xs text-muted-foreground'>
           {item.employeeNumber} · {item.employeeType}
         </p>
-        <div className='mt-1 flex flex-wrap gap-1'>
-          {item.issues.map((issue) => (
-            <Badge key={issue} variant='destructive' className='text-[10px]'>
-              {issue === 'MISSING_BANK'
-                ? 'Rekening belum lengkap'
-                : 'Neto negatif'}
-            </Badge>
-          ))}
-        </div>
+        <PayrollIssueIndicators issues={item.issues} />
       </div>
       {monthly && item.monthly ? (
         <div className='flex justify-between gap-3 md:block'>
@@ -1694,13 +1727,13 @@ function ManualComponentDialog({
         onOpenChange(false)
         return
       }
-      if (!employeeUid || !componentTypeUid || notes.trim().length < 5) return
+      if (!employeeUid || !componentTypeUid) return
       await mutation.mutateAsync({
         periodUid,
         employeeUid,
         componentTypeUid,
         amount: normalizedAmount,
-        notes: notes.trim(),
+        notes: notes.trim() || undefined,
         idempotencyKey: crypto.randomUUID(),
       })
       toast.success(
@@ -1827,13 +1860,17 @@ function ManualComponentDialog({
             </div>
             <div className='space-y-2'>
               <Label htmlFor='manual-reason'>
-                {editUid ? 'Catatan komponen' : 'Alasan'}
+                {editUid ? 'Catatan komponen' : 'Alasan (opsional)'}
               </Label>
               <Textarea
                 id='manual-reason'
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
-                placeholder='Jelaskan dasar komponen (minimal 5 karakter)'
+                placeholder={
+                  editUid
+                    ? 'Catatan komponen (opsional)'
+                    : 'Tambahkan alasan jika diperlukan'
+                }
                 maxLength={500}
               />
             </div>
@@ -1983,9 +2020,7 @@ function ManualComponentDialog({
               !hasPositiveAmount ||
               (editUid
                 ? !isValidPayrollAuditReason(editReason)
-                : !employeeUid ||
-                  !componentTypeUid ||
-                  notes.trim().length < 5) ||
+                : !employeeUid || !componentTypeUid) ||
               mutation.isPending ||
               updateMutation.isPending
             }

@@ -217,7 +217,8 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Run `TIME_BASED` memakai workflow resmi yang sama dengan `PIECE_RATE` setelah
   lolos pemeriksaan integritas snapshot sesuai skemanya. Submit, approval,
   closing, export, dan slip tidak boleh melewati blocker readiness, perubahan
-  sumber, neto negatif, rekening tidak lengkap, atau current run yang stale.
+  sumber, neto negatif, atau current run yang stale. Rekening tidak lengkap
+  hanya peringatan; kolom kosong pada Daftar Pembayaran diberi tanda `-`.
 - Closing mengesahkan hasil Payroll dan membuat current run menjadi `FINAL`,
   tetapi tidak menyatakan gaji sudah ditransfer atau diterima karyawan.
 - Policy Payroll wajib tersedia satu baris aktif per site dan jenis karyawan,
@@ -329,9 +330,24 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Rekap Payroll selalu menyamarkan rekening. Rekening lengkap hanya boleh ada
   pada Daftar Pembayaran dari current run `FINAL` pada periode `CLOSED`, untuk
   Payroll Finance sesuai akses site dan `SUPER_ADMIN` lintas site. Daftar
-  Pembayaran wajib menolak pilihan karyawan yang snapshot nama bank, nomor
-  rekening, atau nama pemilik rekeningnya belum lengkap; karyawan lain yang
-  lengkap tetap dapat diekspor sebagai pilihan terpisah.
+  Pembayaran tetap dapat diekspor saat snapshot nama bank, nomor rekening,
+  atau nama pemilik rekening belum lengkap. Kolom yang kosong diberi tanda
+  `-` dan wajib diperiksa sebelum transfer.
+- Lembar serah terima upah Borongan memakai run `COMPLETED` pada
+  periode `CALCULATED`, `APPROVED`, atau `CLOSED`. Pratinjau, cetak, dan Excel
+  tidak bergantung pada kelengkapan rekening. Jenis bagian produksi dan modul
+  mengikuti penempatan karyawan dalam periode; nama mandor dipilih dari
+  pengaturan sistem. Pilihan mandor, bagian produksi, modul, dan tanggal
+  serah terima berlaku untuk satu penerbitan saja, tidak mengubah hasil Payroll.
+  Pratinjau dan Excel boleh mencakup semua Bagian Produksi dan Modul tanpa
+  mandor; cetak mewajibkan satu Bagian Produksi, satu Modul, dan mandor.
+  Run historis diberi penanda bukan hasil aktif. Sebelum `CLOSED`, dokumen ditandai belum disahkan; penerbitan tidak membuktikan
+  pembayaran telah terjadi.
+- Ringkasan produksi harian pada Riwayat Payroll hanya membaca snapshot run
+  Borongan `COMPLETED`. Baris tanggal menjumlahkan kuantitas dan upah serta
+  menghitung karyawan unik pada tanggal tersebut. Grand Total karyawan adalah
+  akumulasi karyawan-hari, sama seperti hasil pivot per tanggal, bukan jumlah
+  karyawan unik sepanjang periode. Filter Bagian Produksi boleh `Semua`.
 - Pengguna `payroll.view` boleh melihat preview slip dengan rekening
   disamarkan. Cetak individual dan massal hanya untuk pengguna berizin
   `payroll.print`; Direksi tidak mendapat akses cetak massal secara default.

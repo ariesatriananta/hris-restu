@@ -54,6 +54,35 @@ describe('Payroll M4 history API',()=>{
     expect(failed.status).toBe(409)
   })
 
+  it('meringkas snapshot produksi per tanggal dan Bagian Produksi',async()=>{
+    const sectionUid='77777777-7777-4777-8777-777777777777'
+    mocks.query
+      .mockResolvedValueOnce([[run]])
+      .mockResolvedValueOnce([[
+        {uid:sectionUid,name:'Linting'},
+        {uid:'88888888-8888-4888-8888-888888888888',name:'Packing'},
+      ]])
+      .mockResolvedValueOnce([[
+        {businessDate:'2026-08-01',totalQuantity:'3200.0000',totalAmount:'145000.00',employeeCount:25},
+        {businessDate:'2026-08-02',totalQuantity:'3500.0000',totalAmount:'165000.00',employeeCount:27},
+      ]])
+      .mockResolvedValueOnce([[
+        {totalQuantity:'6700.0000',totalAmount:'310000.00',employeeCount:52},
+      ]])
+    const response=await request(`/runs/${run.runUid}/production-daily-summary?sectionUid=${sectionUid}`)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({data:{
+      selectedSectionUid:sectionUid,
+      rows:[
+        {businessDate:'2026-08-01',totalQuantity:'3200.0000',totalAmount:'145000.00',employeeCount:25},
+        {businessDate:'2026-08-02',totalQuantity:'3500.0000',totalAmount:'165000.00',employeeCount:27},
+      ],
+      total:{totalQuantity:'6700.0000',totalAmount:'310000.00',employeeCount:52},
+    }})
+    expect(String(mocks.query.mock.calls[2]?.[0])).toContain('SUM(detail.quantity_snapshot)')
+    expect(mocks.query.mock.calls[2]?.[1]).toEqual([run.runId,sectionUid])
+  })
+
   it('membatasi payment export berdasarkan permission dan FINAL CLOSED',async()=>{
     const denied=await request(`/runs/${run.runUid}/export`,{method:'POST',body:{type:'PAYMENT',idempotencyKey:'44444444-4444-4444-8444-444444444444'}})
     expect(denied.status).toBe(403)
@@ -63,7 +92,7 @@ describe('Payroll M4 history API',()=>{
     expect(notFinal.status).toBe(409)
   })
 
-  it('memblokir payment export bila snapshot rekening pilihan belum lengkap',async()=>{
+  it('mengizinkan payment export walaupun snapshot rekening belum lengkap',async()=>{
     const officialRun={...run,periodStatus:'CLOSED',runType:'FINAL',currentRunId:run.runId}
     mocks.query.mockImplementation(async(sql:unknown)=>{
       const statement=String(sql)
@@ -84,8 +113,11 @@ describe('Payroll M4 history API',()=>{
       auth:{...finance,permissions:['payroll.view','payroll.payment_export']},
       body:{type:'PAYMENT',idempotencyKey:'45444444-4444-4444-8444-444444444444'},
     })
-    expect(response.status).toBe(409)
-    expect(mocks.begin).not.toHaveBeenCalled()
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('spreadsheetml.sheet')
+    expect(mocks.begin).toHaveBeenCalledOnce()
+    expect(mocks.commit).toHaveBeenCalledOnce()
+    expect(mocks.audit).toHaveBeenCalledOnce()
   })
 
   it('preview slip hanya mengirim empat digit rekening dan issue perlu izin print',async()=>{

@@ -124,10 +124,9 @@ Kesiapan membaca data terbaru. Pemeriksaan ini bukan hasil hitung Payroll.
 - Attendance Hadir terjadi pada hari nonkerja untuk Harian/Training.
 
 Rekening belum lengkap adalah peringatan. Kondisi itu tidak menghilangkan hak
-upah dan tidak memblokir hitung, submit, approval, atau closing. Dampaknya baru
-menjadi pembatas ketika membuat Daftar Pembayaran bank. Karena layar saat ini
-mengekspor seluruh run, satu snapshot rekening yang belum lengkap akan menolak
-file tersebut.
+upah dan tidak memblokir hitung, submit, approval, atau closing. Daftar
+Pembayaran tetap dapat diekspor; kolom rekening kosong diberi tanda `-`
+dan harus diperiksa sebelum transfer.
 
 ## 8. Membaca preview kesiapan berbasis waktu
 

@@ -8,9 +8,15 @@ export const Route = createFileRoute('/_authenticated/payroll/riwayat')({
   validateSearch: z.object({
     query: z.string().optional(),
     siteCode: z.string().trim().min(1).max(20).optional(),
-    status: z.enum(['DRAFT', 'CALCULATED', 'APPROVED', 'CLOSED', 'CANCELLED']).optional(),
+    status: z
+      .enum(['DRAFT', 'CALCULATED', 'APPROVED', 'CLOSED', 'CANCELLED'])
+      .optional(),
     dateFrom: z.string().date().optional(),
     dateTo: z.string().date().optional(),
+    sortBy: z
+      .enum(['periodStart', 'periodName', 'siteName', 'status', 'createdAt'])
+      .optional(),
+    sortDirection: z.enum(['asc', 'desc']).optional(),
     page: z.number().int().positive().optional(),
     pageSize: z.number().int().min(1).max(500).optional(),
     periodUid: z.string().uuid().optional(),
@@ -22,5 +28,10 @@ export const Route = createFileRoute('/_authenticated/payroll/riwayat')({
 
 // eslint-disable-next-line react-refresh/only-export-components
 function RouteComponent() {
-  return <PayrollHistoryPage search={Route.useSearch()} navigate={Route.useNavigate()} />
+  return (
+    <PayrollHistoryPage
+      search={Route.useSearch()}
+      navigate={Route.useNavigate()}
+    />
+  )
 }

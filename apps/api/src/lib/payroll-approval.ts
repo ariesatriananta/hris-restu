@@ -47,7 +47,7 @@ function integrityFromFacts(
   if (Number(facts.negativeNetCount ?? 0) > 0)
     issues.push(issue('NEGATIVE_NET_PAY','Terdapat karyawan dengan penerimaan bersih negatif.',facts.negativeNetCount))
   if (Number(facts.missingBankCount ?? 0) > 0)
-    warnings.push(issue('MISSING_BANK_ACCOUNT','Snapshot rekening pembayaran belum lengkap. Daftar Pembayaran bank belum dapat dibuat untuk karyawan tersebut.',facts.missingBankCount))
+    warnings.push(issue('MISSING_BANK_ACCOUNT','Snapshot rekening pembayaran belum lengkap. Daftar Pembayaran tetap dapat diekspor dengan tanda -; periksa sebelum transfer.',facts.missingBankCount))
   if (Number(facts.bankDriftCount ?? 0) > 0)
     issues.push(issue('BANK_ACCOUNT_DRIFT','Data rekening karyawan berubah setelah simulasi. Hitung ulang Payroll.',facts.bankDriftCount))
   const productionDrift = Number(facts.productionCountDrift ?? 0) + Number(facts.productionValueDrift ?? 0)

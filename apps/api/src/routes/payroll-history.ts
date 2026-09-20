@@ -16,9 +16,12 @@ const historyQuery = z.object({
   siteCode: z.string().trim().max(20).optional(),
   status: z.enum(['DRAFT','CALCULATED','APPROVED','CLOSED','CANCELLED']).optional(),
   dateFrom: isoDate.optional(), dateTo: isoDate.optional(), query: z.string().trim().max(100).optional(),
+  sortBy: z.enum(['periodStart','periodName','siteName','status','createdAt']).default('periodStart'),
+  sortDirection: z.enum(['asc','desc']).default('desc'),
   page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(500).default(50),
 })
 const compareQuery = z.object({ baseRunUid: uuid, targetRunUid: uuid })
+const productionDailySummaryQuery = z.object({ sectionUid: uuid.optional() })
 const outputInput = z.object({ type: z.enum(['SUMMARY','PAYMENT']), idempotencyKey: uuid,
   employeeResultUids:z.array(uuid).max(500).optional(),query:z.string().trim().max(100).optional() }).strict()
 const issueInput = z.object({ employeeResultUids: z.array(uuid).max(500).optional(), idempotencyKey: uuid }).strict()
@@ -224,6 +227,8 @@ payrollHistoryRouter.use((_req,res,next)=>{res.setHeader('Cache-Control','no-sto
 
 payrollHistoryRouter.get('/history',requirePermission('payroll.view'),async(req,res,next)=>{try{
   const auth=res.locals.auth as AuthContext,input=historyQuery.parse(req.query),where=['1=1'],values:unknown[]=[]
+  const sortColumns={periodStart:'pp.period_start',periodName:'pp.period_name',siteName:'s.name',status:'pp.status',createdAt:'pp.created_at'} as const
+  const orderBy=`${sortColumns[input.sortBy]} ${input.sortDirection.toUpperCase()},pp.id DESC`
   if(!isGlobal(auth)){if(!auth.siteAccess.length)return res.json({data:[],meta:{page:input.page,pageSize:input.pageSize,total:0,totalPages:0,sites:[],capabilities:{canExport:false,canPaymentExport:false,canPrint:false}}});where.push(`s.code IN (${auth.siteAccess.map(()=>'?').join(',')})`);values.push(...auth.siteAccess)}
   if(input.siteCode){enforceSite(auth,input.siteCode);where.push('s.code=?');values.push(input.siteCode)}
   if(input.status){where.push('pp.status=?');values.push(input.status)} if(input.dateFrom){where.push('pp.period_end>=?');values.push(input.dateFrom)} if(input.dateTo){where.push('pp.period_start<=?');values.push(input.dateTo)}
@@ -236,7 +241,7 @@ payrollHistoryRouter.get('/history',requirePermission('payroll.view'),async(req,
     s.code siteCode,s.name siteName,COUNT(allrun.id) runCount,SUM(allrun.status='COMPLETED') completedRunCount,SUM(allrun.status='FAILED') failedRunCount,
     ${runColumns('current','current')},(pp.current_run_id=current.id) currentIsCurrent FROM payroll_periods pp JOIN sites s ON s.id=pp.site_id
     LEFT JOIN payroll_runs allrun ON allrun.payroll_period_id=pp.id LEFT JOIN payroll_runs current ON current.id=pp.current_run_id
-    WHERE ${where.join(' AND ')} GROUP BY pp.id,current.id ORDER BY pp.period_start DESC,pp.id DESC LIMIT ? OFFSET ?`,[...values,input.pageSize,(input.page-1)*input.pageSize])
+    WHERE ${where.join(' AND ')} GROUP BY pp.id,current.id ORDER BY ${orderBy} LIMIT ? OFFSET ?`,[...values,input.pageSize,(input.page-1)*input.pageSize])
   const siteWhere=isGlobal(auth)?'s.is_active=1':`s.is_active=1 AND s.code IN (${auth.siteAccess.map(()=>'?').join(',')})`
   const [siteRows]=await pool.query<RowDataPacket[]>(`SELECT s.uid,s.code,s.name FROM sites s WHERE ${siteWhere} ORDER BY s.name`,isGlobal(auth)?[]:auth.siteAccess)
   const total=Number(counts[0]?.total??0),superUser=isSuper(auth)
@@ -278,19 +283,55 @@ payrollHistoryRouter.get('/periods/:periodUid/compare',requirePermission('payrol
       return {employeeUid:row.employeeUid,employeeNumber:row.employeeNumber,fullName:row.fullName,change:!row.baseId?'ADDED':!row.targetId?'REMOVED':Object.values(deltas).some(v=>v!=='0.00')?'CHANGED':'UNCHANGED',base:baseAmounts,target:targetAmounts,deltas}})}})
 }catch(error){next(error)}})
 
+payrollHistoryRouter.get('/runs/:runUid/production-daily-summary',requirePermission('payroll.view'),async(req,res,next)=>{try{
+  const auth=res.locals.auth as AuthContext
+  const row=await loadRun(auth,uuid.parse(req.params.runUid))
+  const input=productionDailySummaryQuery.parse(req.query)
+  assertCompleted(row)
+  if(row.payrollBasis!=='PIECE_RATE'||row.employeeTypeCode!=='BORONGAN') throw new ApiError(409,'Ringkasan produksi harian hanya tersedia untuk Payroll Borongan.')
+
+  const employmentJoin=`LEFT JOIN employee_employment_histories history ON history.id=(
+    SELECT latest.id FROM employee_employment_histories latest
+    WHERE latest.employee_id=result.employee_id AND latest.site_id=result.site_id
+      AND latest.effective_from<=detail.business_date
+      AND (latest.effective_to IS NULL OR latest.effective_to>=detail.business_date)
+    ORDER BY latest.effective_from DESC,latest.id DESC LIMIT 1)
+    LEFT JOIN production_module_sections pms ON pms.id=history.production_module_section_id
+    LEFT JOIN production_sections productionSection ON productionSection.id=pms.production_section_id`
+  const [sectionRows]=await pool.query<RowDataPacket[]>(`SELECT DISTINCT productionSection.uid,productionSection.name
+    FROM payroll_production_details detail
+    JOIN payroll_employee_results result ON result.id=detail.payroll_employee_result_id
+    ${employmentJoin}
+    WHERE result.payroll_run_id=? AND productionSection.id IS NOT NULL
+    ORDER BY productionSection.name`,[row.runId])
+  if(input.sectionUid&&!sectionRows.some(section=>section.uid===input.sectionUid)) throw new ApiError(422,'Bagian Produksi tidak tersedia pada run Payroll ini.')
+
+  const sectionFilter=input.sectionUid?' AND productionSection.uid=?':''
+  const values=input.sectionUid?[row.runId,input.sectionUid]:[row.runId]
+  const from=`FROM payroll_production_details detail
+    JOIN payroll_employee_results result ON result.id=detail.payroll_employee_result_id
+    ${employmentJoin}
+    WHERE result.payroll_run_id=?${sectionFilter}`
+  const [dailyRows]=await pool.query<RowDataPacket[]>(`SELECT DATE_FORMAT(detail.business_date,'%Y-%m-%d') businessDate,
+    SUM(detail.quantity_snapshot) totalQuantity,SUM(detail.amount_snapshot) totalAmount,
+    COUNT(DISTINCT result.employee_id) employeeCount ${from}
+    GROUP BY detail.business_date ORDER BY detail.business_date`,values)
+  const [totalRows]=await pool.query<RowDataPacket[]>(`SELECT SUM(detail.quantity_snapshot) totalQuantity,
+    SUM(detail.amount_snapshot) totalAmount,
+    COUNT(DISTINCT result.employee_id,detail.business_date) employeeCount ${from}`,values)
+  const total=totalRows[0]??{}
+  res.json({data:{run:{uid:row.runUid,runNumber:Number(row.runNumber),isCurrent:Number(row.currentRunId)===Number(row.runId),periodCode:row.periodCode,
+    periodName:row.periodName,periodStart:row.periodStart,periodEnd:row.periodEnd,siteName:row.siteName},
+    sections:sectionRows.map(section=>({uid:section.uid,name:section.name})),selectedSectionUid:input.sectionUid??null,
+    rows:dailyRows.map(item=>({businessDate:item.businessDate,totalQuantity:String(item.totalQuantity??'0'),totalAmount:money(item.totalAmount),employeeCount:Number(item.employeeCount??0)})),
+    total:{totalQuantity:String(total.totalQuantity??'0'),totalAmount:money(total.totalAmount),employeeCount:Number(total.employeeCount??0)}}})
+}catch(error){next(error)}})
+
 payrollHistoryRouter.post('/runs/:runUid/export',async(req,res,next)=>{try{
   const input=outputInput.parse(req.body),permission=input.type==='PAYMENT'?'payroll.payment_export':'payroll.export',auth=res.locals.auth as AuthContext
   if(!isSuper(auth)&&!auth.permissions.includes(permission)) throw new ApiError(403,'Anda tidak memiliki izin untuk export Payroll ini.')
   const row=await loadRun(auth,uuid.parse(req.params.runUid));assertCompleted(row);if(input.type==='PAYMENT'&&!isOfficial(row)) throw new ApiError(409,'Daftar Pembayaran hanya tersedia dari current run FINAL pada Payroll CLOSED.')
   const results=await employeeRows(Number(row.runId),{ids:input.employeeResultUids,query:input.query});
-  if(input.type==='PAYMENT'){
-    const missingBankAccounts=results.filter(result=>
-      !String(result.bank_name_snapshot??'').trim()||
-      !String(result.bank_account_number_snapshot??'').trim()||
-      !String(result.bank_account_name_snapshot??'').trim()
-    ).length
-    if(missingBankAccounts>0) throw new ApiError(409,`Daftar Pembayaran belum dapat dibuat: ${missingBankAccounts} rekening karyawan belum lengkap.`)
-  }
   const exportRows:PayrollExportRow[]=results.map(result=>({employeeNumber:result.employee_number_snapshot,fullName:result.employee_name_snapshot,
     employeeType:result.employee_type_snapshot,departmentName:result.department_name_snapshot,positionName:result.position_name_snapshot,bankName:result.bank_name_snapshot,
     bankAccountNumber:result.bank_account_number_snapshot,bankAccountName:result.bank_account_name_snapshot,pieceRateAmount:money(result.piece_rate_amount),basicSalaryAmount:money(result.basic_salary_amount),additionalEarnings:money(result.additional_earnings),

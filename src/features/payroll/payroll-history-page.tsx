@@ -1,9 +1,17 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
 import { format, parseISO } from 'date-fns'
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+  type SortingState,
+} from '@tanstack/react-table'
 import { id } from 'date-fns/locale'
 import {
   AlertCircle,
+  BarChart3,
   CalendarDays,
   CheckCircle2,
   Download,
@@ -11,28 +19,17 @@ import {
   FileClock,
   GitCompareArrows,
   LoaderCircle,
-  Search,
+  Printer,
   type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import {
-  siteScopeLabel,
-  useSiteScopeFilter,
-} from '@/hooks/use-site-scope-filter'
-import { type NavigateFn } from '@/hooks/use-table-url-state'
+import { useSiteScopeFilter } from '@/hooks/use-site-scope-filter'
+import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Sheet,
   SheetContent,
@@ -41,9 +38,22 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
+  DataTableActionButton,
+  DataTableColumnHeader,
+  DataTablePagination,
+  DataTableToolbar,
+} from '@/components/data-table'
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
-import { SiteScopeFilter } from '@/components/site-scope-filter'
 import {
   exportPayrollRun,
   usePayrollHistory,
@@ -57,6 +67,7 @@ import type {
   PayrollRunSummary,
 } from './domain'
 import { formatDecimalString } from './money'
+import { PayrollHandoverDialog } from './payroll-handover-dialog'
 import {
   canExportPayrollPayment,
   emptyPayrollHistoryFilters,
@@ -67,6 +78,7 @@ import {
   payrollBaseLabel,
   payrollSchemeName,
 } from './payroll-presentation'
+import { PayrollProductionDailySummaryDialog } from './payroll-production-daily-summary-dialog'
 
 type SearchState = Record<string, unknown>
 
@@ -128,6 +140,14 @@ export function PayrollHistoryPage({
   const dateTo = typeof search.dateTo === 'string' ? search.dateTo : ''
   const page = typeof search.page === 'number' ? search.page : 1
   const pageSize = typeof search.pageSize === 'number' ? search.pageSize : 50
+  const sortBy =
+    typeof search.sortBy === 'string' ? search.sortBy : 'periodStart'
+  const sortDirection = search.sortDirection === 'asc' ? 'asc' : 'desc'
+  const [handoverRunUid, setHandoverRunUid] = useState<string | undefined>()
+  const [productionSummaryRunUid, setProductionSummaryRunUid] = useState<
+    string | undefined
+  >()
+  const [exportingRunUid, setExportingRunUid] = useState<string | undefined>()
   const detailUid =
     typeof search.periodUid === 'string' ? search.periodUid : undefined
   const baseRunUid =
@@ -143,6 +163,8 @@ export function PayrollHistoryPage({
     dateTo: dateTo || undefined,
     page,
     pageSize,
+    sortBy,
+    sortDirection,
   })
   const patch = (value: SearchState) =>
     navigate({ search: (previous) => ({ ...previous, ...value }) })
@@ -157,9 +179,215 @@ export function PayrollHistoryPage({
       failed: items.reduce((total, item) => total + item.failedRunCount, 0),
     }
   }, [history.data])
-  const hasFilters = Boolean(
-    query || requestedSiteCode || status || dateFrom || dateTo
-  )
+  const hasFilters = Boolean(dateFrom || dateTo)
+  const url = useTableUrlState({
+    search,
+    navigate,
+    globalFilter: { key: 'query' },
+  })
+  const sorting: SortingState = [{ id: sortBy, desc: sortDirection === 'desc' }]
+  const openHistory = (period: PayrollHistoryPeriod) =>
+    patch({
+      periodUid: period.uid,
+      baseRunUid: undefined,
+      targetRunUid: undefined,
+    })
+  const canHandover = (period: PayrollHistoryPeriod) =>
+    (history.data?.meta.capabilities.canPrint ||
+      history.data?.meta.capabilities.canExport) &&
+    ['CALCULATED', 'APPROVED', 'CLOSED'].includes(period.status) &&
+    period.employeeType === 'BORONGAN' &&
+    period.payrollBasis === 'PIECE_RATE' &&
+    period.currentRun?.status === 'COMPLETED' &&
+    period.currentRun.isCurrent
+  const canShowProductionSummary = (period: PayrollHistoryPeriod) =>
+    period.employeeType === 'BORONGAN' &&
+    period.payrollBasis === 'PIECE_RATE' &&
+    period.currentRun?.status === 'COMPLETED'
+  const downloadRecap = async (runUid: string) => {
+    try {
+      setExportingRunUid(runUid)
+      await exportPayrollRun(runUid, 'SUMMARY')
+      toast.success('Rekap Payroll berhasil diunduh.')
+    } catch (error) {
+      toast.error(apiError(error, 'Unduh rekap Payroll gagal.'))
+    } finally {
+      setExportingRunUid(undefined)
+    }
+  }
+  const columns: ColumnDef<PayrollHistoryPeriod>[] = [
+    {
+      accessorKey: 'periodName',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Periode' />
+      ),
+      cell: ({ row }) => (
+        <div
+          className='max-w-44 min-w-0'
+          title={`${row.original.periodName} · ${row.original.periodCode}`}
+        >
+          <p className='truncate font-semibold'>{row.original.periodName}</p>
+          <p className='truncate text-xs text-muted-foreground'>
+            {row.original.periodCode}
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: 'site',
+      accessorFn: (period) => period.site.code,
+      header: 'Site',
+      enableHiding: false,
+    },
+    {
+      accessorKey: 'periodStart',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Rentang & skema' />
+      ),
+      cell: ({ row }) => (
+        <div className='whitespace-nowrap'>
+          <p>
+            {localDate(row.original.periodStart)} –{' '}
+            {localDate(row.original.periodEnd)}
+          </p>
+          <p className='text-xs text-muted-foreground'>
+            {payrollSchemeName(row.original)}
+          </p>
+        </div>
+      ),
+    },
+    {
+      accessorKey: 'status',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Status' />
+      ),
+      cell: ({ row }) => <PeriodBadge status={row.original.status} />,
+    },
+    {
+      id: 'netPay',
+      header: () => (
+        <span className='block text-right'>Perhitungan & neto</span>
+      ),
+      enableSorting: false,
+      cell: ({ row }) => (
+        <div className='text-right whitespace-nowrap'>
+          <p className='font-semibold'>
+            {row.original.currentRun
+              ? money(row.original.currentRun.totalNetPay)
+              : '—'}
+          </p>
+          <span className='text-xs text-muted-foreground'>
+            {row.original.runCount} perhitungan
+          </span>
+          {row.original.failedRunCount > 0 && (
+            <p className='text-xs text-destructive'>
+              {row.original.failedRunCount} gagal
+            </p>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'actions',
+      header: () => <span className='block text-right'>Aksi</span>,
+      enableSorting: false,
+      enableHiding: false,
+      cell: ({ row }) => (
+        <div className='flex justify-end gap-1'>
+          <DataTableActionButton
+            label={`Lihat histori ${row.original.periodName}`}
+            onClick={() => openHistory(row.original)}
+          >
+            <Eye className='size-4' />
+          </DataTableActionButton>
+          {history.data?.meta.capabilities.canExport &&
+            row.original.currentRun?.status === 'COMPLETED' && (
+              <DataTableActionButton
+                label={`Unduh rekap aktif ${row.original.periodName}`}
+                disabled={exportingRunUid === row.original.currentRun.uid}
+                onClick={() => void downloadRecap(row.original.currentRun!.uid)}
+              >
+                {exportingRunUid === row.original.currentRun.uid ? (
+                  <LoaderCircle className='size-4 animate-spin' />
+                ) : (
+                  <Download className='size-4' />
+                )}
+              </DataTableActionButton>
+            )}
+          {canShowProductionSummary(row.original) && (
+            <DataTableActionButton
+              label={`Ringkasan produksi ${row.original.periodName}`}
+              onClick={() =>
+                setProductionSummaryRunUid(row.original.currentRun!.uid)
+              }
+            >
+              <BarChart3 className='size-4' />
+            </DataTableActionButton>
+          )}
+          {canHandover(row.original) && (
+            <DataTableActionButton
+              label={`Lembar serah terima upah ${row.original.periodName}`}
+              onClick={() => setHandoverRunUid(row.original.currentRun!.uid)}
+            >
+              <Printer className='size-4' />
+            </DataTableActionButton>
+          )}
+        </div>
+      ),
+    },
+  ]
+  // TanStack Table mengembalikan fungsi stateful; ini pola resmi starter.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const table = useReactTable({
+    data: history.data?.data ?? [],
+    columns,
+    state: {
+      globalFilter: url.globalFilter,
+      pagination: url.pagination,
+      sorting,
+      columnVisibility: { site: false },
+      columnFilters: [
+        ...(siteCode ? [{ id: 'site', value: [siteCode] }] : []),
+        ...(status ? [{ id: 'status', value: [status] }] : []),
+      ],
+    },
+    manualFiltering: true,
+    manualPagination: true,
+    manualSorting: true,
+    pageCount: history.data?.meta.totalPages ?? 0,
+    onGlobalFilterChange: url.onGlobalFilterChange,
+    onColumnFiltersChange: (updater) => {
+      const current = [
+        ...(siteCode ? [{ id: 'site', value: [siteCode] }] : []),
+        ...(status ? [{ id: 'status', value: [status] }] : []),
+      ]
+      const next = typeof updater === 'function' ? updater(current) : updater
+      const nextSite = next.find((item) => item.id === 'site')?.value as
+        | string[]
+        | undefined
+      const nextStatus = next.find((item) => item.id === 'status')?.value as
+        | string[]
+        | undefined
+      resetPage({
+        siteCode: lockedSite ? undefined : nextSite?.[nextSite.length - 1],
+        status: nextStatus?.[nextStatus.length - 1],
+      })
+    },
+    onPaginationChange: url.onPaginationChange,
+    onSortingChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(sorting) : updater
+      patch({
+        sortBy: next[0]?.id ?? 'periodStart',
+        sortDirection: next[0]?.desc ? 'desc' : 'asc',
+        page: undefined,
+      })
+    },
+    getCoreRowModel: getCoreRowModel(),
+    getRowId: (period) => period.uid,
+  })
+  useEffect(() => {
+    url.ensurePageInRange(history.data?.meta.totalPages ?? 0)
+  }, [history.data?.meta.totalPages, url])
 
   return (
     <Main>
@@ -174,14 +402,6 @@ export function PayrollHistoryPage({
             yang telah disahkan.
           </p>
         </header>
-
-        <Alert className='border-sky-200 bg-sky-50/70 text-sky-950 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100'>
-          <AlertCircle className='size-4' />
-          <AlertDescription>
-            Status Ditutup mengesahkan hasil Payroll, tetapi tidak menyatakan
-            dana sudah ditransfer atau diterima karyawan.
-          </AlertDescription>
-        </Alert>
 
         <div
           className='grid grid-cols-2 gap-2 lg:grid-cols-4'
@@ -213,116 +433,123 @@ export function PayrollHistoryPage({
           />
         </div>
 
-        <section className='grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_180px_180px_170px_170px_auto]'>
-          <div className='relative'>
-            <Search className='absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground' />
-            <Input
-              value={query}
-              onChange={(event) =>
-                resetPage({ query: event.target.value || undefined })
-              }
-              placeholder='Cari kode atau nama periode...'
-              className='pl-9'
-              aria-label='Cari riwayat Payroll'
-            />
-          </div>
-          {lockedSite ? (
-            <SiteScopeFilter
-              siteLabel={siteScopeLabel(
-                lockedSite,
-                history.data?.meta.sites.map((site) => ({
-                  value: site.code,
-                  label: site.name,
-                }))
-              )}
-              className='h-9 w-full'
-            />
-          ) : (
-            <Select
-              value={siteCode || 'ALL'}
-              onValueChange={(value) =>
-                resetPage({ siteCode: value === 'ALL' ? undefined : value })
-              }
-            >
-              <SelectTrigger className='w-full' aria-label='Filter site'>
-                <SelectValue placeholder='Semua site' />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='ALL'>Semua site</SelectItem>
-                {history.data?.meta.sites.map((site) => (
-                  <SelectItem key={site.uid} value={site.code}>
-                    {site.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <Select
-            value={status || 'ALL'}
-            onValueChange={(value) =>
-              resetPage({ status: value === 'ALL' ? undefined : value })
-            }
-          >
-            <SelectTrigger className='w-full' aria-label='Filter status'>
-              <SelectValue placeholder='Semua status' />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value='ALL'>Semua status</SelectItem>
-              {statuses.map((item) => (
-                <SelectItem key={item} value={item}>
-                  {statusLabel[item]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <DatePicker
-            selected={dateFrom ? parseISO(dateFrom) : undefined}
-            onSelect={(value) =>
-              resetPage({
-                dateFrom: value ? format(value, 'yyyy-MM-dd') : undefined,
-              })
-            }
-            placeholder='Dari tanggal'
-          />
-          <DatePicker
-            selected={dateTo ? parseISO(dateTo) : undefined}
-            onSelect={(value) =>
-              resetPage({
-                dateTo: value ? format(value, 'yyyy-MM-dd') : undefined,
-              })
-            }
-            placeholder='Sampai tanggal'
-          />
-          {hasFilters && (
-            <Button
-              variant='ghost'
-              onClick={() => patch(emptyPayrollHistoryFilters())}
-            >
-              Reset
-            </Button>
-          )}
-        </section>
+        <DataTableToolbar
+          table={table}
+          searchPlaceholder='Cari kode atau nama periode...'
+          searchDebounceMs={300}
+          hasAdditionalFilters={hasFilters}
+          onResetAdditionalFilters={() => patch(emptyPayrollHistoryFilters())}
+          filters={[
+            {
+              columnId: 'site',
+              title: 'Site',
+              options: (history.data?.meta.sites ?? []).map((site) => ({
+                value: site.code,
+                label: site.name,
+              })),
+            },
+            {
+              columnId: 'status',
+              title: 'Status',
+              options: statuses.map((item) => ({
+                value: item,
+                label: statusLabel[item],
+              })),
+            },
+          ]}
+          additionalFilters={
+            <div className='grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto'>
+              <DatePicker
+                selected={dateFrom ? parseISO(dateFrom) : undefined}
+                onSelect={(value) =>
+                  resetPage({
+                    dateFrom: value ? format(value, 'yyyy-MM-dd') : undefined,
+                  })
+                }
+                placeholder='Dari tanggal'
+                triggerClassName='h-8 sm:w-38'
+              />
+              <DatePicker
+                selected={dateTo ? parseISO(dateTo) : undefined}
+                onSelect={(value) =>
+                  resetPage({
+                    dateTo: value ? format(value, 'yyyy-MM-dd') : undefined,
+                  })
+                }
+                placeholder='Sampai tanggal'
+                triggerClassName='h-8 sm:w-38'
+              />
+            </div>
+          }
+        />
 
         {history.isPending ? (
           <HistorySkeleton />
         ) : history.isError ? (
           <ErrorState onRetry={() => history.refetch()} />
         ) : history.data?.data.length ? (
-          <div className='space-y-2'>
-            {history.data.data.map((period) => (
-              <PeriodCard
-                key={period.uid}
-                period={period}
-                onOpen={() =>
-                  patch({
-                    periodUid: period.uid,
-                    baseRunUid: undefined,
-                    targetRunUid: undefined,
-                  })
-                }
-              />
-            ))}
-          </div>
+          <>
+            <div className='hidden overflow-x-auto rounded-md border md:block'>
+              <Table className='text-sm'>
+                <TableHeader>
+                  {table.getHeaderGroups().map((group) => (
+                    <TableRow key={group.id}>
+                      {group.headers.map((header) => (
+                        <TableHead key={header.id} className='h-10'>
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(
+                                header.column.columnDef.header,
+                                header.getContext()
+                              )}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody>
+                  {table.getRowModel().rows.map((row) => (
+                    <TableRow key={row.id}>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id} className='py-2.5'>
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className='grid gap-2 md:hidden'>
+              {history.data.data.map((period) => (
+                <PeriodCard
+                  key={period.uid}
+                  period={period}
+                  onOpen={() => openHistory(period)}
+                  onExport={
+                    history.data.meta.capabilities.canExport &&
+                    period.currentRun?.status === 'COMPLETED'
+                      ? () => void downloadRecap(period.currentRun!.uid)
+                      : undefined
+                  }
+                  exporting={exportingRunUid === period.currentRun?.uid}
+                  onProductionSummary={
+                    canShowProductionSummary(period)
+                      ? () => setProductionSummaryRunUid(period.currentRun!.uid)
+                      : undefined
+                  }
+                  onHandover={
+                    canHandover(period)
+                      ? () => setHandoverRunUid(period.currentRun!.uid)
+                      : undefined
+                  }
+                />
+              ))}
+            </div>
+          </>
         ) : (
           <div className='rounded-lg border border-dashed px-4 py-12 text-center'>
             <FileClock className='mx-auto size-8 text-muted-foreground' />
@@ -333,32 +560,15 @@ export function PayrollHistoryPage({
           </div>
         )}
 
-        {history.data && history.data.meta.totalPages > 1 && (
-          <div className='flex items-center justify-between gap-3 text-sm text-muted-foreground'>
-            <span>
-              Halaman {history.data.meta.page} dari{' '}
-              {history.data.meta.totalPages}
-            </span>
-            <div className='flex gap-2'>
-              <Button
-                variant='outline'
-                size='sm'
-                disabled={page <= 1}
-                onClick={() => patch({ page: page - 1 })}
-              >
-                Sebelumnya
-              </Button>
-              <Button
-                variant='outline'
-                size='sm'
-                disabled={page >= history.data.meta.totalPages}
-                onClick={() => patch({ page: page + 1 })}
-              >
-                Berikutnya
-              </Button>
-            </div>
-          </div>
-        )}
+        {!history.isPending &&
+          !history.isError &&
+          Boolean(history.data?.meta.total) && (
+            <DataTablePagination
+              table={table}
+              pageSizeOptions={[50, 100, 200, 300, 500]}
+              summary={`Menampilkan ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, history.data!.meta.total)} dari ${history.data!.meta.total} periode.`}
+            />
+          )}
       </div>
 
       <HistoryDrawer
@@ -374,6 +584,7 @@ export function PayrollHistoryPage({
           })
         }
         capabilities={history.data?.meta.capabilities}
+        onHandover={(runUid) => setHandoverRunUid(runUid)}
         onClose={() =>
           patch({
             periodUid: undefined,
@@ -381,6 +592,18 @@ export function PayrollHistoryPage({
             targetRunUid: undefined,
           })
         }
+      />
+      <PayrollHandoverDialog
+        key={handoverRunUid ?? 'closed'}
+        runUid={handoverRunUid}
+        canPrint={history.data?.meta.capabilities.canPrint === true}
+        canExport={history.data?.meta.capabilities.canExport === true}
+        onClose={() => setHandoverRunUid(undefined)}
+      />
+      <PayrollProductionDailySummaryDialog
+        key={productionSummaryRunUid ?? 'closed'}
+        runUid={productionSummaryRunUid}
+        onClose={() => setProductionSummaryRunUid(undefined)}
       />
     </Main>
   )
@@ -425,9 +648,17 @@ function Kpi({
 function PeriodCard({
   period,
   onOpen,
+  onExport,
+  exporting = false,
+  onProductionSummary,
+  onHandover,
 }: {
   period: PayrollHistoryPeriod
   onOpen: () => void
+  onExport?: () => void
+  exporting?: boolean
+  onProductionSummary?: () => void
+  onHandover?: () => void
 }) {
   return (
     <article className='grid gap-3 rounded-lg border bg-card p-3 transition-colors hover:border-primary/30 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center'>
@@ -462,10 +693,39 @@ function PeriodCard({
           )}
         </div>
       </div>
-      <Button variant='outline' size='sm' onClick={onOpen}>
-        <Eye className='mr-2 size-4' />
-        Lihat histori
-      </Button>
+      <div className='flex flex-wrap gap-2'>
+        <Button variant='outline' size='sm' onClick={onOpen}>
+          <Eye className='mr-2 size-4' />
+          Lihat histori
+        </Button>
+        {onExport && (
+          <Button
+            variant='outline'
+            size='sm'
+            disabled={exporting}
+            onClick={onExport}
+          >
+            {exporting ? (
+              <LoaderCircle className='mr-2 size-4 animate-spin' />
+            ) : (
+              <Download className='mr-2 size-4' />
+            )}
+            Rekap
+          </Button>
+        )}
+        {onProductionSummary && (
+          <Button variant='outline' size='sm' onClick={onProductionSummary}>
+            <BarChart3 className='mr-2 size-4' />
+            Ringkasan produksi
+          </Button>
+        )}
+        {onHandover && (
+          <Button variant='outline' size='sm' onClick={onHandover}>
+            <Printer className='mr-2 size-4' />
+            Daftar upah
+          </Button>
+        )}
+      </div>
     </article>
   )
 }
@@ -476,6 +736,7 @@ function HistoryDrawer({
   selectedRunUids,
   onSelectionChange,
   capabilities,
+  onHandover,
   onClose,
 }: {
   period?: PayrollHistoryPeriod
@@ -487,6 +748,7 @@ function HistoryDrawer({
     canPaymentExport: boolean
     canPrint: boolean
   }
+  onHandover: (runUid: string) => void
   onClose: () => void
 }) {
   const runs = usePayrollRuns(periodUid)
@@ -544,6 +806,7 @@ function HistoryDrawer({
                   onToggle={() => toggle(run.uid)}
                   capabilities={capabilities}
                   periodClosed={period?.status === 'CLOSED'}
+                  onHandover={onHandover}
                 />
               ))}
             </div>
@@ -574,6 +837,7 @@ function RunCard({
   onToggle,
   capabilities,
   periodClosed,
+  onHandover,
 }: {
   run: PayrollRunSummary
   scheme?: Pick<
@@ -589,6 +853,7 @@ function RunCard({
     canPrint: boolean
   }
   periodClosed: boolean
+  onHandover: (runUid: string) => void
 }) {
   const [exporting, setExporting] = useState<'SUMMARY' | 'PAYMENT' | null>(null)
   const exportFile = async (type: 'SUMMARY' | 'PAYMENT') => {
@@ -658,38 +923,52 @@ function RunCard({
             <RunAmount label='Potongan' value={run.totalDeductions} />
             <RunAmount label='Neto' value={run.totalNetPay} strong />
           </div>
-          {selectable && capabilities?.canExport && (
-            <div className='mt-3 flex flex-wrap gap-2'>
-              <Button
-                variant='outline'
-                size='sm'
-                disabled={Boolean(exporting)}
-                onClick={() => exportFile('SUMMARY')}
-              >
-                {exporting === 'SUMMARY' ? (
-                  <LoaderCircle className='mr-2 size-4 animate-spin' />
-                ) : (
-                  <Download className='mr-2 size-4' />
+          {selectable &&
+            (capabilities?.canExport || capabilities?.canPrint) && (
+              <div className='mt-3 flex flex-wrap gap-2'>
+                {capabilities?.canExport && (
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    disabled={Boolean(exporting)}
+                    onClick={() => exportFile('SUMMARY')}
+                  >
+                    {exporting === 'SUMMARY' ? (
+                      <LoaderCircle className='mr-2 size-4 animate-spin' />
+                    ) : (
+                      <Download className='mr-2 size-4' />
+                    )}
+                    Rekap
+                  </Button>
                 )}
-                Rekap
-              </Button>
-              {capabilities.canPaymentExport && final && (
-                <Button
-                  variant='outline'
-                  size='sm'
-                  disabled={Boolean(exporting)}
-                  onClick={() => exportFile('PAYMENT')}
-                >
-                  {exporting === 'PAYMENT' ? (
-                    <LoaderCircle className='mr-2 size-4 animate-spin' />
-                  ) : (
-                    <Download className='mr-2 size-4' />
+                {capabilities?.canPaymentExport && final && (
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    disabled={Boolean(exporting)}
+                    onClick={() => exportFile('PAYMENT')}
+                  >
+                    {exporting === 'PAYMENT' ? (
+                      <LoaderCircle className='mr-2 size-4 animate-spin' />
+                    ) : (
+                      <Download className='mr-2 size-4' />
+                    )}
+                    Daftar pembayaran
+                  </Button>
+                )}
+                {scheme?.employeeType === 'BORONGAN' &&
+                  scheme.payrollBasis === 'PIECE_RATE' && (
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={() => onHandover(run.uid)}
+                    >
+                      <Printer className='mr-2 size-4' />
+                      Serah terima{run.isCurrent ? '' : ' (historis)'}
+                    </Button>
                   )}
-                  Daftar pembayaran
-                </Button>
-              )}
-            </div>
-          )}
+              </div>
+            )}
         </div>
       </div>
     </div>
@@ -854,14 +1133,20 @@ function Delta({
 function PeriodBadge({ status }: { status: PayrollPeriodStatus }) {
   return (
     <Badge
-      variant={
-        status === 'CLOSED'
-          ? 'default'
-          : status === 'CANCELLED'
-            ? 'destructive'
-            : 'secondary'
-      }
-      className={status === 'CLOSED' ? 'bg-emerald-700' : undefined}
+      variant='outline'
+      className={cn(
+        'font-medium',
+        status === 'DRAFT' &&
+          'border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200',
+        status === 'CALCULATED' &&
+          'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200',
+        status === 'APPROVED' &&
+          'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200',
+        status === 'CLOSED' &&
+          'border-teal-200 bg-teal-50 text-teal-800 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-200',
+        status === 'CANCELLED' &&
+          'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-200'
+      )}
     >
       {statusLabel[status]}
     </Badge>

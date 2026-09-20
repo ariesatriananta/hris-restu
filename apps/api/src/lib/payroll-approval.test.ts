@@ -50,7 +50,7 @@ describe('Payroll approval integrity', () => {
     expect(result.warnings).toContainEqual({
       code: 'MISSING_BANK_ACCOUNT',
       message:
-        'Snapshot rekening pembayaran belum lengkap. Daftar Pembayaran bank belum dapat dibuat untuk karyawan tersebut.',
+        'Snapshot rekening pembayaran belum lengkap. Daftar Pembayaran tetap dapat diekspor dengan tanda -; periksa sebelum transfer.',
       count: 1,
     })
   })

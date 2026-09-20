@@ -299,6 +299,78 @@ export interface PayrollHistoryResult {
   }
 }
 
+export interface PayrollHandoverPreview {
+  run: {
+    uid: string
+    periodCode: string
+    periodName: string
+    periodStart: string
+    periodEnd: string
+    siteName: string
+    employeeType: string
+    status: 'COMPLETED'
+    runType: 'SIMULATION' | 'FINAL'
+    runNumber: number
+    isCurrent: boolean
+    periodStatus: PayrollPeriodStatus
+  }
+  sections: Array<{ uid: string; name: string }>
+  selectedSectionUid: string | null
+  modules: Array<{ uid: string; name: string }>
+  selectedModuleUid: string | null
+  foremen: string[]
+  dates: string[]
+  rows: Array<{
+    employeeUid: string
+    employeeNumber: string
+    fullName: string
+    employeeType: string
+    workGroupName: string | null
+    sectionName: string
+    moduleName: string
+    dailyAmounts: Record<string, string>
+    additionalEarnings: string
+    bpjsEmployeeDeduction: string
+    otherDeductions: string
+    totalDeductions: string
+    netPay: string
+  }>
+  totals: {
+    dailyAmounts: Record<string, string>
+    additionalEarnings: string
+    bpjsEmployeeDeduction: string
+    otherDeductions: string
+    totalDeductions: string
+    netPay: string
+  }
+}
+
+export interface PayrollProductionDailySummary {
+  run: {
+    uid: string
+    runNumber: number
+    isCurrent: boolean
+    periodCode: string
+    periodName: string
+    periodStart: string
+    periodEnd: string
+    siteName: string
+  }
+  sections: Array<{ uid: string; name: string }>
+  selectedSectionUid: string | null
+  rows: Array<{
+    businessDate: string
+    totalQuantity: string
+    totalAmount: string
+    employeeCount: number
+  }>
+  total: {
+    totalQuantity: string
+    totalAmount: string
+    employeeCount: number
+  }
+}
+
 export interface PayrollRunAmounts {
   pieceRateAmount: string
   basicSalaryAmount?: string

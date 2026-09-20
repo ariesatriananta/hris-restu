@@ -24,6 +24,8 @@ import type {
   PayrollApprovalQueueResult,
   PayrollWorkflow,
   PayrollHistoryResult,
+  PayrollHandoverPreview,
+  PayrollProductionDailySummary,
   PayrollPayslipBundle,
   PayrollRunComparison,
   PayrollConfigurationMeta,
@@ -69,6 +71,19 @@ const keys = {
     [...keys.all, periodUid, 'workflow'] as const,
   history: (input: Record<string, unknown>) =>
     [...keys.all, 'history', input] as const,
+  handoverPreview: (runUid: string, moduleUid?: string, sectionUid?: string) =>
+    [
+      ...keys.run(runUid),
+      'handover-preview',
+      sectionUid ?? 'sections',
+      moduleUid ?? 'modules',
+    ] as const,
+  productionDailySummary: (runUid: string, sectionUid?: string) =>
+    [
+      ...keys.run(runUid),
+      'production-daily-summary',
+      sectionUid ?? 'all-sections',
+    ] as const,
   comparison: (periodUid: string, baseRunUid: string, targetRunUid: string) =>
     [...keys.all, periodUid, 'comparison', baseRunUid, targetRunUid] as const,
   payslips: (runUid: string, employeeResultUid?: string) =>
@@ -623,6 +638,88 @@ export function usePayrollHistory(input: Record<string, unknown>) {
       ).data,
     placeholderData: keepPreviousData,
   })
+}
+
+export function usePayrollHandoverPreview(
+  runUid?: string,
+  moduleUid?: string,
+  sectionUid?: string
+) {
+  return useQuery({
+    queryKey: keys.handoverPreview(runUid ?? '', moduleUid, sectionUid),
+    queryFn: async () =>
+      (
+        await apiClient.get<{ data: PayrollHandoverPreview }>(
+          `/payroll/runs/${runUid}/handover-preview?${params({ moduleUid, sectionUid })}`
+        )
+      ).data.data,
+    enabled: Boolean(runUid),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function usePayrollProductionDailySummary(
+  runUid?: string,
+  sectionUid?: string
+) {
+  return useQuery({
+    queryKey: keys.productionDailySummary(runUid ?? '', sectionUid),
+    queryFn: async () =>
+      (
+        await apiClient.get<{ data: PayrollProductionDailySummary }>(
+          `/payroll/runs/${runUid}/production-daily-summary?${params({ sectionUid })}`
+        )
+      ).data.data,
+    enabled: Boolean(runUid),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export type PayrollHandoverInput = {
+  moduleUid: string
+  sectionUid: string
+  foremanName: string
+  handoverDate: string
+}
+
+export type PayrollHandoverExportInput = {
+  moduleUid?: string
+  sectionUid?: string
+  foremanName?: string
+  handoverDate: string
+}
+
+export async function recordPayrollHandoverPrint(
+  runUid: string,
+  input: PayrollHandoverInput
+) {
+  await apiClient.post(`/payroll/runs/${runUid}/handover-print`, {
+    ...input,
+    idempotencyKey: crypto.randomUUID(),
+  })
+}
+
+export async function exportPayrollHandover(
+  runUid: string,
+  input: PayrollHandoverExportInput
+) {
+  const response = await apiClient.post<Blob>(
+    `/payroll/runs/${runUid}/handover-export`,
+    { ...input, idempotencyKey: crypto.randomUUID() },
+    { responseType: 'blob' }
+  )
+  const disposition = response.headers['content-disposition'] as
+    | string
+    | undefined
+  const filename =
+    disposition?.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i)?.[1] ??
+    'daftar-serah-terima-upah.xlsx'
+  const href = URL.createObjectURL(response.data)
+  const anchor = document.createElement('a')
+  anchor.href = href
+  anchor.download = decodeURIComponent(filename)
+  anchor.click()
+  URL.revokeObjectURL(href)
 }
 
 export function usePayrollRunComparison(

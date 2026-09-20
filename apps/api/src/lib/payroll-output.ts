@@ -33,6 +33,10 @@ function money(value: string) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function paymentBankCell(value: string | null) {
+  return value?.trim() ? safeSpreadsheetText(value) : '-'
+}
+
 function styleSheet(sheet: ExcelJS.Worksheet, widths: number[]) {
   sheet.views = [{ state: 'frozen', ySplit: 1 }]
   sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
@@ -73,6 +77,9 @@ export async function buildPayrollWorkbook(input: {
     ['Jenis hasil', input.runType === 'FINAL' ? 'FINAL / RESMI' : 'SIMULASI'],
     ['Status run', safeSpreadsheetText(input.runStatus)],
     ['Catatan', 'Status CLOSED berarti hasil Payroll disahkan, bukan bukti pembayaran.'],
+    ...(input.type === 'PAYMENT'
+      ? [['Keterangan', 'Tanda - pada kolom rekening berarti data belum lengkap; periksa sebelum transfer.']]
+      : []),
   ])
   info.getColumn(1).width = 20
   info.getColumn(2).width = 70
@@ -83,8 +90,8 @@ export async function buildPayrollWorkbook(input: {
     sheet.addRow(['Nomor Karyawan','Nama','Bank','Nomor Rekening','Nama Rekening','Neto'])
     input.rows.forEach((row) => sheet.addRow([
       safeSpreadsheetText(row.employeeNumber),safeSpreadsheetText(row.fullName),
-      safeSpreadsheetText(row.bankName),safeSpreadsheetText(row.bankAccountNumber),
-      safeSpreadsheetText(row.bankAccountName),money(row.netPay),
+      paymentBankCell(row.bankName),paymentBankCell(row.bankAccountNumber),
+      paymentBankCell(row.bankAccountName),money(row.netPay),
     ]))
     styleSheet(sheet,[20,32,18,24,32,18])
     sheet.getColumn(6).numFmt = '[$Rp-id-ID] #,##0.00;[Red]-[$Rp-id-ID] #,##0.00'
