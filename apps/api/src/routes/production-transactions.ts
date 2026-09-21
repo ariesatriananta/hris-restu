@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Router, type Request } from 'express'
-import type { RowDataPacket } from 'mysql2'
+import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { Pool, PoolConnection } from 'mysql2/promise'
 import { z } from 'zod'
 import { pool } from '../db.js'
@@ -20,8 +20,12 @@ import {
   normalizeStoredDecimal,
   productionCorrectionInput,
   productionCorrectionPreviewInput,
+  productionBatchDeleteInput,
+  productionBatchDeleteSummaryInput,
   productionHistoricalPostInput,
   productionHistoricalPreviewInput,
+  productionImportPostInput,
+  productionImportPreviewInput,
   productionTerminalLookupInput,
   productionTerminalPostInput,
   productionVoidInput,
@@ -40,6 +44,15 @@ const routeParam = (value: string | string[]) =>
 
 function isGlobalViewer(auth: AuthContext) {
   return auth.roles.some((role) => role === 'SUPER_ADMIN' || role === 'DIRECTOR')
+}
+
+function assertSuperAdmin(auth: AuthContext) {
+  if (!auth.roles.includes('SUPER_ADMIN')) {
+    throw new ApiError(
+      403,
+      'Hapus transaksi batch hanya dapat dilakukan Super Admin.'
+    )
+  }
 }
 
 function enforceSite(auth: AuthContext, site: string) {
@@ -345,7 +358,13 @@ async function availableJobs(
 
 async function historicalProposal(
   conn: PoolConnection,
-  input: { employeeUid: string; site: string; businessDate: string; jobUid: string; quantity: string },
+  input: {
+    employeeUid: string
+    site: string
+    businessDate: string
+    jobUid?: string
+    quantity: string
+  },
   lock = false
 ) {
   const [sites] = await conn.query<RowDataPacket[]>(
@@ -363,7 +382,8 @@ async function historicalProposal(
   const { jobs, defaultJobUid } = await availableJobs(
     conn, Number(employee.id), Number(site.id), input.businessDate, lock
   )
-  const job = jobs.find((candidate) => candidate.uid === input.jobUid)
+  const selectedJobUid = input.jobUid || defaultJobUid
+  const job = jobs.find((candidate) => candidate.uid === selectedJobUid)
   if (!job) throw new ApiError(422, 'Pekerjaan tidak ditugaskan atau belum memiliki tarif pada tanggal tersebut.')
   const unit = job.unit as { uid: string; code: string; name: string; decimalPrecision: number }
   const rate = job.rate as { uid: string; amount: string; currency: string }
@@ -379,7 +399,7 @@ async function historicalProposal(
       WHERE a.employee_id=? AND a.site_id=? AND a.status='ACTIVE'
         AND a.effective_from<=? AND (a.effective_to IS NULL OR a.effective_to>=?)
       ${lock ? 'FOR UPDATE' : ''}`,
-    [input.jobUid,input.businessDate,input.businessDate,employee.id,site.id,input.businessDate,input.businessDate]
+    [selectedJobUid,input.businessDate,input.businessDate,employee.id,site.id,input.businessDate,input.businessDate]
   )
   if (targets.length !== 1) throw new ApiError(422, 'Penugasan atau tarif historis tidak lagi tunggal.')
   const priced = await proposedTierAmount(conn, {
@@ -400,6 +420,194 @@ async function historicalProposal(
         rateAmount: slice.rateSnapshot, amount: slice.amount,
       })),
     },
+  }
+}
+
+type ProductionImportInputRow = {
+  rowNumber: number
+  businessDate: string
+  employeeNumber: string
+  employeeName?: string
+  quantity: string
+}
+
+type ValidProductionImportRow = {
+  input: ProductionImportInputRow
+  valid: true
+  message: string
+  warning: string | null
+  proposal: Awaited<ReturnType<typeof historicalProposal>>
+}
+
+type InvalidProductionImportRow = {
+  input: ProductionImportInputRow
+  valid: false
+  message: string
+  warning: null
+}
+
+type ProductionImportValidationRow =
+  | ValidProductionImportRow
+  | InvalidProductionImportRow
+
+async function validateProductionImportRows(
+  conn: PoolConnection,
+  rows: ProductionImportInputRow[],
+  auth: AuthContext,
+  lock = false
+): Promise<ProductionImportValidationRow[]> {
+  const serverTime = await currentServerTime(conn)
+  const batchQuantities = new Map<string, string>()
+  const output: ProductionImportValidationRow[] = []
+
+  for (const input of rows) {
+    try {
+      if (!z.string().date().safeParse(input.businessDate).success) {
+        throw new ApiError(422, 'Tanggal wajib menggunakan format YYYY-MM-DD.')
+      }
+      if (input.businessDate > String(serverTime.businessDate)) {
+        throw new ApiError(422, 'Tanggal hasil kerja tidak boleh berada di masa depan.')
+      }
+      const [contexts] = await conn.query<RowDataPacket[]>(
+        `SELECT e.uid,s.id siteId,s.code site
+           FROM employees e
+           JOIN employee_employment_histories history
+             ON history.employee_id=e.id
+            AND history.effective_from<=?
+            AND (history.effective_to IS NULL OR history.effective_to>=?)
+           JOIN sites s ON s.id=history.site_id
+          WHERE e.employee_number=?
+          ${lock ? 'FOR UPDATE' : ''}`,
+        [input.businessDate, input.businessDate, input.employeeNumber]
+      )
+      if (contexts.length !== 1) {
+        throw new ApiError(
+          422,
+          contexts.length === 0
+            ? 'Karyawan atau histori penempatan pada tanggal tersebut tidak ditemukan.'
+            : 'Histori penempatan karyawan bertumpang-tindih pada tanggal tersebut.'
+        )
+      }
+      const context = contexts[0]
+      enforceSite(auth, String(context.site))
+      const payrollLock = await payrollDateLockContext(
+        conn,
+        Number(context.siteId),
+        input.businessDate,
+        lock
+      )
+      if (payrollLock.locked) {
+        throw new ApiError(409, payrollLock.reasons[0])
+      }
+      const proposal = await historicalProposal(
+        conn,
+        {
+          employeeUid: String(context.uid),
+          site: String(context.site),
+          businessDate: input.businessDate,
+          quantity: input.quantity,
+        },
+        lock
+      )
+      const dailyKey = {
+        employeeId: Number(proposal.employee.id),
+        siteId: Number(proposal.site.id),
+        jobId: proposal.targetIds.jobId,
+        businessDate: input.businessDate,
+      }
+      const groupKey = [
+        dailyKey.employeeId,
+        dailyKey.siteId,
+        dailyKey.jobId,
+        dailyKey.businessDate,
+      ].join('|')
+      const additionalQuantity = batchQuantities.get(groupKey) ?? '0.0000'
+      const priced = await proposedTierAmount(
+        conn,
+        dailyKey,
+        proposal.targetIds.rateId,
+        proposal.proposed.quantity,
+        undefined,
+        undefined,
+        additionalQuantity
+      )
+      proposal.proposed.grossAmount = priced.grossAmount
+      proposal.proposed.rateDetails = priced.slices.map((slice) => ({
+        minQuantity: slice.minQuantitySnapshot,
+        quantity: slice.quantity,
+        rateAmount: slice.rateSnapshot,
+        amount: slice.amount,
+      }))
+      const current = BigInt(additionalQuantity.replace('.', ''))
+      const added = BigInt(proposal.proposed.quantity.replace('.', ''))
+      const next = current + added
+      batchQuantities.set(
+        groupKey,
+        `${next / 10000n}.${String(next % 10000n).padStart(4, '0')}`
+      )
+      const [existingRows] = await conn.query<RowDataPacket[]>(
+        `SELECT COUNT(*) transactionCount,COALESCE(SUM(quantity),0) totalQuantity
+           FROM production_transactions
+          WHERE employee_id=? AND site_id=? AND production_job_id=?
+            AND business_date=? AND status='POSTED'`,
+        [
+          dailyKey.employeeId,
+          dailyKey.siteId,
+          dailyKey.jobId,
+          dailyKey.businessDate,
+        ]
+      )
+      const existingCount = Number(existingRows[0]?.transactionCount ?? 0)
+      output.push({
+        input,
+        valid: true,
+        message: 'Siap diimpor.',
+        warning: existingCount
+          ? `Sudah ada ${existingCount} setoran tercatat (${normalizeStoredDecimal(existingRows[0]?.totalQuantity)} ${proposal.proposed.unit.code}); baris ini akan ditambahkan sebagai setoran baru.`
+          : null,
+        proposal,
+      })
+    } catch (error) {
+      output.push({
+        input,
+        valid: false,
+        message:
+          error instanceof ApiError
+            ? error.message
+            : 'Baris gagal divalidasi karena gangguan layanan.',
+        warning: null,
+      })
+    }
+  }
+  return output
+}
+
+function productionImportRowDto(row: ProductionImportValidationRow) {
+  if (!row.valid) {
+    return {
+      rowNumber: row.input.rowNumber,
+      businessDate: row.input.businessDate,
+      employeeNumber: row.input.employeeNumber,
+      employeeName: row.input.employeeName ?? '',
+      valid: false,
+      message: row.message,
+      warning: null,
+    }
+  }
+  return {
+    rowNumber: row.input.rowNumber,
+    businessDate: row.input.businessDate,
+    employeeNumber: String(row.proposal.employee.employeeNumber),
+    employeeName: String(row.proposal.employee.fullName),
+    site: String(row.proposal.history.site),
+    siteName: String(row.proposal.history.siteName),
+    job: row.proposal.proposed.job,
+    unit: row.proposal.proposed.unit,
+    quantity: row.proposal.proposed.quantity,
+    estimatedGrossAmount: row.proposal.proposed.grossAmount,
+    valid: true,
+    message: row.message,
+    warning: row.warning,
   }
 }
 
@@ -557,7 +765,8 @@ async function proposedTierAmount(
   rateId: number,
   quantity: string,
   beforeOrAt?: string,
-  excludedTransactionId?: number
+  excludedTransactionId?: number,
+  additionalStartingQuantity = '0.0000'
 ) {
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT COALESCE(SUM(quantity),0) precedingQuantity
@@ -570,8 +779,15 @@ async function proposedTierAmount(
       ...(beforeOrAt ? [beforeOrAt] : []),
       ...(excludedTransactionId ? [excludedTransactionId] : [])]
   )
+  const preceding = BigInt(
+    normalizeStoredDecimal(rows[0]?.precedingQuantity).replace('.', '')
+  )
+  const additional = BigInt(
+    normalizeStoredDecimal(additionalStartingQuantity).replace('.', '')
+  )
+  const starting = preceding + additional
   return priceProductionTiers(
-    normalizeStoredDecimal(rows[0]?.precedingQuantity),
+    `${starting / 10000n}.${String(starting % 10000n).padStart(4, '0')}`,
     quantity,
     await rateTiers(conn, rateId)
   )
@@ -1121,6 +1337,113 @@ async function transactionLifecycle(
   }
 }
 
+type BatchDeleteSummary = {
+  businessDate: string
+  employeeCount: number
+  transactionCount: number
+  totalQuantityPcs: string
+  totalGrossAmount: string
+  canDelete: boolean
+  blockers: string[]
+  siteId: number | null
+}
+
+async function productionBatchDeleteSummary(
+  executor: Pool | PoolConnection,
+  filterSql: string,
+  filterValues: string[]
+): Promise<BatchDeleteSummary[]> {
+  const [rows] = await executor.query<RowDataPacket[]>(
+    `SELECT DATE_FORMAT(transaction.business_date,'%Y-%m-%d') businessDate,
+            CASE WHEN COUNT(DISTINCT transaction.site_id)=1
+              THEN MIN(transaction.site_id) ELSE NULL END siteId,
+            COUNT(DISTINCT transaction.employee_id) employeeCount,
+            COUNT(*) transactionCount,
+            COALESCE(SUM(CASE
+              WHEN transaction.status='POSTED' AND unit.code='PCS'
+                THEN transaction.quantity ELSE 0 END),0) totalQuantityPcs,
+            COALESCE(SUM(CASE
+              WHEN transaction.status='POSTED'
+                THEN transaction.gross_amount ELSE 0 END),0) totalGrossAmount,
+            MAX(transaction.payroll_locked_at IS NOT NULL) hasPayrollLock,
+            MAX(EXISTS(
+              SELECT 1
+                FROM production_transaction_revisions revision
+                JOIN production_transactions source
+                  ON source.id=revision.production_transaction_id
+                LEFT JOIN production_transactions replacement
+                  ON replacement.id=revision.replacement_transaction_id
+               WHERE (source.business_date=transaction.business_date
+                       AND source.site_id=transaction.site_id)
+                  OR (replacement.business_date=transaction.business_date
+                       AND replacement.site_id=transaction.site_id)
+            )) hasRevision,
+            MAX(EXISTS(
+              SELECT 1 FROM payroll_production_details detail
+              JOIN production_transactions payroll_transaction
+                ON payroll_transaction.id=detail.production_transaction_id
+              WHERE payroll_transaction.business_date=transaction.business_date
+                AND payroll_transaction.site_id=transaction.site_id
+            ) OR EXISTS(
+              SELECT 1 FROM payroll_training_production_details detail
+              JOIN production_transactions payroll_transaction
+                ON payroll_transaction.id=detail.production_transaction_id
+              WHERE payroll_transaction.business_date=transaction.business_date
+                AND payroll_transaction.site_id=transaction.site_id
+            )) hasPayrollSnapshot,
+            MAX(EXISTS(
+              SELECT 1 FROM payroll_periods period
+               WHERE transaction.business_date
+                 BETWEEN period.period_start AND period.period_end
+                 AND period.site_id=transaction.site_id
+                 AND period.status NOT IN ('DRAFT','CANCELLED')
+            )) hasProcessedPayrollPeriod,
+            MAX(EXISTS(
+              SELECT 1
+                FROM payroll_runs run
+                JOIN payroll_periods period
+                  ON period.id=run.payroll_period_id
+               WHERE transaction.business_date
+                 BETWEEN period.period_start AND period.period_end
+                 AND period.site_id=transaction.site_id
+                 AND run.status='PROCESSING'
+            )) hasProcessingPayrollRun
+       FROM production_transactions transaction
+       JOIN work_units unit ON unit.id=transaction.unit_id
+       JOIN sites site ON site.id=transaction.site_id
+      WHERE ${filterSql}
+      GROUP BY transaction.business_date
+      ORDER BY transaction.business_date DESC`,
+    filterValues
+  )
+
+  return rows.map((row) => {
+    const blockers: string[] = []
+    if (Number(row.hasRevision) > 0) {
+      blockers.push('Ada transaksi yang memiliki histori koreksi atau void.')
+    }
+    if (Number(row.hasPayrollLock) > 0 || Number(row.hasPayrollSnapshot) > 0) {
+      blockers.push('Ada transaksi yang sudah dikunci atau disnapshot Payroll.')
+    }
+    if (Number(row.hasProcessedPayrollPeriod) > 0) {
+      blockers.push('Tanggal sudah masuk proses Payroll.')
+    }
+    if (Number(row.hasProcessingPayrollRun) > 0) {
+      blockers.push('Tanggal sedang diproses Payroll.')
+    }
+    return {
+      businessDate: String(row.businessDate),
+      employeeCount: Number(row.employeeCount ?? 0),
+      transactionCount: Number(row.transactionCount ?? 0),
+      totalQuantityPcs: String(row.totalQuantityPcs ?? '0'),
+      totalGrossAmount: String(row.totalGrossAmount ?? '0'),
+      canDelete: blockers.length === 0,
+      blockers,
+      siteId: row.siteId == null ? null : Number(row.siteId),
+    }
+  })
+}
+
 export const productionTransactionsRouter = Router()
 productionTransactionsRouter.use(authenticate)
 
@@ -1488,6 +1811,461 @@ productionTransactionsRouter.post(
         duplicate: false,
         message: 'Setoran Produksi berhasil dicatat.',
         transaction: await transactionResponse(conn, transactionId),
+      })
+    } catch (error) {
+      await conn.rollback()
+      next(error)
+    } finally {
+      conn.release()
+    }
+  }
+)
+
+productionTransactionsRouter.post(
+  '/transactions/batch-delete/summary',
+  requirePermission('production.correct'),
+  async (req, res, next) => {
+    try {
+      const auth = res.locals.auth as AuthContext
+      assertSuperAdmin(auth)
+      const input = productionBatchDeleteSummaryInput.parse(req.body)
+      const dateFrom = input.dateFrom
+      const dateTo = input.dateTo
+      const rangeDays =
+        Math.floor(
+          (Date.parse(`${dateTo}T00:00:00Z`) -
+            Date.parse(`${dateFrom}T00:00:00Z`)) /
+            86_400_000
+        ) + 1
+      if (rangeDays < 1) {
+        throw new ApiError(422, 'Tanggal akhir tidak boleh sebelum tanggal awal.')
+      }
+      if (rangeDays > 31) {
+        throw new ApiError(422, 'Ringkasan reset maksimal untuk 31 hari.')
+      }
+      const siteFilter =
+        input.site === 'ALL' ? '' : ' AND site.code=?'
+      const rows = await productionBatchDeleteSummary(
+        pool,
+        `transaction.business_date BETWEEN ? AND ?${siteFilter}`,
+        input.site === 'ALL' ? [dateFrom, dateTo] : [dateFrom, dateTo, input.site]
+      )
+      res.json({ data: { dateFrom, dateTo, site: input.site, rows } })
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+productionTransactionsRouter.post(
+  '/transactions/batch-delete',
+  requirePermission('production.correct'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      const auth = res.locals.auth as AuthContext
+      assertSuperAdmin(auth)
+      const input = productionBatchDeleteInput.parse(req.body)
+      const businessDates = [...new Set(input.businessDates)].sort()
+      if (businessDates.length !== input.businessDates.length) {
+        throw new ApiError(422, 'Tanggal reset tidak boleh duplikat.')
+      }
+      const placeholders = businessDates.map(() => '?').join(',')
+      const siteFilter = input.site === 'ALL' ? '' : ' AND site.code=?'
+      const targetValues =
+        input.site === 'ALL' ? businessDates : [...businessDates, input.site]
+
+      await conn.beginTransaction()
+      const [targets] = await conn.query<RowDataPacket[]>(
+        `SELECT transaction.id
+           FROM production_transactions transaction
+           JOIN sites site ON site.id=transaction.site_id
+          WHERE transaction.business_date IN (${placeholders})${siteFilter}
+          FOR UPDATE`,
+        targetValues
+      )
+      if (!targets.length) {
+        throw new ApiError(
+          409,
+          'Tidak ada transaksi Produksi pada tanggal yang dipilih.'
+        )
+      }
+
+      const firstDate = businessDates[0]
+      const lastDate = businessDates[businessDates.length - 1]
+      await conn.query<RowDataPacket[]>(
+        `SELECT period.id FROM payroll_periods period
+          JOIN sites site ON site.id=period.site_id
+          WHERE period.period_end>=? AND period.period_start<=?${siteFilter}
+          FOR UPDATE`,
+        input.site === 'ALL'
+          ? [firstDate, lastDate]
+          : [firstDate, lastDate, input.site]
+      )
+      await conn.query<RowDataPacket[]>(
+        `SELECT run.id
+           FROM payroll_runs run
+           JOIN payroll_periods period ON period.id=run.payroll_period_id
+          JOIN sites site ON site.id=period.site_id
+          WHERE period.period_end>=? AND period.period_start<=?${siteFilter}
+          FOR UPDATE`,
+        input.site === 'ALL'
+          ? [firstDate, lastDate]
+          : [firstDate, lastDate, input.site]
+      )
+
+      const summary = await productionBatchDeleteSummary(
+        conn,
+        `transaction.business_date IN (${placeholders})${siteFilter}`,
+        targetValues
+      )
+      const foundDates = new Set(summary.map((row) => row.businessDate))
+      const missingDates = businessDates.filter((date) => !foundDates.has(date))
+      if (missingDates.length) {
+        throw new ApiError(
+          409,
+          `Reset dibatalkan: transaksi tanggal ${missingDates.join(', ')} sudah tidak tersedia.`
+        )
+      }
+      const blocked = summary.filter((row) => !row.canDelete)
+      if (blocked.length) {
+        throw new ApiError(
+          409,
+          `Reset dibatalkan untuk ${blocked.map((row) => row.businessDate).join(', ')}: ${blocked[0].blockers[0]}`
+        )
+      }
+
+      await conn.execute(
+        `DELETE detail
+           FROM production_transaction_rate_details detail
+           JOIN production_transactions transaction
+             ON transaction.id=detail.production_transaction_id
+          JOIN sites site ON site.id=transaction.site_id
+          WHERE transaction.business_date IN (${placeholders})${siteFilter}`,
+        targetValues
+      )
+      const [deleted] = await conn.execute<ResultSetHeader>(
+        `DELETE transaction FROM production_transactions transaction
+          JOIN sites site ON site.id=transaction.site_id
+          WHERE transaction.business_date IN (${placeholders})${siteFilter}`,
+        targetValues
+      )
+      const expected = summary.reduce(
+        (total, row) => total + row.transactionCount,
+        0
+      )
+      if (deleted.affectedRows !== expected) {
+        throw new ApiError(
+          409,
+          'Reset dibatalkan karena jumlah transaksi berubah saat diproses.'
+        )
+      }
+
+      for (const row of summary) {
+        await writeAudit(
+          {
+            auth,
+            request: req,
+            module: 'PRODUCTION',
+            siteId: row.siteId,
+            action: 'DELETE',
+            table: 'production_transactions',
+            description: `Menghapus seluruh transaksi Produksi tanggal ${row.businessDate} melalui reset batch.`,
+            reason: input.reason,
+            beforeData: {
+              businessDate: row.businessDate,
+              site: input.site,
+              employeeCount: row.employeeCount,
+              transactionCount: row.transactionCount,
+              totalQuantityPcs: row.totalQuantityPcs,
+              totalGrossAmount: row.totalGrossAmount,
+            },
+            afterData: { deleted: true },
+          },
+          conn
+        )
+      }
+
+      await conn.commit()
+      res.json({
+        data: {
+          deletedDates: summary.length,
+          deletedTransactions: deleted.affectedRows,
+        },
+      })
+    } catch (error) {
+      await conn.rollback()
+      next(error)
+    } finally {
+      conn.release()
+    }
+  }
+)
+
+productionTransactionsRouter.post(
+  '/transactions/import/preview',
+  requirePermission('production.correct'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      const auth = res.locals.auth as AuthContext
+      const input = productionImportPreviewInput.parse(req.body)
+      const validation = await validateProductionImportRows(
+        conn,
+        input.rows,
+        auth
+      )
+      res.json({
+        data: {
+          total: validation.length,
+          valid: validation.filter((row) => row.valid).length,
+          invalid: validation.filter((row) => !row.valid).length,
+          warnings: validation.filter((row) => row.warning).length,
+          rows: validation.map(productionImportRowDto),
+        },
+      })
+    } catch (error) {
+      next(error)
+    } finally {
+      conn.release()
+    }
+  }
+)
+
+productionTransactionsRouter.get(
+  '/transactions/import/template-employees',
+  requirePermission('production.correct'),
+  async (_req, res, next) => {
+    try {
+      const auth = res.locals.auth as AuthContext
+      const scope = scopeWhere(auth, 'site.code')
+      const [counts] = await pool.query<RowDataPacket[]>(
+        `SELECT COUNT(*) total
+           FROM employees employee
+           JOIN employee_statuses status
+             ON status.id=employee.employee_status_id
+            AND status.allows_production=1
+           JOIN employee_types type
+             ON type.id=employee.employee_type_id
+            AND type.payroll_basis='PIECE_RATE'
+           JOIN sites site ON site.id=employee.current_site_id AND site.is_active=1
+          WHERE ${scope.sql}`,
+        scope.params
+      )
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT employee.employee_number employeeNumber,
+                employee.full_name employeeName
+           FROM employees employee
+           JOIN employee_statuses status
+             ON status.id=employee.employee_status_id
+            AND status.allows_production=1
+           JOIN employee_types type
+             ON type.id=employee.employee_type_id
+            AND type.payroll_basis='PIECE_RATE'
+           JOIN sites site ON site.id=employee.current_site_id AND site.is_active=1
+          WHERE ${scope.sql}
+          ORDER BY employee.full_name,employee.employee_number
+          LIMIT 2000`,
+        scope.params
+      )
+      res.json({
+        data: rows.map((row) => ({
+          employeeNumber: String(row.employeeNumber),
+          employeeName: String(row.employeeName),
+        })),
+        meta: {
+          total: Number(counts[0]?.total ?? 0),
+          limit: 2000,
+        },
+      })
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+productionTransactionsRouter.post(
+  '/transactions/import',
+  requirePermission('production.correct'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      const auth = res.locals.auth as AuthContext
+      const input = productionImportPostInput.parse(req.body)
+      const rowKeys = input.rows.map(
+        (row) => `PRD-IMPORT-${input.idempotencyKey}-${row.rowNumber}`
+      )
+      await conn.beginTransaction()
+      const [existing] = await conn.query<RowDataPacket[]>(
+        `SELECT transaction.idempotency_key idempotencyKey,
+                transaction.entry_source entrySource,
+                DATE_FORMAT(transaction.business_date,'%Y-%m-%d') businessDate,
+                transaction.quantity,transaction.notes,
+                employee.employee_number employeeNumber,
+                unit.decimal_precision decimalPrecision
+           FROM production_transactions transaction
+           JOIN employees employee ON employee.id=transaction.employee_id
+           JOIN work_units unit ON unit.id=transaction.unit_id
+          WHERE transaction.idempotency_key IN (${rowKeys.map(() => '?').join(',')})
+          FOR UPDATE`,
+        rowKeys
+      )
+      if (existing.length) {
+        if (existing.length !== rowKeys.length) {
+          throw new ApiError(
+            409,
+            'Import sebelumnya hanya tersimpan sebagian. Hubungi administrator sebelum mencoba kembali.'
+          )
+        }
+        const existingByKey = new Map(
+          existing.map((row) => [String(row.idempotencyKey), row])
+        )
+        const payloadMatches = input.rows.every((row, index) => {
+          const stored = existingByKey.get(rowKeys[index])
+          if (!stored) return false
+          try {
+            return (
+              String(stored.entrySource) === 'HISTORICAL' &&
+              String(stored.businessDate) === row.businessDate &&
+              String(stored.employeeNumber) === row.employeeNumber &&
+              normalizeStoredDecimal(stored.quantity) ===
+                normalizeQuantity(row.quantity, Number(stored.decimalPrecision)) &&
+              String(stored.notes ?? '') === `Import Excel: ${input.reason}`
+            )
+          } catch {
+            return false
+          }
+        })
+        if (!payloadMatches) {
+          throw new ApiError(
+            409,
+            'Kunci import sudah digunakan untuk isi file atau alasan yang berbeda.'
+          )
+        }
+        await conn.commit()
+        return res.json({
+          data: {
+            total: input.rows.length,
+            imported: 0,
+            replayed: input.rows.length,
+          },
+        })
+      }
+
+      const validation = await validateProductionImportRows(
+        conn,
+        input.rows,
+        auth,
+        true
+      )
+      const invalid = validation.filter((row) => !row.valid)
+      if (invalid.length) {
+        throw new ApiError(
+          422,
+          `Import dibatalkan: ${invalid.length} baris tidak lagi valid. Muat ulang preview.`
+        )
+      }
+      const validRows = validation.filter(
+        (row): row is ValidProductionImportRow => row.valid
+      )
+      const time = await currentServerTime(conn)
+      const inserted: Array<{
+        id: number
+        uid: string
+        row: ValidProductionImportRow
+      }> = []
+      const dailyGroups = new Map<string, DailyProductionKey>()
+
+      for (const [index, row] of validRows.entries()) {
+        const proposal = row.proposal
+        const uid = randomUUID()
+        const transactionNumber = `PRD-IMP-${row.input.businessDate.replaceAll('-', '')}-${String(proposal.history.site)}-${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`
+        const [result] = await conn.execute(
+          `INSERT INTO production_transactions(
+             uid,transaction_number,employee_id,site_id,work_group_id,
+             production_job_id,unit_id,job_rate_id,attendance_record_id,
+             scan_device_id,business_date,transaction_at,quantity,rate_snapshot,
+             gross_amount,status,entry_source,idempotency_key,notes,created_by,updated_by
+           ) VALUES(?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,'POSTED','HISTORICAL',?,?,?,?)`,
+          [
+            uid,
+            transactionNumber,
+            proposal.employee.id,
+            proposal.site.id,
+            proposal.history.workGroupId ?? null,
+            proposal.targetIds.jobId,
+            proposal.targetIds.unitId,
+            proposal.targetIds.rateId,
+            proposal.attendance.id,
+            row.input.businessDate,
+            time.transactionTimestamp,
+            proposal.proposed.quantity,
+            proposal.proposed.rateSnapshot,
+            proposal.proposed.grossAmount,
+            rowKeys[index],
+            `Import Excel: ${input.reason}`,
+            auth.id,
+            auth.id,
+          ]
+        )
+        const transactionId = Number(
+          (result as { insertId?: number }).insertId ?? 0
+        )
+        inserted.push({ id: transactionId, uid, row })
+        const dailyKey = {
+          employeeId: Number(proposal.employee.id),
+          siteId: Number(proposal.site.id),
+          jobId: proposal.targetIds.jobId,
+          businessDate: row.input.businessDate,
+        }
+        dailyGroups.set(
+          [
+            dailyKey.employeeId,
+            dailyKey.siteId,
+            dailyKey.jobId,
+            dailyKey.businessDate,
+          ].join('|'),
+          dailyKey
+        )
+      }
+
+      for (const dailyKey of dailyGroups.values()) {
+        await repriceProductionDay(conn, dailyKey, auth, req)
+      }
+      for (const item of inserted) {
+        const transaction = await transactionResponse(conn, item.id)
+        await writeAudit(
+          {
+            auth,
+            request: req,
+            module: 'PRODUCTION',
+            siteId: Number(item.row.proposal.site.id),
+            action: 'CREATE',
+            table: 'production_transactions',
+            recordId: item.id,
+            recordUid: item.uid,
+            description: `Mengimpor setoran Produksi ${transaction.transactionNumber}.`,
+            reason: input.reason,
+            afterData: {
+              batchKey: input.idempotencyKey,
+              rowNumber: item.row.input.rowNumber,
+              businessDate: item.row.input.businessDate,
+              employeeNumber: item.row.input.employeeNumber,
+              quantity: item.row.proposal.proposed.quantity,
+              job: item.row.proposal.proposed.job,
+              grossAmount: transaction.grossAmount,
+            },
+          },
+          conn
+        )
+      }
+      await conn.commit()
+      res.status(201).json({
+        data: {
+          total: inserted.length,
+          imported: inserted.length,
+          replayed: 0,
+        },
       })
     } catch (error) {
       await conn.rollback()

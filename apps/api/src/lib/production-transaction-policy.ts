@@ -38,6 +38,44 @@ export const productionHistoricalPostInput = historicalBase
   })
   .strict()
 
+const productionImportRowInput = z
+  .object({
+    rowNumber: z.number().int().min(2).max(1_000_001),
+    businessDate: z.string().trim().min(1).max(20),
+    employeeNumber: z.string().trim().min(1).max(50),
+    employeeName: z.string().trim().max(150).optional().default(''),
+    quantity: z.string().trim().min(1).max(50),
+  })
+  .strict()
+
+export const productionImportPreviewInput = z
+  .object({ rows: z.array(productionImportRowInput).min(1).max(2_000) })
+  .strict()
+
+export const productionImportPostInput = productionImportPreviewInput
+  .extend({
+    reason: z.string().trim().min(5).max(500),
+    idempotencyKey: z.string().uuid(),
+  })
+  .strict()
+
+export const productionBatchDeleteInput = z
+  .object({
+    businessDates: z.array(z.string().date()).min(1).max(31),
+    site: z.enum(['ALL', 'JEPARA', 'SEMARANG', 'KLATEN']),
+    reason: z.string().trim().min(5).max(500),
+    confirmation: z.literal('HAPUS'),
+  })
+  .strict()
+
+export const productionBatchDeleteSummaryInput = z
+  .object({
+    dateFrom: z.string().date(),
+    dateTo: z.string().date(),
+    site: z.enum(['ALL', 'JEPARA', 'SEMARANG', 'KLATEN']),
+  })
+  .strict()
+
 export const productionCorrectionPreviewInput = z
   .object({
     employeeUid: z.string().uuid().optional(),

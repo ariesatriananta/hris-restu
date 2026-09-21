@@ -11,13 +11,16 @@ import {
   Boxes,
   CalendarPlus,
   Eye,
+  FileSpreadsheet,
   FileClock,
   History,
   Loader2,
   LockKeyhole,
+  MoreHorizontal,
   PackageCheck,
   PencilLine,
   RefreshCcw,
+  Trash2,
   Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -44,6 +47,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -107,7 +116,9 @@ import {
   type ProductionTransactionRevision,
   type ProductionTransactionResult,
 } from './domain'
+import { ProductionBatchDeleteDialog } from './production-batch-delete-dialog'
 import { ProductionEmployeePicker } from './production-employee-picker'
+import { ProductionImportDialog } from './production-import-dialog'
 import {
   formatProductionQuantityInput,
   normalizeProductionQuantity,
@@ -139,6 +150,9 @@ export function ProductionTransactionsPage({
   const jobs = useProductionJobs()
   const [detailUid, setDetailUid] = useState<string>()
   const canCorrect = hasPermission(session, 'production.correct')
+  const canDeleteBatch =
+    session?.user.role === 'SUPER_ADMIN' ||
+    session?.user.roles.includes('SUPER_ADMIN') === true
   const hasGlobalSiteAccess =
     session?.user.role === 'SUPER_ADMIN' || session?.user.role === 'DIRECTOR'
   const accessibleSites = hasGlobalSiteAccess
@@ -186,7 +200,16 @@ export function ProductionTransactionsPage({
               onChange={(value) => setDate('dateTo', value)}
             />
           </div>
-          {canCorrect && <HistoricalProductionDialog sites={accessibleSites} />}
+          {(canCorrect || canDeleteBatch) && (
+            <div className='flex items-center gap-1'>
+              <HistoricalProductionDialog sites={accessibleSites} />
+              <ProductionBatchActions
+                canDeleteBatch={canDeleteBatch}
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -217,6 +240,60 @@ export function ProductionTransactionsPage({
         onOpenTransaction={setDetailUid}
       />
     </Main>
+  )
+}
+
+function ProductionBatchActions({
+  canDeleteBatch,
+  dateFrom,
+  dateTo,
+}: {
+  canDeleteBatch: boolean
+  dateFrom: string
+  dateTo: string
+}) {
+  const [importOpen, setImportOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  return (
+    <>
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type='button'
+                size='icon'
+                variant='outline'
+                aria-label='Aksi batch Produksi'
+              >
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Aksi batch Produksi</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align='end' className='w-56'>
+          <DropdownMenuItem onSelect={() => setImportOpen(true)}>
+            <FileSpreadsheet /> Import Excel
+          </DropdownMenuItem>
+          {canDeleteBatch && (
+            <DropdownMenuItem onSelect={() => setDeleteOpen(true)}>
+              <Trash2 /> Hapus Transaksi Batch
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <ProductionImportDialog open={importOpen} onOpenChange={setImportOpen} />
+      {canDeleteBatch && deleteOpen && (
+        <ProductionBatchDeleteDialog
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          initialDateFrom={dateFrom}
+          initialDateTo={dateTo}
+        />
+      )}
+    </>
   )
 }
 

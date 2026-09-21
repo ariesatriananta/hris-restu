@@ -385,6 +385,66 @@ export type ProductionHistoricalPreview = {
   canApply: boolean
 }
 
+export type ProductionImportRow = {
+  rowNumber: number
+  businessDate: string
+  employeeNumber: string
+  employeeName?: string
+  quantity: string
+}
+
+export type ProductionImportPreviewRow = ProductionImportRow & {
+  site?: ProductionSite
+  siteName?: string
+  job?: { uid: string; code: string; name: string }
+  unit?: ProductionCorrectionJob['unit']
+  estimatedGrossAmount?: string
+  valid: boolean
+  message: string
+  warning: string | null
+}
+
+export type ProductionImportPreview = {
+  total: number
+  valid: number
+  invalid: number
+  warnings: number
+  rows: ProductionImportPreviewRow[]
+}
+
+export type ProductionImportResult = {
+  total: number
+  imported: number
+  replayed: number
+}
+
+export type ProductionBatchDeleteSummaryRow = {
+  businessDate: string
+  employeeCount: number
+  transactionCount: number
+  totalQuantityPcs: string
+  totalGrossAmount: string
+  canDelete: boolean
+  blockers: string[]
+}
+
+export type ProductionBatchDeleteSummary = {
+  dateFrom: string
+  dateTo: string
+  site: 'ALL' | ProductionSite
+  rows: ProductionBatchDeleteSummaryRow[]
+}
+
+export type ProductionBatchDeleteResult = {
+  deletedDates: number
+  deletedTransactions: number
+}
+
+export type ProductionImportTemplateEmployees = {
+  data: Array<{ employeeNumber: string; employeeName: string }>
+  meta: { total: number; limit: number }
+}
+
 export type ProductionAssignmentCorrectionPreview = {
   source: {
     uid?: string

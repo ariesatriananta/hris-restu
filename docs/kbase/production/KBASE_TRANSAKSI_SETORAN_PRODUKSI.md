@@ -228,6 +228,67 @@ Periksa secara berurutan:
 
 Jika layar juga menampilkan pesan gangguan layanan, klik **Coba lagi**. Bila tetap gagal, catat site dan tanggal yang dipilih lalu hubungi tim support tanpa membagikan data sensitif.
 
+### 8.3 Import hasil Produksi dari Excel
+
+Gunakan **Aksi batch Produksi > Import Excel** untuk mencatat banyak hasil kerja
+yang terlewat dalam satu proses. Satu file dapat memuat beberapa tanggal dan
+beberapa site selama seluruh site berada dalam akses akun.
+
+1. Klik tombol ikon **Aksi batch Produksi** di samping **Setoran Susulan**.
+2. Pilih **Import Excel**.
+3. Unduh template terbaru.
+4. Isi **Tanggal** dengan format `DD/MM/YYYY` dan **Kuantitas** pada karyawan
+   yang akan diproses. Gandakan baris jika satu karyawan memiliki hasil pada
+   lebih dari satu tanggal.
+5. Unggah file `.xlsx`, lalu tunggu seluruh baris selesai divalidasi.
+6. Periksa site dan pekerjaan utama yang ditentukan otomatis oleh sistem. Jika
+   ada data yang gagal, klik **Download hasil validasi** untuk mendapatkan file
+   berisi status serta keterangan lengkap setiap baris.
+7. Perbaiki empat kolom input pada file hasil validasi, lalu unggah kembali.
+8. Setelah seluruh baris valid, isi alasan import lalu klik **Import**.
+
+Nomor karyawan menjadi identitas utama. Site dan pekerjaan utama dibaca dari
+histori yang efektif pada tanggal setiap baris. Nama pada Excel hanya membantu
+pemeriksaan dan tidak mengubah Master Karyawan. Baris template yang belum diisi
+tanggal dan kuantitas akan diabaikan.
+
+Import maksimal memproses 2.000 baris dan bersifat menyeluruh: jika satu baris
+tidak valid, tidak ada transaksi dalam batch yang disimpan. Baris yang sudah
+memiliki setoran pada tanggal dan pekerjaan yang sama tetap dapat ditambahkan
+sebagai setoran baru, tetapi preview menampilkan peringatan agar duplikasi tidak
+terjadi tanpa disadari. Validasi Attendance, scan Masuk, histori penempatan,
+pekerjaan utama, tarif, akses site, dan kunci Payroll tetap berlaku.
+
+File hasil validasi memuat semua baris, baik yang valid, memiliki peringatan,
+maupun perlu diperbaiki. Empat kolom pertama tetap mengikuti format template,
+sehingga file tersebut dapat langsung diunggah ulang setelah diperbaiki.
+
+### 8.4 Menghapus transaksi batch per tanggal
+
+Menu **Aksi batch Produksi > Hapus Transaksi Batch** hanya tersedia untuk Super
+Admin. Fitur ini dipakai ketika seluruh setoran pada satu atau beberapa tanggal
+harus dikosongkan lalu dicatat ulang.
+
+1. Tentukan rentang tanggal maksimal 31 hari dan pilih satu site atau **Semua
+   Site**, lalu muat ringkasan.
+2. Periksa jumlah karyawan, kali setoran, total PCS, dan bruto Produksi per
+   tanggal.
+3. Centang tanggal berstatus **Siap dihapus**.
+4. Isi alasan reset dan ketik `HAPUS` sebagai konfirmasi.
+5. Jalankan penghapusan.
+
+Seluruh tanggal terpilih diproses dalam satu transaksi database. Jika satu
+tanggal memiliki histori koreksi/void, lock atau snapshot Payroll, periode
+Payroll yang sudah diproses, atau run Payroll yang sedang berjalan, tanggal itu
+tidak dapat dipilih. Server memeriksa ulang seluruh kondisi ketika tombol hapus
+dijalankan; kegagalan satu tanggal membatalkan seluruh batch.
+
+Reset menghapus seluruh transaksi Produksi dan rincian tarif progresif pada
+kombinasi tanggal dan site terpilih, termasuk sumber Terminal, Setoran Susulan,
+dan Import Excel. Pilihan **Semua Site** menjalankan reset lintas site.
+Attendance serta master Produksi tidak ikut dihapus. Setiap tanggal yang
+berhasil dihapus dicatat dalam Audit Trail beserta ringkasan dan alasannya.
+
 ## 9. Mengoreksi transaksi
 
 Gunakan **Koreksi** jika transaksi sudah tercatat tetapi karyawan, pekerjaan, atau kuantitasnya salah.

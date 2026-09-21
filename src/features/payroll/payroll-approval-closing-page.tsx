@@ -421,8 +421,13 @@ export function PayrollApprovalClosingPage({
         | ViewStatus[]
         | undefined
       patch({
-        siteCode: lockedSite ? undefined : nextSite?.at(-1),
-        status: nextStatus?.at(-1) ?? defaultStatus,
+        siteCode:
+          lockedSite || !nextSite?.length
+            ? undefined
+            : nextSite[nextSite.length - 1],
+        status: nextStatus?.length
+          ? nextStatus[nextStatus.length - 1]
+          : defaultStatus,
         page: undefined,
         periodUid: undefined,
       })

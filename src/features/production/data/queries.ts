@@ -12,10 +12,16 @@ import type {
   ProductionAssignmentCorrectionPreview,
   ProductionAssignmentReadinessParams,
   ProductionAssignmentReadinessResult,
+  ProductionBatchDeleteResult,
+  ProductionBatchDeleteSummary,
   ProductionCorrectionContext,
   ProductionCorrectionPreview,
   ProductionEligibleEmployee,
   ProductionHistoricalPreview,
+  ProductionImportPreview,
+  ProductionImportResult,
+  ProductionImportRow,
+  ProductionImportTemplateEmployees,
   ProductionJob,
   ProductionListParams,
   ProductionRate,
@@ -27,6 +33,7 @@ import type {
   ProductionEmployeeRecapDetail,
   ProductionJobRecapDetail,
   ProductionReadiness,
+  ProductionSite,
   ProductionPostResult,
   ProductionTerminalLookup,
   ProductionTransactionListParams,
@@ -520,6 +527,82 @@ export function useCreateHistoricalProduction() {
       queryClient.invalidateQueries({
         queryKey: [...keys.all, 'transactions'],
       }),
+  })
+}
+
+export async function fetchProductionImportTemplateEmployees() {
+  return (
+    await apiClient.get<ProductionImportTemplateEmployees>(
+      '/production/transactions/import/template-employees'
+    )
+  ).data
+}
+
+export function usePreviewProductionImport() {
+  return useMutation({
+    mutationFn: async (rows: ProductionImportRow[]) =>
+      (
+        await apiClient.post<{ data: ProductionImportPreview }>(
+          '/production/transactions/import/preview',
+          { rows }
+        )
+      ).data.data,
+  })
+}
+
+export function useImportProductionTransactions() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      rows: ProductionImportRow[]
+      reason: string
+      idempotencyKey: string
+    }) =>
+      (
+        await apiClient.post<{ data: ProductionImportResult }>(
+          '/production/transactions/import',
+          input
+        )
+      ).data.data,
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: [...keys.all, 'transactions'],
+      }),
+  })
+}
+
+export function usePreviewProductionBatchDelete() {
+  return useMutation({
+    mutationFn: async (input: {
+      dateFrom: string
+      dateTo: string
+      site: 'ALL' | ProductionSite
+    }) =>
+      (
+        await apiClient.post<{ data: ProductionBatchDeleteSummary }>(
+          '/production/transactions/batch-delete/summary',
+          input
+        )
+      ).data.data,
+  })
+}
+
+export function useDeleteProductionBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      businessDates: string[]
+      site: 'ALL' | ProductionSite
+      reason: string
+      confirmation: 'HAPUS'
+    }) =>
+      (
+        await apiClient.post<{ data: ProductionBatchDeleteResult }>(
+          '/production/transactions/batch-delete',
+          input
+        )
+      ).data.data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),
   })
 }
 

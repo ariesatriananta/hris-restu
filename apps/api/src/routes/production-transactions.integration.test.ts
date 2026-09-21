@@ -214,6 +214,402 @@ describe('Production transactions API', () => {
     expect(mocks.beginTransaction).not.toHaveBeenCalled()
   })
 
+  it('preview import memberi error per baris untuk tanggal tidak valid', async () => {
+    mocks.query.mockResolvedValueOnce([
+      [
+        {
+          businessDate: '2026-09-21',
+          transactionTimestamp: '2026-09-21 08:00:00.000',
+        },
+      ],
+    ])
+    const response = await request('/transactions/import/preview', {
+      method: 'POST',
+      auth: auth({ permissions: ['production.correct'] }),
+      body: {
+        rows: [
+          {
+            rowNumber: 2,
+            businessDate: '21-09-2026',
+            employeeNumber: 'J2608-001',
+            employeeName: 'Ariel Peterpan',
+            quantity: '10',
+          },
+        ],
+      },
+    })
+    expect(response.status).toBe(200)
+    expect((await response.json()) as object).toMatchObject({
+      data: {
+        total: 1,
+        valid: 0,
+        invalid: 1,
+        rows: [
+          {
+            rowNumber: 2,
+            valid: false,
+            message: 'Tanggal wajib menggunakan format YYYY-MM-DD.',
+          },
+        ],
+      },
+    })
+  })
+
+  it('preview import menolak site hasil histori di luar akses user', async () => {
+    mocks.query
+      .mockResolvedValueOnce([
+        [
+          {
+            businessDate: '2026-09-21',
+            transactionTimestamp: '2026-09-21 08:00:00.000',
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([
+        [{ uid: employeeUid, siteId: 2, site: 'SEMARANG' }],
+      ])
+    const response = await request('/transactions/import/preview', {
+      method: 'POST',
+      auth: auth({ permissions: ['production.correct'], sites: ['JEPARA'] }),
+      body: {
+        rows: [
+          {
+            rowNumber: 2,
+            businessDate: '2026-09-20',
+            employeeNumber: 'J2608-001',
+            employeeName: 'Ariel Peterpan',
+            quantity: '10',
+          },
+        ],
+      },
+    })
+    expect(response.status).toBe(200)
+    expect((await response.json()) as object).toMatchObject({
+      data: {
+        invalid: 1,
+        rows: [{ valid: false, message: 'Akses site Produksi ditolak.' }],
+      },
+    })
+  })
+
+  it('preview import menentukan site dan pekerjaan utama dari histori tanggal baris', async () => {
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const statement = String(sql)
+      if (statement.includes("DATE_FORMAT(CURDATE()")) {
+        return [[{
+          businessDate: '2026-09-21',
+          transactionTimestamp: '2026-09-21 08:00:00.000',
+        }]]
+      }
+      if (statement.includes('SELECT e.uid,s.id siteId')) {
+        return [[{ uid: employeeUid, siteId: 1, site: 'JEPARA' }]]
+      }
+      if (statement.includes('FROM payroll_periods pp')) return [[]]
+      if (statement.includes('SELECT id,name FROM sites')) {
+        return [[{ id: 1, name: 'Site Jepara' }]]
+      }
+      if (statement.includes('SELECT barcode FROM employees WHERE uid')) {
+        return [[{ barcode: 'J2608-001' }]]
+      }
+      if (statement.includes('FROM employees WHERE barcode')) {
+        return [[{
+          id: 11,
+          uid: employeeUid,
+          employeeNumber: 'J2608-001',
+          fullName: 'Ariel Peterpan',
+          barcode: 'J2608-001',
+        }]]
+      }
+      if (statement.includes('FROM employee_employment_histories eh')) {
+        return [[{
+          id: 31,
+          siteId: 1,
+          workGroupId: 4,
+          allowsProduction: 1,
+          employeeStatus: 'ACTIVE',
+          employeeType: 'BORONGAN',
+          employeeTypeName: 'Borongan',
+          payrollBasis: 'PIECE_RATE',
+          site: 'JEPARA',
+          siteName: 'Site Jepara',
+        }]]
+      }
+      if (statement.includes('FROM attendance_records ar')) {
+        return [[{
+          id: 13,
+          uid: '88888888-8888-4888-8888-888888888888',
+          attendanceStatus: 'PRESENT',
+          clockInAt: '2026-09-20T07:00:00+07:00',
+        }]]
+      }
+      if (statement.includes('FROM attendance_scan_events ase')) {
+        return [[{ id: 14 }]]
+      }
+      if (statement.includes('SELECT a.id assignmentId')) {
+        return [[{
+          assignmentId: 14,
+          isPrimary: 1,
+          jobId: 15,
+          jobUid,
+          jobCode: 'BORONGAN-LINTING',
+          jobName: 'Linting',
+          rateId: 16,
+          rateUid: '66666666-6666-4666-8666-666666666666',
+          rateAmount: '45.0000',
+          currency: 'IDR',
+          tierCount: 2,
+          unitId: 17,
+          unitUid: '55555555-5555-4555-8555-555555555555',
+          unitCode: 'PCS',
+          unitName: 'Pcs',
+          decimalPrecision: 0,
+        }]]
+      }
+      if (statement.includes('SELECT a.production_job_id jobId')) {
+        return [[{ jobId: 15, rateId: 16, unitId: 17 }]]
+      }
+      if (statement.includes('precedingQuantity')) {
+        return [[{ precedingQuantity: '0.0000' }]]
+      }
+      if (statement.includes('FROM production_job_rate_tiers')) {
+        return [[
+          { id: 1, minQuantity: '1.0000', rateAmount: '45.0000' },
+          { id: 2, minQuantity: '3201.0000', rateAmount: '47.0000' },
+        ]]
+      }
+      if (statement.includes('COUNT(*) transactionCount')) {
+        return [[{ transactionCount: 0, totalQuantity: '0.0000' }]]
+      }
+      return [[]]
+    })
+    const response = await request('/transactions/import/preview', {
+      method: 'POST',
+      auth: auth({ permissions: ['production.correct'], sites: ['JEPARA'] }),
+      body: {
+        rows: [
+          {
+            rowNumber: 2,
+            businessDate: '2026-09-20',
+            employeeNumber: 'J2608-001',
+            employeeName: 'Nama dari Excel boleh diabaikan',
+            quantity: '100',
+          },
+        ],
+      },
+    })
+    expect(response.status).toBe(200)
+    expect((await response.json()) as object).toMatchObject({
+      data: {
+        valid: 1,
+        invalid: 0,
+        rows: [
+          {
+            businessDate: '2026-09-20',
+            employeeNumber: 'J2608-001',
+            employeeName: 'Ariel Peterpan',
+            site: 'JEPARA',
+            job: { code: 'BORONGAN-LINTING', name: 'Linting' },
+            quantity: '100.0000',
+            valid: true,
+          },
+        ],
+      },
+    })
+  })
+
+  it('import bersifat atomik ketika validasi terbaru gagal', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([
+        [
+          {
+            businessDate: '2026-09-21',
+            transactionTimestamp: '2026-09-21 08:00:00.000',
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([
+        [{ uid: employeeUid, siteId: 2, site: 'SEMARANG' }],
+      ])
+    const response = await request('/transactions/import', {
+      method: 'POST',
+      auth: auth({ permissions: ['production.correct'], sites: ['JEPARA'] }),
+      body: {
+        rows: [
+          {
+            rowNumber: 2,
+            businessDate: '2026-09-20',
+            employeeNumber: 'J2608-001',
+            employeeName: 'Ariel Peterpan',
+            quantity: '10',
+          },
+        ],
+        reason: 'Import hasil Produksi darurat.',
+        idempotencyKey: '77777777-7777-4777-8777-777777777777',
+      },
+    })
+    expect(response.status).toBe(422)
+    expect(mocks.rollback).toHaveBeenCalledTimes(1)
+    expect(
+      mocks.execute.mock.calls.some((call) =>
+        String(call[0]).includes('INSERT INTO production_transactions')
+      )
+    ).toBe(false)
+  })
+
+  it('mengimpor batch valid sebagai transaksi POSTED dan menulis audit', async () => {
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const statement = String(sql)
+      if (statement.includes('FROM production_transactions transaction')) {
+        return [[]]
+      }
+      if (statement.includes("DATE_FORMAT(CURDATE()")) {
+        return [[{
+          businessDate: '2026-09-21',
+          transactionTimestamp: '2026-09-21 08:00:00.000',
+        }]]
+      }
+      if (statement.includes('SELECT e.uid,s.id siteId')) {
+        return [[{ uid: employeeUid, siteId: 1, site: 'JEPARA' }]]
+      }
+      if (statement.includes('FROM payroll_periods pp')) return [[]]
+      if (statement.includes('SELECT id,name FROM sites')) {
+        return [[{ id: 1, name: 'Site Jepara' }]]
+      }
+      if (statement.includes('SELECT barcode FROM employees WHERE uid')) {
+        return [[{ barcode: 'J2608-001' }]]
+      }
+      if (statement.includes('FROM employees WHERE barcode')) {
+        return [[{
+          id: 11,
+          uid: employeeUid,
+          employeeNumber: 'J2608-001',
+          fullName: 'Ariel Peterpan',
+          barcode: 'J2608-001',
+        }]]
+      }
+      if (statement.includes('FROM employee_employment_histories eh')) {
+        return [[{
+          id: 31,
+          siteId: 1,
+          workGroupId: 4,
+          allowsProduction: 1,
+          employeeStatus: 'ACTIVE',
+          employeeType: 'BORONGAN',
+          employeeTypeName: 'Borongan',
+          payrollBasis: 'PIECE_RATE',
+          site: 'JEPARA',
+          siteName: 'Site Jepara',
+        }]]
+      }
+      if (statement.includes('FROM attendance_records ar')) {
+        return [[{
+          id: 13,
+          uid: '88888888-8888-4888-8888-888888888888',
+          attendanceStatus: 'PRESENT',
+          clockInAt: '2026-09-20T07:00:00+07:00',
+        }]]
+      }
+      if (statement.includes('FROM attendance_scan_events ase')) {
+        return [[{ id: 14 }]]
+      }
+      if (statement.includes('SELECT a.id assignmentId')) {
+        return [[{
+          assignmentId: 14,
+          isPrimary: 1,
+          jobId: 15,
+          jobUid,
+          jobCode: 'BORONGAN-LINTING',
+          jobName: 'Linting',
+          rateId: 16,
+          rateUid: '66666666-6666-4666-8666-666666666666',
+          rateAmount: '45.0000',
+          currency: 'IDR',
+          tierCount: 1,
+          unitId: 17,
+          unitUid: '55555555-5555-4555-8555-555555555555',
+          unitCode: 'PCS',
+          unitName: 'Pcs',
+          decimalPrecision: 0,
+        }]]
+      }
+      if (statement.includes('SELECT a.production_job_id jobId')) {
+        return [[{ jobId: 15, rateId: 16, unitId: 17 }]]
+      }
+      if (statement.includes('precedingQuantity')) {
+        return [[{ precedingQuantity: '0.0000' }]]
+      }
+      if (statement.includes('FROM production_job_rate_tiers')) {
+        return [[{ id: 1, minQuantity: '1.0000', rateAmount: '45.0000' }]]
+      }
+      if (statement.includes('COUNT(*) transactionCount')) {
+        return [[{ transactionCount: 0, totalQuantity: '0.0000' }]]
+      }
+      if (statement.includes('SELECT id FROM employees WHERE id')) {
+        return [[{ id: 11 }]]
+      }
+      if (statement.includes('ORDER BY pt.transaction_at,pt.id FOR UPDATE')) {
+        return [[{
+          id: 21,
+          uid: transactionUid,
+          rateId: 16,
+          quantity: '100.0000',
+          rateSnapshot: '45.0000',
+          grossAmount: '4500.00',
+          payrollLockedAt: null,
+          payrollSnapshot: 0,
+          trainingSnapshot: 0,
+        }]]
+      }
+      if (statement.includes('FROM production_transaction_rate_details')) {
+        return [[]]
+      }
+      if (statement.includes('SELECT pt.id,pt.uid')) {
+        return [[{
+          ...transactionRow(),
+          id: 21,
+          transactionNumber: 'PRD-IMP-20260920-JEPARA-ABC',
+          businessDate: '2026-09-20',
+          transactionAt: '2026-09-21T08:00:00+07:00',
+          quantity: '100.0000',
+          rateSnapshot: '45.0000',
+          grossAmount: '4500.00',
+          entrySource: 'HISTORICAL',
+          notes: 'Import Excel: Import hasil Produksi darurat.',
+        }]]
+      }
+      return [[]]
+    })
+    const response = await request('/transactions/import', {
+      method: 'POST',
+      auth: auth({ permissions: ['production.correct'], sites: ['JEPARA'] }),
+      body: {
+        rows: [
+          {
+            rowNumber: 2,
+            businessDate: '2026-09-20',
+            employeeNumber: 'J2608-001',
+            employeeName: 'Ariel Peterpan',
+            quantity: '100',
+          },
+        ],
+        reason: 'Import hasil Produksi darurat.',
+        idempotencyKey: '79777777-7777-4777-8777-777777777777',
+      },
+    })
+    expect(response.status).toBe(201)
+    expect(await response.json()).toMatchObject({
+      data: { total: 1, imported: 1, replayed: 0 },
+    })
+    expect(
+      mocks.execute.mock.calls.some((call) =>
+        String(call[0]).includes('INSERT INTO production_transactions')
+      )
+    ).toBe(true)
+    expect(mocks.audit).toHaveBeenCalledTimes(1)
+    expect(mocks.commit).toHaveBeenCalledTimes(1)
+  })
+
   it('mengaktifkan Terminal hanya dengan kode Produksi atau kode legacy', async () => {
     mocks.query.mockResolvedValueOnce([[deviceRow()]])
 
@@ -868,5 +1264,189 @@ describe('Production transactions API', () => {
     expect(((await response.json()) as { message: string }).message).toContain(
       'POSTED'
     )
+  })
+
+  it('membatasi ringkasan hapus batch hanya untuk SUPER_ADMIN', async () => {
+    const response = await request('/transactions/batch-delete/summary', {
+      method: 'POST',
+      body: { dateFrom: '2026-08-21', dateTo: '2026-08-22', site: 'JEPARA' },
+      auth: auth({ permissions: ['production.correct'] }),
+    })
+    expect(response.status).toBe(403)
+    expect(mocks.query).not.toHaveBeenCalled()
+  })
+
+  it('menampilkan ringkasan per tanggal beserta blocker reset', async () => {
+    mocks.query.mockResolvedValueOnce([[
+      {
+        businessDate: '2026-08-22',
+        employeeCount: 9,
+        transactionCount: 12,
+        totalQuantityPcs: '1500.0000',
+        totalGrossAmount: '250000.00',
+        hasPayrollLock: 0,
+        hasRevision: 1,
+        hasPayrollSnapshot: 0,
+        hasProcessedPayrollPeriod: 0,
+        hasProcessingPayrollRun: 0,
+      },
+      {
+        businessDate: '2026-08-21',
+        employeeCount: 7,
+        transactionCount: 10,
+        totalQuantityPcs: '1200.0000',
+        totalGrossAmount: '200000.00',
+        hasPayrollLock: 0,
+        hasRevision: 0,
+        hasPayrollSnapshot: 0,
+        hasProcessedPayrollPeriod: 0,
+        hasProcessingPayrollRun: 0,
+      },
+    ]])
+    const response = await request('/transactions/batch-delete/summary', {
+      method: 'POST',
+      body: { dateFrom: '2026-08-21', dateTo: '2026-08-22', site: 'JEPARA' },
+      auth: { ...auth({ permissions: [] }), roles: ['SUPER_ADMIN'], siteAccess: [] },
+    })
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      data: { rows: Array<{ businessDate: string; canDelete: boolean; blockers: string[] }> }
+    }
+    expect(body.data.rows[0]).toMatchObject({
+      businessDate: '2026-08-22',
+      canDelete: false,
+    })
+    expect(body.data.rows[0].blockers[0]).toContain('koreksi atau void')
+    expect(body.data.rows[1]).toMatchObject({
+      businessDate: '2026-08-21',
+      canDelete: true,
+    })
+    expect(String(mocks.query.mock.calls[0]?.[0])).toContain('site.code=?')
+    expect(mocks.query.mock.calls[0]?.[1]).toEqual([
+      '2026-08-21',
+      '2026-08-22',
+      'JEPARA',
+    ])
+  })
+
+  it('menghapus seluruh transaksi pada beberapa tanggal secara atomik dan menulis audit', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[{ id: 1 }, { id: 2 }, { id: 3 }]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[
+        {
+          businessDate: '2026-08-22',
+          siteId: 1,
+          employeeCount: 1,
+          transactionCount: 1,
+          totalQuantityPcs: '300.0000',
+          totalGrossAmount: '15000.00',
+          hasPayrollLock: 0,
+          hasRevision: 0,
+          hasPayrollSnapshot: 0,
+          hasProcessedPayrollPeriod: 0,
+          hasProcessingPayrollRun: 0,
+        },
+        {
+          businessDate: '2026-08-21',
+          siteId: 1,
+          employeeCount: 2,
+          transactionCount: 2,
+          totalQuantityPcs: '500.0000',
+          totalGrossAmount: '25000.00',
+          hasPayrollLock: 0,
+          hasRevision: 0,
+          hasPayrollSnapshot: 0,
+          hasProcessedPayrollPeriod: 0,
+          hasProcessingPayrollRun: 0,
+        },
+      ]])
+    mocks.execute
+      .mockResolvedValueOnce([{ affectedRows: 3 }])
+      .mockResolvedValueOnce([{ affectedRows: 3 }])
+
+    const response = await request('/transactions/batch-delete', {
+      method: 'POST',
+      body: {
+        businessDates: ['2026-08-21', '2026-08-22'],
+        site: 'JEPARA',
+        reason: 'Data Produksi akan diimpor ulang.',
+        confirmation: 'HAPUS',
+      },
+      auth: { ...auth({ permissions: [] }), roles: ['SUPER_ADMIN'], siteAccess: [] },
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      data: { deletedDates: 2, deletedTransactions: 3 },
+    })
+    expect(
+      mocks.execute.mock.calls.some((call) =>
+        String(call[0]).includes('DELETE detail')
+      )
+    ).toBe(true)
+    expect(mocks.audit).toHaveBeenCalledTimes(2)
+    expect(mocks.audit).toHaveBeenCalledWith(
+      expect.objectContaining({ siteId: 1 }),
+      connection
+    )
+    const deleteCall = mocks.execute.mock.calls.find((call) =>
+      String(call[0]).includes('DELETE transaction')
+    )
+    expect(String(deleteCall?.[0])).toContain('site.code=?')
+    expect(deleteCall?.[1]).toEqual([
+      '2026-08-21',
+      '2026-08-22',
+      'JEPARA',
+    ])
+    expect(mocks.commit).toHaveBeenCalledTimes(1)
+  })
+
+  it('membatalkan seluruh reset multi-tanggal jika salah satu tanggal diblokir Payroll', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[{ id: 1 }, { id: 2 }]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[
+        {
+          businessDate: '2026-08-22',
+          employeeCount: 1,
+          transactionCount: 1,
+          totalQuantityPcs: '300.0000',
+          totalGrossAmount: '15000.00',
+          hasPayrollLock: 1,
+          hasRevision: 0,
+          hasPayrollSnapshot: 1,
+          hasProcessedPayrollPeriod: 1,
+          hasProcessingPayrollRun: 0,
+        },
+        {
+          businessDate: '2026-08-21',
+          employeeCount: 1,
+          transactionCount: 1,
+          totalQuantityPcs: '200.0000',
+          totalGrossAmount: '10000.00',
+          hasPayrollLock: 0,
+          hasRevision: 0,
+          hasPayrollSnapshot: 0,
+          hasProcessedPayrollPeriod: 0,
+          hasProcessingPayrollRun: 0,
+        },
+      ]])
+
+    const response = await request('/transactions/batch-delete', {
+      method: 'POST',
+      body: {
+        businessDates: ['2026-08-21', '2026-08-22'],
+        site: 'ALL',
+        reason: 'Data Produksi akan diimpor ulang.',
+        confirmation: 'HAPUS',
+      },
+      auth: { ...auth({ permissions: [] }), roles: ['SUPER_ADMIN'], siteAccess: [] },
+    })
+    expect(response.status).toBe(409)
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.rollback).toHaveBeenCalledTimes(1)
+    expect(mocks.commit).not.toHaveBeenCalled()
   })
 })
