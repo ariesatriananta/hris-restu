@@ -168,6 +168,7 @@ describe('Payroll BPJS configuration API', () => {
     expect(countSql).toContain('employee.bpjs_health_number IS NULL')
     expect(countSql).toContain('NOT (COALESCE(enrollment.health_enabled,1)=1')
     expect(listSql).toContain('ORDER BY latest.id DESC LIMIT 1')
+    expect(listSql).toContain("employee_status.code='ACTIVE'")
     expect(listSql).not.toContain('latest.effective_from')
     expect(listSql).not.toContain('latest.effective_to')
     expect(listSql).toContain('ORDER BY site.name DESC')
@@ -351,6 +352,9 @@ describe('Payroll BPJS configuration API', () => {
       site: 'Site Jepara',
       valid: true,
     })
+    expect(String(mocks.query.mock.calls[0][0])).toContain(
+      "employee_status.code='ACTIVE'"
+    )
     expect(mocks.begin).not.toHaveBeenCalled()
     expect(mocks.execute).not.toHaveBeenCalled()
   })

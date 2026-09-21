@@ -33,7 +33,7 @@ function client() {
         siteCode: undefined,
         query: undefined,
         page: 1,
-        pageSize: 20,
+        pageSize: 50,
       },
     ],
     {
@@ -54,7 +54,7 @@ function client() {
           superAdminOverride: false,
         },
       ],
-      meta: { page: 1, pageSize: 20, total: 1 },
+      meta: { page: 1, pageSize: 50, total: 1 },
     }
   )
   return queryClient
@@ -93,14 +93,20 @@ describe('Payroll approval closing page', () => {
 
   afterEach(() => useAuthStore.setState({ session: null }))
 
-  it('menyajikan antrean pending sebagai kartu operasional', async () => {
+  it('menyajikan antrean pending sebagai datatable operasional', async () => {
     const screen = await renderPage(client())
+    const table = screen.getByRole('table')
     await expect
-      .element(screen.getByText('Payroll Agustus 2026'))
+      .element(table.getByText('Payroll Agustus 2026', { exact: true }))
       .toBeInTheDocument()
-    await expect.element(screen.getByText('Rp 12.500.000')).toBeInTheDocument()
+    await expect.element(table.getByText('Rp 12.500.000')).toBeInTheDocument()
+    await expect.element(table.getByText('Periode')).toBeInTheDocument()
     await expect
-      .element(screen.getByRole('button', { name: 'Periksa' }))
+      .element(
+        screen.getByRole('button', {
+          name: 'Periksa Payroll Agustus 2026',
+        })
+      )
       .toBeInTheDocument()
   })
 

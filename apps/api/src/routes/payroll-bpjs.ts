@@ -118,6 +118,9 @@ async function validateEnrollmentImport(
       site.id siteId,site.code siteCode,site.name siteName
      FROM employees employee
      JOIN employee_types type ON type.id=employee.employee_type_id
+     JOIN employee_statuses employee_status
+       ON employee_status.id=employee.employee_status_id
+      AND employee_status.code='ACTIVE'
      JOIN sites site ON site.id=employee.current_site_id
      WHERE employee.employee_number IN (${placeholders})`,
     numbers
@@ -483,6 +486,9 @@ payrollBpjsRouter.get(
       }
       const fromSql = `FROM employees employee
         JOIN employee_types type ON type.id=employee.employee_type_id
+        JOIN employee_statuses employee_status
+          ON employee_status.id=employee.employee_status_id
+         AND employee_status.code='ACTIVE'
         JOIN sites site ON site.id=employee.current_site_id
         LEFT JOIN employee_bpjs_enrollments enrollment ON enrollment.id=(
           SELECT latest.id FROM employee_bpjs_enrollments latest
@@ -622,13 +628,16 @@ payrollBpjsRouter.post(
           employee.full_name fullName,site.id siteId,site.code siteCode
          FROM employees employee
          JOIN employee_types type ON type.id=employee.employee_type_id AND type.code='BORONGAN'
+         JOIN employee_statuses employee_status
+           ON employee_status.id=employee.employee_status_id
+          AND employee_status.code='ACTIVE'
          JOIN sites site ON site.id=employee.current_site_id
          WHERE employee.uid=? FOR UPDATE`,
         [employeeUid]
       )
       const employee = employees[0]
       if (!employee)
-        throw new ApiError(404, 'Karyawan Borongan tidak ditemukan.')
+        throw new ApiError(404, 'Karyawan Borongan aktif tidak ditemukan.')
       enforceSite(auth, String(employee.siteCode))
       const result = await persistEnrollment(conn, auth, req, employee, input)
       await conn.commit()

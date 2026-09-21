@@ -1,6 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
 import { format, parseISO } from 'date-fns'
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+} from '@tanstack/react-table'
 import { id } from 'date-fns/locale'
 import {
   AlertTriangle,
@@ -18,7 +24,6 @@ import {
   MoreHorizontal,
   ReceiptText,
   RotateCcw,
-  Search,
   Send,
   ShieldCheck,
   Users,
@@ -31,7 +36,7 @@ import {
   siteScopeLabel,
   useSiteScopeFilter,
 } from '@/hooks/use-site-scope-filter'
-import { type NavigateFn } from '@/hooks/use-table-url-state'
+import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -52,15 +57,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Sheet,
   SheetContent,
@@ -69,9 +66,22 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  DataTableActionButton,
+  DataTableColumnHeader,
+  DataTablePagination,
+  DataTableToolbar,
+} from '@/components/data-table'
 import { Main } from '@/components/layout/main'
-import { SiteScopeFilter } from '@/components/site-scope-filter'
 import {
   useApprovePayrollApproval,
   useClosePayrollPeriod,
@@ -111,6 +121,28 @@ import {
 type SearchState = Record<string, unknown>
 type ViewStatus = 'PENDING' | 'CALCULATED' | 'APPROVED' | 'CLOSED' | 'ALL'
 type ActionKind = 'SUBMIT' | 'APPROVE' | 'REJECT' | 'WITHDRAW' | 'CLOSE'
+
+type ApprovalTableRow = {
+  key: string
+  periodUid: string
+  periodCode: string
+  periodName: string
+  siteCode: string
+  siteName: string
+  status: PayrollPeriodSummary['status'] | 'PENDING'
+  payrollBasis?: PayrollPeriodSummary['payrollBasis']
+  payFrequency?: PayrollPeriodSummary['payFrequency']
+  employeeType?: PayrollPeriodSummary['employeeType']
+  periodStart?: string
+  periodEnd?: string
+  employeeCount: number
+  totalNetPay?: string
+  requestedAt?: string
+  requestedByName?: string
+  superAdminOverride?: boolean
+  blockerCount?: number
+  warningCount?: number
+}
 
 const statusOptions: Array<{ value: ViewStatus; label: string }> = [
   { value: 'PENDING', label: 'Menunggu persetujuan' },
@@ -162,7 +194,7 @@ export function PayrollApprovalClosingPage({
   )
   const query = typeof search.query === 'string' ? search.query : ''
   const page = typeof search.page === 'number' ? search.page : 1
-  const pageSize = typeof search.pageSize === 'number' ? search.pageSize : 20
+  const pageSize = typeof search.pageSize === 'number' ? search.pageSize : 50
   const periodUid =
     typeof search.periodUid === 'string' ? search.periodUid : undefined
   const patch = (value: SearchState) =>
@@ -198,6 +230,211 @@ export function PayrollApprovalClosingPage({
   const shown =
     status === 'PENDING' ? queue.data?.data.length : periods.data?.data.length
 
+  const rows = useMemo<ApprovalTableRow[]>(() => {
+    if (status === 'PENDING') {
+      return (queue.data?.data ?? []).map((item) => ({
+        key: item.approvalUid,
+        periodUid: item.periodUid,
+        periodCode: item.periodCode,
+        periodName: item.periodName,
+        siteCode: item.siteCode,
+        siteName: item.siteName,
+        status: 'PENDING',
+        payrollBasis: item.payrollBasis,
+        payFrequency: item.payFrequency,
+        employeeType: item.employeeType,
+        employeeCount: item.employeeCount,
+        totalNetPay: item.totalNetPay,
+        requestedAt: item.requestedAt,
+        requestedByName: item.requestedByName,
+        superAdminOverride: item.superAdminOverride,
+      }))
+    }
+    return (periods.data?.data ?? []).map((item) => ({
+      key: item.uid,
+      periodUid: item.uid,
+      periodCode: item.periodCode,
+      periodName: item.periodName,
+      siteCode: item.site.code,
+      siteName: item.site.name,
+      status: item.status,
+      payrollBasis: item.payrollBasis,
+      payFrequency: item.payFrequency,
+      employeeType: item.employeeType,
+      periodStart: item.periodStart,
+      periodEnd: item.periodEnd,
+      employeeCount: item.readiness.populationCount,
+      blockerCount: item.readiness.blockerCount,
+      warningCount: item.readiness.warningCount,
+    }))
+  }, [periods.data?.data, queue.data?.data, status])
+  const url = useTableUrlState({
+    search,
+    navigate,
+    pagination: { defaultPageSize: 50 },
+    globalFilter: { key: 'query' },
+  })
+  const columnFilters = [
+    ...(siteCode ? [{ id: 'site', value: [siteCode] }] : []),
+    { id: 'status', value: [status] },
+  ]
+  const columns = useMemo<ColumnDef<ApprovalTableRow>[]>(
+    () => [
+      {
+        accessorKey: 'periodName',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Periode' />
+        ),
+        cell: ({ row }) => (
+          <div className='max-w-56 min-w-0'>
+            <p className='truncate font-semibold'>{row.original.periodName}</p>
+            <p className='truncate text-xs text-muted-foreground'>
+              {row.original.periodCode}
+            </p>
+          </div>
+        ),
+      },
+      {
+        id: 'site',
+        accessorFn: (item) => item.siteCode,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Site & skema' />
+        ),
+        cell: ({ row }) => (
+          <div className='whitespace-nowrap'>
+            <p>{row.original.siteName}</p>
+            <p className='text-xs text-muted-foreground'>
+              {payrollSchemeName(row.original)}
+            </p>
+          </div>
+        ),
+      },
+      {
+        id: 'period',
+        header: 'Rentang / pengajuan',
+        cell: ({ row }) =>
+          row.original.requestedAt ? (
+            <div className='whitespace-nowrap'>
+              <p>{dateTime(row.original.requestedAt)}</p>
+              <p className='text-xs text-muted-foreground'>
+                Oleh {row.original.requestedByName}
+              </p>
+            </div>
+          ) : (
+            <span className='whitespace-nowrap'>
+              {date(row.original.periodStart!)} –{' '}
+              {date(row.original.periodEnd!)}
+            </span>
+          ),
+      },
+      {
+        accessorKey: 'status',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='Status' />
+        ),
+        cell: ({ row }) =>
+          row.original.status === 'PENDING' ? (
+            <div className='flex flex-wrap gap-1'>
+              <Badge
+                variant='outline'
+                className='border-warning/40 bg-warning/5'
+              >
+                <Clock3 /> Menunggu
+              </Badge>
+              {row.original.superAdminOverride && (
+                <Badge variant='outline'>Override</Badge>
+              )}
+            </div>
+          ) : (
+            <PeriodBadge status={row.original.status} />
+          ),
+      },
+      {
+        id: 'summary',
+        header: () => <span className='block text-right'>Ringkasan</span>,
+        cell: ({ row }) => (
+          <div className='text-right whitespace-nowrap'>
+            {row.original.totalNetPay ? (
+              <p className='font-semibold'>{money(row.original.totalNetPay)}</p>
+            ) : (
+              <p className='font-medium'>
+                {row.original.employeeCount} karyawan
+              </p>
+            )}
+            <p className='text-xs text-muted-foreground'>
+              {row.original.totalNetPay
+                ? `${row.original.employeeCount} karyawan`
+                : row.original.blockerCount
+                  ? `${row.original.blockerCount} harus diperbaiki`
+                  : row.original.warningCount
+                    ? `${row.original.warningCount} perhatian`
+                    : 'Siap diproses'}
+            </p>
+          </div>
+        ),
+      },
+      {
+        id: 'actions',
+        header: () => <span className='block text-right'>Aksi</span>,
+        enableHiding: false,
+        cell: ({ row }) => (
+          <div className='flex justify-end'>
+            <DataTableActionButton
+              label={
+                row.original.status === 'PENDING'
+                  ? `Periksa ${row.original.periodName}`
+                  : `Lihat detail ${row.original.periodName}`
+              }
+              onClick={() => patch({ periodUid: row.original.periodUid })}
+            >
+              <Eye className='size-4' />
+            </DataTableActionButton>
+          </div>
+        ),
+      },
+    ],
+    // patch hanya membungkus navigasi URL dan tidak mengubah identitas baris.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
+  // TanStack Table mengembalikan fungsi stateful; ini pola resmi starter.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const table = useReactTable({
+    data: rows,
+    columns,
+    state: {
+      globalFilter: url.globalFilter,
+      pagination: url.pagination,
+      columnFilters,
+    },
+    manualFiltering: true,
+    manualPagination: true,
+    pageCount: Math.ceil(total / pageSize),
+    onGlobalFilterChange: url.onGlobalFilterChange,
+    onColumnFiltersChange: (updater) => {
+      const next =
+        typeof updater === 'function' ? updater(columnFilters) : updater
+      const nextSite = next.find((item) => item.id === 'site')?.value as
+        | string[]
+        | undefined
+      const nextStatus = next.find((item) => item.id === 'status')?.value as
+        | ViewStatus[]
+        | undefined
+      patch({
+        siteCode: lockedSite ? undefined : nextSite?.at(-1),
+        status: nextStatus?.at(-1) ?? defaultStatus,
+        page: undefined,
+        periodUid: undefined,
+      })
+    },
+    onPaginationChange: url.onPaginationChange,
+    getCoreRowModel: getCoreRowModel(),
+    getRowId: (item) => item.key,
+  })
+  useEffect(() => {
+    url.ensurePageInRange(Math.ceil(total / pageSize))
+  }, [pageSize, total, url])
+
   return (
     <Main>
       <div className='space-y-4'>
@@ -216,130 +453,108 @@ export function PayrollApprovalClosingPage({
 
         <WorkflowLegend />
 
-        <section
-          aria-label='Filter approval Payroll'
-          className='grid gap-2 md:grid-cols-[minmax(220px,1fr)_220px_220px]'
-        >
-          <div className='relative'>
-            <Search className='absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground' />
-            <Input
-              value={query}
-              onChange={(event) =>
-                patch({
-                  query: event.target.value || undefined,
-                  page: undefined,
-                })
-              }
-              className='ps-9'
-              placeholder='Cari periode, site, atau pengaju...'
-              aria-label='Cari approval Payroll'
-            />
-          </div>
-          {lockedSite ? (
-            <SiteScopeFilter
-              siteLabel={siteScopeLabel(
-                lockedSite,
-                meta.data?.sites.map((site) => ({
-                  value: site.code,
-                  label: site.name,
-                }))
-              )}
-              className='h-9 w-full'
-            />
-          ) : (
-            <Select
-              value={siteCode ?? 'ALL'}
-              onValueChange={(value) =>
-                patch({
-                  siteCode: value === 'ALL' ? undefined : value,
-                  page: undefined,
-                })
-              }
-            >
-              <SelectTrigger className='w-full' aria-label='Filter site'>
-                <SelectValue placeholder='Semua site' />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='ALL'>Semua site</SelectItem>
-                {(meta.data?.sites ?? []).map((site) => (
-                  <SelectItem key={site.uid} value={site.code}>
-                    {site.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <Select
-            value={status}
-            onValueChange={(value: ViewStatus) =>
-              patch({ status: value, page: undefined, periodUid: undefined })
-            }
-          >
-            <SelectTrigger className='w-full' aria-label='Filter status'>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {statusOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </section>
+        <DataTableToolbar
+          table={table}
+          searchPlaceholder='Cari periode, site, atau pengaju...'
+          searchDebounceMs={300}
+          filters={[
+            {
+              columnId: 'site',
+              title: 'Site',
+              lockedLabel: lockedSite
+                ? siteScopeLabel(
+                    lockedSite,
+                    meta.data?.sites.map((site) => ({
+                      value: site.code,
+                      label: site.name,
+                    }))
+                  )
+                : undefined,
+              options: (meta.data?.sites ?? []).map((site) => ({
+                value: site.code,
+                label: site.name,
+              })),
+            },
+            {
+              columnId: 'status',
+              title: 'Status',
+              options: statusOptions.map((option) => ({
+                value: option.value,
+                label: option.label,
+              })),
+            },
+          ]}
+        />
 
         {activeQuery.isPending ? (
-          <LoadingCards />
+          <LoadingTable />
         ) : activeQuery.isError ? (
           <ErrorPanel onRetry={() => void activeQuery.refetch()} />
         ) : shown === 0 ? (
           <EmptyPanel status={status} />
-        ) : status === 'PENDING' ? (
-          <div className='grid gap-2 lg:grid-cols-2'>
-            {(queue.data?.data ?? []).map((item) => (
-              <PendingCard
-                key={item.approvalUid}
-                item={item}
-                onOpen={() => patch({ periodUid: item.periodUid })}
-              />
-            ))}
-          </div>
         ) : (
-          <div className='grid gap-2 lg:grid-cols-2'>
-            {(periods.data?.data ?? []).map((item) => (
-              <PeriodCard
-                key={item.uid}
-                item={item}
-                onOpen={() => patch({ periodUid: item.uid })}
-              />
-            ))}
-          </div>
+          <>
+            <div className='hidden overflow-x-auto rounded-md border md:block'>
+              <Table className='text-sm'>
+                <TableHeader>
+                  {table.getHeaderGroups().map((group) => (
+                    <TableRow key={group.id}>
+                      {group.headers.map((header) => (
+                        <TableHead key={header.id} className='h-10'>
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(
+                                header.column.columnDef.header,
+                                header.getContext()
+                              )}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody>
+                  {table.getRowModel().rows.map((row) => (
+                    <TableRow key={row.id}>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id} className='py-2.5'>
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className='grid gap-2 md:hidden'>
+              {status === 'PENDING'
+                ? (queue.data?.data ?? []).map((item) => (
+                    <PendingCard
+                      key={item.approvalUid}
+                      item={item}
+                      onOpen={() => patch({ periodUid: item.periodUid })}
+                    />
+                  ))
+                : (periods.data?.data ?? []).map((item) => (
+                    <PeriodCard
+                      key={item.uid}
+                      item={item}
+                      onOpen={() => patch({ periodUid: item.uid })}
+                    />
+                  ))}
+            </div>
+          </>
         )}
 
-        {total > pageSize && (
-          <div className='flex flex-col gap-2 border-t pt-3 text-sm sm:flex-row sm:items-center sm:justify-between'>
-            <span className='text-muted-foreground'>
-              Menampilkan {shown ?? 0} dari {total} data
-            </span>
-            <div className='flex gap-2'>
-              <Button
-                variant='outline'
-                size='sm'
-                disabled={page <= 1}
-                onClick={() => patch({ page: page - 1 })}
-              >
-                Sebelumnya
-              </Button>
-              <Button
-                variant='outline'
-                size='sm'
-                disabled={page * pageSize >= total}
-                onClick={() => patch({ page: page + 1 })}
-              >
-                Berikutnya
-              </Button>
-            </div>
-          </div>
+        {!activeQuery.isPending && !activeQuery.isError && total > 0 && (
+          <DataTablePagination
+            table={table}
+            pageSizeOptions={[50, 100]}
+            summary={`Menampilkan ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} dari ${total} data.`}
+          />
         )}
       </div>
 
@@ -1235,12 +1450,18 @@ function PeriodBadge({ status }: { status: PayrollPeriodSummary['status'] }) {
   )
 }
 
-function LoadingCards() {
+function LoadingTable() {
   return (
-    <div className='grid gap-2 lg:grid-cols-2' aria-label='Memuat data Payroll'>
-      {[1, 2, 3, 4].map((item) => (
-        <Skeleton key={item} className='h-36 rounded-lg' />
-      ))}
+    <div
+      className='overflow-hidden rounded-md border'
+      aria-label='Memuat data Payroll'
+    >
+      <Skeleton className='h-10 w-full rounded-none' />
+      <div className='space-y-px border-t'>
+        {[1, 2, 3, 4].map((item) => (
+          <Skeleton key={item} className='h-14 w-full rounded-none' />
+        ))}
+      </div>
     </div>
   )
 }
