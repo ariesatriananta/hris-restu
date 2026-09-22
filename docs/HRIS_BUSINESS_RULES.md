@@ -361,7 +361,8 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Exception Produksi wajib memakai preview lalu apply, alasan, idempotency,
   audit trail, pembatasan site, dan guard Payroll.
 - Setoran susulan tidak boleh bertanggal masa depan dan tetap wajib mempunyai
-  Attendance Hadir serta scan Masuk sukses pada tanggal tersebut.
+  Attendance Hadir serta scan Masuk sukses atau koreksi jam Masuk yang sudah
+  disetujui dan diterapkan pada tanggal tersebut.
 - Snapshot Produksi tidak pernah di-reprice. Koreksi membuat transaksi
   pengganti; perubahan nilai setelah snapshot ditangani sebagai adjustment
   Payroll.

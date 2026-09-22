@@ -292,7 +292,7 @@ describe('Production transactions API', () => {
     })
   })
 
-  it('preview import menentukan site dan pekerjaan utama dari histori tanggal baris', async () => {
+  it('preview import menerima koreksi Masuk yang disetujui dan diterapkan tanpa scan Masuk', async () => {
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement = String(sql)
       if (statement.includes("DATE_FORMAT(CURDATE()")) {
@@ -343,6 +343,9 @@ describe('Production transactions API', () => {
         }]]
       }
       if (statement.includes('FROM attendance_scan_events ase')) {
+        return [[]]
+      }
+      if (statement.includes('FROM attendance_corrections ac')) {
         return [[{ id: 14 }]]
       }
       if (statement.includes('SELECT a.id assignmentId')) {
@@ -415,6 +418,16 @@ describe('Production transactions API', () => {
         ],
       },
     })
+    const correctionSql = String(
+      mocks.query.mock.calls.find((call) =>
+        String(call[0]).includes('FROM attendance_corrections ac')
+      )?.[0]
+    )
+    expect(correctionSql).toContain("ar.clock_in_source='CORRECTION'")
+    expect(correctionSql).toContain("ac.correction_type IN ('CLOCK_IN','BOTH')")
+    expect(correctionSql).toContain("ac.approval_status='APPROVED'")
+    expect(correctionSql).toContain('ac.applied_at IS NOT NULL')
+    expect(correctionSql).toContain('ac.new_clock_in_at=ar.clock_in_at')
   })
 
   it('import bersifat atomik ketika validasi terbaru gagal', async () => {
@@ -700,7 +713,7 @@ describe('Production transactions API', () => {
     expect(mocks.rollback).toHaveBeenCalled()
   })
 
-  it('menolak status Hadir tanpa event scan Masuk sukses yang terkait', async () => {
+  it('menolak status Hadir tanpa scan Masuk sukses atau koreksi Masuk approved', async () => {
     mocks.query
       .mockResolvedValueOnce([[deviceRow()]])
       .mockResolvedValueOnce([[
@@ -721,6 +734,7 @@ describe('Production transactions API', () => {
         { id: 13, uid: 'attendance', attendanceStatus: 'PRESENT', clockInAt: '2026-08-21T06:00:00+07:00' },
       ]])
       .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
 
     const response = await request('/terminal/post', {
       method: 'POST',
@@ -733,7 +747,7 @@ describe('Production transactions API', () => {
     })
     expect(response.status).toBe(422)
     expect(((await response.json()) as { message: string }).message).toContain(
-      'scan Masuk terminal'
+      'koreksi jam Masuk yang disetujui'
     )
   })
 

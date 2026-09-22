@@ -247,10 +247,25 @@ async function attendanceContext(
     [attendance.id, employeeId, siteId, date, date]
   )
   if (!events[0]) {
-    throw new ApiError(
-      422,
-      'Setoran ditolak: scan Masuk terminal yang sukses belum ditemukan hari ini.'
+    const [corrections] = await conn.query<RowDataPacket[]>(
+      `SELECT ac.id
+         FROM attendance_corrections ac
+         JOIN attendance_records ar ON ar.id=ac.attendance_record_id
+        WHERE ac.attendance_record_id=?
+          AND ar.employee_id=? AND ar.site_id=? AND ar.business_date=?
+          AND ar.clock_in_source='CORRECTION' AND ar.clock_in_at IS NOT NULL
+          AND ac.correction_type IN ('CLOCK_IN','BOTH')
+          AND ac.approval_status='APPROVED' AND ac.applied_at IS NOT NULL
+          AND ac.new_clock_in_at=ar.clock_in_at
+        LIMIT 1 ${lock ? 'FOR UPDATE' : ''}`,
+      [attendance.id, employeeId, siteId, date]
     )
+    if (!corrections[0]) {
+      throw new ApiError(
+        422,
+        'Setoran ditolak: scan Masuk sukses atau koreksi jam Masuk yang disetujui belum ditemukan pada tanggal setoran.'
+      )
+    }
   }
   return attendance
 }

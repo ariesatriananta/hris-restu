@@ -41,7 +41,8 @@ Pastikan hal berikut sudah siap:
 - kode aktivasi Terminal Produksi masih berlaku;
 - karyawan membawa Label Setoran Produksi yang benar;
 - master pekerjaan, penugasan, dan tarif pada site sudah siap;
-- data Attendance tanggal tersebut sudah mencatat Hadir dan scan Masuk berhasil.
+- data Attendance tanggal tersebut sudah mencatat Hadir serta scan Masuk
+  berhasil atau koreksi jam Masuk yang sudah disetujui dan diterapkan.
 
 > Aktivasi Terminal Attendance dan Terminal Produksi disimpan terpisah. Perangkat yang sama tetap perlu diaktifkan khusus untuk Produksi sebelum dapat menerima setoran.
 
@@ -53,13 +54,16 @@ Pada tanggal hasil kerja, sistem memastikan:
 - status dan jenis karyawan mengizinkan Produksi Borongan;
 - site karyawan sama dengan site Terminal;
 - Attendance berstatus **Hadir** pada site dan tanggal yang sama;
-- terdapat scan **Masuk** yang berhasil;
+- terdapat scan **Masuk** yang berhasil atau koreksi jam Masuk yang sudah
+  disetujui dan diterapkan;
 - pekerjaan masih aktif dan termasuk dalam penugasan karyawan;
 - terdapat tepat satu pekerjaan utama aktif;
 - terdapat satu tarif aktif untuk site, pekerjaan, dan tanggal tersebut;
 - periode belum dikunci oleh proses Payroll.
 
-Status Hadir tanpa scan Masuk belum cukup. Scan Pulang saja atau koreksi manual yang tidak memiliki scan Masuk juga tidak memenuhi syarat setoran.
+Status Hadir saja belum cukup. Scan Pulang saja atau koreksi jam Masuk yang
+masih menunggu/ditolak tidak memenuhi syarat setoran. Koreksi jam Masuk yang
+sudah disetujui dan diterapkan dianggap sah walaupun scan Masuk tidak ada.
 
 ## 5. Mengaktifkan Terminal Setoran
 
@@ -221,7 +225,7 @@ Periksa secara berurutan:
 1. site dan tanggal hasil kerja;
 2. status serta histori kerja karyawan;
 3. Attendance Hadir pada tanggal tersebut;
-4. scan Masuk yang berhasil;
+4. scan Masuk yang berhasil atau koreksi jam Masuk yang disetujui dan diterapkan;
 5. penugasan pekerjaan aktif;
 6. tarif aktif pekerjaan;
 7. status proses Payroll.
@@ -257,7 +261,9 @@ tidak valid, tidak ada transaksi dalam batch yang disimpan. Baris yang sudah
 memiliki setoran pada tanggal dan pekerjaan yang sama tetap dapat ditambahkan
 sebagai setoran baru, tetapi preview menampilkan peringatan agar duplikasi tidak
 terjadi tanpa disadari. Validasi Attendance, scan Masuk, histori penempatan,
-pekerjaan utama, tarif, akses site, dan kunci Payroll tetap berlaku.
+pekerjaan utama, tarif, akses site, dan kunci Payroll tetap berlaku. Koreksi
+jam Masuk yang sudah disetujui dan diterapkan dapat menggantikan scan Masuk
+yang tidak tercatat.
 
 File hasil validasi memuat semua baris, baik yang valid, memiliki peringatan,
 maupun perlu diperbaiki. Empat kolom pertama tetap mengikuti format template,
@@ -321,7 +327,8 @@ Karyawan pengganti tetap harus:
 
 - berada pada site dan tanggal hasil kerja yang sama;
 - memenuhi syarat Produksi;
-- berstatus Hadir dan memiliki scan Masuk berhasil;
+- berstatus Hadir dan memiliki scan Masuk berhasil atau koreksi jam Masuk
+  yang sudah disetujui dan diterapkan;
 - memiliki penugasan pekerjaan serta tarif yang valid.
 
 Koreksi tidak digunakan untuk memindahkan transaksi ke site atau tanggal lain. Jika site atau tanggal sejak awal salah, batalkan transaksi dan ikuti prosedur pencatatan yang sesuai.
