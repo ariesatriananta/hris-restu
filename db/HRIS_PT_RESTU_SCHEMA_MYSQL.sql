@@ -873,11 +873,15 @@ CREATE TABLE employee_bpjs_enrollments (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   uid CHAR(36) NOT NULL,
   employee_id BIGINT UNSIGNED NOT NULL,
-  health_enabled TINYINT(1) NOT NULL DEFAULT 1,
-  jht_enabled TINYINT(1) NOT NULL DEFAULT 1,
-  jkk_enabled TINYINT(1) NOT NULL DEFAULT 1,
-  jkm_enabled TINYINT(1) NOT NULL DEFAULT 1,
-  jp_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  configuration_mode VARCHAR(10) NOT NULL DEFAULT 'GLOBAL',
+  health_employer_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  health_employee_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  jht_employer_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  jht_employee_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  jkk_employer_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  jkm_employer_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  jp_employer_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  jp_employee_enabled TINYINT(1) NOT NULL DEFAULT 1,
   reason VARCHAR(500) NOT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   created_by BIGINT UNSIGNED NULL,
@@ -886,7 +890,13 @@ CREATE TABLE employee_bpjs_enrollments (
   PRIMARY KEY (id),
   UNIQUE KEY uq_employee_bpjs_enrollments_uid (uid),
   UNIQUE KEY uq_employee_bpjs_enrollments_employee (employee_id),
-  CONSTRAINT chk_employee_bpjs_enrollment_flags CHECK (health_enabled IN (0,1) AND jht_enabled IN (0,1) AND jkk_enabled IN (0,1) AND jkm_enabled IN (0,1) AND jp_enabled IN (0,1)),
+  CONSTRAINT chk_employee_bpjs_enrollment_component_flags CHECK (
+    configuration_mode IN ('GLOBAL','CUSTOM')
+    AND health_employer_enabled IN (0,1) AND health_employee_enabled IN (0,1)
+    AND jht_employer_enabled IN (0,1) AND jht_employee_enabled IN (0,1)
+    AND jkk_employer_enabled IN (0,1) AND jkm_employer_enabled IN (0,1)
+    AND jp_employer_enabled IN (0,1) AND jp_employee_enabled IN (0,1)
+  ),
   CONSTRAINT fk_employee_bpjs_enrollment_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_employee_bpjs_enrollment_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL,
   CONSTRAINT fk_employee_bpjs_enrollment_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL

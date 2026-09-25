@@ -72,7 +72,7 @@ export function AttendanceRecapPage({
   const dateFrom = stringValue(search.dateFrom) ?? defaults.dateFrom
   const dateTo = stringValue(search.dateTo) ?? defaults.dateTo
   const error = rangeError(dateFrom, dateTo)
-  const view = search.view === 'matrix' ? 'matrix' : 'summary'
+  const view = search.view === 'summary' ? 'summary' : 'matrix'
   const params: AttendanceRecapListParams = {
     dateFrom,
     dateTo,
@@ -292,7 +292,7 @@ export function AttendanceRecapPage({
             navigate({
               search: (previous) => ({
                 ...previous,
-                view: nextView === 'matrix' ? 'matrix' : undefined,
+                view: nextView === 'summary' ? 'summary' : undefined,
                 employeeUid: undefined,
                 detailSite: undefined,
                 detailEmployeeType: undefined,
@@ -305,13 +305,27 @@ export function AttendanceRecapPage({
             className='h-auto min-h-12 max-w-full justify-start overflow-x-auto overflow-y-hidden p-1'
             aria-label='Jenis tampilan rekap attendance'
           >
-            <TabsTrigger value='summary' className='h-10 shrink-0 px-4'>
-              <ListChecks className='size-4' /> Rekap Ringkas
-            </TabsTrigger>
             <TabsTrigger value='matrix' className='h-10 shrink-0 px-4'>
               <CalendarDays className='size-4' /> Rincian per Tanggal
             </TabsTrigger>
+            <TabsTrigger value='summary' className='h-10 shrink-0 px-4'>
+              <ListChecks className='size-4' /> Rekap Ringkas
+            </TabsTrigger>
           </TabsList>
+          <TabsContent value='matrix'>
+            <AttendanceRecapMatrixTable
+              data={matrixResult.data}
+              search={search}
+              navigate={navigate}
+              siteOptions={siteOptions}
+              productionSectionOptions={productionSectionOptions}
+              isPending={matrixResult.isPending}
+              isFetching={matrixResult.isFetching}
+              isError={matrixResult.isError}
+              onRetry={() => void matrixResult.refetch()}
+              onDetail={openDetail}
+            />
+          </TabsContent>
           <TabsContent value='summary' className='space-y-5'>
             <Summary data={result.data?.summary} />
             <AttendanceRecapTable
@@ -324,20 +338,6 @@ export function AttendanceRecapPage({
               isFetching={result.isFetching}
               isError={result.isError}
               onRetry={() => void result.refetch()}
-              onDetail={openDetail}
-            />
-          </TabsContent>
-          <TabsContent value='matrix'>
-            <AttendanceRecapMatrixTable
-              data={matrixResult.data}
-              search={search}
-              navigate={navigate}
-              siteOptions={siteOptions}
-              productionSectionOptions={productionSectionOptions}
-              isPending={matrixResult.isPending}
-              isFetching={matrixResult.isFetching}
-              isError={matrixResult.isError}
-              onRetry={() => void matrixResult.refetch()}
               onDetail={openDetail}
             />
           </TabsContent>

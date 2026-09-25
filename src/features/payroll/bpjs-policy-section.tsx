@@ -104,11 +104,14 @@ function numberStatus(item: PayrollBpjsEnrollment) {
 }
 
 function participationStatus(item: PayrollBpjsEnrollment) {
-  return item.healthEnabled &&
-    item.jhtEnabled &&
-    item.jkkEnabled &&
-    item.jkmEnabled &&
-    item.jpEnabled
+  return item.healthEmployerEnabled &&
+    item.healthEmployeeEnabled &&
+    item.jhtEmployerEnabled &&
+    item.jhtEmployeeEnabled &&
+    item.jkkEmployerEnabled &&
+    item.jkmEmployerEnabled &&
+    item.jpEmployerEnabled &&
+    item.jpEmployeeEnabled
     ? 'ALL_ACTIVE'
     : 'ANY_DISABLED'
 }
@@ -201,6 +204,7 @@ export function BpjsPolicySection({
   })
   const enrollments = usePayrollBpjsEnrollments(
     {
+      year: selectedYear,
       site: site || undefined,
       query: stringValue(search.query),
       numberStatus: numberStatuses,
@@ -229,7 +233,10 @@ export function BpjsPolicySection({
             <p className='font-medium'>{row.original.employee.fullName}</p>
             <p className='text-xs text-muted-foreground'>
               {row.original.employee.employeeNumber}
-              {row.original.implicitDefault ? ' · default' : ''}
+              {' · '}
+              {row.original.configurationMode === 'CUSTOM'
+                ? 'Pengaturan khusus'
+                : 'Ikuti global'}
             </p>
           </div>
         ),
@@ -243,11 +250,14 @@ export function BpjsPolicySection({
       },
       ...(
         [
-          ['healthEnabled', 'Kes.'],
-          ['jhtEnabled', 'JHT'],
-          ['jkkEnabled', 'JKK'],
-          ['jkmEnabled', 'JKM'],
-          ['jpEnabled', 'JP'],
+          ['healthEmployerEnabled', 'Kes. P'],
+          ['healthEmployeeEnabled', 'Kes. K'],
+          ['jhtEmployerEnabled', 'JHT P'],
+          ['jhtEmployeeEnabled', 'JHT K'],
+          ['jkkEmployerEnabled', 'JKK P'],
+          ['jkmEmployerEnabled', 'JKM P'],
+          ['jpEmployerEnabled', 'JP P'],
+          ['jpEmployeeEnabled', 'JP K'],
         ] as const
       ).map(
         ([field, label]) =>
@@ -432,8 +442,9 @@ export function BpjsPolicySection({
           <div>
             <h3 className='font-semibold'>Kepesertaan karyawan Borongan</h3>
             <p className='text-xs text-muted-foreground'>
-              Default seluruh program aktif. Nomor BPJS kosong hanya menjadi
-              peringatan.
+              Karyawan tanpa pengaturan khusus mengikuti delapan porsi kebijakan
+              global. Centang menunjukkan komponen yang benar-benar aktif. P =
+              perusahaan, K = karyawan.
             </p>
           </div>
           {canManageEnrollment ? (
@@ -581,7 +592,10 @@ export function BpjsPolicySection({
                       </p>
                       <p className='text-xs text-muted-foreground'>
                         {item.employee.employeeNumber} · {item.site.name}
-                        {item.implicitDefault ? ' · default' : ''}
+                        {' · '}
+                        {item.configurationMode === 'CUSTOM'
+                          ? 'Pengaturan khusus'
+                          : 'Ikuti global'}
                       </p>
                     </div>
                     {canManageEnrollment ? (
@@ -596,11 +610,14 @@ export function BpjsPolicySection({
                   <div className='mt-3 flex flex-wrap items-center gap-2'>
                     {(
                       [
-                        ['healthEnabled', 'Kes.'],
-                        ['jhtEnabled', 'JHT'],
-                        ['jkkEnabled', 'JKK'],
-                        ['jkmEnabled', 'JKM'],
-                        ['jpEnabled', 'JP'],
+                        ['healthEmployerEnabled', 'Kes. perusahaan'],
+                        ['healthEmployeeEnabled', 'Kes. karyawan'],
+                        ['jhtEmployerEnabled', 'JHT perusahaan'],
+                        ['jhtEmployeeEnabled', 'JHT karyawan'],
+                        ['jkkEmployerEnabled', 'JKK perusahaan'],
+                        ['jkmEmployerEnabled', 'JKM perusahaan'],
+                        ['jpEmployerEnabled', 'JP perusahaan'],
+                        ['jpEmployeeEnabled', 'JP karyawan'],
                       ] as const
                     ).map(([field, label]) => (
                       <Badge
@@ -646,6 +663,7 @@ export function BpjsPolicySection({
           open
           onOpenChange={setImportOpen}
           templateFilters={{
+            year: selectedYear,
             site: site || undefined,
             query: stringValue(search.query),
             sortBy: 'employee',
@@ -932,11 +950,15 @@ function EnrollmentDialog({
 }) {
   const mutation = useSavePayrollBpjsEnrollment()
   const [values, setValues] = useState(() => ({
-    healthEnabled: item?.healthEnabled ?? true,
-    jhtEnabled: item?.jhtEnabled ?? true,
-    jkkEnabled: item?.jkkEnabled ?? true,
-    jkmEnabled: item?.jkmEnabled ?? true,
-    jpEnabled: item?.jpEnabled ?? true,
+    configurationMode: item?.configurationMode ?? ('GLOBAL' as const),
+    healthEmployerEnabled: item?.healthEmployerEnabled ?? true,
+    healthEmployeeEnabled: item?.healthEmployeeEnabled ?? true,
+    jhtEmployerEnabled: item?.jhtEmployerEnabled ?? true,
+    jhtEmployeeEnabled: item?.jhtEmployeeEnabled ?? true,
+    jkkEmployerEnabled: item?.jkkEmployerEnabled ?? true,
+    jkmEmployerEnabled: item?.jkmEmployerEnabled ?? true,
+    jpEmployerEnabled: item?.jpEmployerEnabled ?? false,
+    jpEmployeeEnabled: item?.jpEmployeeEnabled ?? true,
   }))
   const [reason, setReason] = useState('')
   const save = async () => {
@@ -960,18 +982,47 @@ function EnrollmentDialog({
         <DialogHeader>
           <DialogTitle>Kepesertaan BPJS</DialogTitle>
           <DialogDescription>
-            {item?.employee.fullName} · perubahan berlaku hari ini dan tetap
-            dicatat dalam jejak revisi.
+            {item?.employee.fullName} · pilih mengikuti kebijakan global atau
+            gunakan pengaturan khusus untuk karyawan ini.
           </DialogDescription>
         </DialogHeader>
         <div className='space-y-3'>
+          <div className='space-y-1.5'>
+            <Label>Sumber pengaturan</Label>
+            <Select
+              value={values.configurationMode}
+              onValueChange={(mode: 'GLOBAL' | 'CUSTOM') =>
+                setValues((value) => ({
+                  ...value,
+                  configurationMode: mode,
+                }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='GLOBAL'>Ikuti kebijakan global</SelectItem>
+                <SelectItem value='CUSTOM'>
+                  Gunakan pengaturan khusus
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className='text-xs text-muted-foreground'>
+              Mode global selalu mengikuti perubahan kebijakan tahun Payroll.
+              Mode khusus menjadi keputusan akhir untuk setiap porsi di bawah.
+            </p>
+          </div>
           {(
             [
-              ['BPJS Kesehatan', 'healthEnabled'],
-              ['JHT', 'jhtEnabled'],
-              ['JKK', 'jkkEnabled'],
-              ['JKM', 'jkmEnabled'],
-              ['Jaminan Pensiun', 'jpEnabled'],
+              ['Kesehatan perusahaan', 'healthEmployerEnabled'],
+              ['Kesehatan karyawan', 'healthEmployeeEnabled'],
+              ['JHT perusahaan', 'jhtEmployerEnabled'],
+              ['JHT karyawan', 'jhtEmployeeEnabled'],
+              ['JKK perusahaan', 'jkkEmployerEnabled'],
+              ['JKM perusahaan', 'jkmEmployerEnabled'],
+              ['JP perusahaan', 'jpEmployerEnabled'],
+              ['JP karyawan', 'jpEmployeeEnabled'],
             ] as const
           ).map(([label, field]) => (
             <div
@@ -981,6 +1032,7 @@ function EnrollmentDialog({
               <Label>{label}</Label>
               <Switch
                 checked={values[field]}
+                disabled={values.configurationMode === 'GLOBAL'}
                 onCheckedChange={(checked) =>
                   setValues((value) => ({ ...value, [field]: checked }))
                 }

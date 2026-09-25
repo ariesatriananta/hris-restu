@@ -43,25 +43,42 @@ const columns = [
   ['EMPLOYEE_ID', 'employeeNumber'],
   ['NAMA', 'fullName'],
   ['SITE', 'site'],
-  ['BPJS_KESEHATAN', 'healthEnabled'],
-  ['JHT', 'jhtEnabled'],
-  ['JKK', 'jkkEnabled'],
-  ['JKM', 'jkmEnabled'],
-  ['JP', 'jpEnabled'],
+  ['MODE', 'configurationMode'],
+  ['KESEHATAN_PERUSAHAAN', 'healthEmployerEnabled'],
+  ['KESEHATAN_KARYAWAN', 'healthEmployeeEnabled'],
+  ['JHT_PERUSAHAAN', 'jhtEmployerEnabled'],
+  ['JHT_KARYAWAN', 'jhtEmployeeEnabled'],
+  ['JKK_PERUSAHAAN', 'jkkEmployerEnabled'],
+  ['JKM_PERUSAHAAN', 'jkmEmployerEnabled'],
+  ['JP_PERUSAHAAN', 'jpEmployerEnabled'],
+  ['JP_KARYAWAN', 'jpEmployeeEnabled'],
   ['ALASAN', 'reason'],
 ] as const
 const headers = columns.map(([header]) => header)
-const programHeaders = ['BPJS_KESEHATAN', 'JHT', 'JKK', 'JKM', 'JP'] as const
+const componentHeaders = [
+  'KESEHATAN_PERUSAHAAN',
+  'KESEHATAN_KARYAWAN',
+  'JHT_PERUSAHAAN',
+  'JHT_KARYAWAN',
+  'JKK_PERUSAHAAN',
+  'JKM_PERUSAHAAN',
+  'JP_PERUSAHAAN',
+  'JP_KARYAWAN',
+] as const
 
 interface LocalRow {
   employeeNumber: string
   fullName: string
   site: string
-  healthEnabled: string
-  jhtEnabled: string
-  jkkEnabled: string
-  jkmEnabled: string
-  jpEnabled: string
+  configurationMode: string
+  healthEmployerEnabled: string
+  healthEmployeeEnabled: string
+  jhtEmployerEnabled: string
+  jhtEmployeeEnabled: string
+  jkkEmployerEnabled: string
+  jkmEmployerEnabled: string
+  jpEmployerEnabled: string
+  jpEmployeeEnabled: string
   reason: string
 }
 
@@ -109,11 +126,15 @@ export function BpjsEnrollmentImportDialog({
         item.employee.employeeNumber,
         item.employee.fullName,
         item.site.name,
-        yesNo(item.healthEnabled),
-        yesNo(item.jhtEnabled),
-        yesNo(item.jkkEnabled),
-        yesNo(item.jkmEnabled),
-        yesNo(item.jpEnabled),
+        item.configurationMode === 'CUSTOM' ? 'KHUSUS' : 'GLOBAL',
+        yesNo(item.healthEmployerEnabled),
+        yesNo(item.healthEmployeeEnabled),
+        yesNo(item.jhtEmployerEnabled),
+        yesNo(item.jhtEmployeeEnabled),
+        yesNo(item.jkkEmployerEnabled),
+        yesNo(item.jkmEmployerEnabled),
+        yesNo(item.jpEmployerEnabled),
+        yesNo(item.jpEmployeeEnabled),
         'Pembaruan kepesertaan melalui import Excel.',
       ])
       const workbook = XLSX.utils.book_new()
@@ -122,20 +143,28 @@ export function BpjsEnrollmentImportDialog({
         { wch: 22 },
         { wch: 32 },
         { wch: 20 },
+        { wch: 14 },
+        { wch: 24 },
+        { wch: 22 },
         { wch: 20 },
-        { wch: 10 },
-        { wch: 10 },
-        { wch: 10 },
-        { wch: 10 },
+        { wch: 18 },
+        { wch: 20 },
+        { wch: 20 },
+        { wch: 18 },
+        { wch: 16 },
         { wch: 48 },
       ]
-      sheet['!autofilter'] = { ref: `A1:I${dataRows.length + 1}` }
+      sheet['!autofilter'] = { ref: `A1:M${dataRows.length + 1}` }
       XLSX.utils.book_append_sheet(workbook, sheet, sheetName)
       const guide = XLSX.utils.aoa_to_sheet([
         ['Panduan Import Kepesertaan BPJS Borongan'],
-        ['1. Ubah hanya kolom program dan ALASAN.'],
-        ['2. Isi kolom program dengan YA atau TIDAK.'],
-        ['3. Perubahan otomatis berlaku pada tanggal file diunggah.'],
+        ['1. Isi MODE dengan GLOBAL atau KHUSUS.'],
+        [
+          '2. GLOBAL mengikuti kebijakan tahun Payroll; nilai delapan kolom porsi hanya menjadi informasi.',
+        ],
+        [
+          '3. KHUSUS memakai pilihan YA atau TIDAK pada setiap kolom porsi sebagai keputusan akhir karyawan.',
+        ],
         ['4. Jangan mengubah EMPLOYEE_ID, NAMA, SITE, atau nama header.'],
         ['5. Maksimal 2.000 karyawan dan seluruh baris harus valid.'],
         [
@@ -213,8 +242,8 @@ export function BpjsEnrollmentImportDialog({
         <DialogHeader className='border-b px-6 py-5'>
           <DialogTitle>Import kepesertaan BPJS Borongan</DialogTitle>
           <DialogDescription>
-            Unduh template, ubah pilihan program, lalu periksa preview sebelum
-            menyimpan.
+            Unduh template, pilih sumber pengaturan dan porsi BPJS, lalu periksa
+            preview sebelum menyimpan.
           </DialogDescription>
         </DialogHeader>
         <div className='max-h-[calc(100svh-13rem)] space-y-5 overflow-y-auto px-6 py-5'>
@@ -224,7 +253,9 @@ export function BpjsEnrollmentImportDialog({
               <div>
                 <p className='font-medium'>Mulai dari template terisi</p>
                 <p className='text-sm text-muted-foreground'>
-                  Daftar karyawan mengikuti site dan pencarian pada tabel.
+                  Berisi seluruh karyawan Borongan aktif sesuai akses, filter
+                  site, dan pencarian pada tabel. Pagination, kelengkapan nomor
+                  BPJS, dan status program tidak membatasi isi template.
                 </p>
               </div>
             </div>
@@ -258,8 +289,8 @@ export function BpjsEnrollmentImportDialog({
               }}
             />
             <p className='text-xs text-muted-foreground'>
-              Kolom program hanya menerima YA atau TIDAK. Maksimal 2.000
-              karyawan.
+              MODE menerima GLOBAL atau KHUSUS. Kolom porsi menerima YA atau
+              TIDAK. Maksimal 2.000 karyawan.
             </p>
           </div>
 
@@ -413,16 +444,21 @@ async function parseWorkbook(file: File): Promise<{
   parsedRows.forEach((row, index) => {
     const issues: string[] = []
     if (!row.employeeNumber) issues.push('EMPLOYEE_ID wajib diisi.')
-    const programs = [
-      row.healthEnabled,
-      row.jhtEnabled,
-      row.jkkEnabled,
-      row.jkmEnabled,
-      row.jpEnabled,
+    const configurationMode = parseConfigurationMode(row.configurationMode)
+    if (!configurationMode) issues.push('MODE harus GLOBAL atau KHUSUS.')
+    const components = [
+      row.healthEmployerEnabled,
+      row.healthEmployeeEnabled,
+      row.jhtEmployerEnabled,
+      row.jhtEmployeeEnabled,
+      row.jkkEmployerEnabled,
+      row.jkmEmployerEnabled,
+      row.jpEmployerEnabled,
+      row.jpEmployeeEnabled,
     ]
-    programs.forEach((value, programIndex) => {
+    components.forEach((value, componentIndex) => {
       if (parseYesNo(value) === undefined)
-        issues.push(`${programHeaders[programIndex]} harus YA atau TIDAK.`)
+        issues.push(`${componentHeaders[componentIndex]} harus YA atau TIDAK.`)
     })
     if (row.reason.length < 5) issues.push('ALASAN minimal 5 karakter.')
     previewRows.push({
@@ -436,11 +472,15 @@ async function parseWorkbook(file: File): Promise<{
     if (!issues.length)
       validRows.push({
         employeeNumber: row.employeeNumber,
-        healthEnabled: parseYesNo(row.healthEnabled) === true,
-        jhtEnabled: parseYesNo(row.jhtEnabled) === true,
-        jkkEnabled: parseYesNo(row.jkkEnabled) === true,
-        jkmEnabled: parseYesNo(row.jkmEnabled) === true,
-        jpEnabled: parseYesNo(row.jpEnabled) === true,
+        configurationMode: configurationMode!,
+        healthEmployerEnabled: parseYesNo(row.healthEmployerEnabled) === true,
+        healthEmployeeEnabled: parseYesNo(row.healthEmployeeEnabled) === true,
+        jhtEmployerEnabled: parseYesNo(row.jhtEmployerEnabled) === true,
+        jhtEmployeeEnabled: parseYesNo(row.jhtEmployeeEnabled) === true,
+        jkkEmployerEnabled: parseYesNo(row.jkkEmployerEnabled) === true,
+        jkmEmployerEnabled: parseYesNo(row.jkmEmployerEnabled) === true,
+        jpEmployerEnabled: parseYesNo(row.jpEmployerEnabled) === true,
+        jpEmployeeEnabled: parseYesNo(row.jpEmployeeEnabled) === true,
         reason: row.reason,
       })
   })
@@ -462,6 +502,15 @@ function parseYesNo(value: string) {
   const normalized = value.trim().toUpperCase()
   if (normalized === 'YA') return true
   if (normalized === 'TIDAK') return false
+  return undefined
+}
+
+function parseConfigurationMode(
+  value: string
+): 'GLOBAL' | 'CUSTOM' | undefined {
+  const normalized = value.trim().toUpperCase()
+  if (normalized === 'GLOBAL' || normalized === 'IKUTI GLOBAL') return 'GLOBAL'
+  if (normalized === 'CUSTOM' || normalized === 'KHUSUS') return 'CUSTOM'
   return undefined
 }
 

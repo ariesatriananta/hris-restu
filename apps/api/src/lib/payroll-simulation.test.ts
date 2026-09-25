@@ -222,7 +222,7 @@ describe('Payroll simulation service', () => {
     expect(mocks.commit).toHaveBeenCalledOnce()
   })
 
-  it('memakai kondisi kepesertaan BPJS terakhir tanpa rentang tanggal', async () => {
+  it('memakai delapan porsi efektif kepesertaan BPJS terakhir tanpa rentang tanggal', async () => {
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement = String(sql)
       if (statement.includes('FROM payroll_runs pr JOIN payroll_periods')) {
@@ -258,6 +258,15 @@ describe('Payroll simulation service', () => {
     )
     expect(String(bpjsInsert?.[0])).toContain(
       'ORDER BY latest.id DESC LIMIT 1'
+    )
+    expect(String(bpjsInsert?.[0])).toContain(
+      "CASE WHEN enrollment.configuration_mode='CUSTOM' THEN enrollment.health_employer_enabled ELSE policy.health_employer_enabled END"
+    )
+    expect(String(bpjsInsert?.[0])).toContain(
+      "CASE WHEN enrollment.configuration_mode='CUSTOM' THEN enrollment.jp_employee_enabled ELSE policy.jp_employee_enabled END"
+    )
+    expect(String(bpjsInsert?.[0])).toContain(
+      "'configurationMode',IF(enrollment.configuration_mode='CUSTOM','CUSTOM','GLOBAL')"
     )
     expect(String(bpjsInsert?.[0])).not.toContain('latest.effective_from')
     expect(String(bpjsInsert?.[0])).not.toContain('latest.effective_to')

@@ -471,6 +471,9 @@ async function validateProductionImportRows(
   auth: AuthContext,
   lock = false
 ): Promise<ProductionImportValidationRow[]> {
+  if (rows.length > 1) {
+    return validateProductionImportRowsBatch(conn, rows, auth, lock)
+  }
   const serverTime = await currentServerTime(conn)
   const batchQuantities = new Map<string, string>()
   const output: ProductionImportValidationRow[] = []
@@ -595,6 +598,489 @@ async function validateProductionImportRows(
     }
   }
   return output
+}
+
+async function validateProductionImportRowsBatch(
+  conn: PoolConnection,
+  rows: ProductionImportInputRow[],
+  auth: AuthContext,
+  lock: boolean
+): Promise<ProductionImportValidationRow[]> {
+  const serverTime = await currentServerTime(conn)
+  const currentDate = String(serverTime.businessDate)
+  const preliminary = new Map<number, string>()
+  const candidates = rows.filter((input) => {
+    if (!z.string().date().safeParse(input.businessDate).success) {
+      preliminary.set(input.rowNumber, 'Tanggal wajib menggunakan format YYYY-MM-DD.')
+      return false
+    }
+    if (input.businessDate > currentDate) {
+      preliminary.set(input.rowNumber, 'Tanggal hasil kerja tidak boleh berada di masa depan.')
+      return false
+    }
+    return true
+  })
+  if (!candidates.length) {
+    return rows.map((input) => ({
+      input,
+      valid: false,
+      message: preliminary.get(input.rowNumber) ?? 'Baris tidak valid.',
+      warning: null,
+    }))
+  }
+
+  await conn.query('DROP TEMPORARY TABLE IF EXISTS tmp_production_import_rows')
+  await conn.query(
+    `CREATE TEMPORARY TABLE tmp_production_import_rows(
+       import_row_number INT NOT NULL PRIMARY KEY,
+       business_date DATE NOT NULL,
+       employee_number VARCHAR(50) NOT NULL,
+       quantity VARCHAR(50) NOT NULL,
+       KEY idx_tmp_production_import_employee_date(employee_number,business_date)
+     ) ENGINE=InnoDB`
+  )
+  try {
+    for (let offset = 0; offset < candidates.length; offset += 250) {
+      const chunk = candidates.slice(offset, offset + 250)
+      await conn.query(
+        `INSERT INTO tmp_production_import_rows
+           (import_row_number,business_date,employee_number,quantity)
+         VALUES ${chunk.map(() => '(?,?,?,?)').join(',')}`,
+        chunk.flatMap((row) => [
+          row.rowNumber,
+          row.businessDate,
+          row.employeeNumber,
+          row.quantity,
+        ])
+      )
+    }
+
+    const lockClause = lock ? 'FOR UPDATE' : ''
+    const [contextRows] = await conn.query<RowDataPacket[]>(
+      `SELECT input.import_row_number rowNumber,
+              employee.id employeeId,employee.uid employeeUid,
+              employee.employee_number employeeNumber,
+              employee.full_name fullName,employee.barcode,
+              history.id historyId,history.site_id siteId,
+              history.work_group_id workGroupId,
+              status.allows_production allowsProduction,
+              status.code employeeStatus,type.code employeeType,
+              type.name employeeTypeName,type.payroll_basis payrollBasis,
+              site.code site,site.name siteName,site.is_active siteActive,
+              work_group.uid workGroupUid,work_group.code workGroupCode,
+              work_group.name workGroupName,
+              section.uid productionSectionUid,
+              section.code productionSectionCode,
+              section.name productionSectionName,
+              attendance.id attendanceId,attendance.uid attendanceUid,
+              attendance.attendance_status attendanceStatus,
+              DATE_FORMAT(attendance.clock_in_at,'%Y-%m-%dT%H:%i:%s+07:00') clockInAt,
+              EXISTS(
+                SELECT 1 FROM attendance_scan_events scan
+                 WHERE scan.attendance_record_id=attendance.id
+                   AND scan.employee_id=employee.id
+                   AND scan.site_id=history.site_id
+                   AND scan.event_type='CLOCK_IN' AND scan.result_status='SUCCESS'
+                   AND scan.scanned_at>=TIMESTAMP(input.business_date)
+                   AND scan.scanned_at<DATE_ADD(TIMESTAMP(input.business_date),INTERVAL 1 DAY)
+              ) hasSuccessfulClockIn,
+              EXISTS(
+                SELECT 1 FROM attendance_corrections correction
+                 WHERE correction.attendance_record_id=attendance.id
+                   AND attendance.clock_in_source='CORRECTION'
+                   AND attendance.clock_in_at IS NOT NULL
+                   AND correction.correction_type IN ('CLOCK_IN','BOTH')
+                   AND correction.approval_status='APPROVED'
+                   AND correction.applied_at IS NOT NULL
+                   AND correction.new_clock_in_at=attendance.clock_in_at
+              ) hasApprovedClockInCorrection
+         FROM tmp_production_import_rows input
+         LEFT JOIN employees employee
+           ON employee.employee_number=input.employee_number
+         LEFT JOIN employee_employment_histories history
+           ON history.employee_id=employee.id
+          AND history.effective_from<=input.business_date
+          AND (history.effective_to IS NULL OR history.effective_to>=input.business_date)
+         LEFT JOIN employee_statuses status ON status.id=history.employee_status_id
+         LEFT JOIN employee_types type ON type.id=history.employee_type_id
+         LEFT JOIN sites site ON site.id=history.site_id
+         LEFT JOIN work_groups work_group ON work_group.id=history.work_group_id
+         LEFT JOIN production_module_sections mapping
+           ON mapping.id=history.production_module_section_id
+         LEFT JOIN production_sections section
+           ON section.id=mapping.production_section_id
+         LEFT JOIN attendance_records attendance
+           ON attendance.employee_id=employee.id
+          AND attendance.site_id=history.site_id
+          AND attendance.business_date=input.business_date
+         ORDER BY input.import_row_number,history.id ${lockClause}`
+    )
+    const [assignmentRows] = await conn.query<RowDataPacket[]>(
+      `SELECT input.import_row_number rowNumber,
+              assignment.id assignmentId,assignment.is_primary isPrimary,
+              job.id jobId,job.uid jobUid,job.code jobCode,job.name jobName,
+              rate.id rateId,rate.uid rateUid,rate.rate_amount rateAmount,
+              rate.currency,unit.id unitId,unit.uid unitUid,unit.code unitCode,
+              unit.name unitName,unit.decimal_precision decimalPrecision
+         FROM tmp_production_import_rows input
+         JOIN employees employee ON employee.employee_number=input.employee_number
+         JOIN employee_employment_histories history
+           ON history.employee_id=employee.id
+          AND history.effective_from<=input.business_date
+          AND (history.effective_to IS NULL OR history.effective_to>=input.business_date)
+         JOIN employee_job_assignments assignment
+           ON assignment.employee_id=employee.id
+          AND assignment.site_id=history.site_id
+          AND assignment.status='ACTIVE'
+          AND assignment.effective_from<=input.business_date
+          AND (assignment.effective_to IS NULL OR assignment.effective_to>=input.business_date)
+         JOIN production_jobs job
+           ON job.id=assignment.production_job_id AND job.is_active=1
+         LEFT JOIN production_job_rates rate
+           ON rate.site_id=assignment.site_id
+          AND rate.production_job_id=assignment.production_job_id
+          AND rate.status='ACTIVE' AND rate.effective_from<=input.business_date
+          AND (rate.effective_to IS NULL OR rate.effective_to>=input.business_date)
+         LEFT JOIN work_units unit ON unit.id=rate.unit_id AND unit.is_active=1
+         ORDER BY input.import_row_number,assignment.is_primary DESC,job.name,
+                  rate.effective_from DESC,rate.id DESC ${lockClause}`
+    )
+    const [periodRows] = await conn.query<RowDataPacket[]>(
+      `SELECT input.import_row_number rowNumber,period.status,
+              EXISTS(
+                SELECT 1 FROM payroll_runs run
+                 WHERE run.payroll_period_id=period.id AND run.status='PROCESSING'
+              ) processingRun
+         FROM tmp_production_import_rows input
+         JOIN employees employee ON employee.employee_number=input.employee_number
+         JOIN employee_employment_histories history
+           ON history.employee_id=employee.id
+          AND history.effective_from<=input.business_date
+          AND (history.effective_to IS NULL OR history.effective_to>=input.business_date)
+         JOIN payroll_periods period
+           ON period.site_id=history.site_id
+          AND period.payroll_basis='PIECE_RATE'
+          AND period.period_start<=input.business_date
+          AND period.period_end>=input.business_date
+          AND period.status<>'CANCELLED'
+         ORDER BY input.import_row_number,period.id ${lockClause}`
+    )
+    const [productionRows] = await conn.query<RowDataPacket[]>(
+      `SELECT input.import_row_number rowNumber,transaction.production_job_id jobId,
+              transaction.quantity
+         FROM tmp_production_import_rows input
+         JOIN employees employee ON employee.employee_number=input.employee_number
+         JOIN employee_employment_histories history
+           ON history.employee_id=employee.id
+          AND history.effective_from<=input.business_date
+          AND (history.effective_to IS NULL OR history.effective_to>=input.business_date)
+         JOIN production_transactions transaction
+           ON transaction.employee_id=employee.id
+          AND transaction.site_id=history.site_id
+          AND transaction.business_date=input.business_date
+          AND transaction.status='POSTED'
+         ORDER BY input.import_row_number,transaction.id ${lockClause}`
+    )
+
+    const rateIds = [
+      ...new Set(
+        assignmentRows
+          .filter((row) => row.rateId && row.unitId)
+          .map((row) => Number(row.rateId))
+      ),
+    ]
+    const tiersByRate = new Map<number, ProductionRateTier[]>()
+    if (rateIds.length) {
+      const [tierRows] = await conn.query<RowDataPacket[]>(
+        `SELECT rate.id rateId,tier.id tierId,tier.min_quantity minQuantity,
+                COALESCE(tier.rate_amount,rate.rate_amount) rateAmount
+           FROM production_job_rates rate
+           LEFT JOIN production_job_rate_tiers tier ON tier.job_rate_id=rate.id
+          WHERE rate.id IN (${rateIds.map(() => '?').join(',')})
+          ORDER BY rate.id,tier.min_quantity ${lockClause}`,
+        rateIds
+      )
+      for (const row of tierRows) {
+        const rateId = Number(row.rateId)
+        const tiers = tiersByRate.get(rateId) ?? []
+        tiers.push({
+          id: row.tierId === null ? null : Number(row.tierId),
+          minQuantity: normalizeStoredDecimal(row.minQuantity ?? '1'),
+          rateAmount: normalizeStoredDecimal(row.rateAmount),
+        })
+        tiersByRate.set(rateId, tiers)
+      }
+    }
+
+    const byRow = <T extends RowDataPacket>(source: T[]) => {
+      const result = new Map<number, T[]>()
+      for (const row of source) {
+        const key = Number(row.rowNumber)
+        const values = result.get(key) ?? []
+        values.push(row)
+        result.set(key, values)
+      }
+      return result
+    }
+    const contexts = byRow(contextRows)
+    const assignments = byRow(assignmentRows)
+    const periods = byRow(periodRows)
+    const productions = byRow(productionRows)
+    const batchQuantities = new Map<string, string>()
+
+    return rows.map((input): ProductionImportValidationRow => {
+      try {
+        const preliminaryMessage = preliminary.get(input.rowNumber)
+        if (preliminaryMessage) throw new ApiError(422, preliminaryMessage)
+        const rowContexts = contexts
+          .get(input.rowNumber)
+          ?.filter((row) => row.employeeId && row.historyId) ?? []
+        if (rowContexts.length !== 1) {
+          throw new ApiError(
+            422,
+            rowContexts.length === 0
+              ? 'Karyawan atau histori penempatan pada tanggal tersebut tidak ditemukan.'
+              : 'Histori penempatan karyawan bertumpang-tindih pada tanggal tersebut.'
+          )
+        }
+        const context = rowContexts[0]
+        if (!context.barcode) {
+          throw new ApiError(422, 'Karyawan tidak memiliki barcode aktif.')
+        }
+        if (Number(context.siteActive) !== 1) {
+          throw new ApiError(422, 'Site Produksi tidak valid atau tidak aktif.')
+        }
+        enforceSite(auth, String(context.site))
+        if (
+          Number(context.allowsProduction) !== 1 ||
+          String(context.payrollBasis) !== 'PIECE_RATE'
+        ) {
+          throw new ApiError(422, 'Karyawan tidak eligible untuk Produksi Borongan.')
+        }
+        const rowPeriods = periods.get(input.rowNumber) ?? []
+        if (rowPeriods.some((period) => Number(period.processingRun) === 1)) {
+          throw new ApiError(409, 'Perhitungan Payroll untuk periode ini sedang berjalan.')
+        }
+        const lockedPeriod = rowPeriods.find((period) =>
+          ['CALCULATED', 'APPROVED', 'CLOSED'].includes(String(period.status))
+        )
+        if (lockedPeriod) {
+          throw new ApiError(
+            409,
+            lockedPeriod.status === 'CLOSED'
+              ? 'Periode Payroll sudah ditutup dan bersifat immutable.'
+              : `Periode Payroll sudah berstatus ${lockedPeriod.status}.`
+          )
+        }
+        if (!context.attendanceId || context.attendanceStatus !== 'PRESENT') {
+          throw new ApiError(
+            422,
+            'Setoran ditolak: Attendance karyawan hari ini belum berstatus Hadir.'
+          )
+        }
+        if (
+          Number(context.hasSuccessfulClockIn) !== 1 &&
+          Number(context.hasApprovedClockInCorrection) !== 1
+        ) {
+          throw new ApiError(
+            422,
+            'Setoran ditolak: scan Masuk sukses atau koreksi jam Masuk yang disetujui belum ditemukan pada tanggal setoran.'
+          )
+        }
+
+        const rowAssignments = assignments.get(input.rowNumber) ?? []
+        if (!rowAssignments.length) {
+          throw new ApiError(422, 'Karyawan belum memiliki penugasan pekerjaan aktif.')
+        }
+        const primaryAssignmentCount = new Set(
+          rowAssignments
+            .filter((row) => Number(row.isPrimary) === 1)
+            .map((row) => String(row.assignmentId))
+        ).size
+        if (primaryAssignmentCount !== 1) {
+          throw new ApiError(
+            422,
+            primaryAssignmentCount === 0
+              ? 'Karyawan belum memiliki pekerjaan utama aktif.'
+              : 'Karyawan memiliki lebih dari satu pekerjaan utama aktif.'
+          )
+        }
+        const assignmentGroups = new Map<string, RowDataPacket[]>()
+        for (const row of rowAssignments) {
+          const values = assignmentGroups.get(String(row.jobUid)) ?? []
+          values.push(row)
+          assignmentGroups.set(String(row.jobUid), values)
+        }
+        const jobs: Array<Record<string, unknown>> = []
+        for (const group of assignmentGroups.values()) {
+          if (new Set(group.map((row) => String(row.assignmentId))).size > 1) {
+            throw new ApiError(
+              422,
+              `Penugasan aktif pekerjaan ${group[0].jobName} bertumpang-tindih.`
+            )
+          }
+          const rates = [
+            ...new Map(
+              group
+                .filter((row) => row.rateId && row.unitId)
+                .map((row) => [String(row.rateId), row])
+            ).values(),
+          ]
+          if (rates.length > 1) {
+            throw new ApiError(
+              422,
+              `Tarif aktif pekerjaan ${group[0].jobName} bertumpang-tindih.`
+            )
+          }
+          if (!rates.length) continue
+          const rate = rates[0]
+          jobs.push({
+            uid: rate.jobUid,
+            code: rate.jobCode,
+            name: rate.jobName,
+            isPrimary: group.some((item) => Number(item.isPrimary) === 1),
+            jobId: Number(rate.jobId),
+            rateId: Number(rate.rateId),
+            unitId: Number(rate.unitId),
+            unit: {
+              uid: rate.unitUid,
+              code: rate.unitCode,
+              name: rate.unitName,
+              decimalPrecision: Number(rate.decimalPrecision),
+            },
+            rate: {
+              uid: rate.rateUid,
+              amount: normalizeStoredDecimal(rate.rateAmount),
+              currency: rate.currency,
+              tiered: (tiersByRate.get(Number(rate.rateId))?.length ?? 0) > 1,
+            },
+          })
+        }
+        if (!jobs.length) {
+          throw new ApiError(422, 'Penugasan karyawan belum memiliki tarif aktif hari ini.')
+        }
+        const primaryJobs = jobs.filter((job) => job.isPrimary)
+        if (primaryJobs.length !== 1) {
+          throw new ApiError(422, 'Pekerjaan utama belum memiliki tarif aktif hari ini.')
+        }
+        const job = primaryJobs[0]
+        const unit = job.unit as {
+          uid: string
+          code: string
+          name: string
+          decimalPrecision: number
+        }
+        const rate = job.rate as { uid: string; amount: string; currency: string }
+        const quantity = normalizeQuantity(input.quantity, unit.decimalPrecision)
+        const jobId = Number(job.jobId)
+        const rateId = Number(job.rateId)
+        const unitId = Number(job.unitId)
+        const existing = (productions.get(input.rowNumber) ?? []).filter(
+          (row) => Number(row.jobId) === jobId
+        )
+        const preceding = existing.reduce(
+          (sum, row) =>
+            sum + BigInt(normalizeStoredDecimal(row.quantity).replace('.', '')),
+          0n
+        )
+        const groupKey = [
+          context.employeeId,
+          context.siteId,
+          jobId,
+          input.businessDate,
+        ].join('|')
+        const additional = BigInt(
+          (batchQuantities.get(groupKey) ?? '0.0000').replace('.', '')
+        )
+        const starting = preceding + additional
+        const tiers = tiersByRate.get(rateId) ?? []
+        const priced = priceProductionTiers(
+          `${starting / 10000n}.${String(starting % 10000n).padStart(4, '0')}`,
+          quantity,
+          tiers
+        )
+        const next = additional + BigInt(quantity.replace('.', ''))
+        batchQuantities.set(
+          groupKey,
+          `${next / 10000n}.${String(next % 10000n).padStart(4, '0')}`
+        )
+        const proposal = {
+          employee: {
+            id: context.employeeId,
+            uid: context.employeeUid,
+            employeeNumber: context.employeeNumber,
+            fullName: context.fullName,
+            barcode: context.barcode,
+          },
+          history: {
+            id: context.historyId,
+            siteId: context.siteId,
+            workGroupId: context.workGroupId,
+            allowsProduction: context.allowsProduction,
+            employeeStatus: context.employeeStatus,
+            employeeType: context.employeeType,
+            employeeTypeName: context.employeeTypeName,
+            payrollBasis: context.payrollBasis,
+            site: context.site,
+            siteName: context.siteName,
+            workGroupUid: context.workGroupUid,
+            workGroupCode: context.workGroupCode,
+            workGroupName: context.workGroupName,
+            productionSectionUid: context.productionSectionUid,
+            productionSectionCode: context.productionSectionCode,
+            productionSectionName: context.productionSectionName,
+          },
+          attendance: {
+            id: context.attendanceId,
+            uid: context.attendanceUid,
+            attendanceStatus: context.attendanceStatus,
+            clockInAt: context.clockInAt,
+          },
+          site: { id: context.siteId, name: context.siteName },
+          jobs,
+          defaultJobUid: String(job.uid),
+          targetIds: { jobId, rateId, unitId },
+          proposed: {
+            job: { uid: job.uid, code: job.code, name: job.name },
+            unit,
+            rate,
+            quantity,
+            rateSnapshot: rate.amount,
+            grossAmount: priced.grossAmount,
+            rateDetails: priced.slices.map((slice) => ({
+              minQuantity: slice.minQuantitySnapshot,
+              quantity: slice.quantity,
+              rateAmount: slice.rateSnapshot,
+              amount: slice.amount,
+            })),
+          },
+        } as Awaited<ReturnType<typeof historicalProposal>>
+        return {
+          input,
+          valid: true,
+          message: 'Siap diimpor.',
+          warning: existing.length
+            ? `Sudah ada ${existing.length} setoran tercatat (${normalizeStoredDecimal(`${preceding / 10000n}.${String(preceding % 10000n).padStart(4, '0')}`)} ${unit.code}); baris ini akan ditambahkan sebagai setoran baru.`
+            : null,
+          proposal,
+        }
+      } catch (error) {
+        return {
+          input,
+          valid: false,
+          message:
+            error instanceof ApiError
+              ? error.message
+              : 'Baris gagal divalidasi karena gangguan layanan.',
+          warning: null,
+        }
+      }
+    })
+  } finally {
+    await conn
+      .query('DROP TEMPORARY TABLE IF EXISTS tmp_production_import_rows')
+      .catch(() => undefined)
+  }
 }
 
 function productionImportRowDto(row: ProductionImportValidationRow) {
@@ -2050,38 +2536,56 @@ productionTransactionsRouter.post(
 productionTransactionsRouter.get(
   '/transactions/import/template-employees',
   requirePermission('production.correct'),
-  async (_req, res, next) => {
+  async (req, res, next) => {
     try {
       const auth = res.locals.auth as AuthContext
+      const referenceDate = z
+        .string()
+        .date()
+        .parse(req.query.businessDate ?? businessDate())
+      if (referenceDate > businessDate()) {
+        throw new ApiError(
+          422,
+          'Tanggal referensi template tidak boleh lebih dari hari ini.'
+        )
+      }
       const scope = scopeWhere(auth, 'site.code')
       const [counts] = await pool.query<RowDataPacket[]>(
-        `SELECT COUNT(*) total
+        `SELECT COUNT(DISTINCT employee.id) total
            FROM employees employee
+           JOIN employee_employment_histories history
+             ON history.employee_id=employee.id
+            AND history.effective_from<=?
+            AND (history.effective_to IS NULL OR history.effective_to>=?)
            JOIN employee_statuses status
-             ON status.id=employee.employee_status_id
+             ON status.id=history.employee_status_id
             AND status.allows_production=1
            JOIN employee_types type
-             ON type.id=employee.employee_type_id
+             ON type.id=history.employee_type_id
             AND type.payroll_basis='PIECE_RATE'
-           JOIN sites site ON site.id=employee.current_site_id AND site.is_active=1
+           JOIN sites site ON site.id=history.site_id AND site.is_active=1
           WHERE ${scope.sql}`,
-        scope.params
+        [referenceDate, referenceDate, ...scope.params]
       )
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT employee.employee_number employeeNumber,
-                employee.full_name employeeName
+        `SELECT DISTINCT employee.employee_number employeeNumber,
+                         employee.full_name employeeName
            FROM employees employee
+           JOIN employee_employment_histories history
+             ON history.employee_id=employee.id
+            AND history.effective_from<=?
+            AND (history.effective_to IS NULL OR history.effective_to>=?)
            JOIN employee_statuses status
-             ON status.id=employee.employee_status_id
+             ON status.id=history.employee_status_id
             AND status.allows_production=1
            JOIN employee_types type
-             ON type.id=employee.employee_type_id
+             ON type.id=history.employee_type_id
             AND type.payroll_basis='PIECE_RATE'
-           JOIN sites site ON site.id=employee.current_site_id AND site.is_active=1
+           JOIN sites site ON site.id=history.site_id AND site.is_active=1
           WHERE ${scope.sql}
           ORDER BY employee.full_name,employee.employee_number
           LIMIT 2000`,
-        scope.params
+        [referenceDate, referenceDate, ...scope.params]
       )
       res.json({
         data: rows.map((row) => ({
@@ -2091,6 +2595,7 @@ productionTransactionsRouter.get(
         meta: {
           total: Number(counts[0]?.total ?? 0),
           limit: 2000,
+          referenceDate,
         },
       })
     } catch (error) {
@@ -2187,22 +2692,29 @@ productionTransactionsRouter.post(
       const inserted: Array<{
         id: number
         uid: string
+        rowKey: string
         row: ValidProductionImportRow
       }> = []
       const dailyGroups = new Map<string, DailyProductionKey>()
 
-      for (const [index, row] of validRows.entries()) {
+      const pendingRows = validRows.map((row, index) => {
         const proposal = row.proposal
-        const uid = randomUUID()
-        const transactionNumber = `PRD-IMP-${row.input.businessDate.replaceAll('-', '')}-${String(proposal.history.site)}-${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`
-        const [result] = await conn.execute(
-          `INSERT INTO production_transactions(
-             uid,transaction_number,employee_id,site_id,work_group_id,
-             production_job_id,unit_id,job_rate_id,attendance_record_id,
-             scan_device_id,business_date,transaction_at,quantity,rate_snapshot,
-             gross_amount,status,entry_source,idempotency_key,notes,created_by,updated_by
-           ) VALUES(?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,'POSTED','HISTORICAL',?,?,?,?)`,
-          [
+        return {
+          row,
+          rowKey: rowKeys[index],
+          uid: randomUUID(),
+          transactionNumber: `PRD-IMP-${row.input.businessDate.replaceAll('-', '')}-${String(proposal.history.site)}-${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`,
+        }
+      })
+
+      for (let offset = 0; offset < pendingRows.length; offset += 250) {
+        const chunk = pendingRows.slice(offset, offset + 250)
+        const placeholders = chunk.map(() =>
+          `(?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,'POSTED','HISTORICAL',?,?,?,?)`
+        ).join(',')
+        const params = chunk.flatMap(({ row, rowKey, uid, transactionNumber }) => {
+          const proposal = row.proposal
+          return [
             uid,
             transactionNumber,
             proposal.employee.id,
@@ -2217,16 +2729,47 @@ productionTransactionsRouter.post(
             proposal.proposed.quantity,
             proposal.proposed.rateSnapshot,
             proposal.proposed.grossAmount,
-            rowKeys[index],
+            rowKey,
             `Import Excel: ${input.reason}`,
             auth.id,
             auth.id,
           ]
+        })
+        await conn.execute(
+          `INSERT INTO production_transactions(
+             uid,transaction_number,employee_id,site_id,work_group_id,
+             production_job_id,unit_id,job_rate_id,attendance_record_id,
+             scan_device_id,business_date,transaction_at,quantity,rate_snapshot,
+             gross_amount,status,entry_source,idempotency_key,notes,created_by,updated_by
+           ) VALUES ${placeholders}`,
+          params
         )
-        const transactionId = Number(
-          (result as { insertId?: number }).insertId ?? 0
+        const [insertedRows] = await conn.query<RowDataPacket[]>(
+          `SELECT id,uid,idempotency_key rowKey
+             FROM production_transactions
+            WHERE idempotency_key IN (${chunk.map(() => '?').join(',')})
+            FOR UPDATE`,
+          chunk.map((item) => item.rowKey)
         )
-        inserted.push({ id: transactionId, uid, row })
+        const insertedByKey = new Map(
+          insertedRows.map((item) => [String(item.rowKey), item])
+        )
+        for (const item of chunk) {
+          const stored = insertedByKey.get(item.rowKey)
+          if (!stored) {
+            throw new ApiError(500, 'Transaksi hasil import tidak dapat diverifikasi.')
+          }
+          inserted.push({
+            id: Number(stored.id),
+            uid: String(stored.uid),
+            rowKey: item.rowKey,
+            row: item.row,
+          })
+        }
+      }
+
+      for (const row of validRows) {
+        const proposal = row.proposal
         const dailyKey = {
           employeeId: Number(proposal.employee.id),
           siteId: Number(proposal.site.id),
@@ -2247,8 +2790,22 @@ productionTransactionsRouter.post(
       for (const dailyKey of dailyGroups.values()) {
         await repriceProductionDay(conn, dailyKey, auth, req)
       }
+      const [auditRows] = await conn.query<RowDataPacket[]>(
+        `SELECT id,uid,transaction_number transactionNumber,
+                gross_amount grossAmount,idempotency_key rowKey
+           FROM production_transactions
+          WHERE idempotency_key IN (${rowKeys.map(() => '?').join(',')})
+          FOR UPDATE`,
+        rowKeys
+      )
+      const auditByKey = new Map(
+        auditRows.map((row) => [String(row.rowKey), row])
+      )
       for (const item of inserted) {
-        const transaction = await transactionResponse(conn, item.id)
+        const transaction = auditByKey.get(item.rowKey)
+        if (!transaction) {
+          throw new ApiError(500, 'Transaksi hasil import tidak dapat dimuat untuk audit.')
+        }
         await writeAudit(
           {
             auth,

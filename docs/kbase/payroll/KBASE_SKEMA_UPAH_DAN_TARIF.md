@@ -129,14 +129,17 @@ Tab ini terdiri dari dua lapisan pengaturan:
 
 1. **Kebijakan global per tahun** untuk persentase Kesehatan, JHT, JKK, JKM,
    dan JP, unit pembulatan, serta switch bagian perusahaan/karyawan.
-2. **Kepesertaan karyawan Borongan** untuk mengaktifkan atau menonaktifkan
-   Kesehatan, JHT, JKK, JKM, dan JP secara individual. Kondisi terakhir yang
-   disimpan langsung menjadi kondisi yang berlaku.
+2. **Kepesertaan karyawan Borongan** dengan pilihan **Ikuti kebijakan global**
+   atau **Gunakan pengaturan khusus**. Mode khusus menyediakan delapan switch:
+   Kesehatan perusahaan/karyawan, JHT perusahaan/karyawan, JKK perusahaan,
+   JKM perusahaan, dan JP perusahaan/karyawan.
 
-Karyawan tanpa pengaturan kepesertaan khusus dianggap mengikuti seluruh program.
-Default policy menyalakan JP karyawan 1% dan mematikan JP perusahaan 2%; kedua
-switch tetap dapat diubah secara terpisah. UMK tidak dipilih ulang pada tab ini;
-sistem otomatis memakai UMK aktif sesuai site dan tahun bulan iuran.
+Karyawan baru atau karyawan yang belum memiliki pengaturan khusus mengikuti
+delapan switch kebijakan global pada tahun Payroll. Pada mode khusus, setiap
+switch menjadi keputusan akhir untuk karyawan tersebut: pilihan `YA` tetap aktif
+meskipun global nonaktif, dan pilihan `TIDAK` tetap nonaktif meskipun global
+aktif. Persentase iuran tetap berasal dari kebijakan global dan tidak dapat
+diubah per karyawan. UMK otomatis mengikuti site dan tahun bulan iuran.
 
 Potongan bagian karyawan dibulatkan ke Rp1.000 terdekat per program. Kontribusi
 perusahaan dihitung dan disimpan terpisah, sehingga tidak mengurangi neto.
@@ -151,9 +154,10 @@ dilengkapi sebelum proses operasional resmi.
 
 1. Atur filter site atau pencarian karyawan pada tabel kepesertaan.
 2. Pilih **Import Excel**, lalu **Unduh template**. Template sudah berisi
-   karyawan Borongan sesuai filter tersebut beserta pilihan program saat ini.
-3. Ubah hanya pilihan `YA`/`TIDAK` dan alasan. Perubahan otomatis berlaku pada
-   tanggal file diunggah.
+   karyawan Borongan sesuai filter tersebut beserta status efektif saat ini.
+3. Isi `MODE` dengan `GLOBAL` atau `KHUSUS`. Pada mode `KHUSUS`, isi delapan
+   kolom porsi dengan `YA`/`TIDAK`. Pada mode `GLOBAL`, delapan kolom tersebut
+   hanya menjadi informasi karena hasilnya selalu mengikuti kebijakan global.
 4. Unggah kembali file dan periksa preview validasi.
 5. Pilih **Simpan** setelah seluruh baris berstatus Valid.
 
@@ -195,7 +199,7 @@ membentuk potongan otomatis saat ini.
 | Nominal tidak terlihat | Periksa kewenangan nominal dan akses site akun. |
 | Hasil perhitungan tertinggal dari master | Jalankan Hitung ulang dan gunakan hasil terbaru. |
 | UMK site dan tahun sudah ada | Buka data yang ada lalu koreksi atau aktifkan kembali; jangan membuat duplikat. |
-| Potongan BPJS nol | Periksa switch periode, bulan iuran, kebijakan BPJS global, UMK site, dan kepesertaan karyawan. |
+| Potongan BPJS nol | Periksa switch Potong BPJS periode, bulan iuran, UMK site, kebijakan global, serta mode dan porsi khusus karyawan. |
 | Bulan iuran sudah dipotong | Pilih periode tanpa Potong BPJS atau gunakan bulan iuran yang benar; satu karyawan hanya boleh satu settlement per bulan. |
 | Nomor peserta BPJS belum lengkap | Lengkapi data karyawan. Kondisi ini peringatan dan tidak menghentikan kalkulasi. |
 

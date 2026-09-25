@@ -256,19 +256,24 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   memilih **Bulan Iuran**. Periode boleh mingguan atau lintas bulan, tetapi
   setiap karyawan hanya boleh memiliki satu settlement pada bulan iuran yang
   sama. Potongan tidak dibagi ke beberapa periode.
-- Kepesertaan BPJS default aktif. Pengaturan terkini per karyawan dapat
-  menonaktifkan Kesehatan, JHT, JKK, JKM, atau JP secara terpisah. Nomor peserta
-  yang belum lengkap menjadi peringatan, bukan blocker kalkulasi.
+- Kebijakan global BPJS menyediakan delapan switch default: Kesehatan
+  perusahaan/karyawan, JHT perusahaan/karyawan, JKK perusahaan, JKM
+  perusahaan, serta JP perusahaan/karyawan.
+- Kepesertaan BPJS karyawan memakai mode `GLOBAL` atau `CUSTOM`. Mode `GLOBAL`
+  mengikuti delapan switch kebijakan tahun Payroll. Mode `CUSTOM` menjadi
+  keputusan akhir per porsi dan dapat mengaktifkan porsi yang globalnya mati
+  maupun menonaktifkan porsi yang globalnya aktif. Persentase tetap global.
+  Nomor peserta yang belum lengkap menjadi peringatan, bukan blocker kalkulasi.
 - Kepesertaan memakai model current state: nilai terakhir yang disimpan langsung
   berlaku dan digunakan oleh run Payroll berikutnya. Perubahan tidak membentuk
   jadwal versi baru, tetapi tetap dicatat pada revision log serta audit trail.
-- Import Excel kepesertaan BPJS hanya mengelola switch program karyawan
-  `BORONGAN`, wajib divalidasi terhadap cakupan site pengguna, dan bersifat
+- Import Excel kepesertaan BPJS mengelola mode serta delapan switch porsi
+  karyawan `BORONGAN`, wajib divalidasi terhadap cakupan site pengguna, dan bersifat
   atomik: satu baris tidak valid membatalkan seluruh batch. Nomor peserta BPJS
   tetap dikelola melalui Master Karyawan.
 - Persentase Kesehatan, JHT, JKK, JKM, dan JP dikelola dalam satu kebijakan
-  global per tahun. JP perusahaan dan JP karyawan memakai switch terpisah;
-  default JP perusahaan nonaktif dan JP karyawan aktif.
+  global per tahun. Seluruh porsi perusahaan dan karyawan memakai switch
+  terpisah; default JP perusahaan nonaktif dan JP karyawan aktif.
 - Potongan bagian karyawan dibulatkan ke Rp1.000 terdekat per program. Bagian
   perusahaan dicatat terpisah sebagai biaya perusahaan dan tidak mengurangi
   bruto maupun neto karyawan.

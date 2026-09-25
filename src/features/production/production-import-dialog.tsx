@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 import * as XLSX from 'xlsx'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { DatePicker } from '@/components/date-picker'
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,10 @@ import {
 } from './data/queries'
 import type { ProductionImportPreview, ProductionImportRow } from './domain'
 import {
+  dateOnlyFromInput,
+  dateOnlyToInput,
+} from '@/features/attendance/date-only'
+import {
   buildProductionValidationWorkbook,
   parseProductionWorkbook,
   productionImportHeaders,
@@ -55,6 +60,8 @@ export function ProductionImportDialog({
   const [reason, setReason] = useState('')
   const [batchKey, setBatchKey] = useState(createBatchKey)
   const [templateLoading, setTemplateLoading] = useState(false)
+  const [templateDate, setTemplateDate] = useState(getTodayInput)
+  const [templateDatePickerOpen, setTemplateDatePickerOpen] = useState(false)
   const previewMutation = usePreviewProductionImport()
   const importMutation = useImportProductionTransactions()
   const isBusy =
@@ -71,6 +78,8 @@ export function ProductionImportDialog({
     setPreview(undefined)
     setReason('')
     setBatchKey(createBatchKey())
+    setTemplateDate(getTodayInput())
+    setTemplateDatePickerOpen(false)
     previewMutation.reset()
     importMutation.reset()
   }
@@ -81,9 +90,10 @@ export function ProductionImportDialog({
   }
 
   async function downloadTemplate() {
+    if (!templateDate) return
     setTemplateLoading(true)
     try {
-      const result = await fetchProductionImportTemplateEmployees()
+      const result = await fetchProductionImportTemplateEmployees(templateDate)
       if (!result.data.length) {
         toast.error('Karyawan Produksi aktif tidak ditemukan pada akses Anda.')
         return
@@ -92,7 +102,7 @@ export function ProductionImportDialog({
       const sheet = XLSX.utils.aoa_to_sheet([
         [...productionImportHeaders],
         ...result.data.map((employee) => [
-          '',
+          displayTemplateDate(templateDate),
           employee.employeeNumber,
           employee.employeeName,
           '',
@@ -120,6 +130,7 @@ export function ProductionImportDialog({
       guide['!cols'] = [{ wch: 100 }]
       XLSX.utils.book_append_sheet(workbook, guide, 'Panduan')
       XLSX.writeFile(workbook, 'template-import-hasil-produksi.xlsx')
+      setTemplateDatePickerOpen(false)
       if (result.meta.total > result.meta.limit) {
         toast.warning(
           `Template memuat ${result.meta.limit} dari ${result.meta.total} karyawan. Baris lain dapat ditambahkan manual.`
@@ -207,24 +218,64 @@ export function ProductionImportDialog({
               <div>
                 <p className='font-medium'>Mulai dari template karyawan</p>
                 <p className='text-sm text-muted-foreground'>
-                  Isi tanggal dengan format DD/MM/YYYY dan kuantitas. Gandakan
-                  baris untuk tanggal lain.
+                  Pilih tanggal untuk melihat daftar karyawan yang tercatat aktif
+                  sebagai tenaga borongan pada tanggal tersebut. Gandakan baris
+                  untuk mengisi tanggal lain.
                 </p>
               </div>
             </div>
-            <Button
-              type='button'
-              variant='outline'
-              disabled={isBusy}
-              onClick={() => void downloadTemplate()}
-            >
-              {templateLoading ? (
-                <LoaderCircle className='animate-spin' />
-              ) : (
+            {templateDatePickerOpen ? (
+              <div className='w-full space-y-2 sm:max-w-sm'>
+                <label className='text-sm font-medium' htmlFor='production-template-date'>
+                  Tanggal referensi daftar karyawan
+                </label>
+                <DatePicker
+                  id='production-template-date'
+                  selected={dateOnlyFromInput(templateDate)}
+                  onSelect={(date) => setTemplateDate(dateOnlyToInput(date))}
+                  disabled={isBusy}
+                  disabledDates={isFutureDate}
+                  placeholder='Pilih tanggal kerja'
+                />
+                <p className='text-xs text-muted-foreground'>
+                  Daftar karyawan dan tanggal awal di template akan mengikuti
+                  pilihan ini. Setelah diunduh, tanggal pada baris boleh diubah
+                  untuk import beberapa tanggal.
+                </p>
+                <div className='flex flex-wrap gap-2'>
+                  <Button
+                    type='button'
+                    disabled={isBusy || !templateDate}
+                    onClick={() => void downloadTemplate()}
+                  >
+                    {templateLoading ? (
+                      <LoaderCircle className='animate-spin' />
+                    ) : (
+                      <Download />
+                    )}
+                    Unduh template
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    disabled={isBusy}
+                    onClick={() => setTemplateDatePickerOpen(false)}
+                  >
+                    Batal
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                type='button'
+                variant='outline'
+                disabled={isBusy}
+                onClick={() => setTemplateDatePickerOpen(true)}
+              >
                 <Download />
-              )}
-              Unduh template
-            </Button>
+                Pilih tanggal & unduh template
+              </Button>
+            )}
           </section>
 
           <div className='grid gap-2'>
@@ -456,6 +507,21 @@ function formatCurrency(value: string) {
 
 function createBatchKey() {
   return crypto.randomUUID()
+}
+
+function getTodayInput() {
+  const now = new Date()
+  return dateOnlyToInput(now)
+}
+
+function displayTemplateDate(value: string) {
+  const [year, month, day] = value.split('-')
+  return `${day}/${month}/${year}`
+}
+
+function isFutureDate(date: Date) {
+  const today = dateOnlyFromInput(getTodayInput())
+  return Boolean(today && date > today)
 }
 
 function apiMessage(error: unknown, fallback: string) {

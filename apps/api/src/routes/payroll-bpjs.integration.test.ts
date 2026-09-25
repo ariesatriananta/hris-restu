@@ -148,7 +148,7 @@ describe('Payroll BPJS configuration API', () => {
       .mockResolvedValueOnce([[]])
 
     const response = await request(
-      '/configuration/bpjs/enrollments?site=JEPARA&query=Siti&numberStatus=INCOMPLETE&participationStatus=ANY_DISABLED&sortBy=site&sortDirection=desc&page=2&pageSize=50'
+      '/configuration/bpjs/enrollments?year=2026&site=JEPARA&query=Siti&numberStatus=INCOMPLETE&participationStatus=ANY_DISABLED&sortBy=site&sortDirection=desc&page=2&pageSize=50'
     )
     const body = (await response.json()) as {
       meta: { page: number; pageSize: number; total: number; totalPages: number }
@@ -166,19 +166,24 @@ describe('Payroll BPJS configuration API', () => {
     const listSql = String(mocks.query.mock.calls[1][0])
     expect(countSql).toContain('employee.full_name LIKE ?')
     expect(countSql).toContain('employee.bpjs_health_number IS NULL')
-    expect(countSql).toContain('NOT (COALESCE(enrollment.health_enabled,1)=1')
+    expect(countSql).toContain(
+      "NOT ((CASE WHEN enrollment.configuration_mode='CUSTOM'"
+    )
+    expect(countSql).toContain('policy.jp_employee_enabled')
     expect(listSql).toContain('ORDER BY latest.id DESC LIMIT 1')
     expect(listSql).toContain("employee_status.code='ACTIVE'")
     expect(listSql).not.toContain('latest.effective_from')
     expect(listSql).not.toContain('latest.effective_to')
     expect(listSql).toContain('ORDER BY site.name DESC')
     expect(mocks.query.mock.calls[0][1]).toEqual([
+      2026,
       'JEPARA',
       'JEPARA',
       '%Siti%',
       '%Siti%',
     ])
     expect(mocks.query.mock.calls[1][1]).toEqual([
+      2026,
       'JEPARA',
       'JEPARA',
       '%Siti%',
@@ -208,11 +213,15 @@ describe('Payroll BPJS configuration API', () => {
           {
             id: 31,
             uid: '68705164-6a2a-45f7-b4a3-f76145a6fd58',
-            healthEnabled: 1,
-            jhtEnabled: 1,
-            jkkEnabled: 1,
-            jkmEnabled: 1,
-            jpEnabled: 1,
+            configurationMode: 'CUSTOM',
+            healthEmployerEnabled: 1,
+            healthEmployeeEnabled: 1,
+            jhtEmployerEnabled: 1,
+            jhtEmployeeEnabled: 1,
+            jkkEmployerEnabled: 1,
+            jkmEmployerEnabled: 1,
+            jpEmployerEnabled: 1,
+            jpEmployeeEnabled: 1,
             reason: 'Pengaturan awal',
           },
         ],
@@ -223,11 +232,15 @@ describe('Payroll BPJS configuration API', () => {
       {
         method: 'POST',
         body: {
-          healthEnabled: true,
-          jhtEnabled: true,
-          jkkEnabled: true,
-          jkmEnabled: true,
-          jpEnabled: false,
+          configurationMode: 'CUSTOM',
+          healthEmployerEnabled: true,
+          healthEmployeeEnabled: true,
+          jhtEmployerEnabled: true,
+          jhtEmployeeEnabled: true,
+          jkkEmployerEnabled: true,
+          jkmEmployerEnabled: true,
+          jpEmployerEnabled: false,
+          jpEmployeeEnabled: true,
           reason: 'Koreksi pilihan JP',
           idempotencyKey: 'bpjs-enrollment-same-day-test',
         },
@@ -236,14 +249,18 @@ describe('Payroll BPJS configuration API', () => {
 
     expect(response.status).toBe(200)
     expect(String(mocks.execute.mock.calls[0][0])).toContain(
-      'SET health_enabled=?,jht_enabled=?'
+      'SET configuration_mode=?,health_employer_enabled=?'
     )
     expect(mocks.execute.mock.calls[0][1]).toEqual([
+      'CUSTOM',
+      true,
+      true,
       true,
       true,
       true,
       true,
       false,
+      true,
       'Koreksi pilihan JP',
       finance.id,
       31,
@@ -282,11 +299,15 @@ describe('Payroll BPJS configuration API', () => {
       {
         method: 'POST',
         body: {
-          healthEnabled: true,
-          jhtEnabled: true,
-          jkkEnabled: true,
-          jkmEnabled: true,
-          jpEnabled: false,
+          configurationMode: 'GLOBAL',
+          healthEmployerEnabled: true,
+          healthEmployeeEnabled: true,
+          jhtEmployerEnabled: true,
+          jhtEmployeeEnabled: true,
+          jkkEmployerEnabled: true,
+          jkmEmployerEnabled: true,
+          jpEmployerEnabled: false,
+          jpEmployeeEnabled: true,
           reason: 'Pengaturan kepesertaan awal',
           idempotencyKey: 'bpjs-enrollment-create-test',
         },
@@ -325,11 +346,15 @@ describe('Payroll BPJS configuration API', () => {
           rows: [
             {
               employeeNumber: 'PKDS-2609-0001',
-              healthEnabled: true,
-              jhtEnabled: true,
-              jkkEnabled: true,
-              jkmEnabled: true,
-              jpEnabled: false,
+              configurationMode: 'CUSTOM',
+              healthEmployerEnabled: true,
+              healthEmployeeEnabled: true,
+              jhtEmployerEnabled: true,
+              jhtEmployeeEnabled: true,
+              jkkEmployerEnabled: true,
+              jkmEmployerEnabled: true,
+              jpEmployerEnabled: false,
+              jpEmployeeEnabled: true,
               reason: 'Pembaruan melalui import Excel',
             },
           ],
@@ -369,11 +394,15 @@ describe('Payroll BPJS configuration API', () => {
         rows: [
           {
             employeeNumber: 'TIDAK-ADA',
-            healthEnabled: true,
-            jhtEnabled: true,
-            jkkEnabled: true,
-            jkmEnabled: true,
-            jpEnabled: true,
+            configurationMode: 'GLOBAL',
+            healthEmployerEnabled: true,
+            healthEmployeeEnabled: true,
+            jhtEmployerEnabled: true,
+            jhtEmployeeEnabled: true,
+            jkkEmployerEnabled: true,
+            jkmEmployerEnabled: true,
+            jpEmployerEnabled: true,
+            jpEmployeeEnabled: true,
             reason: 'Pembaruan melalui import Excel',
           },
         ],
@@ -409,11 +438,15 @@ describe('Payroll BPJS configuration API', () => {
           {
             id: 31,
             uid: '68705164-6a2a-45f7-b4a3-f76145a6fd58',
-            healthEnabled: 1,
-            jhtEnabled: 1,
-            jkkEnabled: 1,
-            jkmEnabled: 1,
-            jpEnabled: 1,
+            configurationMode: 'GLOBAL',
+            healthEmployerEnabled: 1,
+            healthEmployeeEnabled: 1,
+            jhtEmployerEnabled: 1,
+            jhtEmployeeEnabled: 1,
+            jkkEmployerEnabled: 1,
+            jkmEmployerEnabled: 1,
+            jpEmployerEnabled: 1,
+            jpEmployeeEnabled: 1,
             reason: 'Pengaturan awal',
           },
         ],
@@ -426,11 +459,15 @@ describe('Payroll BPJS configuration API', () => {
         rows: [
           {
             employeeNumber: 'PKDS-2609-0001',
-            healthEnabled: true,
-            jhtEnabled: true,
-            jkkEnabled: false,
-            jkmEnabled: true,
-            jpEnabled: true,
+            configurationMode: 'CUSTOM',
+            healthEmployerEnabled: true,
+            healthEmployeeEnabled: true,
+            jhtEmployerEnabled: true,
+            jhtEmployeeEnabled: true,
+            jkkEmployerEnabled: false,
+            jkmEmployerEnabled: true,
+            jpEmployerEnabled: true,
+            jpEmployeeEnabled: true,
             reason: 'Pembaruan melalui import Excel',
           },
         ],

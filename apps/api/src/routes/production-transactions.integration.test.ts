@@ -430,6 +430,98 @@ describe('Production transactions API', () => {
     expect(correctionSql).toContain('ac.new_clock_in_at=ar.clock_in_at')
   })
 
+  it('preview import multi-baris memakai validasi batch dan mengembalikan semua baris', async () => {
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const statement = String(sql)
+      if (statement.includes('DATE_FORMAT(CURDATE()')) {
+        return [[{ businessDate: '2026-09-21', transactionTimestamp: '2026-09-21 08:00:00.000' }]]
+      }
+      if (statement.includes('CREATE TEMPORARY TABLE')) return [[]]
+      if (statement.includes('INSERT INTO tmp_production_import_rows')) return [[]]
+      if (statement.includes('DROP TEMPORARY TABLE')) return [[]]
+      if (statement.includes('SELECT input.import_row_number rowNumber') && statement.includes('attendance.id')) {
+        return [[
+          ...[2, 3].map((rowNumber) => ({
+            rowNumber,
+            employeeId: rowNumber === 2 ? 11 : 12,
+            employeeUid: rowNumber === 2 ? employeeUid : '11111111-1111-4111-8111-111111111112',
+            employeeNumber: rowNumber === 2 ? 'J2608-001' : 'J2608-002',
+            fullName: rowNumber === 2 ? 'Ariel Peterpan' : 'Siti',
+            barcode: rowNumber === 2 ? 'J2608-001' : 'J2608-002',
+            historyId: rowNumber,
+            siteId: 1,
+            workGroupId: 4,
+            allowsProduction: 1,
+            employeeStatus: 'ACTIVE',
+            employeeType: 'BORONGAN',
+            employeeTypeName: 'Borongan',
+            payrollBasis: 'PIECE_RATE',
+            site: 'JEPARA',
+            siteName: 'Site Jepara',
+            siteActive: 1,
+            attendanceId: rowNumber + 20,
+            attendanceUid: `attendance-${rowNumber}`,
+            attendanceStatus: 'PRESENT',
+            clockInAt: '2026-09-21T07:00:00+07:00',
+            hasSuccessfulClockIn: 1,
+            hasApprovedClockInCorrection: 0,
+          })),
+        ]]
+      }
+      if (statement.includes('SELECT input.import_row_number rowNumber') && statement.includes('assignment.id')) {
+        return [[
+          ...[2, 3].map((rowNumber) => ({
+            rowNumber,
+            assignmentId: rowNumber,
+            isPrimary: 1,
+            jobId: 15,
+            jobUid,
+            jobCode: 'BORONGAN-LINTING',
+            jobName: 'Linting',
+            rateId: 16,
+            rateUid: 'rate',
+            rateAmount: '45.0000',
+            currency: 'IDR',
+            unitId: 17,
+            unitUid: 'unit',
+            unitCode: 'PCS',
+            unitName: 'Pcs',
+            decimalPrecision: 0,
+          })),
+        ]]
+      }
+      if (statement.includes('SELECT input.import_row_number rowNumber') && statement.includes('period.status')) return [[]]
+      if (statement.includes('SELECT input.import_row_number rowNumber') && statement.includes('transaction.production_job_id')) return [[]]
+      if (statement.includes('SELECT rate.id rateId')) {
+        return [[{ rateId: 16, tierId: null, minQuantity: null, rateAmount: '45.0000' }]]
+      }
+      return [[]]
+    })
+
+    const response = await request('/transactions/import/preview', {
+      method: 'POST',
+      auth: auth({ permissions: ['production.correct'], sites: ['JEPARA'] }),
+      body: {
+        rows: [
+          { rowNumber: 2, businessDate: '2026-09-21', employeeNumber: 'J2608-001', employeeName: 'Ariel', quantity: '10' },
+          { rowNumber: 3, businessDate: '2026-09-21', employeeNumber: 'J2608-002', employeeName: 'Siti', quantity: '12' },
+        ],
+      },
+    })
+    expect(response.status).toBe(200)
+    expect((await response.json()) as object).toMatchObject({
+      data: { total: 2, valid: 2, invalid: 0, rows: [{ rowNumber: 2 }, { rowNumber: 3 }] },
+    })
+    const temporaryTableSql = String(
+      mocks.query.mock.calls.find((call) =>
+        String(call[0]).includes('CREATE TEMPORARY TABLE')
+      )?.[0] ?? ''
+    )
+    expect(temporaryTableSql).toContain('import_row_number')
+    expect(temporaryTableSql).not.toMatch(/\brow_number\b/)
+    expect(mocks.query.mock.calls.filter((call) => String(call[0]).includes('FROM employees WHERE barcode')).length).toBe(0)
+  })
+
   it('import bersifat atomik ketika validasi terbaru gagal', async () => {
     mocks.query
       .mockResolvedValueOnce([[]])
@@ -576,6 +668,15 @@ describe('Production transactions API', () => {
       }
       if (statement.includes('FROM production_transaction_rate_details')) {
         return [[]]
+      }
+      if (statement.includes('idempotency_key rowKey')) {
+        return [[{
+          id: 21,
+          uid: transactionUid,
+          rowKey: 'PRD-IMPORT-79777777-7777-4777-8777-777777777777-2',
+          transactionNumber: 'PRD-IMP-20260920-JEPARA-ABC',
+          grossAmount: '4500.00',
+        }]]
       }
       if (statement.includes('SELECT pt.id,pt.uid')) {
         return [[{

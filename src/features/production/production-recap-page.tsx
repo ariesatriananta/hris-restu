@@ -126,11 +126,11 @@ export function ProductionRecapPage({
   const exportMutation = useExportProductionRecaps()
   const canExport = hasPermission(session, 'production.export')
   const view =
-    search.view === 'jobs'
-      ? 'jobs'
-      : search.view === 'matrix'
-        ? 'matrix'
-        : 'employees'
+    search.view === 'employees'
+      ? 'employees'
+      : search.view === 'jobs'
+        ? 'jobs'
+        : 'matrix'
   const cellMode: ProductionRecapCellMode =
     search.cellMode === 'gross' ? 'gross' : 'quantity'
   const matrixParams: ProductionRecapParams = {
@@ -338,10 +338,10 @@ export function ProductionRecapPage({
                 search: (previous) => ({
                   ...previous,
                   view:
-                    next === 'jobs'
-                      ? 'jobs'
-                      : next === 'matrix'
-                        ? 'matrix'
+                    next === 'employees'
+                      ? 'employees'
+                      : next === 'jobs'
+                        ? 'jobs'
                         : undefined,
                   page: undefined,
                 }),
@@ -351,17 +351,38 @@ export function ProductionRecapPage({
           >
             <div className='max-w-full border-b pb-2'>
               <TabsList className='h-auto min-h-12 max-w-full justify-start gap-1 overflow-x-auto overflow-y-hidden bg-muted/70 p-1'>
+                <TabsTrigger value='matrix' className='h-10 flex-none px-4'>
+                  <CalendarDays /> Rincian per Tanggal
+                </TabsTrigger>
                 <TabsTrigger value='employees' className='h-10 flex-none px-4'>
                   <Users /> Per Karyawan
                 </TabsTrigger>
                 <TabsTrigger value='jobs' className='h-10 flex-none px-4'>
                   <BriefcaseBusiness /> Per Pekerjaan
                 </TabsTrigger>
-                <TabsTrigger value='matrix' className='h-10 flex-none px-4'>
-                  <CalendarDays /> Rincian per Tanggal
-                </TabsTrigger>
               </TabsList>
             </div>
+            <TabsContent value='matrix' className='mt-3'>
+              <ProductionRecapMatrixTable
+                data={matrixResult.data}
+                search={search}
+                navigate={navigate}
+                cellMode={cellMode}
+                onCellModeChange={(nextMode) =>
+                  navigate({
+                    search: (previous) => ({
+                      ...previous,
+                      cellMode: nextMode === 'gross' ? 'gross' : undefined,
+                    }),
+                  })
+                }
+                isPending={matrixResult.isPending}
+                isFetching={matrixResult.isFetching}
+                isError={matrixResult.isError}
+                onRetry={() => void matrixResult.refetch()}
+                onDetail={openMatrixEmployee}
+              />
+            </TabsContent>
             <TabsContent value='employees' className='mt-3'>
               <EmployeeLedger
                 data={result.data}
@@ -387,27 +408,6 @@ export function ProductionRecapPage({
                 onReset={resetFilters}
                 onDetail={openJob}
                 hasFilters={hasFilters(params)}
-              />
-            </TabsContent>
-            <TabsContent value='matrix' className='mt-3'>
-              <ProductionRecapMatrixTable
-                data={matrixResult.data}
-                search={search}
-                navigate={navigate}
-                cellMode={cellMode}
-                onCellModeChange={(nextMode) =>
-                  navigate({
-                    search: (previous) => ({
-                      ...previous,
-                      cellMode: nextMode === 'gross' ? 'gross' : undefined,
-                    }),
-                  })
-                }
-                isPending={matrixResult.isPending}
-                isFetching={matrixResult.isFetching}
-                isError={matrixResult.isError}
-                onRetry={() => void matrixResult.refetch()}
-                onDetail={openMatrixEmployee}
               />
             </TabsContent>
           </Tabs>

@@ -530,10 +530,13 @@ export function useCreateHistoricalProduction() {
   })
 }
 
-export async function fetchProductionImportTemplateEmployees() {
+export async function fetchProductionImportTemplateEmployees(
+  businessDate: string
+) {
   return (
     await apiClient.get<ProductionImportTemplateEmployees>(
-      '/production/transactions/import/template-employees'
+      '/production/transactions/import/template-employees',
+      { params: { businessDate } }
     )
   ).data
 }

@@ -43,11 +43,15 @@ const policyInput = z.object({
   idempotencyKey,
 })
 const enrollmentInput = z.object({
-  healthEnabled: z.boolean(),
-  jhtEnabled: z.boolean(),
-  jkkEnabled: z.boolean(),
-  jkmEnabled: z.boolean(),
-  jpEnabled: z.boolean(),
+  configurationMode: z.enum(['GLOBAL', 'CUSTOM']),
+  healthEmployerEnabled: z.boolean(),
+  healthEmployeeEnabled: z.boolean(),
+  jhtEmployerEnabled: z.boolean(),
+  jhtEmployeeEnabled: z.boolean(),
+  jkkEmployerEnabled: z.boolean(),
+  jkmEmployerEnabled: z.boolean(),
+  jpEmployerEnabled: z.boolean(),
+  jpEmployeeEnabled: z.boolean(),
   reason,
   idempotencyKey,
 })
@@ -59,6 +63,7 @@ const enrollmentImportInput = z.object({
   idempotencyKey: z.string().trim().min(8).max(60),
 })
 const enrollmentListQuery = z.object({
+  year: year.default(new Date().getFullYear()),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(10).max(500).default(50),
   site: z.string().trim().min(1).max(20).optional(),
@@ -175,8 +180,15 @@ async function persistEnrollment(
   )
   if (retry[0]) return { uid: String(retry[0].uid), replay: true as const }
   const [currentRows] = await conn.query<RowDataPacket[]>(
-    `SELECT id,uid,health_enabled healthEnabled,jht_enabled jhtEnabled,jkk_enabled jkkEnabled,
-      jkm_enabled jkmEnabled,jp_enabled jpEnabled,reason
+    `SELECT id,uid,configuration_mode configurationMode,
+      health_employer_enabled healthEmployerEnabled,
+      health_employee_enabled healthEmployeeEnabled,
+      jht_employer_enabled jhtEmployerEnabled,
+      jht_employee_enabled jhtEmployeeEnabled,
+      jkk_employer_enabled jkkEmployerEnabled,
+      jkm_employer_enabled jkmEmployerEnabled,
+      jp_employer_enabled jpEmployerEnabled,
+      jp_employee_enabled jpEmployeeEnabled,reason
      FROM employee_bpjs_enrollments
      WHERE employee_id=?
      ORDER BY id DESC LIMIT 1 FOR UPDATE`,
@@ -186,11 +198,15 @@ async function persistEnrollment(
   const beforeData = current
     ? {
         uid: String(current.uid),
-        healthEnabled: bool(current.healthEnabled),
-        jhtEnabled: bool(current.jhtEnabled),
-        jkkEnabled: bool(current.jkkEnabled),
-        jkmEnabled: bool(current.jkmEnabled),
-        jpEnabled: bool(current.jpEnabled),
+        configurationMode: String(current.configurationMode),
+        healthEmployerEnabled: bool(current.healthEmployerEnabled),
+        healthEmployeeEnabled: bool(current.healthEmployeeEnabled),
+        jhtEmployerEnabled: bool(current.jhtEmployerEnabled),
+        jhtEmployeeEnabled: bool(current.jhtEmployeeEnabled),
+        jkkEmployerEnabled: bool(current.jkkEmployerEnabled),
+        jkmEmployerEnabled: bool(current.jkmEmployerEnabled),
+        jpEmployerEnabled: bool(current.jpEmployerEnabled),
+        jpEmployeeEnabled: bool(current.jpEmployeeEnabled),
         reason: current.reason ? String(current.reason) : null,
       }
     : null
@@ -201,14 +217,21 @@ async function persistEnrollment(
     enrollmentUid = String(current.uid)
     await conn.execute(
       `UPDATE employee_bpjs_enrollments
-       SET health_enabled=?,jht_enabled=?,jkk_enabled=?,jkm_enabled=?,jp_enabled=?,reason=?,updated_by=?
+       SET configuration_mode=?,health_employer_enabled=?,health_employee_enabled=?,
+           jht_employer_enabled=?,jht_employee_enabled=?,jkk_employer_enabled=?,
+           jkm_employer_enabled=?,jp_employer_enabled=?,jp_employee_enabled=?,
+           reason=?,updated_by=?
        WHERE id=?`,
       [
-        input.healthEnabled,
-        input.jhtEnabled,
-        input.jkkEnabled,
-        input.jkmEnabled,
-        input.jpEnabled,
+        input.configurationMode,
+        input.healthEmployerEnabled,
+        input.healthEmployeeEnabled,
+        input.jhtEmployerEnabled,
+        input.jhtEmployeeEnabled,
+        input.jkkEmployerEnabled,
+        input.jkmEmployerEnabled,
+        input.jpEmployerEnabled,
+        input.jpEmployeeEnabled,
         input.reason,
         auth.id,
         enrollmentId,
@@ -217,16 +240,23 @@ async function persistEnrollment(
   } else {
     const [insert] = await conn.execute<ResultSetHeader>(
       `INSERT INTO employee_bpjs_enrollments(
-        uid,employee_id,health_enabled,jht_enabled,
-        jkk_enabled,jkm_enabled,jp_enabled,reason,created_by,updated_by
-      ) VALUES(UUID(),?,?,?,?,?,?,?,?,?)`,
+        uid,employee_id,configuration_mode,
+        health_employer_enabled,health_employee_enabled,
+        jht_employer_enabled,jht_employee_enabled,jkk_employer_enabled,
+        jkm_employer_enabled,jp_employer_enabled,jp_employee_enabled,
+        reason,created_by,updated_by
+      ) VALUES(UUID(),?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         employee.id,
-        input.healthEnabled,
-        input.jhtEnabled,
-        input.jkkEnabled,
-        input.jkmEnabled,
-        input.jpEnabled,
+        input.configurationMode,
+        input.healthEmployerEnabled,
+        input.healthEmployeeEnabled,
+        input.jhtEmployerEnabled,
+        input.jhtEmployeeEnabled,
+        input.jkkEmployerEnabled,
+        input.jkmEmployerEnabled,
+        input.jpEmployerEnabled,
+        input.jpEmployeeEnabled,
         input.reason,
         auth.id,
         auth.id,
@@ -242,11 +272,15 @@ async function persistEnrollment(
   const afterData = {
     uid: enrollmentUid,
     idempotencyKey: input.idempotencyKey,
-    healthEnabled: input.healthEnabled,
-    jhtEnabled: input.jhtEnabled,
-    jkkEnabled: input.jkkEnabled,
-    jkmEnabled: input.jkmEnabled,
-    jpEnabled: input.jpEnabled,
+    configurationMode: input.configurationMode,
+    healthEmployerEnabled: input.healthEmployerEnabled,
+    healthEmployeeEnabled: input.healthEmployeeEnabled,
+    jhtEmployerEnabled: input.jhtEmployerEnabled,
+    jhtEmployeeEnabled: input.jhtEmployeeEnabled,
+    jkkEmployerEnabled: input.jkkEmployerEnabled,
+    jkmEmployerEnabled: input.jkmEmployerEnabled,
+    jpEmployerEnabled: input.jpEmployerEnabled,
+    jpEmployeeEnabled: input.jpEmployeeEnabled,
   }
   await conn.execute(
     `INSERT INTO employee_bpjs_enrollment_revisions(
@@ -476,7 +510,21 @@ payrollBpjsRouter.get(
             : `(employee.bpjs_health_number IS NULL OR TRIM(employee.bpjs_health_number)='' OR employee.bpjs_employment_number IS NULL OR TRIM(employee.bpjs_employment_number)='')`
         )
       }
-      const allProgramsActive = `(COALESCE(enrollment.health_enabled,1)=1 AND COALESCE(enrollment.jht_enabled,1)=1 AND COALESCE(enrollment.jkk_enabled,1)=1 AND COALESCE(enrollment.jkm_enabled,1)=1 AND COALESCE(enrollment.jp_enabled,1)=1)`
+      const effective = (component: string) =>
+        `(CASE WHEN enrollment.configuration_mode='CUSTOM' THEN enrollment.${component} ELSE COALESCE(policy.${component},0) END)`
+      const effectiveColumns = [
+        'health_employer_enabled',
+        'health_employee_enabled',
+        'jht_employer_enabled',
+        'jht_employee_enabled',
+        'jkk_employer_enabled',
+        'jkm_employer_enabled',
+        'jp_employer_enabled',
+        'jp_employee_enabled',
+      ]
+      const allProgramsActive = `(${effectiveColumns
+        .map((column) => `${effective(column)}=1`)
+        .join(' AND ')})`
       if (input.participationStatus.length === 1) {
         where.push(
           input.participationStatus[0] === 'ALL_ACTIVE'
@@ -494,7 +542,9 @@ payrollBpjsRouter.get(
           SELECT latest.id FROM employee_bpjs_enrollments latest
           WHERE latest.employee_id=employee.id
           ORDER BY latest.id DESC LIMIT 1
-        )`
+        )
+        LEFT JOIN payroll_bpjs_policies policy
+          ON policy.policy_year=? AND policy.status='ACTIVE'`
       const numberCompleteSql = `(employee.bpjs_health_number IS NOT NULL AND TRIM(employee.bpjs_health_number)<>'' AND employee.bpjs_employment_number IS NOT NULL AND TRIM(employee.bpjs_employment_number)<>'')`
       const orderColumns = {
         employee: 'employee.full_name',
@@ -504,20 +554,26 @@ payrollBpjsRouter.get(
       const direction = input.sortDirection.toUpperCase()
       const [counts] = await pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) total ${fromSql} WHERE ${where.join(' AND ')}`,
-        values
+        [input.year, ...values]
       )
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT employee.uid,employee.employee_number employeeNumber,employee.full_name fullName,
           site.uid siteUid,site.code siteCode,site.name siteName,
           employee.bpjs_health_number IS NOT NULL AND TRIM(employee.bpjs_health_number)<>'' hasHealthNumber,
           employee.bpjs_employment_number IS NOT NULL AND TRIM(employee.bpjs_employment_number)<>'' hasEmploymentNumber,
-          enrollment.uid enrollmentUid,
-          enrollment.health_enabled healthEnabled,enrollment.jht_enabled jhtEnabled,
-          enrollment.jkk_enabled jkkEnabled,enrollment.jkm_enabled jkmEnabled,enrollment.jp_enabled jpEnabled
+          enrollment.uid enrollmentUid,enrollment.configuration_mode configurationMode,
+          ${effective('health_employer_enabled')} healthEmployerEnabled,
+          ${effective('health_employee_enabled')} healthEmployeeEnabled,
+          ${effective('jht_employer_enabled')} jhtEmployerEnabled,
+          ${effective('jht_employee_enabled')} jhtEmployeeEnabled,
+          ${effective('jkk_employer_enabled')} jkkEmployerEnabled,
+          ${effective('jkm_employer_enabled')} jkmEmployerEnabled,
+          ${effective('jp_employer_enabled')} jpEmployerEnabled,
+          ${effective('jp_employee_enabled')} jpEmployeeEnabled
         ${fromSql} WHERE ${where.join(' AND ')}
         ORDER BY ${orderColumns[input.sortBy]} ${direction},employee.full_name ASC,employee.employee_number ASC
         LIMIT ? OFFSET ?`,
-        [...values, input.pageSize, (input.page - 1) * input.pageSize]
+        [input.year, ...values, input.pageSize, (input.page - 1) * input.pageSize]
       )
       const total = Number(counts[0]?.total ?? 0)
       res.json({
@@ -532,12 +588,18 @@ payrollBpjsRouter.get(
             code: String(row.siteCode),
             name: String(row.siteName),
           },
-          implicitDefault: !row.enrollmentUid,
-          healthEnabled: row.enrollmentUid ? bool(row.healthEnabled) : true,
-          jhtEnabled: row.enrollmentUid ? bool(row.jhtEnabled) : true,
-          jkkEnabled: row.enrollmentUid ? bool(row.jkkEnabled) : true,
-          jkmEnabled: row.enrollmentUid ? bool(row.jkmEnabled) : true,
-          jpEnabled: row.enrollmentUid ? bool(row.jpEnabled) : true,
+          configurationMode:
+            row.enrollmentUid && row.configurationMode === 'CUSTOM'
+              ? 'CUSTOM'
+              : 'GLOBAL',
+          healthEmployerEnabled: bool(row.healthEmployerEnabled),
+          healthEmployeeEnabled: bool(row.healthEmployeeEnabled),
+          jhtEmployerEnabled: bool(row.jhtEmployerEnabled),
+          jhtEmployeeEnabled: bool(row.jhtEmployeeEnabled),
+          jkkEmployerEnabled: bool(row.jkkEmployerEnabled),
+          jkmEmployerEnabled: bool(row.jkmEmployerEnabled),
+          jpEmployerEnabled: bool(row.jpEmployerEnabled),
+          jpEmployeeEnabled: bool(row.jpEmployeeEnabled),
           hasHealthNumber: bool(row.hasHealthNumber),
           hasEmploymentNumber: bool(row.hasEmploymentNumber),
         })),

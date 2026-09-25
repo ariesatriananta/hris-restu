@@ -972,23 +972,30 @@ export interface PayrollBpjsConfiguration {
 export interface PayrollBpjsEnrollment {
   employee: { uid: string; employeeNumber: string; fullName: string }
   site: PayrollSite
-  implicitDefault: boolean
-  healthEnabled: boolean
-  jhtEnabled: boolean
-  jkkEnabled: boolean
-  jkmEnabled: boolean
-  jpEnabled: boolean
+  configurationMode: 'GLOBAL' | 'CUSTOM'
+  healthEmployerEnabled: boolean
+  healthEmployeeEnabled: boolean
+  jhtEmployerEnabled: boolean
+  jhtEmployeeEnabled: boolean
+  jkkEmployerEnabled: boolean
+  jkmEmployerEnabled: boolean
+  jpEmployerEnabled: boolean
+  jpEmployeeEnabled: boolean
   hasHealthNumber: boolean
   hasEmploymentNumber: boolean
 }
 
 export interface PayrollBpjsEnrollmentImportRow {
   employeeNumber: string
-  healthEnabled: boolean
-  jhtEnabled: boolean
-  jkkEnabled: boolean
-  jkmEnabled: boolean
-  jpEnabled: boolean
+  configurationMode: 'GLOBAL' | 'CUSTOM'
+  healthEmployerEnabled: boolean
+  healthEmployeeEnabled: boolean
+  jhtEmployerEnabled: boolean
+  jhtEmployeeEnabled: boolean
+  jkkEmployerEnabled: boolean
+  jkmEmployerEnabled: boolean
+  jpEmployerEnabled: boolean
+  jpEmployeeEnabled: boolean
   reason: string
 }
 

@@ -205,11 +205,15 @@ export function useSavePayrollBpjsEnrollment() {
       ...input
     }: {
       employeeUid: string
-      healthEnabled: boolean
-      jhtEnabled: boolean
-      jkkEnabled: boolean
-      jkmEnabled: boolean
-      jpEnabled: boolean
+      configurationMode: 'GLOBAL' | 'CUSTOM'
+      healthEmployerEnabled: boolean
+      healthEmployeeEnabled: boolean
+      jhtEmployerEnabled: boolean
+      jhtEmployeeEnabled: boolean
+      jkkEmployerEnabled: boolean
+      jkmEmployerEnabled: boolean
+      jpEmployerEnabled: boolean
+      jpEmployeeEnabled: boolean
       reason: string
       idempotencyKey: string
     }) =>

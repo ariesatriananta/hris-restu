@@ -442,7 +442,7 @@ export type ProductionBatchDeleteResult = {
 
 export type ProductionImportTemplateEmployees = {
   data: Array<{ employeeNumber: string; employeeName: string }>
-  meta: { total: number; limit: number }
+  meta: { total: number; limit: number; referenceDate: string }
 }
 
 export type ProductionAssignmentCorrectionPreview = {
