@@ -27,6 +27,16 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   yang memuat tanggal bergabung. Koreksi ditolak bila data sudah dipakai pada
   kontrak, mutasi, penugasan Shift/pekerjaan, Attendance, Produksi, Payroll,
   atau proses operasional lain.
+- Hapus permanen Master Karyawan hanya tersedia untuk `SUPER_ADMIN` dan hanya
+  dipakai untuk data salah input atau data uji, bukan untuk resign maupun
+  penonaktifan. Sistem wajib menampilkan preview seluruh dependensi, meminta
+  alasan dan konfirmasi Employee ID, lalu memeriksa ulang dependensi di dalam
+  transaksi. Penghapusan diblokir bila karyawan memiliki fakta Attendance
+  (termasuk scan, koreksi, dan klasifikasi), transaksi Produksi, komponen manual
+  Payroll, hasil/snapshot Payroll, atau settlement BPJS Payroll. Jika aman,
+  seluruh histori administratif karyawan dihapus dalam urutan relasi yang aman;
+  arsip kandidat Rekrutmen dan dokumen hasil generate tetap dipertahankan tetapi
+  relasinya ke karyawan dilepas. Hasil akhir wajib tercatat pada Audit Trail.
 - Data pelamar disimpan terpisah dari Master Karyawan. Pengiriman Form Data
   Pelamar tidak boleh membuat nomor karyawan, histori kerja, kontrak, maupun
   data operasional karyawan.

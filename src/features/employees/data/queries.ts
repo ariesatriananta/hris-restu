@@ -25,6 +25,7 @@ import type {
   ContractKpiSummary,
   ContractConflictListParams,
   ScheduledStatusChangeAction,
+  EmployeeDeletionResult,
 } from '../domain'
 import {
   httpEmployeeRepository,
@@ -56,6 +57,8 @@ export const employeeKeys = {
   summary: (params: Pick<EmployeeListParams, 'site' | 'employeeType'>) =>
     [...employeeKeys.all, 'summary', params] as const,
   detail: (uid: string) => [...employeeKeys.all, 'detail', uid] as const,
+  deletionPreview: (uid: string) =>
+    [...employeeKeys.detail(uid), 'deletion-preview'] as const,
   idCards: (params: EmployeeIdCardListParams) =>
     [...employeeKeys.all, 'id-cards', params] as const,
   histories: (uid?: string) =>
@@ -135,6 +138,14 @@ export const useEmployee = (uid: string) =>
       queryKey: employeeKeys.detail(uid),
       queryFn: () => httpEmployeeRepository.getByUid(uid),
       enabled: Boolean(uid),
+    })
+  )
+export const useEmployeeDeletionPreview = (uid: string, enabled = true) =>
+  useQuery(
+    queryOptions({
+      queryKey: employeeKeys.deletionPreview(uid),
+      queryFn: () => httpEmployeeRepository.deletionPreview(uid),
+      enabled: Boolean(uid) && enabled,
     })
   )
 export const useEmployeeIdCards = (params: EmployeeIdCardListParams) =>
@@ -270,6 +281,25 @@ export function useSaveEmployee() {
   return useMutation({
     mutationFn: ({ input, uid }: { input: EmployeeInput; uid?: string }) =>
       httpEmployeeRepository.save(input, uid),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function useDeleteEmployeePermanently() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      employeeUid,
+      confirmation,
+      reason,
+    }: {
+      employeeUid: string
+      confirmation: string
+      reason: string
+    }): Promise<EmployeeDeletionResult> =>
+      httpEmployeeRepository.deletePermanently(employeeUid, {
+        confirmation,
+        reason,
+      }),
     onSuccess: () => invalidate(queryClient),
   })
 }

@@ -126,6 +126,29 @@ export interface Employee {
   terminationReason?: string
   canCorrectRegistration?: boolean
 }
+
+export interface EmployeeDeletionDependency {
+  key: string
+  label: string
+  count: number
+  action: 'DELETE' | 'UNLINK'
+}
+
+export interface EmployeeDeletionPreview {
+  employee: Pick<Employee, 'uid' | 'employeeNumber' | 'fullName' | 'site'>
+  canDelete: boolean
+  blockers: string[]
+  dependencies: EmployeeDeletionDependency[]
+  totalAffectedRecords: number
+}
+
+export interface EmployeeDeletionResult {
+  deleted: true
+  employeeUid: string
+  employeeNumber: string
+  deletedRecords: number
+  unlinkedRecords: number
+}
 export type ContractLifecycleAction =
   | 'schedule'
   | 'activate'
@@ -437,6 +460,11 @@ export interface EmployeeRepository {
   ): Promise<PaginatedResult<EmployeeIdCardItem>>
   getIdCardPrintData(employeeUids: string[]): Promise<EmployeeIdCardPrintData>
   getByUid(uid: string): Promise<Employee | null>
+  deletionPreview(uid: string): Promise<EmployeeDeletionPreview>
+  deletePermanently(
+    uid: string,
+    input: { confirmation: string; reason: string }
+  ): Promise<EmployeeDeletionResult>
   save(input: EmployeeInput, uid?: string): Promise<Employee>
   histories(employeeUid?: string): Promise<EmploymentHistory[]>
   historyList(

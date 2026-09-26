@@ -4,7 +4,7 @@
 >
 > Audiens: HR Officer, Super Admin, administrator data karyawan, dan tim support HRIS
 >
-> Terakhir diverifikasi: 7 September 2026
+> Terakhir diverifikasi: 26 September 2026
 >
 > Status: aktif, sesuai perilaku aplikasi saat dokumen ini dibuat
 
@@ -130,6 +130,28 @@ Periksa bagian berikut:
 - foto, dokumen, dan data pendukung lainnya.
 
 Jika membuka detail dari daftar yang sudah difilter, gunakan tombol kembali yang tersedia agar kembali ke daftar dengan pencarian dan filter sebelumnya.
+
+## Menghapus permanen data karyawan
+
+Fitur ini hanya tersedia untuk **Super Admin** dan hanya boleh dipakai untuk
+data salah input atau data uji. Karyawan yang resign atau berhenti bekerja harus
+diproses melalui perubahan status atau lifecycle kontrak, bukan dihapus.
+
+1. Buka **Detail Karyawan** yang akan dihapus.
+2. Tekan menu titik tiga di kanan atas.
+3. Pilih **Hapus permanen data karyawan**.
+4. Periksa hasil pemeriksaan sistem dan daftar data yang ikut terdampak.
+5. Isi alasan penghapusan.
+6. Ketik Employee ID yang ditampilkan sebagai konfirmasi.
+7. Tekan **Hapus permanen**.
+
+Sistem tidak mengizinkan penghapusan jika karyawan sudah mempunyai Attendance,
+scan, koreksi atau klasifikasi Attendance, setoran Produksi, maupun data proses
+Payroll. Jika aman, kontrak, mutasi, histori penempatan, penugasan, pengaturan
+BPJS, tarif atau gaji, dan dokumen administratif karyawan ikut dihapus. Arsip
+kandidat Rekrutmen dan dokumen hasil generate tetap disimpan, tetapi tidak lagi
+ditautkan ke Master Karyawan. Tindakan ini tercatat pada Audit Trail dan tidak
+dapat dibatalkan dari aplikasi.
 
 ## Laporan Karyawan dan Excel
 

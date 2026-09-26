@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Router, type Request } from 'express'
-import type { RowDataPacket } from 'mysql2'
+import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { PoolConnection } from 'mysql2/promise'
 import { z } from 'zod'
 import { env } from '../config.js'
@@ -199,6 +199,10 @@ const scheduledStatusChangeInput = z.object({
 })
 const printSnapshotsInput = z.object({
   contractUids: z.array(z.string().uuid()).min(1).max(50),
+})
+const employeePermanentDeleteInput = z.object({
+  confirmation: z.string().trim().min(1).max(50),
+  reason: z.string().trim().min(5, 'Alasan minimal 5 karakter.').max(500),
 })
 
 const registrationCorrectionEligibilitySql = `(
@@ -472,6 +476,243 @@ async function fileId(uid?: string) {
 }
 function scopeWhere(auth: AuthContext, column = 's.code') { return auth.roles.includes('SUPER_ADMIN') ? { sql: '1=1', params: [] as string[] } : { sql: `${column} IN (${auth.siteAccess.map(() => '?').join(',') || "''"})`, params: auth.siteAccess } }
 const routeParam = (value: string | string[]) => Array.isArray(value) ? value[0] : value
+
+function assertEmployeePermanentDeleteAccess(auth: AuthContext) {
+  if (!auth.roles.includes('SUPER_ADMIN')) {
+    throw new ApiError(403, 'Hapus permanen karyawan hanya dapat dilakukan Super Admin.')
+  }
+}
+
+type EmployeeDeletionRow = RowDataPacket & {
+  id: number
+  uid: string
+  employeeNumber: string
+  fullName: string
+  siteId: number
+  siteCode: string
+}
+
+type EmployeeDeletionDependency = {
+  key: string
+  label: string
+  count: number
+  action: 'DELETE' | 'UNLINK'
+}
+
+type EmployeeDeletionMetrics = Record<string, number>
+
+const employeeDeletionAdministrativeMetrics = [
+  { key: 'employmentHistories', label: 'Riwayat kekaryawanan', action: 'DELETE', sql: '(SELECT COUNT(*) FROM employee_employment_histories WHERE employee_id=?)', params: 1 },
+  { key: 'scheduledMutations', label: 'Mutasi terjadwal', action: 'DELETE', sql: '(SELECT COUNT(DISTINCT mutation.id) FROM scheduled_employee_mutations mutation LEFT JOIN employee_employment_histories history ON history.id=mutation.base_history_id WHERE mutation.employee_id=? OR history.employee_id=?)', params: 2 },
+  { key: 'contracts', label: 'Kontrak kerja', action: 'DELETE', sql: '(SELECT COUNT(*) FROM employee_contracts WHERE employee_id=?)', params: 1 },
+  { key: 'contractLifecycleEvents', label: 'Riwayat lifecycle kontrak', action: 'DELETE', sql: '(SELECT COUNT(*) FROM employee_contract_lifecycle_events event JOIN employee_contracts contract ON contract.id=event.contract_id WHERE contract.employee_id=?)', params: 1 },
+  { key: 'scheduledStatusChanges', label: 'Perubahan status terjadwal', action: 'DELETE', sql: '(SELECT COUNT(DISTINCT status_change.id) FROM scheduled_employee_status_changes status_change LEFT JOIN employee_contracts contract ON contract.id=status_change.contract_id WHERE status_change.employee_id=? OR contract.employee_id=?)', params: 2 },
+  { key: 'salaryRecords', label: 'Gaji pokok dan revisi', action: 'DELETE', sql: '((SELECT COUNT(*) FROM employee_salary_histories WHERE employee_id=?) + (SELECT COUNT(*) FROM employee_salary_history_revisions revision JOIN employee_salary_histories salary ON salary.id=revision.employee_salary_history_id WHERE salary.employee_id=?))', params: 2 },
+  { key: 'dailyRateRecords', label: 'Tarif harian dan revisi', action: 'DELETE', sql: '((SELECT COUNT(*) FROM employee_daily_rate_histories WHERE employee_id=?) + (SELECT COUNT(*) FROM employee_daily_rate_revisions revision JOIN employee_daily_rate_histories rate ON rate.id=revision.employee_daily_rate_history_id WHERE rate.employee_id=?))', params: 2 },
+  { key: 'bpjsEnrollments', label: 'Kepesertaan BPJS dan revisi', action: 'DELETE', sql: '((SELECT COUNT(*) FROM employee_bpjs_enrollments WHERE employee_id=?) + (SELECT COUNT(*) FROM employee_bpjs_enrollment_revisions revision JOIN employee_bpjs_enrollments enrollment ON enrollment.id=revision.employee_bpjs_enrollment_id WHERE enrollment.employee_id=?))', params: 2 },
+  { key: 'shiftAssignments', label: 'Penugasan shift', action: 'DELETE', sql: '(SELECT COUNT(*) FROM employee_shift_assignments WHERE employee_id=?)', params: 1 },
+  { key: 'jobAssignments', label: 'Penugasan pekerjaan Produksi dan revisi', action: 'DELETE', sql: '((SELECT COUNT(*) FROM employee_job_assignments WHERE employee_id=?) + (SELECT COUNT(*) FROM employee_job_assignment_revisions revision JOIN employee_job_assignments assignment ON assignment.id=revision.employee_job_assignment_id WHERE assignment.employee_id=?))', params: 2 },
+  { key: 'documents', label: 'Dokumen karyawan', action: 'DELETE', sql: '(SELECT COUNT(*) FROM employee_documents WHERE employee_id=?)', params: 1 },
+  { key: 'payrollComponents', label: 'Master komponen Payroll karyawan', action: 'DELETE', sql: '(SELECT COUNT(*) FROM employee_payroll_components WHERE employee_id=?)', params: 1 },
+  { key: 'recruitmentCandidates', label: 'Arsip kandidat rekrutmen', action: 'UNLINK', sql: '(SELECT COUNT(*) FROM recruitment_candidates WHERE employee_id=?)', params: 1 },
+  { key: 'generatedDocuments', label: 'Dokumen hasil generate', action: 'UNLINK', sql: '(SELECT COUNT(*) FROM generated_documents WHERE employee_id=?)', params: 1 },
+] as const satisfies ReadonlyArray<{
+  key: string
+  label: string
+  action: 'DELETE' | 'UNLINK'
+  sql: string
+  params: number
+}>
+
+const employeeDeletionOperationalMetrics = [
+  { key: 'attendanceRecords', label: 'record Attendance', sql: '(SELECT COUNT(*) FROM attendance_records WHERE employee_id=?)', params: 1 },
+  { key: 'attendanceScans', label: 'scan Attendance', sql: '(SELECT COUNT(DISTINCT scan.id) FROM attendance_scan_events scan LEFT JOIN attendance_records attendance ON attendance.id=scan.attendance_record_id WHERE scan.employee_id=? OR attendance.employee_id=?)', params: 2 },
+  { key: 'attendanceCorrections', label: 'koreksi Attendance', sql: '(SELECT COUNT(*) FROM attendance_corrections correction JOIN attendance_records attendance ON attendance.id=correction.attendance_record_id WHERE attendance.employee_id=?)', params: 1 },
+  { key: 'attendanceClassifications', label: 'klasifikasi Attendance', sql: '((SELECT COUNT(*) FROM attendance_classification_requests WHERE employee_id=?) + (SELECT COUNT(DISTINCT detail.id) FROM attendance_classification_details detail LEFT JOIN attendance_classification_requests request ON request.id=detail.request_id WHERE detail.employee_id=? OR request.employee_id=?))', params: 3 },
+  { key: 'productionTransactions', label: 'transaksi Produksi', sql: '(SELECT COUNT(*) FROM production_transactions WHERE employee_id=?)', params: 1 },
+  { key: 'payrollManualComponents', label: 'komponen manual Payroll', sql: '(SELECT COUNT(*) FROM payroll_period_manual_components WHERE employee_id=?)', params: 1 },
+  { key: 'payrollEmployeeResults', label: 'hasil perhitungan Payroll', sql: '(SELECT COUNT(*) FROM payroll_employee_results WHERE employee_id=?)', params: 1 },
+  { key: 'payrollSettlements', label: 'settlement BPJS Payroll', sql: '(SELECT COUNT(*) FROM payroll_bpjs_monthly_settlements WHERE employee_id=?)', params: 1 },
+  {
+    key: 'payrollLinkedMasterFacts',
+    label: 'snapshot Payroll yang merujuk master karyawan',
+    sql: `(
+      (SELECT COUNT(*) FROM payroll_employee_bpjs_details detail JOIN employee_bpjs_enrollments enrollment ON enrollment.id=detail.employee_bpjs_enrollment_id WHERE enrollment.employee_id=?)
+      + (SELECT COUNT(*) FROM payroll_time_details detail JOIN employee_daily_rate_histories rate ON rate.id=detail.employee_daily_rate_history_id WHERE rate.employee_id=?)
+      + (SELECT COUNT(*) FROM payroll_monthly_summaries summary JOIN employee_salary_histories salary ON salary.id=summary.employee_salary_history_id WHERE salary.employee_id=?)
+      + (SELECT COUNT(*) FROM payroll_monthly_daily_details detail JOIN employee_salary_histories salary ON salary.id=detail.employee_salary_history_id WHERE salary.employee_id=?)
+    )`,
+    params: 4,
+  },
+] as const
+
+async function loadEmployeeForPermanentDelete(
+  executor: Pick<typeof pool, 'query'> | PoolConnection,
+  employeeUid: string,
+  lock = false
+) {
+  const [rows] = await executor.query<EmployeeDeletionRow[]>(
+    `SELECT e.id,e.uid,e.employee_number employeeNumber,e.full_name fullName,
+            s.id siteId,s.code siteCode
+       FROM employees e
+       JOIN sites s ON s.id=e.current_site_id
+      WHERE e.uid=? ${lock ? 'FOR UPDATE' : ''}`,
+    [employeeUid]
+  )
+  const employee = rows[0]
+  if (!employee) throw new ApiError(404, 'Karyawan tidak ditemukan.')
+  return employee
+}
+
+async function employeeDeletionMetrics(
+  executor: Pick<typeof pool, 'query'> | PoolConnection,
+  employeeId: number
+) {
+  const definitions = [
+    ...employeeDeletionAdministrativeMetrics,
+    ...employeeDeletionOperationalMetrics,
+  ]
+  const parameters = definitions.flatMap((definition) =>
+    Array.from({ length: definition.params }, () => employeeId)
+  )
+  const [rows] = await executor.query<RowDataPacket[]>(
+    `SELECT ${definitions.map((definition) => `${definition.sql} ${definition.key}`).join(',\n')}`,
+    parameters
+  )
+  const row = rows[0] ?? {}
+  return Object.fromEntries(
+    definitions.map((definition) => [definition.key, Number(row[definition.key] ?? 0)])
+  ) as EmployeeDeletionMetrics
+}
+
+function employeeDeletionPreviewDto(
+  employee: EmployeeDeletionRow,
+  metrics: EmployeeDeletionMetrics
+) {
+  const dependencies: EmployeeDeletionDependency[] =
+    employeeDeletionAdministrativeMetrics.map((definition) => ({
+      key: definition.key,
+      label: definition.label,
+      count: metrics[definition.key] ?? 0,
+      action: definition.action,
+    }))
+  const blockers = employeeDeletionOperationalMetrics.flatMap((definition) => {
+    const count = metrics[definition.key] ?? 0
+    return count > 0 ? [`Ditemukan ${count} ${definition.label}.`] : []
+  })
+  return {
+    employee: {
+      uid: employee.uid,
+      employeeNumber: employee.employeeNumber,
+      fullName: employee.fullName,
+      site: employee.siteCode,
+    },
+    canDelete: blockers.length === 0,
+    blockers,
+    dependencies,
+    totalAffectedRecords:
+      1 + dependencies.reduce((total, dependency) => total + dependency.count, 0),
+  }
+}
+
+async function deleteEmployeeAdministrativeData(
+  conn: PoolConnection,
+  employeeId: number,
+  actorUserId: number
+) {
+  const execute = async (
+    sql: string,
+    params: Array<string | number | null> = [employeeId]
+  ) => {
+    const [result] = await conn.execute<ResultSetHeader>(sql, params)
+    return result.affectedRows
+  }
+
+  const unlinkedRecords =
+    (await execute(
+      'UPDATE recruitment_candidates SET employee_id=NULL,updated_by=? WHERE employee_id=?',
+      [actorUserId, employeeId]
+    )) +
+    (await execute(
+      'UPDATE generated_documents SET employee_id=NULL,updated_by=? WHERE employee_id=?',
+      [actorUserId, employeeId]
+    ))
+
+  let deletedRecords = 0
+  deletedRecords += await execute(
+    `DELETE status_change
+       FROM scheduled_employee_status_changes status_change
+       LEFT JOIN employee_contracts contract ON contract.id=status_change.contract_id
+      WHERE status_change.employee_id=? OR contract.employee_id=?`,
+    [employeeId, employeeId]
+  )
+  deletedRecords += await execute(
+    `DELETE event
+       FROM employee_contract_lifecycle_events event
+       JOIN employee_contracts contract ON contract.id=event.contract_id
+      WHERE contract.employee_id=?`
+  )
+  deletedRecords += await execute(
+    'DELETE FROM employee_contracts WHERE employee_id=?'
+  )
+  deletedRecords += await execute(
+    `DELETE mutation
+       FROM scheduled_employee_mutations mutation
+       LEFT JOIN employee_employment_histories history ON history.id=mutation.base_history_id
+      WHERE mutation.employee_id=? OR history.employee_id=?`,
+    [employeeId, employeeId]
+  )
+  deletedRecords += await execute(
+    'DELETE FROM employee_employment_histories WHERE employee_id=?'
+  )
+  deletedRecords += await execute(
+    `DELETE revision
+       FROM employee_job_assignment_revisions revision
+       JOIN employee_job_assignments assignment ON assignment.id=revision.employee_job_assignment_id
+      WHERE assignment.employee_id=?`
+  )
+  deletedRecords += await execute(
+    'DELETE FROM employee_job_assignments WHERE employee_id=?'
+  )
+  deletedRecords += await execute(
+    `DELETE revision
+       FROM employee_salary_history_revisions revision
+       JOIN employee_salary_histories salary ON salary.id=revision.employee_salary_history_id
+      WHERE salary.employee_id=?`
+  )
+  deletedRecords += await execute(
+    'DELETE FROM employee_salary_histories WHERE employee_id=?'
+  )
+  deletedRecords += await execute(
+    `DELETE revision
+       FROM employee_daily_rate_revisions revision
+       JOIN employee_daily_rate_histories rate ON rate.id=revision.employee_daily_rate_history_id
+      WHERE rate.employee_id=?`
+  )
+  deletedRecords += await execute(
+    'DELETE FROM employee_daily_rate_histories WHERE employee_id=?'
+  )
+  deletedRecords += await execute(
+    `DELETE revision
+       FROM employee_bpjs_enrollment_revisions revision
+       JOIN employee_bpjs_enrollments enrollment ON enrollment.id=revision.employee_bpjs_enrollment_id
+      WHERE enrollment.employee_id=?`
+  )
+  deletedRecords += await execute(
+    'DELETE FROM employee_bpjs_enrollments WHERE employee_id=?'
+  )
+  deletedRecords += await execute(
+    'DELETE FROM employee_shift_assignments WHERE employee_id=?'
+  )
+  deletedRecords += await execute(
+    'DELETE FROM employee_payroll_components WHERE employee_id=?'
+  )
+  deletedRecords += await execute(
+    'DELETE FROM employee_documents WHERE employee_id=?'
+  )
+
+  return { deletedRecords, unlinkedRecords }
+}
 
 function assertContractPrintEligible(employeeType: string, contractType: string) {
   if (employeeType !== 'BORONGAN' || contractType !== 'PKWT') {
@@ -1103,6 +1344,109 @@ employeesRouter.post('/import', requirePermission('employees.manage'), async (re
     next(error)
   } finally { conn.release() }
 })
+
+employeesRouter.get(
+  '/:uid/deletion-preview',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    try {
+      const auth = res.locals.auth as AuthContext
+      assertEmployeePermanentDeleteAccess(auth)
+      const employeeUid = z.string().uuid().parse(routeParam(req.params.uid))
+      const employee = await loadEmployeeForPermanentDelete(pool, employeeUid)
+      const metrics = await employeeDeletionMetrics(pool, Number(employee.id))
+      res.json(employeeDeletionPreviewDto(employee, metrics))
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+employeesRouter.delete(
+  '/:uid',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      const auth = res.locals.auth as AuthContext
+      assertEmployeePermanentDeleteAccess(auth)
+      const employeeUid = z.string().uuid().parse(routeParam(req.params.uid))
+      const input = employeePermanentDeleteInput.parse(req.body)
+
+      await conn.beginTransaction()
+      const employee = await loadEmployeeForPermanentDelete(conn, employeeUid, true)
+      if (input.confirmation !== employee.employeeNumber) {
+        throw new ApiError(422, 'Nomor karyawan konfirmasi tidak sesuai.')
+      }
+
+      const metrics = await employeeDeletionMetrics(conn, Number(employee.id))
+      const preview = employeeDeletionPreviewDto(employee, metrics)
+      if (!preview.canDelete) {
+        throw new ApiError(
+          409,
+          `Karyawan tidak dapat dihapus permanen. ${preview.blockers.join(' ')}`
+        )
+      }
+
+      const cleanup = await deleteEmployeeAdministrativeData(
+        conn,
+        Number(employee.id),
+        auth.id
+      )
+      const [deletedEmployee] = await conn.execute<ResultSetHeader>(
+        'DELETE FROM employees WHERE id=?',
+        [employee.id]
+      )
+      if (deletedEmployee.affectedRows !== 1) {
+        throw new ApiError(409, 'Karyawan gagal dihapus tepat satu baris.')
+      }
+
+      const deletedRecords = cleanup.deletedRecords + 1
+
+      await writeAudit(
+        {
+          auth,
+          request: req,
+          module: 'EMPLOYEES',
+          siteId: Number(employee.siteId),
+          action: 'DELETE',
+          table: 'employees',
+          recordId: Number(employee.id),
+          recordUid: employee.uid,
+          description: `Menghapus permanen data karyawan ${employee.employeeNumber} - ${employee.fullName}.`,
+          reason: input.reason,
+          beforeData: {
+            employeeNumber: employee.employeeNumber,
+            fullName: employee.fullName,
+            site: employee.siteCode,
+            dependencies: preview.dependencies,
+            totalAffectedRecords: preview.totalAffectedRecords,
+          },
+          afterData: {
+            employeeDeleted: true,
+            deletedRecords,
+            unlinkedRecords: cleanup.unlinkedRecords,
+          },
+        },
+        conn
+      )
+
+      await conn.commit()
+      res.json({
+        deleted: true,
+        employeeUid: employee.uid,
+        employeeNumber: employee.employeeNumber,
+        deletedRecords,
+        unlinkedRecords: cleanup.unlinkedRecords,
+      })
+    } catch (error) {
+      await conn.rollback()
+      next(error)
+    } finally {
+      conn.release()
+    }
+  }
+)
 
 employeesRouter.get('/:uid', requirePermission('employees.view'), async (req, res, next) => {
   try { const uid = routeParam(req.params.uid); const [rows] = await pool.query<RowDataPacket[]>(`${employeeSelect} WHERE e.uid=?`, [uid]); if (!rows[0]) throw new ApiError(404, 'Karyawan tidak ditemukan.'); enforceSite(res.locals.auth, rows[0].site); res.json(mapEmployee(rows[0])) } catch (error) { next(error) }

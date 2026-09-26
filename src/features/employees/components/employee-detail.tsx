@@ -16,6 +16,7 @@ import {
   Plus,
   RefreshCcw,
 } from 'lucide-react'
+import { useAuthStore } from '@/stores/auth-store'
 import {
   currentListReturnTo,
   returnToLabel,
@@ -47,6 +48,7 @@ import {
   statusLabel,
 } from '../utils'
 import { ContractDetailDrawer } from './contract-detail-drawer'
+import { EmployeeDeleteAction } from './employee-delete-action'
 import { EmployeeIdCard } from './id-card'
 import { MutationDetailDrawer } from './mutation-detail-drawer'
 import { MutationDialog } from './mutation-dialog'
@@ -66,6 +68,7 @@ export function EmployeeDetail({
   const contracts = useContracts(employeeUid)
   const documents = useDocuments(employeeUid)
   const scheduledMutations = useScheduledMutations(employeeUid)
+  const session = useAuthStore((state) => state.session)
   const [mutationOpen, setMutationOpen] = useState(false)
   const [selectedHistoryUid, setSelectedHistoryUid] = useState<string>()
   const [selectedContractUid, setSelectedContractUid] = useState<string>()
@@ -148,6 +151,10 @@ export function EmployeeDetail({
                 ID Card
               </Link>
             </Button>
+            {(session?.user.role === 'SUPER_ADMIN' ||
+              session?.user.roles.includes('SUPER_ADMIN')) && (
+              <EmployeeDeleteAction employee={data} returnTo={listReturnTo} />
+            )}
           </div>
         </div>
       </div>
@@ -206,7 +213,10 @@ export function EmployeeDetail({
             <InfoCard
               title='Status kerja'
               rows={[
-                ['Status', <EmployeeStatusBadge status={data.employeeStatus} />],
+                [
+                  'Status',
+                  <EmployeeStatusBadge status={data.employeeStatus} />,
+                ],
                 ['Ringkasan', employmentStatusSummary(data, contracts.data)],
                 ['Tanggal tetap', formatDate(data.permanentDate)],
                 ['Tanggal resign', formatDate(data.resignDate)],
@@ -418,7 +428,7 @@ export function EmployeeDetail({
                 content: (
                   <div className='min-w-0 flex-1'>
                     <div className='flex flex-wrap items-center gap-2'>
-                      <span className='break-all font-medium'>
+                      <span className='font-medium break-all'>
                         {item.contractNumber}
                       </span>
                       <Badge

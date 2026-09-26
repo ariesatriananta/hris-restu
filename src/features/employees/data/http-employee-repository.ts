@@ -25,6 +25,8 @@ import type {
   RegistrationCorrectionInput,
   BatchMutationItem,
   BatchMutationResult,
+  EmployeeDeletionPreview,
+  EmployeeDeletionResult,
 } from '../domain'
 
 const params = (input: EmployeeListParams) => ({
@@ -93,6 +95,20 @@ export const httpEmployeeRepository: EmployeeRepository = {
         return null
       throw error
     }
+  },
+  async deletionPreview(uid) {
+    return (
+      await apiClient.get<EmployeeDeletionPreview>(
+        `/employees/${uid}/deletion-preview`
+      )
+    ).data
+  },
+  async deletePermanently(uid, input) {
+    return (
+      await apiClient.delete<EmployeeDeletionResult>(`/employees/${uid}`, {
+        data: input,
+      })
+    ).data
   },
   async save(input, uid) {
     const { photo, ...employee } = input
