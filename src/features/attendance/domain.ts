@@ -332,7 +332,9 @@ export interface ShiftAssignmentListParams {
 export type ShiftAssignmentCandidateListParams = Omit<
   ShiftAssignmentListParams,
   'shiftUid' | 'status'
->
+> & {
+  employeeUid?: string[]
+}
 
 export interface ShiftAssignmentBatchInput {
   shiftUid: string

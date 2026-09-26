@@ -8,16 +8,22 @@ export const Route = createFileRoute(
   validateSearch: z.object({
     returnTo: z.string().optional(),
     employeeUids: z.string().optional(),
+    contractUids: z.string().optional(),
+    onboarding: z.boolean().optional(),
   }),
   component: ContractBatchCreatePage,
 })
 
+// Route module also exports TanStack Router's route definition.
+// eslint-disable-next-line react-refresh/only-export-components
 function ContractBatchCreatePage() {
   const search = Route.useSearch()
   return (
     <BatchContractFormPage
       returnTo={search.returnTo}
       employeeUids={search.employeeUids}
+      contractUids={search.contractUids}
+      onboarding={search.onboarding === true}
     />
   )
 }

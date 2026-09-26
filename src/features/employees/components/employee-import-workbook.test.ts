@@ -34,6 +34,29 @@ describe('employee import workbook', () => {
     }
   })
 
+  it('mengubah tanggal DD/MM/YYYY menjadi ISO sebelum validasi server', async () => {
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([
+        employeeImportTemplateHeaders,
+        employeeImportTemplateHeaders.map((header) => {
+          if (header.startsWith('FULL_NAME')) return 'SITI AMINAH'
+          if (header.startsWith('JOIN_DATE')) return '03/09/2026'
+          if (header.startsWith('BIRTH_DATE')) return '15/01/1995'
+          return ''
+        }),
+      ]),
+      'Karyawan'
+    )
+    const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
+    const rows = await parseEmployeeImportWorkbook(
+      new File([buffer], 'karyawan.xlsx')
+    )
+    expect(rows[0].joinDate).toBe('2026-09-03')
+    expect(rows[0].birthDate).toBe('1995-01-15')
+  })
+
   it('membuat hasil validasi yang dapat diperbaiki dan diunggah ulang', async () => {
     const workbook = buildEmployeeImportValidationWorkbook(
       [{ fullName: 'SITI AMINAH', employeeType: 'BORONGAN' }],
@@ -49,8 +72,14 @@ describe('employee import workbook', () => {
     )
     const sheet = workbook.Sheets.Karyawan
     expect(sheet.A1.v).toBe('FULL_NAME *')
-    expect(sheet.AN2.v).toBe('PERLU DIPERBAIKI')
-    expect(sheet.AO2.v).toBe('SITE_CODE wajib diisi.')
+    const statusColumn = XLSX.utils.encode_col(
+      employeeImportTemplateHeaders.length + 1
+    )
+    const messageColumn = XLSX.utils.encode_col(
+      employeeImportTemplateHeaders.length + 2
+    )
+    expect(sheet[`${statusColumn}2`].v).toBe('PERLU DIPERBAIKI')
+    expect(sheet[`${messageColumn}2`].v).toBe('SITE_CODE wajib diisi.')
 
     const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
     const rows = await parseEmployeeImportWorkbook(

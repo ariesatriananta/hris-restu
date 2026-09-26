@@ -20,6 +20,8 @@ export const Route = createFileRoute('/_authenticated/attendance/master-shift')(
       productionSection: z.array(z.string()).optional(),
       shiftUid: z.array(z.string()).optional(),
       status: z.array(z.enum(['CURRENT', 'UPCOMING', 'ENDED'])).optional(),
+      setupAttendance: z.boolean().optional(),
+      employeeUids: z.string().optional(),
     }),
     component: RouteComponent,
   }

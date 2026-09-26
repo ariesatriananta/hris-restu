@@ -8,7 +8,13 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table'
-import { Eye, LoaderCircle, Pencil, Users } from 'lucide-react'
+import {
+  ArrowRightCircle,
+  Eye,
+  LoaderCircle,
+  Pencil,
+  Users,
+} from 'lucide-react'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -22,7 +28,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { DataTablePagination, DataTableToolbar } from '@/components/data-table'
-import type { Employee, PaginatedResult } from '../domain'
+import type {
+  Employee,
+  EmployeeOnboardingReadinessItem,
+  PaginatedResult,
+} from '../domain'
 import {
   employeeStatusBadgeClassName,
   employeeStatusBadgeVariant,
@@ -65,6 +75,8 @@ export function EmployeesTable({
   onEdit,
   returnTo,
   isFetching,
+  onboardingByEmployeeUid,
+  onContinueOnboarding,
 }: {
   data: PaginatedResult<Employee>
   columns: ColumnDef<Employee>[]
@@ -73,6 +85,8 @@ export function EmployeesTable({
   onEdit: (employee: Employee) => void
   returnTo?: string
   isFetching?: boolean
+  onboardingByEmployeeUid?: Map<string, EmployeeOnboardingReadinessItem>
+  onContinueOnboarding?: (item: EmployeeOnboardingReadinessItem) => void
 }) {
   const [sorting, setSorting] = useState<SortingState>([])
   const tableState = useTableUrlState({
@@ -224,6 +238,22 @@ export function EmployeesTable({
                       >
                         <Pencil /> Ubah
                       </Button>
+                      {onboardingByEmployeeUid?.get(employee.uid)
+                        ?.canContinue && (
+                        <Button
+                          size='icon'
+                          variant='outline'
+                          aria-label={`Lanjutkan onboarding ${employee.fullName}`}
+                          onClick={() => {
+                            const item = onboardingByEmployeeUid.get(
+                              employee.uid
+                            )
+                            if (item) onContinueOnboarding?.(item)
+                          }}
+                        >
+                          <ArrowRightCircle />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </CardContent>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
 import {
   ChevronLeft,
@@ -68,6 +68,7 @@ const weekdays = [
   { value: 6, label: 'Sab' },
   { value: 7, label: 'Min' },
 ]
+const emptyEmployeeUids: string[] = []
 
 const emptyShift = (): ShiftInput => ({
   siteCode: 'JEPARA',
@@ -307,6 +308,8 @@ export function ShiftAssignmentDialog({
   siteOptions = fallbackSiteOptions,
   productionModules = [],
   productionSections = [],
+  initialEmployeeUids = emptyEmployeeUids,
+  onAssigned,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -314,7 +317,13 @@ export function ShiftAssignmentDialog({
   siteOptions?: { value: AttendanceSiteCode; label: string }[]
   productionModules?: AttendanceProductionModuleLookup[]
   productionSections?: AttendanceProductionSectionLookup[]
+  initialEmployeeUids?: string[]
+  onAssigned?: (employeeUids: string[]) => void
 }) {
+  const initialEmployeeUidSet = useMemo(
+    () => new Set(initialEmployeeUids),
+    [initialEmployeeUids]
+  )
   const [query, setQuery] = useState('')
   const [site, setSite] = useState<AttendanceSiteCode | ''>('')
   const [employeeType, setEmployeeType] = useState<
@@ -342,13 +351,17 @@ export function ShiftAssignmentDialog({
       productionSection: productionSection.trim()
         ? [productionSection.trim()]
         : undefined,
+      employeeUid: initialEmployeeUids.length ? initialEmployeeUids : undefined,
       page,
-      pageSize: 50,
+      pageSize: initialEmployeeUids.length ? 500 : 50,
     },
-    open && Boolean(site)
+    open && (Boolean(site) || initialEmployeeUids.length > 0)
   )
   const create = useCreateShiftAssignments()
-  const items = candidates.data?.items ?? []
+  const items = useMemo(
+    () => candidates.data?.items ?? [],
+    [candidates.data?.items]
+  )
   const selectedVisible = items.filter((item) => selected.has(item.uid)).length
   const allVisible = items.length > 0 && selectedVisible === items.length
   const selectedCandidates = [...selected.values()]
@@ -381,6 +394,45 @@ export function ShiftAssignmentDialog({
         (!productionModule || section.moduleUid === productionModule)
     )
   )
+  useEffect(() => {
+    if (site || !initialEmployeeUids.length || !items.length) return
+    const firstSite = items.find((item) =>
+      initialEmployeeUidSet.has(item.uid)
+    )?.site
+    if (!firstSite) return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) setSite(firstSite)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [initialEmployeeUidSet, initialEmployeeUids.length, items, site])
+
+  useEffect(() => {
+    if (!site || !initialEmployeeUids.length || candidates.isFetching) return
+    const matching = items.filter(
+      (item) => item.site === site && initialEmployeeUidSet.has(item.uid)
+    )
+    if (!matching.length) return
+    const next = new Map(matching.map((item) => [item.uid, item]))
+    const minimum = selectedMinimumDate(matching)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setSelected(next)
+      setEffectiveFrom((current) => (current < minimum ? minimum : current))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    candidates.isFetching,
+    initialEmployeeUidSet,
+    initialEmployeeUids.length,
+    items,
+    site,
+  ])
   const applySelection = (next: Map<string, ShiftAssignmentCandidate>) => {
     setSelected(next)
     const minimum = selectedMinimumDate([...next.values()])
@@ -438,6 +490,7 @@ export function ShiftAssignmentDialog({
           )
           setConfirm(false)
           onOpenChange(false)
+          onAssigned?.([...selected.keys()])
         },
         onError: (error) => {
           setConfirm(false)
@@ -458,8 +511,9 @@ export function ShiftAssignmentDialog({
           <DialogHeader>
             <DialogTitle>Atur / Ganti Shift Karyawan</DialogTitle>
             <DialogDescription>
-              Pilih maksimal 500 karyawan. Karyawan yang sudah memiliki shift
-              akan diganti mulai tanggal efektif tanpa menghapus histori lama.
+              {initialEmployeeUids.length
+                ? 'Karyawan hasil onboarding sudah dipilih otomatis. Tentukan shift, tanggal mulai, dan hari kerja agar siap menggunakan Attendance.'
+                : 'Pilih maksimal 500 karyawan. Karyawan yang sudah memiliki shift akan diganti mulai tanggal efektif tanpa menghapus histori lama.'}
             </DialogDescription>
           </DialogHeader>
           <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-5'>

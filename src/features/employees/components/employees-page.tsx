@@ -11,13 +11,26 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Main } from '@/components/layout/main'
-import { useEmployeeKpiSummary, useEmployeeList } from '../data/queries'
-import type { Employee, EmployeeListParams } from '../domain'
+import {
+  useEmployeeKpiSummary,
+  useEmployeeList,
+  useEmployeeOnboardingReadiness,
+} from '../data/queries'
+import type {
+  Employee,
+  EmployeeListParams,
+  EmployeeOnboardingReadinessItem,
+} from '../domain'
+import { EmployeeImportDialog } from './employee-import-dialog'
+import { EmployeeKpiCards } from './employee-kpi-cards'
+import { continueEmployeeOnboarding } from './employee-onboarding-navigation'
+import {
+  EmployeeOnboardingBanner,
+  EmployeeOnboardingDialog,
+} from './employee-onboarding-readiness'
 import { createEmployeeColumns } from './employees-columns'
 import { EmployeesTable } from './employees-table'
 import { RegistrationCorrectionDialog } from './registration-correction-dialog'
-import { EmployeeImportDialog } from './employee-import-dialog'
-import { EmployeeKpiCards } from './employee-kpi-cards'
 
 export function EmployeesPage({
   search,
@@ -43,10 +56,24 @@ export function EmployeesPage({
     site: params.site,
     employeeType: params.employeeType,
   })
+  const onboardingReadiness = useEmployeeOnboardingReadiness()
   const returnTo = currentListReturnTo()
   const routerNavigate = useNavigate()
   const [correctionEmployee, setCorrectionEmployee] = useState<Employee>()
   const [importOpen, setImportOpen] = useState(false)
+  const [onboardingOpen, setOnboardingOpen] = useState(false)
+  const onboardingByEmployeeUid = useMemo(
+    () =>
+      new Map(
+        (onboardingReadiness.data?.items ?? []).map((item) => [
+          item.employeeUid,
+          item,
+        ])
+      ),
+    [onboardingReadiness.data?.items]
+  )
+  const continueOnboarding = (items: EmployeeOnboardingReadinessItem[]) =>
+    continueEmployeeOnboarding(items, routerNavigate, returnTo)
   const columns = useMemo(
     () =>
       createEmployeeColumns(
@@ -57,9 +84,11 @@ export function EmployeesPage({
             search: { returnTo },
           }),
         setCorrectionEmployee,
-        returnTo
+        returnTo,
+        onboardingByEmployeeUid,
+        (item) => continueEmployeeOnboarding([item], routerNavigate, returnTo)
       ),
-    [returnTo, routerNavigate]
+    [onboardingByEmployeeUid, returnTo, routerNavigate]
   )
   return (
     <Main>
@@ -93,6 +122,14 @@ export function EmployeesPage({
         isPending={employeeKpis.isPending}
         isError={employeeKpis.isError}
       />
+      {onboardingReadiness.data && (
+        <div className='mb-4'>
+          <EmployeeOnboardingBanner
+            data={onboardingReadiness.data}
+            onOpen={() => setOnboardingOpen(true)}
+          />
+        </div>
+      )}
       {query.isPending && !query.data ? (
         <p className='py-10 text-center text-muted-foreground'>
           Memuat data karyawan...
@@ -124,6 +161,8 @@ export function EmployeesPage({
               })
             }
             isFetching={query.isFetching}
+            onboardingByEmployeeUid={onboardingByEmployeeUid}
+            onContinueOnboarding={(item) => continueOnboarding([item])}
           />
           <RegistrationCorrectionDialog
             employee={correctionEmployee}
@@ -135,6 +174,14 @@ export function EmployeesPage({
         </>
       )}
       <EmployeeImportDialog open={importOpen} onOpenChange={setImportOpen} />
+      {onboardingReadiness.data && (
+        <EmployeeOnboardingDialog
+          open={onboardingOpen}
+          onOpenChange={setOnboardingOpen}
+          data={onboardingReadiness.data}
+          onContinue={continueOnboarding}
+        />
+      )}
     </Main>
   )
 }

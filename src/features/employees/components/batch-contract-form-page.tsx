@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { isAxiosError } from 'axios'
 import { useNavigate } from '@tanstack/react-router'
-import { ArrowLeft, Plus, Save, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  LoaderCircle,
+  Plus,
+  Save,
+  Trash2,
+} from 'lucide-react'
 import { toast } from 'sonner'
+import { useAuthStore } from '@/stores/auth-store'
 import { safeInternalReturnTo } from '@/lib/list-return-to'
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 import { Badge } from '@/components/ui/badge'
@@ -19,41 +28,73 @@ import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
+import { hasPermission } from '@/features/auth/permissions'
 import { httpEmployeeRepository } from '../data/http-employee-repository'
-import { useSaveContractsBatch } from '../data/queries'
-import type { Employee, EmployeeContract } from '../domain'
+import {
+  useActivateContractsBatch,
+  usePreviewContractsBatchActivation,
+  useSaveContractsBatch,
+} from '../data/queries'
+import type {
+  ContractBatchActivationPreview,
+  Employee,
+  EmployeeContract,
+} from '../domain'
 import { contractTypeRequiresEndDate } from '../employee-contract-policy'
 import { formatDate, statusLabel } from '../utils'
+import {
+  mergeSharedContractInput,
+  type BatchContractInput,
+} from './batch-contract-input'
 import { EmployeePicker } from './employee-picker'
+import { OnboardingSteps } from './onboarding-steps'
 
 type BatchContractRow = {
   employee: Employee
   contracts: EmployeeContract[]
-  input: {
-    contractType: 'TRAINING' | 'PKWT' | 'PKWTT'
-    startDate: string
-    endDate: string
-    notes: string
-  }
+  input: BatchContractInput
 }
 
 export function BatchContractFormPage({
   returnTo,
   employeeUids,
+  contractUids,
+  onboarding = false,
 }: {
   returnTo?: string
   employeeUids?: string
+  contractUids?: string
+  onboarding?: boolean
 }) {
   const navigate = useNavigate()
+  const session = useAuthStore((state) => state.session)
+  const canPrepareAttendance = hasPermission(session, 'attendance.manage_shift')
   const listReturnTo = safeInternalReturnTo(returnTo, '/karyawan/pkwt-dokumen')
   const [rows, setRows] = useState<BatchContractRow[]>([])
   const [pickerValue, setPickerValue] = useState('')
   const [errors, setErrors] = useState<Record<number, string>>({})
   const [loadingEmployeeUid, setLoadingEmployeeUid] = useState<string>()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const resumedContractUids = useMemo(
+    () => uniqueUids(contractUids),
+    [contractUids]
+  )
+  const [step, setStep] = useState<2 | 3>(resumedContractUids.length ? 3 : 2)
+  const [createdContractUids, setCreatedContractUids] =
+    useState<string[]>(resumedContractUids)
+  const [activationPreview, setActivationPreview] =
+    useState<ContractBatchActivationPreview>()
   const saveBatch = useSaveContractsBatch()
+  const activationPreviewMutation = usePreviewContractsBatchActivation()
+  const loadedActivationCheckpoint = useRef('')
+  const activateBatch = useActivateContractsBatch()
+  const [sharedInput, setSharedInput] = useState<BatchContractInput>({
+    contractType: 'PKWT',
+    startDate: businessDateInput(),
+    endDate: '',
+    notes: '',
+  })
   const { confirmation } = useUnsavedChanges(rows.length > 0)
-  const prefilledEmployeeUidsRef = useRef<string | undefined>(undefined)
 
   const rowErrors = useMemo(() => validateRows(rows), [rows])
   const hasErrors = Object.keys(rowErrors).length > 0
@@ -68,8 +109,8 @@ export function BatchContractFormPage({
       setPickerValue('')
       return
     }
-    if (rows.length >= 25) {
-      toast.error('Satu batch maksimal 25 karyawan.')
+    if (rows.length >= 200) {
+      toast.error('Satu batch maksimal 200 karyawan.')
       setPickerValue('')
       return
     }
@@ -93,14 +134,18 @@ export function BatchContractFormPage({
   }
 
   useEffect(() => {
-    if (!employeeUids || prefilledEmployeeUidsRef.current === employeeUids) {
-      return
-    }
-    prefilledEmployeeUidsRef.current = employeeUids
-    const uniqueEmployeeUids = [...new Set(employeeUids.split(',').filter(Boolean))]
+    if (!employeeUids) return
+    const uniqueEmployeeUids = [
+      ...new Set(
+        employeeUids
+          .split(',')
+          .map((uid) => uid.trim())
+          .filter(Boolean)
+      ),
+    ]
     if (!uniqueEmployeeUids.length) return
-    if (uniqueEmployeeUids.length > 25) {
-      toast.error('Create multiple kontrak maksimal 25 karyawan.')
+    if (uniqueEmployeeUids.length > 200) {
+      toast.error('Create multiple kontrak maksimal 200 karyawan.')
       return
     }
     let cancelled = false
@@ -134,6 +179,18 @@ export function BatchContractFormPage({
       cancelled = true
     }
   }, [employeeUids])
+
+  useEffect(() => {
+    const checkpoint = resumedContractUids.join(',')
+    if (!checkpoint || loadedActivationCheckpoint.current === checkpoint) return
+    loadedActivationCheckpoint.current = checkpoint
+    setCreatedContractUids(resumedContractUids)
+    setStep(3)
+    activationPreviewMutation.mutate(resumedContractUids, {
+      onSuccess: setActivationPreview,
+      onError: () => toast.error('Preview aktivasi kontrak gagal dimuat.'),
+    })
+  }, [activationPreviewMutation, resumedContractUids])
 
   const updateRow = (
     index: number,
@@ -186,14 +243,33 @@ export function BatchContractFormPage({
       {
         onSuccess: (result) => {
           toast.success(`${result.created.length} kontrak draft dibuat.`)
-          setRows([])
           setConfirmOpen(false)
-          goBack(true)
+          const contractUids = result.created.map((item) => item.uid)
+          setCreatedContractUids(contractUids)
+          setStep(3)
+          if (onboarding) {
+            navigate({
+              to: '/karyawan/pkwt/tambah-multiple',
+              search: {
+                returnTo,
+                onboarding: true,
+                contractUids: contractUids.join(','),
+              },
+              replace: true,
+              ignoreBlocker: true,
+            })
+          }
+          activationPreviewMutation.mutate(contractUids, {
+            onSuccess: setActivationPreview,
+            onError: () =>
+              toast.error('Preview aktivasi kontrak gagal dimuat.'),
+          })
         },
         onError: (error) =>
           toast.error(
             isAxiosError<{ message?: string }>(error)
-              ? (error.response?.data?.message ?? 'Batch kontrak gagal disimpan.')
+              ? (error.response?.data?.message ??
+                  'Batch kontrak gagal disimpan.')
               : 'Batch kontrak gagal disimpan.'
           ),
       }
@@ -214,106 +290,188 @@ export function BatchContractFormPage({
           </p>
         </div>
         <span className='w-fit rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary'>
-          Maksimal 25 karyawan
+          Maksimal 200 karyawan
         </span>
       </div>
 
-      <div className='space-y-4 pb-24'>
-        <div className='flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-end sm:justify-between'>
-          <div className='w-full sm:max-w-lg'>
-            <EmployeePicker
-              value={pickerValue}
-              onChange={setPickerValue}
-              onSelectEmployee={addEmployee}
+      {onboarding && (
+        <div className='mb-4 max-w-3xl'>
+          <OnboardingSteps activeStep={step} />
+        </div>
+      )}
+
+      {step === 3 ? (
+        <ActivationReview
+          preview={activationPreview}
+          isLoading={activationPreviewMutation.isPending}
+          isActivating={activateBatch.isPending}
+          onActivate={() => {
+            activateBatch.mutate(createdContractUids, {
+              onSuccess: (result) => {
+                const scheduledText = result.scheduled.length
+                  ? `, ${result.scheduled.length} dijadwalkan`
+                  : ''
+                toast.success(
+                  `${result.activated.length} kontrak aktif${scheduledText}.`
+                )
+                const activeEmployeeUids = result.activated.map(
+                  (item) => item.employeeUid
+                )
+                if (
+                  onboarding &&
+                  activeEmployeeUids.length &&
+                  canPrepareAttendance
+                ) {
+                  navigate({
+                    to: '/attendance/master-shift',
+                    search: {
+                      tab: 'assignment',
+                      setupAttendance: true,
+                      employeeUids: activeEmployeeUids.join(','),
+                    },
+                    ignoreBlocker: true,
+                  })
+                  return
+                }
+                if (
+                  onboarding &&
+                  activeEmployeeUids.length &&
+                  !canPrepareAttendance
+                ) {
+                  toast.info(
+                    'Kontrak sudah aktif. Penugasan Shift perlu dilanjutkan oleh pengguna yang memiliki akses Attendance.'
+                  )
+                }
+                goBack(true)
+              },
+              onError: (error) =>
+                toast.error(
+                  isAxiosError<{ message?: string }>(error)
+                    ? (error.response?.data?.message ?? 'Aktivasi batch gagal.')
+                    : 'Aktivasi batch gagal.'
+                ),
+            })
+          }}
+          onBack={rows.length ? () => setStep(2) : undefined}
+        />
+      ) : (
+        <div className='space-y-4 pb-24'>
+          {rows.length > 0 && (
+            <SharedContractForm
+              value={sharedInput}
+              onChange={setSharedInput}
+              onApply={() => {
+                setRows((previous) =>
+                  previous.map((row) => ({
+                    ...row,
+                    input: mergeSharedContractInput(row.input, sharedInput),
+                  }))
+                )
+                setErrors({})
+                toast.success(
+                  'Pengaturan kontrak diterapkan ke semua karyawan.'
+                )
+              }}
             />
+          )}
+          <div className='flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-end sm:justify-between'>
+            <div className='w-full sm:max-w-lg'>
+              <EmployeePicker
+                value={pickerValue}
+                onChange={setPickerValue}
+                onSelectEmployee={addEmployee}
+              />
+            </div>
+            <div className='flex flex-wrap gap-2 text-xs'>
+              <span className='rounded-md border bg-background px-2 py-1.5 text-muted-foreground'>
+                {rows.length}/200 dipilih
+              </span>
+              <span className='rounded-md border bg-background px-2 py-1.5 text-muted-foreground'>
+                {loadingEmployeeUid ? 'Memuat kontrak...' : 'Status: draft'}
+              </span>
+            </div>
           </div>
-          <div className='flex flex-wrap gap-2 text-xs'>
-            <span className='rounded-md border bg-background px-2 py-1.5 text-muted-foreground'>
-              {rows.length}/25 dipilih
-            </span>
-            <span className='rounded-md border bg-background px-2 py-1.5 text-muted-foreground'>
-              {loadingEmployeeUid ? 'Memuat kontrak...' : 'Status: draft'}
-            </span>
+
+          {!rows.length ? (
+            <div className='flex min-h-72 flex-col items-center justify-center rounded-lg border border-dashed px-6 text-center text-sm text-muted-foreground'>
+              <Plus className='mb-2 size-5' />
+              Pilih karyawan untuk mulai menyusun batch kontrak.
+            </div>
+          ) : (
+            <div className='rounded-lg border'>
+              <Table className='w-full table-fixed'>
+                <colgroup>
+                  <col className='w-[4%]' />
+                  <col className='w-[24%]' />
+                  <col className='w-[14%]' />
+                  <col className='w-[15%]' />
+                  <col className='w-[15%]' />
+                  <col className='w-[24%]' />
+                  <col className='w-[4%]' />
+                </colgroup>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className='text-center'>No.</TableHead>
+                    <TableHead>Karyawan</TableHead>
+                    <TableHead>Jenis kontrak</TableHead>
+                    <TableHead>Tanggal mulai</TableHead>
+                    <TableHead>Tanggal berakhir</TableHead>
+                    <TableHead>Catatan & status</TableHead>
+                    <TableHead />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((row, index) => (
+                    <BatchContractTableRow
+                      key={row.employee.uid}
+                      row={row}
+                      rowNumber={index + 1}
+                      error={errors[index] ?? rowErrors[index]}
+                      onChange={(patch) => updateRow(index, patch)}
+                      onRemove={() => {
+                        setRows((previous) =>
+                          previous.filter((_, rowIndex) => rowIndex !== index)
+                        )
+                        setErrors({})
+                      }}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {step === 2 && (
+        <div className='sticky bottom-3 z-20 flex flex-col-reverse justify-between gap-3 rounded-lg border bg-background/95 p-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:flex-row sm:items-center'>
+          <p className='text-sm text-muted-foreground'>
+            {hasErrors
+              ? 'Masih ada baris yang perlu diperbaiki.'
+              : `${rows.length} kontrak draft siap ditinjau.`}
+          </p>
+          <div className='flex gap-2'>
+            <Button
+              variant='outline'
+              onClick={() => goBack()}
+              disabled={saveBatch.isPending}
+            >
+              Batal
+            </Button>
+            <Button
+              onClick={review}
+              disabled={
+                !rows.length ||
+                hasErrors ||
+                Boolean(loadingEmployeeUid) ||
+                saveBatch.isPending
+              }
+            >
+              <Save /> Tinjau batch ({rows.length})
+            </Button>
           </div>
         </div>
-
-        {!rows.length ? (
-          <div className='flex min-h-72 flex-col items-center justify-center rounded-lg border border-dashed px-6 text-center text-sm text-muted-foreground'>
-            <Plus className='mb-2 size-5' />
-            Pilih karyawan untuk mulai menyusun batch kontrak.
-          </div>
-        ) : (
-          <div className='rounded-lg border'>
-            <Table className='w-full table-fixed'>
-              <colgroup>
-                <col className='w-[4%]' />
-                <col className='w-[24%]' />
-                <col className='w-[14%]' />
-                <col className='w-[15%]' />
-                <col className='w-[15%]' />
-                <col className='w-[24%]' />
-                <col className='w-[4%]' />
-              </colgroup>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className='text-center'>No.</TableHead>
-                  <TableHead>Karyawan</TableHead>
-                  <TableHead>Jenis kontrak</TableHead>
-                  <TableHead>Tanggal mulai</TableHead>
-                  <TableHead>Tanggal berakhir</TableHead>
-                  <TableHead>Catatan & status</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row, index) => (
-                  <BatchContractTableRow
-                    key={row.employee.uid}
-                    row={row}
-                    rowNumber={index + 1}
-                    error={errors[index] ?? rowErrors[index]}
-                    onChange={(patch) => updateRow(index, patch)}
-                    onRemove={() => {
-                      setRows((previous) =>
-                        previous.filter((_, rowIndex) => rowIndex !== index)
-                      )
-                      setErrors({})
-                    }}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </div>
-
-      <div className='sticky bottom-3 z-20 flex flex-col-reverse justify-between gap-3 rounded-lg border bg-background/95 p-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:flex-row sm:items-center'>
-        <p className='text-sm text-muted-foreground'>
-          {hasErrors
-            ? 'Masih ada baris yang perlu diperbaiki.'
-            : `${rows.length} kontrak draft siap ditinjau.`}
-        </p>
-        <div className='flex gap-2'>
-          <Button
-            variant='outline'
-            onClick={() => goBack()}
-            disabled={saveBatch.isPending}
-          >
-            Batal
-          </Button>
-          <Button
-            onClick={review}
-            disabled={
-              !rows.length ||
-              hasErrors ||
-              Boolean(loadingEmployeeUid) ||
-              saveBatch.isPending
-            }
-          >
-            <Save /> Tinjau batch ({rows.length})
-          </Button>
-        </div>
-      </div>
+      )}
 
       <ConfirmDialog
         open={confirmOpen}
@@ -329,6 +487,201 @@ export function BatchContractFormPage({
       />
       {confirmation}
     </Main>
+  )
+}
+
+function SharedContractForm({
+  value,
+  onChange,
+  onApply,
+}: {
+  value: BatchContractInput
+  onChange: (value: BatchContractInput) => void
+  onApply: () => void
+}) {
+  return (
+    <section className='rounded-lg border border-primary/20 bg-primary/5 p-4'>
+      <div className='mb-3 flex flex-col justify-between gap-2 sm:flex-row sm:items-center'>
+        <div>
+          <h2 className='font-medium'>Berlaku untuk semua karyawan</h2>
+          <p className='text-xs text-muted-foreground'>
+            Isi sekali, lalu terapkan ke seluruh baris. Setelah itu Anda masih
+            bisa menyesuaikan kontrak tertentu di tabel.
+          </p>
+        </div>
+        <Button type='button' size='sm' variant='secondary' onClick={onApply}>
+          Terapkan ke semua
+        </Button>
+      </div>
+      <div className='grid gap-3 sm:grid-cols-4'>
+        <label className='grid gap-1.5 text-xs font-medium'>
+          Jenis kontrak
+          <select
+            aria-label='Jenis kontrak untuk semua'
+            className='h-9 rounded-md border bg-background px-2 text-sm'
+            value={value.contractType}
+            onChange={(event) =>
+              onChange({
+                ...value,
+                contractType: event.target
+                  .value as BatchContractRow['input']['contractType'],
+              })
+            }
+          >
+            <option value='TRAINING'>Training</option>
+            <option value='PKWT'>PKWT</option>
+            <option value='PKWTT'>PKWTT</option>
+          </select>
+        </label>
+        <label className='grid gap-1.5 text-xs font-medium'>
+          Tanggal mulai
+          <DatePicker
+            selected={dateFromInput(value.startDate)}
+            onSelect={(date) =>
+              date && onChange({ ...value, startDate: dateToInput(date) })
+            }
+            triggerClassName='h-9 px-2 text-sm'
+          />
+        </label>
+        <label className='grid gap-1.5 text-xs font-medium'>
+          Tanggal berakhir
+          <DatePicker
+            selected={dateFromInput(value.endDate)}
+            disabledDates={(date) =>
+              Boolean(value.startDate && dateToInput(date) < value.startDate)
+            }
+            onSelect={(date) =>
+              onChange({ ...value, endDate: date ? dateToInput(date) : '' })
+            }
+            triggerClassName='h-9 px-2 text-sm'
+          />
+        </label>
+        <label className='grid gap-1.5 text-xs font-medium'>
+          Catatan
+          <Textarea
+            className='min-h-9 resize-y bg-background px-2 py-1.5 text-sm'
+            placeholder='Opsional'
+            value={value.notes}
+            onChange={(event) =>
+              onChange({ ...value, notes: event.target.value })
+            }
+          />
+        </label>
+      </div>
+    </section>
+  )
+}
+
+function ActivationReview({
+  preview,
+  isLoading,
+  isActivating,
+  onActivate,
+  onBack,
+}: {
+  preview?: ContractBatchActivationPreview
+  isLoading: boolean
+  isActivating: boolean
+  onActivate: () => void
+  onBack?: () => void
+}) {
+  return (
+    <section className='max-w-3xl space-y-4 pb-24'>
+      <div className='rounded-xl border border-emerald-300/60 bg-emerald-50/70 p-5 dark:border-emerald-900 dark:bg-emerald-950/20'>
+        <div className='flex items-start gap-3'>
+          <CheckCircle2 className='mt-0.5 size-6 shrink-0 text-emerald-600' />
+          <div>
+            <h2 className='font-semibold'>Kontrak draft berhasil dibuat</h2>
+            <p className='mt-1 text-sm text-muted-foreground'>
+              Periksa ringkasan berikut. Kontrak dengan tanggal mulai hari ini
+              atau sebelumnya siap diaktifkan. Kontrak masa depan perlu
+              diperbaiki terlebih dahulu.
+            </p>
+          </div>
+        </div>
+      </div>
+      {isLoading ? (
+        <div className='flex items-center gap-2 rounded-lg border p-5 text-sm text-muted-foreground'>
+          <LoaderCircle className='size-4 animate-spin' /> Memeriksa kesiapan
+          aktivasi...
+        </div>
+      ) : preview ? (
+        <>
+          <div className='grid gap-3 sm:grid-cols-3'>
+            <SummaryCard label='Total kontrak' value={preview.total} />
+            <SummaryCard label='Siap aktif' value={preview.ready} />
+            <SummaryCard label='Dijadwalkan' value={preview.scheduled} />
+          </div>
+          {preview.blockers.length > 0 && (
+            <div className='rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm'>
+              <p className='font-medium text-destructive'>Perlu diperbaiki</p>
+              <ul className='mt-2 list-disc space-y-1 pl-5 text-muted-foreground'>
+                {preview.blockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className='rounded-lg border'>
+            <div className='grid max-h-72 divide-y overflow-y-auto'>
+              {preview.items.map((item) => (
+                <div
+                  key={item.uid}
+                  className='flex items-center justify-between gap-3 px-4 py-3 text-sm'
+                >
+                  <div className='min-w-0'>
+                    <p className='truncate font-medium'>{item.employeeName}</p>
+                    <p className='text-xs text-muted-foreground'>
+                      {item.contractNumber}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={
+                      item.action === 'BLOCKED' ? 'destructive' : 'secondary'
+                    }
+                  >
+                    {item.action === 'ACTIVATE'
+                      ? 'Aktif'
+                      : item.action === 'SCHEDULE'
+                        ? 'Dijadwalkan'
+                        : 'Perlu diperbaiki'}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      ) : null}
+      <div className='flex flex-col-reverse justify-between gap-2 sm:flex-row'>
+        {onBack ? (
+          <Button variant='outline' onClick={onBack} disabled={isActivating}>
+            <ArrowLeft /> Kembali periksa
+          </Button>
+        ) : (
+          <span />
+        )}
+        <Button
+          onClick={onActivate}
+          disabled={isLoading || isActivating || !preview?.canActivate}
+        >
+          {isActivating ? (
+            <LoaderCircle className='animate-spin' />
+          ) : (
+            <ArrowRight />
+          )}
+          Aktifkan semua kontrak
+        </Button>
+      </div>
+    </section>
+  )
+}
+
+function SummaryCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className='rounded-lg border bg-muted/20 p-3'>
+      <p className='text-xs text-muted-foreground'>{label}</p>
+      <p className='mt-1 text-xl font-semibold tabular-nums'>{value}</p>
+    </div>
   )
 }
 
@@ -355,7 +708,8 @@ function BatchContractTableRow({
           {row.employee.fullName}
         </p>
         <p className='text-[10px] leading-3 break-words text-muted-foreground'>
-          {row.employee.employeeNumber} - {statusLabel(row.employee.employeeType)}
+          {row.employee.employeeNumber} -{' '}
+          {statusLabel(row.employee.employeeType)}
         </p>
         <p className='mt-0.5 text-[10px] leading-3 break-words text-muted-foreground'>
           {row.employee.site} / {row.employee.department ?? '-'} /{' '}
@@ -369,7 +723,8 @@ function BatchContractTableRow({
           value={row.input.contractType}
           onChange={(event) =>
             onChange({
-              contractType: event.target.value as BatchContractRow['input']['contractType'],
+              contractType: event.target
+                .value as BatchContractRow['input']['contractType'],
             })
           }
         >
@@ -470,7 +825,10 @@ function validateRows(rows: BatchContractRow[]) {
 
 function batchContractRowError(row: BatchContractRow) {
   if (!row.input.startDate) return 'Tanggal mulai wajib diisi.'
-  if (contractTypeRequiresEndDate(row.input.contractType) && !row.input.endDate) {
+  if (
+    contractTypeRequiresEndDate(row.input.contractType) &&
+    !row.input.endDate
+  ) {
     return 'Tanggal berakhir wajib untuk kontrak Training atau PKWT.'
   }
   if (row.input.endDate && row.input.endDate < row.input.startDate) {
@@ -552,4 +910,15 @@ function businessDateInput() {
   const value = (type: string) =>
     parts.find((part) => part.type === type)?.value
   return `${value('year')}-${value('month')}-${value('day')}`
+}
+
+function uniqueUids(value?: string) {
+  return [
+    ...new Set(
+      (value ?? '')
+        .split(',')
+        .map((uid) => uid.trim())
+        .filter(Boolean)
+    ),
+  ]
 }

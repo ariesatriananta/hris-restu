@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Router } from 'express'
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { PoolConnection } from 'mysql2/promise'
+import { z } from 'zod'
 import { env } from '../config.js'
 import { pool } from '../db.js'
 import { attendanceCapabilities } from '../lib/attendance-policy.js'
@@ -508,6 +509,19 @@ attendanceRouter.get(
       if (query) {
         where.push('(e.full_name LIKE ? OR e.employee_number LIKE ?)')
         values.push(`%${query}%`, `%${query}%`)
+      }
+      const employeeUids = z
+        .array(z.string().uuid())
+        .max(500)
+        .parse(
+          String(req.query.employeeUid ?? '')
+            .split(',')
+            .map((value) => value.trim())
+            .filter(Boolean)
+        )
+      if (employeeUids.length) {
+        where.push(`e.uid IN (${employeeUids.map(() => '?').join(',')})`)
+        values.push(...employeeUids)
       }
       const sites = listFilter(req.query.site, siteCodes)
       if (sites.length) {

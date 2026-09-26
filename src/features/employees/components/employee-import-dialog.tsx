@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import {
+  ArrowRight,
   CheckCircle2,
   Download,
   FileSpreadsheet,
@@ -43,6 +45,7 @@ import {
   type EmployeeImportItem,
   parseEmployeeImportWorkbook,
 } from './employee-import-workbook'
+import { OnboardingSteps } from './onboarding-steps'
 
 export function EmployeeImportDialog({
   open,
@@ -51,18 +54,21 @@ export function EmployeeImportDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const navigate = useNavigate()
   const lookups = useEmployeeLookups(open)
   const queryClient = useQueryClient()
   const [items, setItems] = useState<EmployeeImportItem[]>([])
   const [preview, setPreview] = useState<EmployeeImportPreview>()
+  const [createdEmployees, setCreatedEmployees] = useState<
+    { uid: string; employeeNumber: string }[]
+  >([])
   const previewMutation = useMutation({ mutationFn: previewEmployeeImport })
   const importMutation = useMutation({
     mutationFn: importEmployees,
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: employeeKeys.all })
       toast.success(`${result.created.length} karyawan berhasil diimport.`)
-      reset()
-      onOpenChange(false)
+      setCreatedEmployees(result.created)
     },
     onError: (error) =>
       toast.error(
@@ -80,6 +86,7 @@ export function EmployeeImportDialog({
   function reset() {
     setItems([])
     setPreview(undefined)
+    setCreatedEmployees([])
     previewMutation.reset()
     importMutation.reset()
   }
@@ -153,13 +160,6 @@ export function EmployeeImportDialog({
         item.name,
         'Gunakan pada POSITION_CODE',
       ]),
-      ...lookups.data.workGroups.map((item) => [
-        'Kelompok kerja',
-        item.siteCode ?? '',
-        item.code,
-        item.name,
-        'Gunakan pada WORK_GROUP_CODE',
-      ]),
       ...lookups.data.productionModules.map((item) => [
         'Modul produksi',
         item.siteCode,
@@ -199,10 +199,10 @@ export function EmployeeImportDialog({
       ['2. Header bertanda * wajib diisi. Header tanpa * bersifat opsional.'],
       ['3. EMPLOYEE_TYPE: BORONGAN, HARIAN, BULANAN, atau TRAINING.'],
       [
-        '4. PRODUCTION_MODULE_CODE dan PRODUCTION_SECTION_CODE wajib sesuai pasangan kode pada sheet Referensi.',
+        '4. DEPARTMENT_CODE, POSITION_CODE, PRODUCTION_MODULE_CODE, dan PRODUCTION_SECTION_CODE wajib sesuai kode pada sheet Referensi.',
       ],
       [
-        '5. Tanggal memakai format YYYY-MM-DD. GENDER: LAKI-LAKI atau PEREMPUAN.',
+        '5. Tanggal menerima format DD/MM/YYYY atau YYYY-MM-DD. GENDER: LAKI-LAKI atau PEREMPUAN.',
       ],
       [
         '6. EDUCATION_LEVEL diisi memakai kode pendidikan pada sheet Referensi.',
@@ -236,98 +236,198 @@ export function EmployeeImportDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className='grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-4 overflow-hidden px-6 py-4'>
-          <section className='flex flex-col gap-3 rounded-lg border bg-muted/25 p-3 sm:flex-row sm:items-center sm:justify-between'>
-            <div className='flex items-start gap-3'>
-              <FileSpreadsheet className='mt-0.5 size-5 shrink-0 text-primary' />
-              <div>
-                <p className='font-medium'>Mulai dari template resmi</p>
-                <p className='text-sm text-muted-foreground'>
-                  Template berisi kode master aktif sesuai akses site Anda.
-                  Kolom bertanda <strong>*</strong> wajib diisi.
-                </p>
+        {createdEmployees.length ? (
+          <ImportSuccess
+            createdEmployees={createdEmployees}
+            onContinue={() => {
+              const employeeUids = createdEmployees
+                .map((employee) => employee.uid)
+                .join(',')
+              reset()
+              onOpenChange(false)
+              navigate({
+                to: '/karyawan/pkwt/tambah-multiple',
+                search: {
+                  returnTo: '/karyawan/data-karyawan',
+                  employeeUids,
+                  onboarding: true,
+                },
+              })
+            }}
+          />
+        ) : (
+          <div className='grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-4 overflow-hidden px-6 py-4'>
+            <section className='flex flex-col gap-3 rounded-lg border bg-muted/25 p-3 sm:flex-row sm:items-center sm:justify-between'>
+              <div className='flex items-start gap-3'>
+                <FileSpreadsheet className='mt-0.5 size-5 shrink-0 text-primary' />
+                <div>
+                  <p className='font-medium'>Mulai dari template resmi</p>
+                  <p className='text-sm text-muted-foreground'>
+                    Template berisi kode master aktif sesuai akses site Anda.
+                    Kolom bertanda <strong>*</strong> wajib diisi.
+                  </p>
+                </div>
               </div>
+              <Button
+                type='button'
+                variant='outline'
+                onClick={downloadTemplate}
+                disabled={!lookups.data || isBusy}
+              >
+                {lookups.isLoading ? (
+                  <LoaderCircle className='animate-spin' />
+                ) : (
+                  <Download />
+                )}
+                Unduh template
+              </Button>
+            </section>
+
+            <div className='grid gap-1.5'>
+              <label
+                className='text-sm font-medium'
+                htmlFor='employee-import-file'
+              >
+                File Excel (.xlsx) <span className='text-destructive'>*</span>
+              </label>
+              <Input
+                id='employee-import-file'
+                type='file'
+                accept='.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                disabled={isBusy}
+                onChange={(event) => {
+                  void selectFile(event.target.files?.[0])
+                  event.target.value = ''
+                }}
+              />
+              <p className='text-xs text-muted-foreground'>
+                Maksimal 200 baris. Seluruh baris harus valid sebelum import
+                dapat dijalankan.
+              </p>
             </div>
-            <Button
-              type='button'
-              variant='outline'
-              onClick={downloadTemplate}
-              disabled={!lookups.data || isBusy}
-            >
-              {lookups.isLoading ? (
-                <LoaderCircle className='animate-spin' />
+
+            <div className='min-h-0'>
+              {previewMutation.isPending ? (
+                <div className='grid h-full min-h-36 place-items-center rounded-lg border text-sm text-muted-foreground'>
+                  <span className='flex items-center gap-2'>
+                    <LoaderCircle className='size-4 animate-spin' /> Memeriksa
+                    data dan referensi master...
+                  </span>
+                </div>
+              ) : preview ? (
+                <ImportPreview preview={preview} items={items} />
               ) : (
-                <Download />
+                <div className='grid h-full min-h-28 place-items-center rounded-lg border border-dashed px-4 text-center text-sm text-muted-foreground'>
+                  Upload file untuk melihat hasil validasi sebelum import.
+                </div>
               )}
-              Unduh template
-            </Button>
-          </section>
-
-          <div className='grid gap-1.5'>
-            <label
-              className='text-sm font-medium'
-              htmlFor='employee-import-file'
-            >
-              File Excel (.xlsx) <span className='text-destructive'>*</span>
-            </label>
-            <Input
-              id='employee-import-file'
-              type='file'
-              accept='.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-              disabled={isBusy}
-              onChange={(event) => {
-                void selectFile(event.target.files?.[0])
-                event.target.value = ''
-              }}
-            />
-            <p className='text-xs text-muted-foreground'>
-              Maksimal 200 baris. Seluruh baris harus valid sebelum import dapat
-              dijalankan.
-            </p>
+            </div>
           </div>
-
-          <div className='min-h-0'>
-            {previewMutation.isPending ? (
-              <div className='grid h-full min-h-36 place-items-center rounded-lg border text-sm text-muted-foreground'>
-                <span className='flex items-center gap-2'>
-                  <LoaderCircle className='size-4 animate-spin' /> Memeriksa
-                  data dan referensi master...
-                </span>
-              </div>
-            ) : preview ? (
-              <ImportPreview preview={preview} items={items} />
-            ) : (
-              <div className='grid h-full min-h-28 place-items-center rounded-lg border border-dashed px-4 text-center text-sm text-muted-foreground'>
-                Upload file untuk melihat hasil validasi sebelum import.
-              </div>
-            )}
-          </div>
-        </div>
+        )}
 
         <DialogFooter className='border-t bg-muted/20 px-6 py-4'>
-          <Button
-            type='button'
-            variant='outline'
-            disabled={isBusy}
-            onClick={() => close(false)}
-          >
-            Batal
-          </Button>
-          <Button
-            type='button'
-            disabled={!canExecute || isBusy}
-            onClick={() => importMutation.mutate(items)}
-          >
-            {importMutation.isPending ? (
-              <LoaderCircle className='animate-spin' />
-            ) : (
-              <Upload />
-            )}
-            Import {preview?.valid ? `${preview.valid} karyawan` : ''}
-          </Button>
+          {createdEmployees.length ? (
+            <>
+              <Button
+                type='button'
+                variant='outline'
+                onClick={() => close(false)}
+              >
+                Selesai di sini
+              </Button>
+              <Button
+                type='button'
+                onClick={() => {
+                  const employeeUids = createdEmployees
+                    .map((employee) => employee.uid)
+                    .join(',')
+                  reset()
+                  onOpenChange(false)
+                  navigate({
+                    to: '/karyawan/pkwt/tambah-multiple',
+                    search: {
+                      returnTo: '/karyawan/data-karyawan',
+                      employeeUids,
+                      onboarding: true,
+                    },
+                  })
+                }}
+              >
+                Lanjut buat kontrak <ArrowRight />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type='button'
+                variant='outline'
+                disabled={isBusy}
+                onClick={() => close(false)}
+              >
+                Batal
+              </Button>
+              <Button
+                type='button'
+                disabled={!canExecute || isBusy}
+                onClick={() => importMutation.mutate(items)}
+              >
+                {importMutation.isPending ? (
+                  <LoaderCircle className='animate-spin' />
+                ) : (
+                  <Upload />
+                )}
+                Import {preview?.valid ? `${preview.valid} karyawan` : ''}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function ImportSuccess({
+  createdEmployees,
+  onContinue,
+}: {
+  createdEmployees: { uid: string; employeeNumber: string }[]
+  onContinue: () => void
+}) {
+  return (
+    <div className='min-h-0 overflow-y-auto px-6 py-6'>
+      <div className='mx-auto grid max-w-2xl gap-5'>
+        <div className='rounded-xl border border-emerald-300/60 bg-emerald-50/70 p-5 dark:border-emerald-900 dark:bg-emerald-950/20'>
+          <div className='flex items-start gap-3'>
+            <CheckCircle2 className='mt-0.5 size-6 shrink-0 text-emerald-600' />
+            <div>
+              <h3 className='font-semibold'>Import karyawan berhasil</h3>
+              <p className='mt-1 text-sm text-muted-foreground'>
+                {createdEmployees.length} karyawan sudah dibuat sebagai
+                Nonaktif. Lanjutkan untuk membuat kontrak sekaligus dan
+                mengaktifkan karyawan setelah diperiksa.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <OnboardingSteps activeStep={1} />
+
+        <div className='rounded-lg border p-4'>
+          <p className='text-sm font-medium'>Nomor karyawan yang dibuat</p>
+          <div className='mt-3 flex max-h-40 flex-wrap gap-2 overflow-y-auto'>
+            {createdEmployees.map((employee) => (
+              <Badge key={employee.uid} variant='secondary'>
+                {employee.employeeNumber}
+              </Badge>
+            ))}
+          </div>
+        </div>
+
+        <Button className='sm:hidden' onClick={onContinue}>
+          Lanjut buat kontrak <ArrowRight />
+        </Button>
+      </div>
+    </div>
   )
 }
 

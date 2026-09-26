@@ -1,5 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
+import { useQueryClient } from '@tanstack/react-query'
 import { CalendarClock, Plus, UserRoundCog } from 'lucide-react'
 import { toast } from 'sonner'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
@@ -7,6 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Main } from '@/components/layout/main'
+import { OnboardingSteps } from '../employees/components/onboarding-steps'
+import { employeeKeys } from '../employees/data/queries'
 import {
   useDeleteShift,
   useDeleteShiftAssignment,
@@ -32,8 +35,22 @@ export function MasterShiftPage({
   navigate: NavigateFn
 }) {
   const tab = search.tab === 'assignment' ? 'assignment' : 'shift'
+  const queryClient = useQueryClient()
+  const onboardingEmployeeUids = useMemo(
+    () =>
+      stringValue(search.employeeUids)
+        ?.split(',')
+        .map((uid) => uid.trim())
+        .filter(Boolean) ?? [],
+    [search.employeeUids]
+  )
+  const setupAttendance =
+    search.setupAttendance === true && onboardingEmployeeUids.length > 0
+  const [pendingOnboardingEmployeeUids, setPendingOnboardingEmployeeUids] =
+    useState(onboardingEmployeeUids)
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false)
-  const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false)
+  const [assignmentDialogOpen, setAssignmentDialogOpen] =
+    useState(setupAttendance)
   const [editingShift, setEditingShift] = useState<Shift>()
   const [deleteShiftTarget, setDeleteShiftTarget] = useState<Shift>()
   const [deleteAssignmentTarget, setDeleteAssignmentTarget] =
@@ -114,6 +131,11 @@ export function MasterShiftPage({
   )
   return (
     <Main>
+      {setupAttendance && (
+        <div className='mb-5 max-w-4xl'>
+          <OnboardingSteps activeStep={4} />
+        </div>
+      )}
       <div className='mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end'>
         <div>
           <p className='text-sm font-medium text-primary'>Attendance</p>
@@ -201,12 +223,52 @@ export function MasterShiftPage({
       )}
       {assignmentDialogOpen && (
         <ShiftAssignmentDialog
+          key={pendingOnboardingEmployeeUids.join(',') || 'manual'}
           open
           onOpenChange={setAssignmentDialogOpen}
           shifts={allShifts}
           siteOptions={siteOptions as { value: Shift['site']; label: string }[]}
           productionModules={productionModules}
           productionSections={productionSections}
+          initialEmployeeUids={
+            setupAttendance ? pendingOnboardingEmployeeUids : undefined
+          }
+          onAssigned={(assignedEmployeeUids) => {
+            if (!setupAttendance) return
+            const assigned = new Set(assignedEmployeeUids)
+            const remaining = pendingOnboardingEmployeeUids.filter(
+              (uid) => !assigned.has(uid)
+            )
+            setPendingOnboardingEmployeeUids(remaining)
+            if (remaining.length) {
+              navigate({
+                search: (previous) => ({
+                  ...previous,
+                  employeeUids: remaining.join(','),
+                }),
+                replace: true,
+              })
+              toast.info(
+                `${remaining.length} karyawan dari site lain masih perlu disiapkan. Lanjutkan dengan shift site berikutnya.`
+              )
+              setTimeout(() => setAssignmentDialogOpen(true), 0)
+              return
+            }
+            toast.success(
+              'Onboarding selesai. Seluruh karyawan aktif sudah siap mengikuti Attendance.'
+            )
+            void queryClient.invalidateQueries({
+              queryKey: employeeKeys.onboardingReadiness(),
+            })
+            navigate({
+              search: (previous) => ({
+                ...previous,
+                setupAttendance: undefined,
+                employeeUids: undefined,
+              }),
+              replace: true,
+            })
+          }}
         />
       )}
       {correctionAssignmentTarget && (

@@ -1,12 +1,12 @@
 import { Link } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
-import { ClipboardPenLine, Eye, Pencil } from 'lucide-react'
+import { ArrowRightCircle, ClipboardPenLine, Eye, Pencil } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import {
   DataTableActionButton,
   DataTableColumnHeader,
 } from '@/components/data-table'
-import type { Employee } from '../domain'
+import type { Employee, EmployeeOnboardingReadinessItem } from '../domain'
 import {
   employeeStatusBadgeClassName,
   employeeStatusBadgeVariant,
@@ -17,7 +17,9 @@ import {
 export function createEmployeeColumns(
   onEdit: (employee: Employee) => void,
   onCorrectRegistration: (employee: Employee) => void,
-  returnTo?: string
+  returnTo?: string,
+  onboardingByEmployeeUid = new Map<string, EmployeeOnboardingReadinessItem>(),
+  onContinueOnboarding?: (item: EmployeeOnboardingReadinessItem) => void
 ): ColumnDef<Employee>[] {
   return [
     {
@@ -153,6 +155,17 @@ export function createEmployeeColumns(
               onClick={() => onCorrectRegistration(row.original)}
             >
               <ClipboardPenLine />
+            </DataTableActionButton>
+          )}
+          {onboardingByEmployeeUid.get(row.original.uid)?.canContinue && (
+            <DataTableActionButton
+              label={`Lanjutkan onboarding ${row.original.fullName}`}
+              onClick={() => {
+                const item = onboardingByEmployeeUid.get(row.original.uid)
+                if (item) onContinueOnboarding?.(item)
+              }}
+            >
+              <ArrowRightCircle />
             </DataTableActionButton>
           )}
         </div>

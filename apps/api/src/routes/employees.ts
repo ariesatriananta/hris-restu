@@ -14,6 +14,7 @@ import { ApiError } from '../lib/errors.js'
 import { educationLevelSchema } from '../lib/education-level.js'
 import {
   assertContractRules,
+  activateContractsBatch,
   assertNoOpenScheduledStatusChange,
   businessDate,
   cancelActiveContractActivation,
@@ -100,8 +101,8 @@ const employeeImportRowInput = z
   .object({
     ...employeeImportShape,
     employeeType: z.enum(['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING']),
-    departmentCode: optional,
-    positionCode: optional,
+    departmentCode: z.string().trim().min(1, 'Kode departemen wajib diisi.'),
+    positionCode: z.string().trim().min(1, 'Kode jabatan wajib diisi.'),
     workGroupCode: optional,
     productionModuleCode: optional,
     productionSectionCode: optional,
@@ -173,7 +174,7 @@ const contractBatchInput = z
         })
       )
       .min(1, 'Pilih minimal satu karyawan.')
-      .max(25, 'Satu batch maksimal 25 karyawan.'),
+      .max(200, 'Satu batch maksimal 200 karyawan.'),
   })
   .superRefine(({ items }, context) => {
     const seen = new Set<string>()
@@ -188,6 +189,21 @@ const contractBatchInput = z
       seen.add(item.employeeUid)
     })
   })
+const contractBatchActivationInput = z.object({
+  contractUids: z.array(z.string().uuid()).min(1).max(200),
+}).superRefine(({ contractUids }, context) => {
+  const seen = new Set<string>()
+  contractUids.forEach((uid, index) => {
+    if (seen.has(uid)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['contractUids', index],
+        message: 'Kontrak tidak boleh dipilih lebih dari sekali.',
+      })
+    }
+    seen.add(uid)
+  })
+})
 const documentInput = z.object({
   documentType: z.string().trim().min(1), documentNumber: optional, name: z.string().trim().min(1), fileUid: z.string().uuid(),
   issuedDate: optionalDate, expiryDate: optionalDate, status: z.enum(['ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED']), notes: optional,
@@ -834,6 +850,98 @@ employeesRouter.get('/', requirePermission('employees.view'), async (req, res, n
     res.json({ items: rows.map(mapEmployee), total: Number(count[0].total), page, pageSize })
   } catch (error) { next(error) }
 })
+
+employeesRouter.get(
+  '/onboarding-readiness',
+  requirePermission('employees.view'),
+  async (_req, res, next) => {
+    try {
+      const today = businessDate()
+      const scoped = scopeWhere(res.locals.auth as AuthContext)
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT e.uid employeeUid,e.employee_number employeeNumber,
+                e.full_name fullName,s.code site,et.code employeeType,
+                es.code employeeStatus,es.allows_attendance allowsAttendance,
+                pending.uid contractUid,pending.contract_number contractNumber,
+                DATE_FORMAT(pending.start_date,'%Y-%m-%d') contractStartDate
+           FROM employees e
+           JOIN employee_types et ON et.id=e.employee_type_id
+           JOIN employee_statuses es ON es.id=e.employee_status_id
+           JOIN sites s ON s.id=e.current_site_id
+           LEFT JOIN employee_contracts pending
+             ON pending.id=(SELECT candidate.id
+               FROM employee_contracts candidate
+              WHERE candidate.employee_id=e.id
+                AND candidate.status IN ('DRAFT','SCHEDULED')
+              ORDER BY (candidate.start_date<=?) DESC,
+                       candidate.start_date ASC,candidate.id DESC
+              LIMIT 1)
+          WHERE ${scoped.sql}
+            AND (
+              (es.code='INACTIVE' AND e.resign_date IS NULL AND (
+                pending.id IS NOT NULL
+                OR NOT EXISTS(SELECT 1 FROM employee_contracts existing
+                  WHERE existing.employee_id=e.id
+                    AND existing.status<>'CANCELLED')
+              ))
+              OR
+              (es.code='ACTIVE' AND es.allows_attendance=1
+                AND NOT EXISTS(SELECT 1 FROM employee_shift_assignments assignment
+                  WHERE assignment.employee_id=e.id))
+            )
+          ORDER BY e.created_at DESC,e.id DESC
+          LIMIT 500`,
+        [today, ...scoped.params]
+      )
+      const items = rows.map((row) => {
+        const employeeStatus = String(row.employeeStatus)
+        const contractStartDate = row.contractStartDate
+          ? String(row.contractStartDate)
+          : undefined
+        const stage =
+          employeeStatus === 'ACTIVE'
+            ? ('NEEDS_SHIFT' as const)
+            : row.contractUid && contractStartDate && contractStartDate <= today
+              ? ('NEEDS_ACTIVATION' as const)
+              : row.contractUid
+                ? ('WAITING_START' as const)
+                : ('NEEDS_CONTRACT' as const)
+        return {
+          employeeUid: String(row.employeeUid),
+          employeeNumber: String(row.employeeNumber),
+          fullName: String(row.fullName),
+          site: String(row.site),
+          employeeType: String(row.employeeType),
+          stage,
+          contractUid: row.contractUid ? String(row.contractUid) : undefined,
+          contractNumber: row.contractNumber
+            ? String(row.contractNumber)
+            : undefined,
+          contractStartDate,
+          canContinue: stage !== 'WAITING_START',
+        }
+      })
+      res.json({
+        items,
+        total: items.length,
+        counts: {
+          needsContract: items.filter(
+            (item) => item.stage === 'NEEDS_CONTRACT'
+          ).length,
+          needsActivation: items.filter(
+            (item) => item.stage === 'NEEDS_ACTIVATION'
+          ).length,
+          needsShift: items.filter((item) => item.stage === 'NEEDS_SHIFT')
+            .length,
+          waitingStart: items.filter((item) => item.stage === 'WAITING_START')
+            .length,
+        },
+      })
+    } catch (error) {
+      next(error)
+    }
+  }
+)
 
 employeesRouter.get('/histories', requirePermission('employees.view'), async (req, res, next) => {
   try {
@@ -2033,6 +2141,136 @@ employeesRouter.post('/contracts/batch', requirePermission('employees.manage'), 
     if (!connectionDestroyed) conn.release()
   }
 })
+
+employeesRouter.post(
+  '/contracts/batch/activation-preview',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    try {
+      const { contractUids } = contractBatchActivationInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const today = businessDate()
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT c.uid,c.contract_number contractNumber,c.status,
+                DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,
+                DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,
+                e.uid employeeUid,e.employee_number employeeNumber,
+                e.full_name employeeName,es.code employeeStatus,
+                et.code employeeType,ct.code contractType,s.code site,
+                (SELECT COUNT(*) FROM employee_contracts active
+                  WHERE active.employee_id=c.employee_id
+                    AND active.id<>c.id AND active.status='ACTIVE'
+                    AND active.start_date<=?
+                    AND (active.end_date IS NULL OR active.end_date>=?)) otherActiveContracts,
+                (SELECT COUNT(*) FROM scheduled_employee_status_changes scheduled
+                  WHERE scheduled.employee_id=c.employee_id
+                    AND scheduled.status IN ('SCHEDULED','FAILED')) openStatusSchedules,
+                (SELECT COUNT(*) FROM employee_employment_histories later
+                  WHERE later.employee_id=c.employee_id
+                    AND later.effective_from>c.start_date) laterHistories
+           FROM employee_contracts c
+           JOIN contract_types ct ON ct.id=c.contract_type_id
+           JOIN employees e ON e.id=c.employee_id
+           JOIN employee_statuses es ON es.id=e.employee_status_id
+           JOIN employee_types et ON et.id=e.employee_type_id
+           JOIN sites s ON s.id=e.current_site_id
+          WHERE c.uid IN (${contractUids.map(() => '?').join(',')})`,
+        [today, today, ...contractUids]
+      )
+      const byUid = new Map(rows.map((row) => [String(row.uid), row]))
+      const items = contractUids.map((uid) => {
+        const row = byUid.get(uid)
+        if (!row) {
+          return {
+            uid,
+            valid: false,
+            issues: ['Kontrak tidak ditemukan.'],
+          }
+        }
+        enforceSite(auth, String(row.site))
+        const issues: string[] = []
+        if (!['DRAFT', 'SCHEDULED'].includes(String(row.status))) {
+          issues.push('Status kontrak bukan Draft atau Dijadwalkan.')
+        }
+        if (String(row.startDate) > today) {
+          issues.push('Tanggal mulai kontrak masih di masa depan.')
+        }
+        if (row.endDate && String(row.endDate) < today) {
+          issues.push('Periode kontrak sudah berakhir.')
+        }
+        if (['RESIGNED', 'LEAVE'].includes(String(row.employeeStatus))) {
+          issues.push('Status karyawan tidak dapat diaktifkan melalui kontrak.')
+        }
+        if (
+          !isContractEmployeeTypeCombinationAllowed(
+            String(row.contractType),
+            String(row.employeeType)
+          )
+        ) {
+          issues.push(contractEmployeeTypeRuleMessage())
+        }
+        if (Number(row.otherActiveContracts) > 0) {
+          issues.push('Masih ada kontrak aktif lain yang berlaku.')
+        }
+        if (Number(row.openStatusSchedules) > 0) {
+          issues.push('Ada perubahan status kerja terjadwal yang belum selesai.')
+        }
+        if (Number(row.laterHistories) > 0) {
+          issues.push('Ada histori penempatan yang lebih baru dari tanggal mulai kontrak.')
+        }
+        const valid = issues.length === 0
+        return {
+          uid,
+          contractNumber: row.contractNumber,
+          employeeUid: row.employeeUid,
+          employeeNumber: row.employeeNumber,
+          employeeName: row.employeeName,
+          contractType: row.contractType,
+          startDate: row.startDate,
+          endDate: row.endDate ?? undefined,
+          status: row.status,
+          valid,
+          issues,
+        }
+      })
+      const blockers = items
+        .filter((item) => !item.valid)
+        .flatMap((item) => item.issues)
+      const itemRows = items.map((item) => ({
+        ...item,
+        action: item.valid ? 'ACTIVATE' as const : 'BLOCKED' as const,
+        reason: item.valid ? undefined : item.issues.join(' '),
+      }))
+      res.json({
+        canActivate: blockers.length === 0,
+        total: itemRows.length,
+        ready: itemRows.filter((item) => item.action === 'ACTIVATE').length,
+        scheduled: 0,
+        items: itemRows,
+        blockers: [...new Set(blockers)],
+      })
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+employeesRouter.post(
+  '/contracts/batch/activate',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    try {
+      const { contractUids } = contractBatchActivationInput.parse(req.body)
+      const result = await activateContractsBatch(
+        contractUids,
+        res.locals.auth as AuthContext
+      )
+      res.json(result)
+    } catch (error) {
+      next(error)
+    }
+  }
+)
 
 employeesRouter.post('/:uid/contracts', requirePermission('employees.manage'), async (req, res, next) => {
   try {

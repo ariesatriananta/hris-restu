@@ -27,6 +27,7 @@ import type {
   BatchMutationResult,
   EmployeeDeletionPreview,
   EmployeeDeletionResult,
+  EmployeeOnboardingReadiness,
 } from '../domain'
 
 const params = (input: EmployeeListParams) => ({
@@ -323,6 +324,22 @@ export const saveContractsBatch = async (items: ContractBatchItem[]) =>
     })
   ).data
 
+export const previewContractsBatchActivation = async (contractUids: string[]) =>
+  (
+    await apiClient.post<import('../domain').ContractBatchActivationPreview>(
+      '/employees/contracts/batch/activation-preview',
+      { contractUids }
+    )
+  ).data
+
+export const activateContractsBatch = async (contractUids: string[]) =>
+  (
+    await apiClient.post<import('../domain').ContractBatchActivationResult>(
+      '/employees/contracts/batch/activate',
+      { contractUids }
+    )
+  ).data
+
 export type EmployeeImportPreview = {
   rows: {
     rowNumber: number
@@ -349,6 +366,13 @@ export const importEmployees = async (items: unknown[]) =>
     await apiClient.post<{
       created: { uid: string; employeeNumber: string }[]
     }>('/employees/import', { items })
+  ).data
+
+export const getEmployeeOnboardingReadiness = async () =>
+  (
+    await apiClient.get<EmployeeOnboardingReadiness>(
+      '/employees/onboarding-readiness'
+    )
   ).data
 
 export const updateScheduledMutation = async (

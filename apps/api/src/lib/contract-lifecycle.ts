@@ -264,6 +264,131 @@ export async function transitionContract(contractUid: string, action: ContractTr
   }
 }
 
+export async function activateContractsBatch(
+  contractUids: string[],
+  auth: AuthContext
+) {
+  const conn = await pool.getConnection()
+  const today = businessDate()
+  try {
+    await conn.beginTransaction()
+    const activated: Array<{
+      uid: string
+      employeeUid: string
+      contractNumber: string
+    }> = []
+    for (const contractUid of contractUids) {
+      const [rows] = await conn.query<RowDataPacket[]>(
+        `SELECT c.id,c.uid,c.employee_id,c.status,
+                DATE_FORMAT(c.start_date,'%Y-%m-%d') contractStartDate,
+                DATE_FORMAT(c.end_date,'%Y-%m-%d') contractEndDate,
+                ct.code contractType,et.code employeeType,
+                e.current_site_id siteId,s.code site
+           FROM employee_contracts c
+           JOIN contract_types ct ON ct.id=c.contract_type_id
+           JOIN employees e ON e.id=c.employee_id
+           JOIN employee_types et ON et.id=e.employee_type_id
+           JOIN sites s ON s.id=e.current_site_id
+          WHERE c.uid=? FOR UPDATE`,
+        [contractUid]
+      )
+      const contract = rows[0]
+      if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
+      if (
+        !auth.roles.includes('SUPER_ADMIN') &&
+        !auth.siteAccess.includes(String(contract.site))
+      ) {
+        throw new ApiError(403, 'Akses site ditolak.')
+      }
+      if (
+        !isContractEmployeeTypeCombinationAllowed(
+          String(contract.contractType),
+          String(contract.employeeType)
+        )
+      ) {
+        throw new ApiError(422, contractEmployeeTypeRuleMessage())
+      }
+
+      const startDate = String(contract.contractStartDate)
+      const endDate = contract.contractEndDate
+        ? String(contract.contractEndDate)
+        : undefined
+      const effectiveDate = contractTransitionEffectiveDate({
+        action: 'activate',
+        contractStartDate: startDate,
+        today,
+      })
+      await assertNoOpenScheduledStatusChange(conn, Number(contract.employee_id))
+      assertContractActivationPeriod(endDate, today)
+      lifecycleNextStatus({
+        action: 'activate',
+        status: String(contract.status),
+        startDate,
+        endDate,
+        today,
+        effectiveDate,
+        hasReason: false,
+      })
+      if (
+        (
+          await validActiveContracts(
+            conn,
+            Number(contract.employee_id),
+            today,
+            Number(contract.id)
+          )
+        ).length
+      ) {
+        throw new ApiError(
+          409,
+          'Ditemukan kontrak aktif lain yang masih berlaku. Selesaikan konflik kontrak terlebih dahulu.'
+        )
+      }
+
+      await employeeStatus(
+        conn,
+        Number(contract.employee_id),
+        'ACTIVE',
+        effectiveDate,
+        'MANUAL',
+        undefined,
+        auth
+      )
+      await conn.execute(
+        `UPDATE employee_contracts
+            SET status='ACTIVE',terminated_at=NULL,termination_reason=NULL,updated_by=?
+          WHERE id=?`,
+        [auth.id, contract.id]
+      )
+      await conn.execute(
+        `INSERT INTO employee_contract_lifecycle_events(
+           uid,contract_id,from_status,to_status,effective_date,reason,source,actor_user_id
+         ) VALUES(?,?,?,'ACTIVE',?,NULL,'MANUAL',?)`,
+        [randomUUID(), contract.id, contract.status, effectiveDate, auth.id]
+      )
+      await auditLifecycle(conn, {
+        auth,
+        siteId: Number(contract.siteId),
+        contractId: Number(contract.id),
+        contractUid,
+        description: `Aktivasi massal kontrak: ${contract.status} menjadi ACTIVE.`,
+      })
+      activated.push({
+        uid: contractUid,
+        employeeUid: String(contract.employee_uid),
+        contractNumber: String(contract.contract_number),
+      })
+    }
+    await conn.commit()
+    return { activated, scheduled: [] }
+  } catch (error) {
+    await conn.rollback()
+    throw error
+  } finally {
+    conn.release()
+  }
+}
+
 export async function resolveActiveContractConflict(
   contractUid: string,
   input: { effectiveDate?: string; reason?: string },

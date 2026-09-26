@@ -26,6 +26,7 @@ import type {
   ContractConflictListParams,
   ScheduledStatusChangeAction,
   EmployeeDeletionResult,
+  EmployeeOnboardingReadiness,
 } from '../domain'
 import {
   httpEmployeeRepository,
@@ -35,6 +36,8 @@ import {
   listContracts,
   getContractKpiSummary,
   saveContractsBatch,
+  previewContractsBatchActivation,
+  activateContractsBatch,
   listContractConflicts,
   listDocuments,
   listScheduledMutations,
@@ -48,6 +51,7 @@ import {
   scheduleStatusChange,
   updateScheduledStatusChange,
   cancelScheduledStatusChange,
+  getEmployeeOnboardingReadiness,
 } from './http-employee-repository'
 
 export const employeeKeys = {
@@ -90,6 +94,8 @@ export const employeeKeys = {
     [...employeeKeys.all, 'scheduled-mutations', employeeUid] as const,
   scheduledStatusChangeList: (params: EmployeeRecordListParams) =>
     [...employeeKeys.all, 'scheduled-status-change-list', params] as const,
+  onboardingReadiness: () =>
+    [...employeeKeys.all, 'onboarding-readiness'] as const,
 }
 export type EmployeeLookups = {
   sites: LookupOption[]
@@ -130,6 +136,16 @@ export const useEmployeeKpiSummary = (
       queryFn: (): Promise<EmployeeKpiSummary> =>
         httpEmployeeRepository.summary(params),
       staleTime: 30 * 1000,
+    })
+  )
+
+export const useEmployeeOnboardingReadiness = () =>
+  useQuery(
+    queryOptions({
+      queryKey: employeeKeys.onboardingReadiness(),
+      queryFn: (): Promise<EmployeeOnboardingReadiness> =>
+        getEmployeeOnboardingReadiness(),
+      staleTime: 15 * 1000,
     })
   )
 export const useEmployee = (uid: string) =>
@@ -353,6 +369,20 @@ export function useSaveContractsBatch() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (items: ContractBatchItem[]) => saveContractsBatch(items),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function usePreviewContractsBatchActivation() {
+  return useMutation({
+    mutationFn: (contractUids: string[]) =>
+      previewContractsBatchActivation(contractUids),
+  })
+}
+export function useActivateContractsBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (contractUids: string[]) =>
+      activateContractsBatch(contractUids),
     onSuccess: () => invalidate(queryClient),
   })
 }

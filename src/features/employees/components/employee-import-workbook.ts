@@ -7,7 +7,6 @@ export const employeeImportColumns = [
   ['SITE_CODE', 'site'],
   ['DEPARTMENT_CODE', 'departmentCode'],
   ['POSITION_CODE', 'positionCode'],
-  ['WORK_GROUP_CODE', 'workGroupCode'],
   ['PRODUCTION_MODULE_CODE', 'productionModuleCode'],
   ['PRODUCTION_SECTION_CODE', 'productionSectionCode'],
   ['JOIN_DATE', 'joinDate'],
@@ -51,6 +50,8 @@ export const mandatoryEmployeeImportHeaders = new Set([
   'FULL_NAME',
   'EMPLOYEE_TYPE',
   'SITE_CODE',
+  'DEPARTMENT_CODE',
+  'POSITION_CODE',
   'PRODUCTION_MODULE_CODE',
   'PRODUCTION_SECTION_CODE',
   'JOIN_DATE',
@@ -62,6 +63,12 @@ export const employeeImportTemplateHeaders = employeeImportHeaders.map(
   (header) =>
     mandatoryEmployeeImportHeaders.has(header) ? `${header} *` : header
 )
+
+const employeeDateHeaders = new Set([
+  'JOIN_DATE',
+  'PERMANENT_DATE',
+  'BIRTH_DATE',
+])
 
 type ValidationPreview = {
   rows: {
@@ -83,9 +90,8 @@ export async function parseEmployeeImportWorkbook(
 
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1,
+    raw: true,
     defval: '',
-    raw: false,
-    dateNF: 'yyyy-mm-dd',
   })
   const importedHeaders = (rows[0] ?? []).map(normalizeHeader)
   const missing = employeeImportHeaders.filter(
@@ -110,7 +116,12 @@ export async function parseEmployeeImportWorkbook(
       employeeImportColumns
         .map(
           ([header, field]) =>
-            [field, cleanCell(row[importedHeaders.indexOf(header)])] as const
+            [
+              field,
+              employeeDateHeaders.has(header)
+                ? normalizeEmployeeDate(row[importedHeaders.indexOf(header)])
+                : cleanCell(row[importedHeaders.indexOf(header)]),
+            ] as const
         )
         .filter(([, value]) => value)
     )
@@ -160,5 +171,26 @@ function normalizeHeader(value: unknown) {
 }
 
 function cleanCell(value: unknown) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10)
+  }
   return String(value ?? '').trim()
+}
+
+function normalizeEmployeeDate(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const parsed = XLSX.SSF.parse_date_code(value)
+    if (parsed) {
+      return `${String(parsed.y).padStart(4, '0')}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`
+    }
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10)
+  }
+  const raw = String(value ?? '').trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+  const match = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(raw)
+  return match
+    ? `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`
+    : raw
 }

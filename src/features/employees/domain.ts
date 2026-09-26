@@ -248,6 +248,36 @@ export interface EmployeeKpiSummary {
   activeTrainingEmployees: number
   incompletePlacementEmployees: number
 }
+
+export type EmployeeOnboardingStage =
+  | 'NEEDS_CONTRACT'
+  | 'NEEDS_ACTIVATION'
+  | 'NEEDS_SHIFT'
+  | 'WAITING_START'
+
+export interface EmployeeOnboardingReadinessItem {
+  employeeUid: string
+  employeeNumber: string
+  fullName: string
+  site: SiteCode
+  employeeType: EmployeeTypeCode
+  stage: EmployeeOnboardingStage
+  contractUid?: string
+  contractNumber?: string
+  contractStartDate?: string
+  canContinue: boolean
+}
+
+export interface EmployeeOnboardingReadiness {
+  items: EmployeeOnboardingReadinessItem[]
+  total: number
+  counts: {
+    needsContract: number
+    needsActivation: number
+    needsShift: number
+    waitingStart: number
+  }
+}
 export interface EmployeeDocument {
   uid: string
   employeeUid: string
@@ -323,6 +353,25 @@ export interface ContractBatchItem {
 }
 export interface ContractBatchResult {
   created: { uid: string; employeeUid: string; contractNumber: string }[]
+}
+export interface ContractBatchActivationPreview {
+  canActivate: boolean
+  total: number
+  ready: number
+  scheduled: number
+  blockers: string[]
+  items: {
+    uid: string
+    employeeUid: string
+    employeeName: string
+    contractNumber: string
+    action: 'ACTIVATE' | 'SCHEDULE' | 'BLOCKED'
+    reason?: string
+  }[]
+}
+export interface ContractBatchActivationResult {
+  activated: { uid: string; employeeUid: string; contractNumber: string }[]
+  scheduled: { uid: string; employeeUid: string; contractNumber: string }[]
 }
 export interface ScheduledEmployeeMutation {
   uid: string

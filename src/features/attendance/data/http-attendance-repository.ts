@@ -12,6 +12,7 @@ import type {
   ShiftAssignment,
   ShiftAssignmentBatchResult,
   ShiftAssignmentCandidate,
+  ShiftAssignmentCandidateListParams,
   ShiftAssignmentListParams,
   ShiftListParams,
   AttendanceMonitoringListParams,
@@ -58,6 +59,7 @@ const listParams = (
   input:
     | ShiftListParams
     | ShiftAssignmentListParams
+    | ShiftAssignmentCandidateListParams
     | AttendanceDeviceListParams
     | AttendanceMonitoringListParams
     | AttendanceFinalizationListParams
