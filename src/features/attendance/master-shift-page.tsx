@@ -1,14 +1,18 @@
 import { useCallback, useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
 import { useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import { CalendarClock, Plus, UserRoundCog } from 'lucide-react'
 import { toast } from 'sonner'
+import { useAuthStore } from '@/stores/auth-store'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Main } from '@/components/layout/main'
+import { hasPermission } from '@/features/auth/permissions'
 import { OnboardingSteps } from '../employees/components/onboarding-steps'
+import { getEmployeeOnboardingReadiness } from '../employees/data/http-employee-repository'
 import { employeeKeys } from '../employees/data/queries'
 import {
   useDeleteShift,
@@ -35,7 +39,9 @@ export function MasterShiftPage({
   navigate: NavigateFn
 }) {
   const tab = search.tab === 'assignment' ? 'assignment' : 'shift'
+  const routerNavigate = useNavigate()
   const queryClient = useQueryClient()
+  const session = useAuthStore((state) => state.session)
   const onboardingEmployeeUids = useMemo(
     () =>
       stringValue(search.employeeUids)
@@ -233,7 +239,7 @@ export function MasterShiftPage({
           initialEmployeeUids={
             setupAttendance ? pendingOnboardingEmployeeUids : undefined
           }
-          onAssigned={(assignedEmployeeUids) => {
+          onAssigned={async (assignedEmployeeUids) => {
             if (!setupAttendance) return
             const assigned = new Set(assignedEmployeeUids)
             const remaining = pendingOnboardingEmployeeUids.filter(
@@ -255,18 +261,57 @@ export function MasterShiftPage({
               return
             }
             toast.success(
-              'Onboarding selesai. Seluruh karyawan aktif sudah siap mengikuti Attendance.'
+              'Penugasan shift selesai. Memeriksa kesiapan Produksi.'
             )
-            void queryClient.invalidateQueries({
-              queryKey: employeeKeys.onboardingReadiness(),
-            })
-            navigate({
-              search: (previous) => ({
-                ...previous,
-                setupAttendance: undefined,
-                employeeUids: undefined,
-              }),
-              replace: true,
+            let readiness
+            try {
+              await queryClient.invalidateQueries({
+                queryKey: employeeKeys.onboardingReadiness(),
+              })
+              readiness = await queryClient.fetchQuery({
+                queryKey: employeeKeys.onboardingReadiness(),
+                queryFn: getEmployeeOnboardingReadiness,
+              })
+            } catch {
+              toast.warning(
+                'Shift sudah tersimpan, tetapi langkah berikutnya belum dapat diperiksa. Lanjutkan kembali dari Data Karyawan.'
+              )
+              void routerNavigate({ to: '/karyawan/data-karyawan' })
+              return
+            }
+            const onboardingSet = new Set(onboardingEmployeeUids)
+            const productionEmployeeUids = readiness.items
+              .filter(
+                (item) =>
+                  onboardingSet.has(item.employeeUid) &&
+                  item.stage === 'NEEDS_PRODUCTION_ASSIGNMENT'
+              )
+              .map((item) => item.employeeUid)
+            if (!productionEmployeeUids.length) {
+              toast.success(
+                'Onboarding selesai. Karyawan sudah siap digunakan sesuai perannya.'
+              )
+              void routerNavigate({ to: '/karyawan/data-karyawan' })
+              return
+            }
+            const canManageProduction =
+              hasPermission(session, 'production.view') &&
+              hasPermission(session, 'production.manage_master')
+            if (!canManageProduction) {
+              toast.warning(
+                'Penugasan pekerjaan Produksi perlu dilanjutkan oleh pengguna yang memiliki akses Master Produksi.'
+              )
+              void routerNavigate({ to: '/karyawan/data-karyawan' })
+              return
+            }
+            void routerNavigate({
+              to: '/produksi/master-pekerjaan',
+              search: {
+                tab: 'assignments',
+                assignmentView: 'readiness',
+                setupProduction: true,
+                employeeUids: productionEmployeeUids.join(','),
+              },
             })
           }}
         />

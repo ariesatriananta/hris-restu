@@ -230,6 +230,27 @@ export function useProductionCommand() {
   })
 }
 
+export function useCreateProductionAssignmentsBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      employeeUids: string[]
+      jobUid: string
+      site: ProductionSite
+      effectiveFrom: string
+    }) =>
+      (
+        await apiClient.post<{
+          created: number
+          items: Array<{ uid: string; employeeUid: string }>
+        }>('/production-structure/assignments/batch', input)
+      ).data,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: keys.all })
+    },
+  })
+}
+
 export function useActivateProductionDevice() {
   return useMutation({
     mutationFn: async (activationCode: string) =>

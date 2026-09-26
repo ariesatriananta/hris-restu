@@ -859,48 +859,151 @@ employeesRouter.get(
       const today = businessDate()
       const scoped = scopeWhere(res.locals.auth as AuthContext)
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT e.uid employeeUid,e.employee_number employeeNumber,
-                e.full_name fullName,s.code site,et.code employeeType,
-                es.code employeeStatus,es.allows_attendance allowsAttendance,
-                pending.uid contractUid,pending.contract_number contractNumber,
-                DATE_FORMAT(pending.start_date,'%Y-%m-%d') contractStartDate
-           FROM employees e
-           JOIN employee_types et ON et.id=e.employee_type_id
-           JOIN employee_statuses es ON es.id=e.employee_status_id
-           JOIN sites s ON s.id=e.current_site_id
-           LEFT JOIN employee_contracts pending
-             ON pending.id=(SELECT candidate.id
-               FROM employee_contracts candidate
-              WHERE candidate.employee_id=e.id
-                AND candidate.status IN ('DRAFT','SCHEDULED')
-              ORDER BY (candidate.start_date<=?) DESC,
-                       candidate.start_date ASC,candidate.id DESC
-              LIMIT 1)
-          WHERE ${scoped.sql}
-            AND (
-              (es.code='INACTIVE' AND e.resign_date IS NULL AND (
-                pending.id IS NOT NULL
-                OR NOT EXISTS(SELECT 1 FROM employee_contracts existing
-                  WHERE existing.employee_id=e.id
-                    AND existing.status<>'CANCELLED')
-              ))
+        `SELECT readiness.*
+           FROM (
+             SELECT e.uid employeeUid,e.employee_number employeeNumber,
+                    e.full_name fullName,s.code site,et.code employeeType,
+                    e.resign_date resignDate,
+                    es.code employeeStatus,es.allows_attendance allowsAttendance,
+                    es.allows_production allowsProduction,
+                    ps.uid productionSectionUid,ps.code productionSectionCode,
+                    ps.name productionSectionName,
+                    pending.uid contractUid,pending.contract_number contractNumber,
+                    DATE_FORMAT(pending.start_date,'%Y-%m-%d') contractStartDate,
+                    (SELECT COUNT(*) FROM employee_shift_assignments shift_assignment
+                      WHERE shift_assignment.employee_id=e.id
+                        AND shift_assignment.effective_from<=?
+                        AND (shift_assignment.effective_to IS NULL
+                             OR shift_assignment.effective_to>=?)) shiftAssignmentCount,
+                    (SELECT COUNT(*) FROM employee_job_assignments primary_assignment
+                      WHERE primary_assignment.employee_id=e.id
+                        AND primary_assignment.site_id=e.current_site_id
+                        AND primary_assignment.status='ACTIVE'
+                        AND primary_assignment.is_primary=1
+                        AND primary_assignment.effective_from<=?
+                        AND (primary_assignment.effective_to IS NULL
+                             OR primary_assignment.effective_to>=?)) primaryAssignmentCount,
+                    (SELECT job.uid FROM employee_job_assignments primary_assignment
+                       JOIN production_jobs job ON job.id=primary_assignment.production_job_id
+                      WHERE primary_assignment.employee_id=e.id
+                        AND primary_assignment.site_id=e.current_site_id
+                        AND primary_assignment.status='ACTIVE'
+                        AND primary_assignment.is_primary=1
+                        AND primary_assignment.effective_from<=?
+                        AND (primary_assignment.effective_to IS NULL
+                             OR primary_assignment.effective_to>=?)
+                      ORDER BY primary_assignment.id DESC LIMIT 1) primaryJobUid,
+                    (SELECT job.code FROM employee_job_assignments primary_assignment
+                       JOIN production_jobs job ON job.id=primary_assignment.production_job_id
+                      WHERE primary_assignment.employee_id=e.id
+                        AND primary_assignment.site_id=e.current_site_id
+                        AND primary_assignment.status='ACTIVE'
+                        AND primary_assignment.is_primary=1
+                        AND primary_assignment.effective_from<=?
+                        AND (primary_assignment.effective_to IS NULL
+                             OR primary_assignment.effective_to>=?)
+                      ORDER BY primary_assignment.id DESC LIMIT 1) primaryJobCode,
+                    (SELECT job.name FROM employee_job_assignments primary_assignment
+                       JOIN production_jobs job ON job.id=primary_assignment.production_job_id
+                      WHERE primary_assignment.employee_id=e.id
+                        AND primary_assignment.site_id=e.current_site_id
+                        AND primary_assignment.status='ACTIVE'
+                        AND primary_assignment.is_primary=1
+                        AND primary_assignment.effective_from<=?
+                        AND (primary_assignment.effective_to IS NULL
+                             OR primary_assignment.effective_to>=?)
+                      ORDER BY primary_assignment.id DESC LIMIT 1) primaryJobName,
+                    (SELECT COUNT(*) FROM employee_job_assignments primary_assignment
+                       JOIN production_jobs active_job
+                         ON active_job.id=primary_assignment.production_job_id
+                        AND active_job.is_active=1
+                       JOIN production_job_rates rate
+                         ON rate.site_id=primary_assignment.site_id
+                        AND rate.production_job_id=primary_assignment.production_job_id
+                        AND rate.status='ACTIVE' AND rate.effective_from<=?
+                        AND (rate.effective_to IS NULL OR rate.effective_to>=?)
+                       JOIN work_units active_unit
+                         ON active_unit.id=rate.unit_id AND active_unit.is_active=1
+                      WHERE primary_assignment.employee_id=e.id
+                        AND primary_assignment.site_id=e.current_site_id
+                        AND primary_assignment.status='ACTIVE'
+                        AND primary_assignment.is_primary=1
+                        AND primary_assignment.effective_from<=?
+                        AND (primary_assignment.effective_to IS NULL
+                             OR primary_assignment.effective_to>=?)) primaryActiveRateCount
+               FROM employees e
+               JOIN employee_types et ON et.id=e.employee_type_id
+               JOIN employee_statuses es ON es.id=e.employee_status_id
+               JOIN sites s ON s.id=e.current_site_id
+               LEFT JOIN production_module_sections pms
+                 ON pms.id=e.current_production_module_section_id
+               LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
+               LEFT JOIN employee_contracts pending
+                 ON pending.id=(SELECT candidate.id
+                   FROM employee_contracts candidate
+                  WHERE candidate.employee_id=e.id
+                    AND candidate.status IN ('DRAFT','SCHEDULED')
+                  ORDER BY (candidate.start_date<=?) DESC,
+                           candidate.start_date ASC,candidate.id DESC
+                  LIMIT 1)
+              WHERE ${scoped.sql}
+           ) readiness
+          WHERE (
+            (readiness.employeeStatus='INACTIVE' AND readiness.resignDate IS NULL AND (
+              readiness.contractUid IS NOT NULL
+              OR NOT EXISTS(SELECT 1 FROM employee_contracts existing
+                JOIN employees existing_employee ON existing_employee.id=existing.employee_id
+                WHERE existing_employee.uid=readiness.employeeUid
+                  AND existing.status<>'CANCELLED')
+            ))
+            OR
+            (readiness.employeeStatus='ACTIVE' AND (
+              (readiness.allowsAttendance=1 AND readiness.shiftAssignmentCount=0)
               OR
-              (es.code='ACTIVE' AND es.allows_attendance=1
-                AND NOT EXISTS(SELECT 1 FROM employee_shift_assignments assignment
-                  WHERE assignment.employee_id=e.id))
-            )
-          ORDER BY e.created_at DESC,e.id DESC
+              (readiness.allowsProduction=1
+                AND readiness.employeeType IN ('BORONGAN','TRAINING')
+                AND readiness.shiftAssignmentCount>0
+                AND (readiness.primaryAssignmentCount<>1
+                     OR readiness.primaryActiveRateCount<>1))
+            ))
+          )
+          ORDER BY readiness.employeeUid
           LIMIT 500`,
-        [today, ...scoped.params]
+        [
+          today,
+          today,
+          today,
+          today,
+          today,
+          today,
+          today,
+          today,
+          today,
+          today,
+          today,
+          today,
+          today,
+          today,
+          today,
+          ...scoped.params,
+        ]
       )
       const items = rows.map((row) => {
         const employeeStatus = String(row.employeeStatus)
         const contractStartDate = row.contractStartDate
           ? String(row.contractStartDate)
           : undefined
+        const primaryAssignmentCount = Number(row.primaryAssignmentCount ?? 0)
+        const primaryActiveRateCount = Number(row.primaryActiveRateCount ?? 0)
         const stage =
-          employeeStatus === 'ACTIVE'
+          employeeStatus === 'ACTIVE' && Number(row.shiftAssignmentCount) === 0
             ? ('NEEDS_SHIFT' as const)
+            : employeeStatus === 'ACTIVE' && primaryAssignmentCount === 0
+              ? ('NEEDS_PRODUCTION_ASSIGNMENT' as const)
+              : employeeStatus === 'ACTIVE' && primaryAssignmentCount > 1
+                ? ('PRODUCTION_ASSIGNMENT_CONFLICT' as const)
+                : employeeStatus === 'ACTIVE' && primaryActiveRateCount !== 1
+                  ? ('MISSING_PRODUCTION_RATE' as const)
             : row.contractUid && contractStartDate && contractStartDate <= today
               ? ('NEEDS_ACTIVATION' as const)
               : row.contractUid
@@ -918,6 +1021,24 @@ employeesRouter.get(
             ? String(row.contractNumber)
             : undefined,
           contractStartDate,
+          productionSectionUid: row.productionSectionUid
+            ? String(row.productionSectionUid)
+            : undefined,
+          productionSectionCode: row.productionSectionCode
+            ? String(row.productionSectionCode)
+            : undefined,
+          productionSectionName: row.productionSectionName
+            ? String(row.productionSectionName)
+            : undefined,
+          primaryJobUid: row.primaryJobUid
+            ? String(row.primaryJobUid)
+            : undefined,
+          primaryJobCode: row.primaryJobCode
+            ? String(row.primaryJobCode)
+            : undefined,
+          primaryJobName: row.primaryJobName
+            ? String(row.primaryJobName)
+            : undefined,
           canContinue: stage !== 'WAITING_START',
         }
       })
@@ -933,6 +1054,15 @@ employeesRouter.get(
           ).length,
           needsShift: items.filter((item) => item.stage === 'NEEDS_SHIFT')
             .length,
+          needsProductionAssignment: items.filter(
+            (item) => item.stage === 'NEEDS_PRODUCTION_ASSIGNMENT'
+          ).length,
+          missingProductionRate: items.filter(
+            (item) => item.stage === 'MISSING_PRODUCTION_RATE'
+          ).length,
+          productionAssignmentConflict: items.filter(
+            (item) => item.stage === 'PRODUCTION_ASSIGNMENT_CONFLICT'
+          ).length,
           waitingStart: items.filter((item) => item.stage === 'WAITING_START')
             .length,
         },

@@ -3,6 +3,7 @@ import {
   CalendarClock,
   FileSignature,
   UserRoundCheck,
+  BriefcaseBusiness,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -51,6 +52,24 @@ const stagePresentation: Record<
     className:
       'border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-300',
   },
+  NEEDS_PRODUCTION_ASSIGNMENT: {
+    label: 'Belum ada pekerjaan utama',
+    nextStep: 'Atur pekerjaan Produksi',
+    className:
+      'border-orange-300 bg-orange-50 text-orange-800 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-300',
+  },
+  MISSING_PRODUCTION_RATE: {
+    label: 'Tarif belum tersedia',
+    nextStep: 'Lengkapi tarif site',
+    className:
+      'border-red-300 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300',
+  },
+  PRODUCTION_ASSIGNMENT_CONFLICT: {
+    label: 'Pekerjaan utama perlu diperiksa',
+    nextStep: 'Periksa penugasan',
+    className:
+      'border-red-300 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300',
+  },
   WAITING_START: {
     label: 'Menunggu tanggal mulai',
     nextStep: 'Tidak perlu tindakan',
@@ -79,7 +98,7 @@ export function EmployeeOnboardingBanner({
           </p>
           <p className='text-sm text-muted-foreground'>
             {actionable
-              ? `${actionable} karyawan dapat dilanjutkan ke kontrak atau penugasan shift.`
+              ? `${actionable} karyawan dapat dilanjutkan ke tahap kesiapan berikutnya.`
               : 'Kontrak sudah dijadwalkan dan akan siap sesuai tanggal mulainya.'}
           </p>
         </div>
@@ -103,7 +122,12 @@ export function EmployeeOnboardingDialog({
   onContinue: (items: EmployeeOnboardingReadinessItem[]) => void
 }) {
   const actionableGroups = (
-    ['NEEDS_CONTRACT', 'NEEDS_ACTIVATION', 'NEEDS_SHIFT'] as const
+    [
+      'NEEDS_CONTRACT',
+      'NEEDS_ACTIVATION',
+      'NEEDS_SHIFT',
+      'NEEDS_PRODUCTION_ASSIGNMENT',
+    ] as const
   )
     .map((stage) => ({
       stage,
@@ -213,6 +237,8 @@ export function EmployeeOnboardingDialog({
                   <FileSignature />
                 ) : group.stage === 'NEEDS_SHIFT' ? (
                   <CalendarClock />
+                ) : group.stage === 'NEEDS_PRODUCTION_ASSIGNMENT' ? (
+                  <BriefcaseBusiness />
                 ) : (
                   <UserRoundCheck />
                 )}

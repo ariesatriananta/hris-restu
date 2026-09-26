@@ -177,6 +177,7 @@ export type ProductionListParams = {
   query?: string
   site?: ProductionSite[]
   status?: string[]
+  activeOn?: string
 }
 
 export type ProductionDeviceType = 'USB_SCANNER' | 'TERMINAL'

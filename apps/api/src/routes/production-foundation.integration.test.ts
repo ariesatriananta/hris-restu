@@ -24,6 +24,14 @@ const connection = {
   release: mocks.release,
 }
 
+const todayJakarta = () =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+
 vi.mock('../db.js', () => ({
   pool: {
     query: mocks.query,
@@ -426,6 +434,81 @@ describe('Production foundation API', () => {
     expect(response.status).toBe(200)
     expect(String(mocks.query.mock.calls[0]?.[0])).toContain('s.code IN (?)')
     expect(mocks.query.mock.calls[0]?.[1]).toEqual([employeeUid, 'KLATEN'])
+  })
+
+  it('membuat pekerjaan utama onboarding secara atomik untuk satu site', async () => {
+    const firstEmployeeUid = '33333333-3333-4333-8333-333333333331'
+    const secondEmployeeUid = '33333333-3333-4333-8333-333333333332'
+    mocks.query
+      .mockResolvedValueOnce([
+        [{ jobId: 20, jobCode: 'LINTING', jobName: 'Linting', siteId: 1 }],
+      ])
+      .mockResolvedValueOnce([[{ id: 40 }]])
+      .mockResolvedValueOnce([
+        [
+          { employeeId: 10, uid: firstEmployeeUid },
+          { employeeId: 11, uid: secondEmployeeUid },
+        ],
+      ])
+      .mockResolvedValueOnce([
+        [
+          { employeeId: 10, historyCount: 1 },
+          { employeeId: 11, historyCount: 1 },
+        ],
+      ])
+      .mockResolvedValueOnce([[]])
+
+    const response = await request('/assignments/batch', {
+      method: 'POST',
+      auth: auth({
+        permissions: ['production.manage_master'],
+        sites: ['JEPARA'],
+      }),
+      body: {
+        employeeUids: [firstEmployeeUid, secondEmployeeUid],
+        jobUid: '11111111-1111-4111-8111-111111111111',
+        site: 'JEPARA',
+        effectiveFrom: todayJakarta(),
+      },
+    })
+
+    expect(response.status).toBe(201)
+    await expect(response.json()).resolves.toMatchObject({ created: 2 })
+    expect(
+      mocks.execute.mock.calls.filter((call) =>
+        String(call[0]).includes('INSERT INTO employee_job_assignments')
+      )
+    ).toHaveLength(2)
+    expect(mocks.audit).toHaveBeenCalledTimes(2)
+    expect(mocks.commit).toHaveBeenCalledOnce()
+    expect(mocks.rollback).not.toHaveBeenCalled()
+  })
+
+  it('menolak batch onboarding jika tarif aktif pekerjaan belum tersedia', async () => {
+    mocks.query
+      .mockResolvedValueOnce([
+        [{ jobId: 20, jobCode: 'LINTING', jobName: 'Linting', siteId: 1 }],
+      ])
+      .mockResolvedValueOnce([[]])
+
+    const response = await request('/assignments/batch', {
+      method: 'POST',
+      auth: auth({
+        permissions: ['production.manage_master'],
+        sites: ['JEPARA'],
+      }),
+      body: {
+        employeeUids: ['33333333-3333-4333-8333-333333333331'],
+        jobUid: '11111111-1111-4111-8111-111111111111',
+        site: 'JEPARA',
+        effectiveFrom: todayJakarta(),
+      },
+    })
+
+    expect(response.status).toBe(422)
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.commit).not.toHaveBeenCalled()
+    expect(mocks.rollback).toHaveBeenCalledOnce()
   })
 
   it('tarif baru selalu dibuat sebagai Draft walau user punya izin master', async () => {

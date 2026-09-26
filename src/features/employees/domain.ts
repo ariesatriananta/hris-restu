@@ -253,6 +253,9 @@ export type EmployeeOnboardingStage =
   | 'NEEDS_CONTRACT'
   | 'NEEDS_ACTIVATION'
   | 'NEEDS_SHIFT'
+  | 'NEEDS_PRODUCTION_ASSIGNMENT'
+  | 'MISSING_PRODUCTION_RATE'
+  | 'PRODUCTION_ASSIGNMENT_CONFLICT'
   | 'WAITING_START'
 
 export interface EmployeeOnboardingReadinessItem {
@@ -265,6 +268,12 @@ export interface EmployeeOnboardingReadinessItem {
   contractUid?: string
   contractNumber?: string
   contractStartDate?: string
+  productionSectionUid?: string
+  productionSectionCode?: string
+  productionSectionName?: string
+  primaryJobUid?: string
+  primaryJobCode?: string
+  primaryJobName?: string
   canContinue: boolean
 }
 
@@ -275,6 +284,9 @@ export interface EmployeeOnboardingReadiness {
     needsContract: number
     needsActivation: number
     needsShift: number
+    needsProductionAssignment: number
+    missingProductionRate: number
+    productionAssignmentConflict: number
     waitingStart: number
   }
 }

@@ -126,6 +126,24 @@ export const productionAssignmentInput = z
     }
   })
 
+export const productionAssignmentBatchInput = z
+  .object({
+    employeeUids: z.array(z.string().uuid()).min(1).max(200),
+    jobUid: z.string().uuid(),
+    site: productionSiteCode,
+    effectiveFrom: z.string().date(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (new Set(value.employeeUids).size !== value.employeeUids.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['employeeUids'],
+        message: 'Daftar karyawan tidak boleh berisi data ganda.',
+      })
+    }
+  })
+
 export const closeProductionAssignmentInput = z
   .object({
     effectiveTo: z.string().date(),

@@ -1,17 +1,22 @@
-export function OnboardingSteps({ activeStep }: { activeStep: 1 | 2 | 3 | 4 }) {
+export function OnboardingSteps({
+  activeStep,
+}: {
+  activeStep: 1 | 2 | 3 | 4 | 5
+}) {
   const steps = [
     'Import karyawan',
     'Buat kontrak',
     'Aktivasi',
     'Siapkan Attendance',
+    'Atur Pekerjaan Produksi',
   ]
   return (
     <ol
-      className='grid grid-cols-2 gap-2 sm:grid-cols-4'
+      className='grid grid-cols-2 gap-2 sm:grid-cols-5'
       aria-label='Tahapan onboarding'
     >
       {steps.map((label, index) => {
-        const step = (index + 1) as 1 | 2 | 3 | 4
+        const step = (index + 1) as 1 | 2 | 3 | 4 | 5
         const complete = step < activeStep
         const active = step === activeStep
         return (

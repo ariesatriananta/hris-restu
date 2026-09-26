@@ -146,6 +146,12 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Penugasan pekerjaan Produksi disimpan sebagai histori, tidak dihapus atau
   ditimpa. Satu pekerja maksimal memiliki satu pekerjaan utama efektif pada
   tanggal yang sama.
+- Onboarding karyawan Produksi belum dinyatakan selesai hanya dengan kontrak
+  aktif dan penugasan Shift. Karyawan `BORONGAN` atau `TRAINING` yang eligible
+  Produksi wajib memiliki tepat satu pekerjaan utama aktif serta tarif aktif
+  untuk kombinasi site dan pekerjaan tersebut. Penugasan awal dari onboarding
+  dibuat sekaligus per site, berlaku mulai hari berjalan, dan seluruh batch
+  dibatalkan bila satu karyawan gagal validasi.
 - Transaksi produksi menyimpan tarif dasar, rincian tingkat yang dipakai, dan
   bruto sebagai snapshot agar histori tidak berubah saat master diperbarui.
 - Koreksi transaksi Produksi bersifat append-only dan dapat diterapkan langsung

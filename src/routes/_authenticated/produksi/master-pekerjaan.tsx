@@ -30,6 +30,8 @@ export const Route = createFileRoute(
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .optional(),
     assignmentView: z.enum(['readiness', 'history']).optional(),
+    setupProduction: z.boolean().optional(),
+    employeeUids: z.string().optional(),
     page: z.number().int().positive().optional(),
     pageSize: z.number().int().min(1).max(500).optional(),
   }),

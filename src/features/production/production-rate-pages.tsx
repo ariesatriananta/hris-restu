@@ -1,6 +1,6 @@
-import { useMemo, useState, type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link, useNavigate } from '@tanstack/react-router'
 import {
   AlertTriangle,
   BriefcaseBusiness,
@@ -68,6 +68,11 @@ import {
   dateOnlyToInput,
 } from '@/features/attendance/date-only'
 import { hasPermission } from '@/features/auth/permissions'
+import { OnboardingSteps } from '@/features/employees/components/onboarding-steps'
+import {
+  employeeKeys,
+  useEmployeeOnboardingReadiness,
+} from '@/features/employees/data/queries'
 import { AssignmentReadinessTable } from './assignment-readiness-table'
 import {
   useProductionAssignmentReadiness,
@@ -96,6 +101,7 @@ import type {
   WorkUnit,
 } from './domain'
 import { ProductionEmployeePicker } from './production-employee-picker'
+import { ProductionOnboardingAssignmentDialog } from './production-onboarding-assignment-dialog'
 import {
   formatProductionDecimalInput,
   normalizeProductionDecimalInput,
@@ -1885,6 +1891,8 @@ export function filterProductionUnits(units: WorkUnit[], query: string) {
 
 export function ProductionJobMasterPage({ search, navigate }: PageProps) {
   const session = useAuthStore((state) => state.session)
+  const routerNavigate = useNavigate()
+  const queryClient = useQueryClient()
   const canManage = hasPermission(session, 'production.manage_master')
   const tab = String(search.tab ?? 'jobs')
   const assignmentView = String(search.assignmentView ?? 'readiness')
@@ -1905,6 +1913,37 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
     ? (search.productionSectionUid as string[])
     : []
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false)
+  const onboardingEmployeeUids = useMemo(
+    () =>
+      String(search.employeeUids ?? '')
+        .split(',')
+        .map((uid) => uid.trim())
+        .filter(Boolean),
+    [search.employeeUids]
+  )
+  const setupProduction =
+    search.setupProduction === true && onboardingEmployeeUids.length > 0
+  const [pendingOnboardingEmployeeUids, setPendingOnboardingEmployeeUids] =
+    useState(onboardingEmployeeUids)
+  const onboardingReadiness = useEmployeeOnboardingReadiness()
+  const pendingOnboardingItems = useMemo(() => {
+    const pending = new Set(pendingOnboardingEmployeeUids)
+    return (onboardingReadiness.data?.items ?? []).filter(
+      (item) =>
+        pending.has(item.employeeUid) &&
+        item.stage === 'NEEDS_PRODUCTION_ASSIGNMENT'
+    )
+  }, [onboardingReadiness.data?.items, pendingOnboardingEmployeeUids])
+  const currentOnboardingSite = pendingOnboardingItems[0]?.site
+  const currentOnboardingEmployees = useMemo(
+    () =>
+      pendingOnboardingItems.filter(
+        (item) => item.site === currentOnboardingSite
+      ),
+    [currentOnboardingSite, pendingOnboardingItems]
+  )
+  const [productionOnboardingOpen, setProductionOnboardingOpen] =
+    useState(setupProduction)
   const [assignmentPreset, setAssignmentPreset] =
     useState<AssignmentPreset | null>(null)
   const refs = useReferenceOptions()
@@ -1935,6 +1974,19 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
     refs.units.data?.items ?? [],
     filter
   )
+  useEffect(() => {
+    if (!setupProduction || !onboardingReadiness.isSuccess) return
+    if (pendingOnboardingItems.length) return
+    toast.success(
+      'Onboarding selesai. Karyawan sudah siap digunakan sesuai perannya.'
+    )
+    void routerNavigate({ to: '/karyawan/data-karyawan' })
+  }, [
+    onboardingReadiness.isSuccess,
+    pendingOnboardingItems.length,
+    routerNavigate,
+    setupProduction,
+  ])
   const openAssignment = (row?: ProductionAssignmentReadinessItem) => {
     setAssignmentPreset(
       row
@@ -1951,6 +2003,30 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
   }
   return (
     <Main className='space-y-5'>
+      {setupProduction && (
+        <>
+          <OnboardingSteps activeStep={5} />
+          <section className='flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between'>
+            <div>
+              <p className='font-medium'>Langkah terakhir onboarding</p>
+              <p className='text-sm text-muted-foreground'>
+                Atur satu pekerjaan utama agar karyawan Produksi siap menerima
+                setoran. Karyawan nonproduksi tidak memerlukan langkah ini.
+              </p>
+            </div>
+            {currentOnboardingEmployees.length > 0 && canManage && (
+              <Button
+                type='button'
+                size='sm'
+                onClick={() => setProductionOnboardingOpen(true)}
+              >
+                <BriefcaseBusiness /> Lanjutkan{' '}
+                {currentOnboardingEmployees.length} karyawan
+              </Button>
+            )}
+          </section>
+        </>
+      )}
       <PageHeader
         title='Master Pekerjaan Produksi'
         description='Kelola pekerjaan, satuan, penugasan pekerja, dan kesiapan operasional per site.'
@@ -2292,6 +2368,52 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
           open={assignmentDialogOpen}
           onOpenChange={setAssignmentDialogOpen}
           preset={assignmentPreset}
+        />
+      )}
+      {setupProduction && currentOnboardingEmployees.length > 0 && (
+        <ProductionOnboardingAssignmentDialog
+          key={`${currentOnboardingSite}-${currentOnboardingEmployees.map((item) => item.employeeUid).join(',')}`}
+          open={productionOnboardingOpen}
+          onOpenChange={setProductionOnboardingOpen}
+          employees={currentOnboardingEmployees}
+          jobs={refs.jobs.data?.items ?? []}
+          onAssigned={(assignedEmployeeUids) => {
+            const assigned = new Set(assignedEmployeeUids)
+            const remaining = pendingOnboardingEmployeeUids.filter(
+              (uid) => !assigned.has(uid)
+            )
+            setPendingOnboardingEmployeeUids(remaining)
+            setProductionOnboardingOpen(false)
+            void queryClient.invalidateQueries({
+              queryKey: employeeKeys.onboardingReadiness(),
+            })
+            if (remaining.length) {
+              navigate({
+                search: (previous) => ({
+                  ...previous,
+                  employeeUids: remaining.join(','),
+                }),
+                replace: true,
+              })
+              toast.info(
+                `${remaining.length} karyawan lainnya akan diperiksa pada langkah berikutnya.`
+              )
+              setTimeout(() => setProductionOnboardingOpen(true), 0)
+              return
+            }
+            navigate({
+              search: (previous) => ({
+                ...previous,
+                setupProduction: undefined,
+                employeeUids: undefined,
+              }),
+              replace: true,
+            })
+            toast.success(
+              'Onboarding selesai. Seluruh karyawan Produksi sudah memiliki pekerjaan utama.'
+            )
+            void routerNavigate({ to: '/karyawan/data-karyawan' })
+          }}
         />
       )}
     </Main>

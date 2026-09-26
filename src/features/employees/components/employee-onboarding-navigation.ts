@@ -24,6 +24,44 @@ export function continueEmployeeOnboarding(
     return
   }
 
+  if (stage === 'NEEDS_PRODUCTION_ASSIGNMENT') {
+    navigate({
+      to: '/produksi/master-pekerjaan',
+      search: {
+        tab: 'assignments',
+        assignmentView: 'readiness',
+        setupProduction: true,
+        employeeUids: actionable.map((item) => item.employeeUid).join(','),
+      },
+    })
+    return
+  }
+
+  if (stage === 'MISSING_PRODUCTION_RATE') {
+    const item = actionable[0]
+    navigate({
+      to: '/produksi/tarif-site',
+      search: {
+        site: item.site ? [item.site] : undefined,
+        filter: item.primaryJobCode,
+      },
+    })
+    return
+  }
+
+  if (stage === 'PRODUCTION_ASSIGNMENT_CONFLICT') {
+    const item = actionable[0]
+    navigate({
+      to: '/produksi/master-pekerjaan',
+      search: {
+        tab: 'assignments',
+        assignmentView: 'readiness',
+        filter: item.employeeNumber,
+      },
+    })
+    return
+  }
+
   navigate({
     to: '/karyawan/pkwt/tambah-multiple',
     search: {
