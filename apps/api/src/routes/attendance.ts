@@ -25,6 +25,7 @@ import { attendanceFinalizationsRouter } from './attendance-finalizations.js'
 import { attendanceRecapsRouter } from './attendance-recaps.js'
 import { attendanceShiftHistoryRouter } from './attendance-shift-history.js'
 import { attendanceInsightsRouter } from './attendance-insights.js'
+import { attendanceBatchToolsRouter } from './attendance-batch-tools.js'
 import {
   attendanceClassificationApprovalStatuses,
   attendanceClassificationTypes,
@@ -139,6 +140,7 @@ attendanceRouter.use(attendanceFinalizationsRouter)
 attendanceRouter.use(attendanceRecapsRouter)
 attendanceRouter.use(attendanceShiftHistoryRouter)
 attendanceRouter.use(attendanceInsightsRouter)
+attendanceRouter.use(attendanceBatchToolsRouter)
 
 attendanceRouter.get(
   '/foundation',
@@ -176,6 +178,9 @@ attendanceRouter.get(
       res.json({
         configuration: {
           goLiveDate: env.ATTENDANCE_GO_LIVE_DATE,
+          batchToolsEnabled:
+            env.ATTENDANCE_BATCH_TOOLS_ENABLED &&
+            auth.roles.includes('SUPER_ADMIN'),
         },
         capabilities: attendanceCapabilities(auth),
         sites,

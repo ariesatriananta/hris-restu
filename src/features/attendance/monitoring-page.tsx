@@ -71,6 +71,7 @@ import {
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
+import { AttendanceBatchActions } from './attendance-batch-actions'
 import { AttendanceDateTimePicker } from './attendance-date-time-picker'
 import { AttendanceReadinessPanel } from './attendance-readiness-panel'
 import { AttendanceRecordTimelineSheet } from './attendance-record-timeline-sheet'
@@ -240,6 +241,16 @@ export function AttendanceMonitoringPage({
             >
               Hari ini
             </Button>
+            {goLiveDate && foundation.data?.configuration.batchToolsEnabled && (
+              <AttendanceBatchActions
+                businessDate={businessDate}
+                goLiveDate={goLiveDate}
+                sites={foundation.data.sites}
+                initialSite={
+                  effectiveSites.length === 1 ? effectiveSites[0] : 'ALL'
+                }
+              />
+            )}
           </div>
         </div>
       </div>

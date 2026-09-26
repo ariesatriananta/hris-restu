@@ -30,7 +30,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Tooltip,
   TooltipContent,
@@ -175,7 +174,7 @@ export function MonitoringFinalizationPanel({
               >
                 <Play />
                 {firstRunnable.status === 'NOT_STARTED'
-                  ? `Jalankan ${siteLabel(firstRunnable.site).replace('Site ', '')}`
+                  ? `Finalisasi ${siteLabel(firstRunnable.site).replace('Site ', '')}`
                   : `Ulangi ${siteLabel(firstRunnable.site).replace('Site ', '')}`}
               </Button>
             )}
@@ -343,7 +342,7 @@ function FinalizationCard({
           >
             <Play />
             {item.status === 'NOT_STARTED'
-              ? 'Jalankan finalisasi'
+              ? `Finalisasi ${siteLabel(item.site).replace('Site ', '')}`
               : 'Ulangi finalisasi'}
           </Button>
         )}
@@ -362,15 +361,14 @@ function RunFinalizationDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const run = useRunAttendanceFinalization()
-  const [reason, setReason] = useState('')
-  const valid = reason.trim().length >= 3
+  const siteName = siteLabel(item.site).replace('Site ', '')
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='sm:max-w-md'>
         <DialogHeader>
           <DialogTitle>
             {item.status === 'NOT_STARTED'
-              ? 'Jalankan finalisasi attendance?'
+              ? `Finalisasi ${siteName}?`
               : 'Finalisasi ulang attendance?'}
           </DialogTitle>
           <DialogDescription>
@@ -378,15 +376,6 @@ function RunFinalizationDialog({
             dari scan dan klasifikasi yang sudah ada tetap dipertahankan.
           </DialogDescription>
         </DialogHeader>
-        <label className='grid gap-1.5 text-sm font-medium'>
-          Alasan
-          <Textarea
-            value={reason}
-            maxLength={500}
-            placeholder='Minimal 3 karakter untuk audit trail.'
-            onChange={(event) => setReason(event.target.value)}
-          />
-        </label>
         <DialogFooter>
           <Button
             variant='outline'
@@ -396,13 +385,12 @@ function RunFinalizationDialog({
             Batal
           </Button>
           <Button
-            disabled={!valid || run.isPending}
+            disabled={run.isPending}
             onClick={() =>
               run.mutate(
                 {
                   siteCode: item.site,
                   businessDate: item.businessDate,
-                  reason: reason.trim(),
                 },
                 {
                   onSuccess: () => {
@@ -421,7 +409,7 @@ function RunFinalizationDialog({
             }
           >
             {run.isPending && <LoaderCircle className='animate-spin' />}
-            Jalankan
+            Finalisasi {siteName}
           </Button>
         </DialogFooter>
       </DialogContent>

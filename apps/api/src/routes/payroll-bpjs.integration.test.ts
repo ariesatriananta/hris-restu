@@ -145,12 +145,40 @@ describe('Payroll BPJS configuration API', () => {
   it('memfilter dan mempaginasikan kepesertaan BPJS Borongan', async () => {
     mocks.query
       .mockResolvedValueOnce([[{ total: 51 }]])
-      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([
+        [
+          {
+            uid: '1eb78702-8e30-4939-9872-fb9b2eea35d4',
+            employeeNumber: 'PKDS-2609-0001',
+            fullName: 'Karyawan Demo',
+            siteUid: '4f091ff4-6a4c-4f14-8a4b-e2ed35c55502',
+            siteCode: 'JEPARA',
+            siteName: 'Site Jepara',
+            enrollmentUid: null,
+            configurationMode: null,
+            healthEmployerEnabled: 1,
+            healthEmployeeEnabled: 1,
+            jhtEmployerEnabled: 1,
+            jhtEmployeeEnabled: 1,
+            jkkEmployerEnabled: 1,
+            jkmEmployerEnabled: 1,
+            jpEmployerEnabled: 0,
+            jpEmployeeEnabled: 0,
+            employeeDeductionAmount: '83000.00',
+            hasHealthNumber: 0,
+            hasEmploymentNumber: 0,
+          },
+        ],
+      ])
 
     const response = await request(
       '/configuration/bpjs/enrollments?year=2026&site=JEPARA&query=Siti&numberStatus=INCOMPLETE&participationStatus=ANY_DISABLED&sortBy=site&sortDirection=desc&page=2&pageSize=50'
     )
     const body = (await response.json()) as {
+      data: Array<{
+        configurationMode: string
+        employeeDeductionAmount: string | null
+      }>
       meta: { page: number; pageSize: number; total: number; totalPages: number }
     }
 
@@ -172,6 +200,8 @@ describe('Payroll BPJS configuration API', () => {
     expect(countSql).toContain('policy.jp_employee_enabled')
     expect(listSql).toContain('ORDER BY latest.id DESC LIMIT 1')
     expect(listSql).toContain("employee_status.code='ACTIVE'")
+    expect(listSql).toContain('LEFT JOIN site_minimum_wages wage')
+    expect(listSql).toContain('employeeDeductionAmount')
     expect(listSql).not.toContain('latest.effective_from')
     expect(listSql).not.toContain('latest.effective_to')
     expect(listSql).toContain('ORDER BY site.name DESC')
@@ -191,6 +221,10 @@ describe('Payroll BPJS configuration API', () => {
       50,
       50,
     ])
+    expect(body.data[0]).toMatchObject({
+      configurationMode: 'GLOBAL',
+      employeeDeductionAmount: '83000.00',
+    })
   })
 
   it('langsung memperbarui kondisi kepesertaan terkini', async () => {

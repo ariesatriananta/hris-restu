@@ -1,12 +1,20 @@
 import { z } from 'zod'
 
 export const attendanceFinalizationGraceMinutes = 60
+export const attendanceManualFinalizationReason =
+  'Finalisasi attendance harian melalui Monitoring Harian.'
 
 export const attendanceFinalizationInput = z
   .object({
     siteCode: z.enum(['JEPARA', 'SEMARANG', 'KLATEN']),
     businessDate: z.string().date(),
-    reason: z.string().trim().min(3).max(500),
+    reason: z
+      .string()
+      .trim()
+      .min(3)
+      .max(500)
+      .optional()
+      .default(attendanceManualFinalizationReason),
   })
   .strict()
 

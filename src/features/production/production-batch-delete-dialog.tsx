@@ -21,14 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { DatePicker } from '@/components/date-picker'
 import {
@@ -133,7 +125,7 @@ export function ProductionBatchDeleteDialog({
       open={open}
       onOpenChange={(next) => !remove.isPending && onOpenChange(next)}
     >
-      <DialogContent className='flex max-h-[92vh] flex-col sm:max-w-5xl'>
+      <DialogContent className='grid h-[92dvh] max-h-[880px] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-5xl'>
         <DialogHeader>
           <DialogTitle>Hapus Transaksi Batch</DialogTitle>
           <DialogDescription>
@@ -142,7 +134,7 @@ export function ProductionBatchDeleteDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className='grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1'>
+        <div className='grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-4 overflow-hidden'>
           <div className='grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end'>
             <label className='grid gap-1 text-sm'>
               <span className='font-medium'>Site</span>
@@ -191,100 +183,101 @@ export function ProductionBatchDeleteDialog({
             </Button>
           </div>
 
-          <div className='overflow-hidden rounded-lg border'>
-            <div className='overflow-x-auto'>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className='w-12 text-center'>
-                      <Checkbox
-                        aria-label='Pilih semua tanggal yang siap dihapus'
-                        checked={allReadySelected}
-                        disabled={!readyDates.length}
-                        onCheckedChange={(checked) =>
-                          setSelected(
-                            checked
-                              ? readyDates.map((row) => row.businessDate)
-                              : []
-                          )
-                        }
-                      />
-                    </TableHead>
-                    <TableHead>Tanggal</TableHead>
-                    <TableHead className='text-right'>Karyawan</TableHead>
-                    <TableHead className='text-right'>Kali setoran</TableHead>
-                    <TableHead className='text-right'>Total PCS</TableHead>
-                    <TableHead className='text-right'>Bruto Produksi</TableHead>
-                    <TableHead>Kesiapan</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {preview.isPending ? (
-                    <TableRow>
-                      <TableCell colSpan={7} className='h-28 text-center'>
-                        <Loader2 className='mx-auto size-5 animate-spin text-muted-foreground' />
-                      </TableCell>
-                    </TableRow>
-                  ) : preview.data?.rows.length ? (
-                    preview.data.rows.map((row) => (
-                      <TableRow key={row.businessDate}>
-                        <TableCell className='text-center'>
-                          <Checkbox
-                            aria-label={`Pilih ${formatDate(row.businessDate)}`}
-                            checked={selected.includes(row.businessDate)}
-                            disabled={!row.canDelete}
-                            onCheckedChange={(checked) =>
-                              setSelected((current) =>
-                                checked
-                                  ? [...current, row.businessDate]
-                                  : current.filter(
-                                      (date) => date !== row.businessDate
-                                    )
-                              )
-                            }
-                          />
-                        </TableCell>
-                        <TableCell className='font-medium'>
-                          {formatDate(row.businessDate)}
-                        </TableCell>
-                        <TableCell className='text-right tabular-nums'>
-                          {formatNumber(row.employeeCount)}
-                        </TableCell>
-                        <TableCell className='text-right tabular-nums'>
-                          {formatNumber(row.transactionCount)}
-                        </TableCell>
-                        <TableCell className='text-right tabular-nums'>
-                          {formatNumber(row.totalQuantityPcs)}
-                        </TableCell>
-                        <TableCell className='text-right font-medium tabular-nums'>
-                          {formatCurrency(row.totalGrossAmount)}
-                        </TableCell>
-                        <TableCell className='min-w-56 text-xs'>
-                          {row.canDelete ? (
-                            <span className='font-medium text-emerald-700 dark:text-emerald-400'>
-                              Siap dihapus
-                            </span>
-                          ) : (
-                            <span className='text-destructive'>
-                              {row.blockers.join(' ')}
-                            </span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell
-                        colSpan={7}
-                        className='h-28 text-center text-muted-foreground'
-                      >
-                        Tidak ada transaksi Produksi pada rentang ini.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+          <div className='min-h-0 overflow-x-auto overflow-y-scroll overscroll-contain rounded-lg border [scrollbar-gutter:stable]'>
+            <table className='w-full min-w-[760px] caption-bottom text-sm'>
+              <thead className='sticky top-0 z-10 bg-background shadow-sm'>
+                <tr className='border-b'>
+                  <th className='h-9 w-12 px-4 text-center align-middle font-medium whitespace-nowrap text-foreground'>
+                    <Checkbox
+                      aria-label='Pilih semua tanggal yang siap dihapus'
+                      checked={allReadySelected}
+                      disabled={!readyDates.length}
+                      onCheckedChange={(checked) =>
+                        setSelected(
+                          checked
+                            ? readyDates.map((row) => row.businessDate)
+                            : []
+                        )
+                      }
+                    />
+                  </th>
+                  <NativeHead>Tanggal</NativeHead>
+                  <NativeHead align='right'>Karyawan</NativeHead>
+                  <NativeHead align='right'>Kali setoran</NativeHead>
+                  <NativeHead align='right'>Total PCS</NativeHead>
+                  <NativeHead align='right'>Bruto Produksi</NativeHead>
+                  <NativeHead>Kesiapan</NativeHead>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.isPending ? (
+                  <tr>
+                    <td colSpan={7} className='h-28 text-center'>
+                      <Loader2 className='mx-auto size-5 animate-spin text-muted-foreground' />
+                    </td>
+                  </tr>
+                ) : preview.data?.rows.length ? (
+                  preview.data.rows.map((row) => (
+                    <tr
+                      key={row.businessDate}
+                      className='border-b transition-colors hover:bg-muted/50'
+                    >
+                      <td className='px-4 py-1 text-center align-middle whitespace-nowrap'>
+                        <Checkbox
+                          aria-label={`Pilih ${formatDate(row.businessDate)}`}
+                          checked={selected.includes(row.businessDate)}
+                          disabled={!row.canDelete}
+                          onCheckedChange={(checked) =>
+                            setSelected((current) =>
+                              checked
+                                ? [...current, row.businessDate]
+                                : current.filter(
+                                    (date) => date !== row.businessDate
+                                  )
+                            )
+                          }
+                        />
+                      </td>
+                      <td className='px-4 py-1 align-middle font-medium whitespace-nowrap'>
+                        {formatDate(row.businessDate)}
+                      </td>
+                      <td className='px-4 py-1 text-right align-middle whitespace-nowrap tabular-nums'>
+                        {formatNumber(row.employeeCount)}
+                      </td>
+                      <td className='px-4 py-1 text-right align-middle whitespace-nowrap tabular-nums'>
+                        {formatNumber(row.transactionCount)}
+                      </td>
+                      <td className='px-4 py-1 text-right align-middle whitespace-nowrap tabular-nums'>
+                        {formatNumber(row.totalQuantityPcs)}
+                      </td>
+                      <td className='px-4 py-1 text-right align-middle font-medium whitespace-nowrap tabular-nums'>
+                        {formatCurrency(row.totalGrossAmount)}
+                      </td>
+                      <td className='min-w-56 px-4 py-1 align-middle text-xs whitespace-nowrap'>
+                        {row.canDelete ? (
+                          <span className='font-medium text-emerald-700 dark:text-emerald-400'>
+                            Siap dihapus
+                          </span>
+                        ) : (
+                          <span className='text-destructive'>
+                            {row.blockers.join(' ')}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className='h-28 text-center text-muted-foreground'
+                    >
+                      Tidak ada transaksi Produksi pada rentang ini.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
 
           <div className='grid gap-3 sm:grid-cols-2'>
@@ -404,6 +397,26 @@ function Requirement({
     <p className={ready ? 'text-emerald-700' : 'text-muted-foreground'}>
       {ready ? '✓' : '•'} {children}
     </p>
+  )
+}
+
+function NativeHead({
+  children,
+  align = 'left',
+}: {
+  children: ReactNode
+  align?: 'left' | 'right'
+}) {
+  return (
+    <th
+      className={
+        align === 'right'
+          ? 'h-9 px-4 text-right align-middle font-medium whitespace-nowrap text-foreground'
+          : 'h-9 px-4 text-left align-middle font-medium whitespace-nowrap text-foreground'
+      }
+    >
+      {children}
+    </th>
   )
 }
 

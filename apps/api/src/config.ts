@@ -11,6 +11,10 @@ const schema = z.object({
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().positive().default(7),
   CONTRACT_LIFECYCLE_CRON_SECRET: z.string().min(32),
   ATTENDANCE_GO_LIVE_DATE: z.string().date(),
+  ATTENDANCE_BATCH_TOOLS_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
   R2_ACCOUNT_ID: z.string().min(1), R2_ACCESS_KEY_ID: z.string().min(1), R2_SECRET_ACCESS_KEY: z.string().min(1), R2_BUCKET_NAME: z.string().min(1), R2_PUBLIC_BASE_URL: z.string().url(), R2_KEY_PREFIX: z.string().default('hris-rsia/'),
   RECRUITMENT_SITE_TOKENS_JSON: z.string().default(''),
   RECRUITMENT_TURNSTILE_SITE_KEY: z.string().min(1).optional(),

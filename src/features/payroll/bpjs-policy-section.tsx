@@ -72,6 +72,7 @@ import type {
   PayrollBpjsPolicy,
   PayrollSite,
 } from './domain'
+import { formatDecimalString } from './money'
 
 function apiMessage(error: unknown, fallback: string) {
   return isAxiosError<{ message?: string }>(error)
@@ -83,6 +84,20 @@ function key(prefix: string) {
 }
 function rate(value: string) {
   return `${Number(value).toLocaleString('id-ID', { maximumFractionDigits: 4 })}%`
+}
+
+function compactRateInput(value: string) {
+  const number = Number(value)
+  return Number.isFinite(number) ? String(number) : value
+}
+
+function employeeDeduction(value: string | null) {
+  return value == null
+    ? 'Belum tersedia'
+    : formatDecimalString(value, {
+        currency: true,
+        maximumFractionDigits: 0,
+      })
 }
 
 function numberValue(value: unknown, fallback: number) {
@@ -148,6 +163,38 @@ function ProgramStatus({
   )
 }
 
+type BpjsComponentField =
+  | 'healthEmployerEnabled'
+  | 'healthEmployeeEnabled'
+  | 'jhtEmployerEnabled'
+  | 'jhtEmployeeEnabled'
+  | 'jkkEmployerEnabled'
+  | 'jkmEmployerEnabled'
+  | 'jpEmployerEnabled'
+  | 'jpEmployeeEnabled'
+
+function componentColumnGroup(
+  label: string,
+  components: ReadonlyArray<readonly [BpjsComponentField, string]>
+): ColumnDef<PayrollBpjsEnrollment> {
+  return {
+    id: `${label.toLowerCase()}Components`,
+    header: () => <span className='block text-center'>{label}</span>,
+    columns: components.map(([field, componentLabel]) => ({
+      id: field,
+      accessorFn: (item) => item[field],
+      header: () => <span className='block text-center'>{componentLabel}</span>,
+      cell: ({ row }) => (
+        <ProgramStatus
+          enabled={row.original[field]}
+          label={`${componentLabel} ${label.toLowerCase()}`}
+        />
+      ),
+      enableSorting: false,
+    })),
+  }
+}
+
 function NumberStatusBadge({ item }: { item: PayrollBpjsEnrollment }) {
   return numberStatus(item) === 'COMPLETE' ? (
     <Badge variant='secondary'>Lengkap</Badge>
@@ -157,6 +204,24 @@ function NumberStatusBadge({ item }: { item: PayrollBpjsEnrollment }) {
       className='border-amber-300 text-amber-700 dark:text-amber-300'
     >
       Belum lengkap
+    </Badge>
+  )
+}
+
+function EnrollmentModeBadge({ item }: { item: PayrollBpjsEnrollment }) {
+  return item.configurationMode === 'CUSTOM' ? (
+    <Badge
+      variant='outline'
+      className='border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300'
+    >
+      Custom
+    </Badge>
+  ) : (
+    <Badge
+      variant='outline'
+      className='border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300'
+    >
+      Global
     </Badge>
   )
 }
@@ -194,9 +259,7 @@ export function BpjsPolicySection({
   const numberStatuses = arrayValue(search.bpjsNumberStatus)
   const participationStatuses = arrayValue(search.bpjsParticipationStatus)
   const sortBy =
-    search.bpjsSortBy === 'site' || search.bpjsSortBy === 'numberStatus'
-      ? search.bpjsSortBy
-      : 'employee'
+    search.bpjsSortBy === 'numberStatus' ? search.bpjsSortBy : 'employee'
   const sortDirection = search.bpjsSortDirection === 'desc' ? 'desc' : 'asc'
   const configuration = usePayrollBpjsConfiguration({
     year: selectedYear,
@@ -233,49 +296,57 @@ export function BpjsPolicySection({
             <p className='font-medium'>{row.original.employee.fullName}</p>
             <p className='text-xs text-muted-foreground'>
               {row.original.employee.employeeNumber}
-              {' · '}
-              {row.original.configurationMode === 'CUSTOM'
-                ? 'Pengaturan khusus'
-                : 'Ikuti global'}
             </p>
           </div>
         ),
       },
       {
-        id: 'site',
-        accessorFn: (item) => item.site.name,
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title='Site' />
-        ),
+        id: 'configurationMode',
+        accessorFn: (item) => item.configurationMode,
+        header: 'Status',
+        cell: ({ row }) => <EnrollmentModeBadge item={row.original} />,
+        enableSorting: false,
       },
-      ...(
-        [
-          ['healthEmployerEnabled', 'Kes. P'],
-          ['healthEmployeeEnabled', 'Kes. K'],
-          ['jhtEmployerEnabled', 'JHT P'],
-          ['jhtEmployeeEnabled', 'JHT K'],
-          ['jkkEmployerEnabled', 'JKK P'],
-          ['jkmEmployerEnabled', 'JKM P'],
-          ['jpEmployerEnabled', 'JP P'],
-          ['jpEmployeeEnabled', 'JP K'],
-        ] as const
-      ).map(
-        ([field, label]) =>
-          ({
-            id: field,
-            accessorFn: (item) => item[field],
-            header: () => <span className='block text-center'>{label}</span>,
-            cell: ({ row }) => (
-              <ProgramStatus enabled={row.original[field]} label={label} />
-            ),
-            enableSorting: false,
-          }) satisfies ColumnDef<PayrollBpjsEnrollment>
-      ),
+      componentColumnGroup('Perusahaan', [
+        ['healthEmployerEnabled', 'Kes'],
+        ['jhtEmployerEnabled', 'JHT'],
+        ['jkkEmployerEnabled', 'JKK'],
+        ['jkmEmployerEnabled', 'JKM'],
+        ['jpEmployerEnabled', 'JP'],
+      ]),
+      componentColumnGroup('Karyawan', [
+        ['healthEmployeeEnabled', 'Kes'],
+        ['jhtEmployeeEnabled', 'JHT'],
+        ['jpEmployeeEnabled', 'JP'],
+      ]),
+      {
+        id: 'employeeDeductionAmount',
+        accessorFn: (item) => item.employeeDeductionAmount,
+        header: () => (
+          <span className='block text-right leading-tight'>
+            Nominal
+            <br />
+            Potong
+          </span>
+        ),
+        cell: ({ row }) => (
+          <span
+            className={`block text-right font-medium whitespace-nowrap ${
+              row.original.employeeDeductionAmount == null
+                ? 'text-xs text-amber-700 dark:text-amber-300'
+                : ''
+            }`}
+          >
+            {employeeDeduction(row.original.employeeDeductionAmount)}
+          </span>
+        ),
+        enableSorting: false,
+      },
       {
         id: 'numberStatus',
         accessorFn: (item) => numberStatus(item),
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title='Nomor BPJS' />
+          <DataTableColumnHeader column={column} title='No. BPJS' />
         ),
         cell: ({ row }) => <NumberStatusBadge item={row.original} />,
       },
@@ -444,7 +515,9 @@ export function BpjsPolicySection({
             <p className='text-xs text-muted-foreground'>
               Karyawan tanpa pengaturan khusus mengikuti delapan porsi kebijakan
               global. Centang menunjukkan komponen yang benar-benar aktif. P =
-              perusahaan, K = karyawan.
+              perusahaan, K = karyawan. Nominal potong merupakan estimasi satu
+              bulan berdasarkan UMK site dan berlaku saat periode memilih Potong
+              BPJS.
             </p>
           </div>
           {canManageEnrollment ? (
@@ -551,18 +624,49 @@ export function BpjsPolicySection({
             <div className='hidden overflow-x-auto rounded-md border md:block'>
               <Table>
                 <TableHeader>
-                  {table.getHeaderGroups().map((group) => (
+                  {table.getHeaderGroups().map((group, groupIndex) => (
                     <TableRow key={group.id}>
-                      {group.headers.map((header) => (
-                        <TableHead key={header.id}>
-                          {header.isPlaceholder
-                            ? null
-                            : flexRender(
-                                header.column.columnDef.header,
-                                header.getContext()
+                      {group.headers.map((header) => {
+                        if (groupIndex === 0 && header.isPlaceholder) {
+                          const leafHeader = header.subHeaders[0]
+                          if (!leafHeader) return null
+                          return (
+                            <TableHead
+                              key={header.id}
+                              rowSpan={2}
+                              className='align-middle'
+                            >
+                              {flexRender(
+                                leafHeader.column.columnDef.header,
+                                leafHeader.getContext()
                               )}
-                        </TableHead>
-                      ))}
+                            </TableHead>
+                          )
+                        }
+                        if (header.isPlaceholder) return null
+                        if (groupIndex > 0 && !header.column.parent) return null
+                        return (
+                          <TableHead
+                            key={header.id}
+                            colSpan={header.colSpan}
+                            rowSpan={
+                              groupIndex === 0 && !header.subHeaders.length
+                                ? 2
+                                : undefined
+                            }
+                            className={
+                              header.subHeaders.length
+                                ? 'border-b text-center'
+                                : 'align-middle'
+                            }
+                          >
+                            {flexRender(
+                              header.column.columnDef.header,
+                              header.getContext()
+                            )}
+                          </TableHead>
+                        )
+                      })}
                     </TableRow>
                   ))}
                 </TableHeader>
@@ -591,21 +695,20 @@ export function BpjsPolicySection({
                         {item.employee.fullName}
                       </p>
                       <p className='text-xs text-muted-foreground'>
-                        {item.employee.employeeNumber} · {item.site.name}
-                        {' · '}
-                        {item.configurationMode === 'CUSTOM'
-                          ? 'Pengaturan khusus'
-                          : 'Ikuti global'}
+                        {item.employee.employeeNumber}
                       </p>
                     </div>
-                    {canManageEnrollment ? (
-                      <DataTableActionButton
-                        label={`Atur kepesertaan ${item.employee.fullName}`}
-                        onClick={() => setEmployeeOpen(item)}
-                      >
-                        <PencilLine />
-                      </DataTableActionButton>
-                    ) : null}
+                    <div className='flex items-center gap-2'>
+                      <EnrollmentModeBadge item={item} />
+                      {canManageEnrollment ? (
+                        <DataTableActionButton
+                          label={`Atur kepesertaan ${item.employee.fullName}`}
+                          onClick={() => setEmployeeOpen(item)}
+                        >
+                          <PencilLine />
+                        </DataTableActionButton>
+                      ) : null}
+                    </div>
                   </div>
                   <div className='mt-3 flex flex-wrap items-center gap-2'>
                     {(
@@ -628,6 +731,14 @@ export function BpjsPolicySection({
                       </Badge>
                     ))}
                     <NumberStatusBadge item={item} />
+                  </div>
+                  <div className='mt-3 flex items-center justify-between border-t pt-3 text-sm'>
+                    <span className='text-muted-foreground'>
+                      Nominal potong
+                    </span>
+                    <span className='font-semibold'>
+                      {employeeDeduction(item.employeeDeductionAmount)}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -769,6 +880,14 @@ function PolicyDialog({
     policy
       ? {
           ...policy,
+          healthEmployerRate: compactRateInput(policy.healthEmployerRate),
+          healthEmployeeRate: compactRateInput(policy.healthEmployeeRate),
+          jhtEmployerRate: compactRateInput(policy.jhtEmployerRate),
+          jhtEmployeeRate: compactRateInput(policy.jhtEmployeeRate),
+          jkkEmployerRate: compactRateInput(policy.jkkEmployerRate),
+          jkmEmployerRate: compactRateInput(policy.jkmEmployerRate),
+          jpEmployerRate: compactRateInput(policy.jpEmployerRate),
+          jpEmployeeRate: compactRateInput(policy.jpEmployeeRate),
           healthWageCeiling: policy.healthWageCeiling ?? '',
           jpWageCeiling: policy.jpWageCeiling ?? '',
           regulationReference: policy.regulationReference ?? '',
@@ -977,16 +1096,22 @@ function EnrollmentDialog({
     }
   }
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => !mutation.isPending && onOpenChange(next)}
+    >
+      <DialogContent
+        className='grid max-h-[calc(100svh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-2xl'
+        showCloseButton={!mutation.isPending}
+      >
+        <DialogHeader className='border-b px-6 py-5'>
           <DialogTitle>Kepesertaan BPJS</DialogTitle>
           <DialogDescription>
             {item?.employee.fullName} · pilih mengikuti kebijakan global atau
             gunakan pengaturan khusus untuk karyawan ini.
           </DialogDescription>
         </DialogHeader>
-        <div className='space-y-3'>
+        <div className='min-h-0 space-y-3 overflow-y-auto px-6 py-4'>
           <div className='space-y-1.5'>
             <Label>Sumber pengaturan</Label>
             <Select
@@ -1047,7 +1172,7 @@ function EnrollmentDialog({
             />
           </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className='border-t bg-muted/20 px-6 py-4'>
           <Button variant='outline' onClick={() => onOpenChange(false)}>
             Batal
           </Button>

@@ -981,6 +981,7 @@ export interface PayrollBpjsEnrollment {
   jkmEmployerEnabled: boolean
   jpEmployerEnabled: boolean
   jpEmployeeEnabled: boolean
+  employeeDeductionAmount: string | null
   hasHealthNumber: boolean
   hasEmploymentNumber: boolean
 }

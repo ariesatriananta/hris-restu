@@ -141,6 +141,12 @@ meskipun global nonaktif, dan pilihan `TIDAK` tetap nonaktif meskipun global
 aktif. Persentase iuran tetap berasal dari kebijakan global dan tidak dapat
 diubah per karyawan. UMK otomatis mengikuti site dan tahun bulan iuran.
 
+Tabel kepesertaan menampilkan badge **Global/Custom**, porsi perusahaan dan
+karyawan dalam header terpisah, serta estimasi **Nominal Potong** per bulan.
+Estimasi tersebut menjumlahkan Kesehatan, JHT, dan JP bagian karyawan berdasarkan
+UMK site, batas upah, serta pembulatan kebijakan tahun yang dipilih. Nominal baru
+diterapkan ketika periode Payroll mengaktifkan **Potong BPJS**.
+
 Potongan bagian karyawan dibulatkan ke Rp1.000 terdekat per program. Kontribusi
 perusahaan dihitung dan disimpan terpisah, sehingga tidak mengurangi neto.
 Perubahan konfigurasi membutuhkan alasan dan berlaku pada perhitungan berikutnya;

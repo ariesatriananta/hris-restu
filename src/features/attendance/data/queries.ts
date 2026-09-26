@@ -38,6 +38,11 @@ import type {
   AttendanceBulkCorrectionInput,
   AttendanceBulkClassificationInput,
   AttendanceDeviceActivationPurpose,
+  AttendanceBatchInputPreviewInput,
+  AttendanceBatchInputRunInput,
+  AttendanceBatchDeletePreviewInput,
+  AttendanceBatchDeleteInput,
+  AttendanceImportRow,
 } from '../domain'
 import { httpAttendanceRepository } from './http-attendance-repository'
 
@@ -89,6 +94,46 @@ export const attendanceFoundationOptions = () =>
 export function useAttendanceFoundation(enabled = true) {
   return useQuery({ ...attendanceFoundationOptions(), enabled })
 }
+
+export const usePreviewAttendanceBatchInput = () =>
+  useMutation({
+    mutationFn: (input: AttendanceBatchInputPreviewInput) =>
+      httpAttendanceRepository.previewBatchInput(input),
+  })
+
+export const useRunAttendanceBatchInput = () =>
+  useAttendanceMutation((input: AttendanceBatchInputRunInput) =>
+    httpAttendanceRepository.runBatchInput(input)
+  )
+
+export const usePreviewAttendanceBatchDelete = () =>
+  useMutation({
+    mutationFn: (input: AttendanceBatchDeletePreviewInput) =>
+      httpAttendanceRepository.previewBatchDelete(input),
+  })
+
+export const useDeleteAttendanceBatch = () =>
+  useAttendanceMutation((input: AttendanceBatchDeleteInput) =>
+    httpAttendanceRepository.deleteBatch(input)
+  )
+
+export const fetchAttendanceImportTemplateEmployees = (businessDate: string) =>
+  httpAttendanceRepository.getImportTemplateEmployees(businessDate)
+
+export const usePreviewAttendanceImport = () =>
+  useMutation({
+    mutationFn: (rows: AttendanceImportRow[]) =>
+      httpAttendanceRepository.previewImport(rows),
+  })
+
+export const useImportAttendance = () =>
+  useAttendanceMutation(
+    (input: {
+      rows: AttendanceImportRow[]
+      reason: string
+      idempotencyKey: string
+    }) => httpAttendanceRepository.importAttendance(input)
+  )
 
 export const useShifts = (params: ShiftListParams) =>
   useQuery({

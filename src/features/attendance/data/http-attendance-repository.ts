@@ -40,6 +40,18 @@ import type {
   AttendanceBulkFinalizationPreview,
   AttendanceBulkFinalizationRunInput,
   AttendanceBulkFinalizationResult,
+  AttendanceBatchInputPreviewInput,
+  AttendanceBatchInputPreview,
+  AttendanceBatchInputRunInput,
+  AttendanceBatchInputResult,
+  AttendanceBatchDeletePreviewInput,
+  AttendanceBatchDeletePreview,
+  AttendanceBatchDeleteInput,
+  AttendanceBatchDeleteResult,
+  AttendanceImportPreview,
+  AttendanceImportResult,
+  AttendanceImportRow,
+  AttendanceImportTemplateEmployees,
 } from '../domain'
 
 const listParams = (
@@ -68,6 +80,66 @@ export const httpAttendanceRepository: AttendanceRepository = {
       '/attendance/foundation'
     )
     return data
+  },
+  async previewBatchInput(input: AttendanceBatchInputPreviewInput) {
+    return (
+      await apiClient.post<{ data: AttendanceBatchInputPreview }>(
+        '/attendance/batch-input/preview',
+        input
+      )
+    ).data.data
+  },
+  async runBatchInput(input: AttendanceBatchInputRunInput) {
+    return (
+      await apiClient.post<{ data: AttendanceBatchInputResult }>(
+        '/attendance/batch-input',
+        input
+      )
+    ).data.data
+  },
+  async previewBatchDelete(input: AttendanceBatchDeletePreviewInput) {
+    return (
+      await apiClient.post<{ data: AttendanceBatchDeletePreview }>(
+        '/attendance/batch-delete/summary',
+        input
+      )
+    ).data.data
+  },
+  async deleteBatch(input: AttendanceBatchDeleteInput) {
+    return (
+      await apiClient.post<{ data: AttendanceBatchDeleteResult }>(
+        '/attendance/batch-delete',
+        input
+      )
+    ).data.data
+  },
+  async getImportTemplateEmployees(businessDate: string) {
+    return (
+      await apiClient.get<AttendanceImportTemplateEmployees>(
+        '/attendance/import/template-employees',
+        { params: { businessDate } }
+      )
+    ).data
+  },
+  async previewImport(rows: AttendanceImportRow[]) {
+    return (
+      await apiClient.post<{ data: AttendanceImportPreview }>(
+        '/attendance/import/preview',
+        { rows }
+      )
+    ).data.data
+  },
+  async importAttendance(input: {
+    rows: AttendanceImportRow[]
+    reason: string
+    idempotencyKey: string
+  }) {
+    return (
+      await apiClient.post<{ data: AttendanceImportResult }>(
+        '/attendance/import',
+        input
+      )
+    ).data.data
   },
   async listShifts(input) {
     return (

@@ -60,6 +60,7 @@ interface LookupOption<T extends string> {
 export interface AttendanceFoundation {
   configuration: {
     goLiveDate: string
+    batchToolsEnabled: boolean
   }
   capabilities: AttendanceCapabilities
   sites: AttendanceSite[]
@@ -91,6 +92,27 @@ export interface AttendanceProductionSectionLookup {
 
 export interface AttendanceRepository {
   getFoundation(): Promise<AttendanceFoundation>
+  previewBatchInput(
+    input: AttendanceBatchInputPreviewInput
+  ): Promise<AttendanceBatchInputPreview>
+  runBatchInput(
+    input: AttendanceBatchInputRunInput
+  ): Promise<AttendanceBatchInputResult>
+  previewBatchDelete(
+    input: AttendanceBatchDeletePreviewInput
+  ): Promise<AttendanceBatchDeletePreview>
+  deleteBatch(
+    input: AttendanceBatchDeleteInput
+  ): Promise<AttendanceBatchDeleteResult>
+  getImportTemplateEmployees(
+    businessDate: string
+  ): Promise<AttendanceImportTemplateEmployees>
+  previewImport(rows: AttendanceImportRow[]): Promise<AttendanceImportPreview>
+  importAttendance(input: {
+    rows: AttendanceImportRow[]
+    reason: string
+    idempotencyKey: string
+  }): Promise<AttendanceImportResult>
   listShifts(input: ShiftListParams): Promise<PaginatedAttendanceResult<Shift>>
   saveShift(input: ShiftInput, uid?: string): Promise<void>
   deleteShift(uid: string): Promise<void>
@@ -540,6 +562,134 @@ export interface AttendanceMonitoringResult extends PaginatedAttendanceResult<At
   summary: AttendanceMonitoringSummary
 }
 
+export type AttendanceBatchSite = 'ALL' | AttendanceSiteCode
+export type AttendanceBatchMode = 'RANDOM' | 'FULL_PRESENT'
+
+export interface AttendanceBatchInputPreviewInput {
+  businessDate: string
+  site: AttendanceBatchSite
+  mode: AttendanceBatchMode
+}
+
+export interface AttendanceBatchInputRunInput extends AttendanceBatchInputPreviewInput {
+  reason: string
+  confirmation: 'PROSES'
+}
+
+export interface AttendanceBatchInputPreview {
+  businessDate: string
+  site: AttendanceBatchSite
+  mode: AttendanceBatchMode
+  eligibleEmployeeCount: number
+  siteCount: number
+  canCreate: boolean
+  blockers: string[]
+  sites: Array<{
+    site: AttendanceSiteCode
+    siteName: string
+    eligibleEmployeeCount: number
+    hasReadyDevice: boolean
+  }>
+}
+
+export interface AttendanceBatchInputResult {
+  attendanceRecords: number
+  scanEvents: number
+  classificationRequests: number
+  corrections: number
+  preview: AttendanceBatchInputPreview
+}
+
+export interface AttendanceBatchDeletePreviewInput {
+  dateFrom: string
+  dateTo: string
+  site: AttendanceBatchSite
+}
+
+export interface AttendanceBatchDeletePreviewRow {
+  businessDate: string
+  siteCount: number
+  employeeCount: number
+  recordCount: number
+  scanEventCount: number
+  correctionCount: number
+  classificationCount: number
+  finalizationCount: number
+  canDelete: boolean
+  blockers: string[]
+}
+
+export interface AttendanceBatchDeletePreview extends AttendanceBatchDeletePreviewInput {
+  rows: AttendanceBatchDeletePreviewRow[]
+}
+
+export interface AttendanceBatchDeleteInput {
+  businessDates: string[]
+  site: AttendanceBatchSite
+  reason: string
+  confirmation: 'HAPUS'
+}
+
+export interface AttendanceBatchDeleteResult {
+  deletedDates: number
+  deletedRecords: number
+  deletedScanEvents: number
+  deletedCorrections: number
+  deletedClassifications: number
+  deletedFinalizations: number
+}
+
+export type AttendanceImportStatus =
+  | 'HADIR'
+  | 'ALPHA'
+  | 'CUTI'
+  | 'SAKIT'
+  | 'IZIN'
+
+export interface AttendanceImportRow {
+  rowNumber: number
+  businessDate: string
+  employeeNumber: string
+  employeeName?: string
+  status: string
+  clockIn?: string
+  clockOut?: string
+  notes?: string
+}
+
+export interface AttendanceImportPreviewRow extends AttendanceImportRow {
+  valid: boolean
+  message: string
+  warning: string | null
+  site: AttendanceSiteCode | null
+  siteName: string | null
+  shiftName: string | null
+  attendanceStatus: AttendanceStatus | null
+  calendarDayType: 'WORKDAY' | 'HOLIDAY' | 'NON_WORKDAY' | null
+}
+
+export interface AttendanceImportPreview {
+  total: number
+  valid: number
+  invalid: number
+  warnings: number
+  rows: AttendanceImportPreviewRow[]
+}
+
+export interface AttendanceImportTemplateEmployees {
+  data: Array<{ employeeNumber: string; employeeName: string }>
+  meta: { total: number; limit: number; referenceDate: string }
+}
+
+export interface AttendanceImportResult {
+  total: number
+  imported: number
+  replayed: number
+  attendanceRecords: number
+  corrections: number
+  classificationRequests: number
+}
+
 export interface AttendanceMonitoringListParams {
   businessDate: string
   query?: string
@@ -858,7 +1008,7 @@ export interface AttendanceFinalizationListParams {
 export interface AttendanceFinalizationRunInput {
   siteCode: AttendanceSiteCode
   businessDate: string
-  reason: string
+  reason?: string
 }
 
 export type AttendanceBulkFinalizationMode = 'RANGE' | 'ALL_PENDING'

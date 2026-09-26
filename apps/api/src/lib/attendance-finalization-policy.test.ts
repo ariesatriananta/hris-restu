@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { resolveCalendarDay } from './attendance-calendar-policy.js'
 import {
+  attendanceFinalizationInput,
+  attendanceManualFinalizationReason,
   canRunFinalization,
   finalizationStatus,
   finalizationRecordDecision,
@@ -13,6 +15,15 @@ import {
 
 describe('attendance finalization policy', () => {
   const goLiveDate = '2026-08-06'
+
+  it('mengisi alasan audit default untuk finalisasi manual', () => {
+    expect(
+      attendanceFinalizationInput.parse({
+        siteCode: 'JEPARA',
+        businessDate: '2026-08-06',
+      }).reason
+    ).toBe(attendanceManualFinalizationReason)
+  })
 
   it('menambahkan grace 60 menit setelah shift normal', () => {
     expect(

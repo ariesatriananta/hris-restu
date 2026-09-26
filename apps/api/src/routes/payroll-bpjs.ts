@@ -512,6 +512,16 @@ payrollBpjsRouter.get(
       }
       const effective = (component: string) =>
         `(CASE WHEN enrollment.configuration_mode='CUSTOM' THEN enrollment.${component} ELSE COALESCE(policy.${component},0) END)`
+      const employeeDeductionAmount = `(CASE
+        WHEN policy.id IS NULL OR wage.id IS NULL THEN NULL
+        ELSE
+          IF(${effective('health_employee_enabled')}=1,
+            ROUND((LEAST(wage.amount,COALESCE(policy.health_wage_ceiling,wage.amount))*policy.health_employee_rate/100)/policy.rounding_unit,0)*policy.rounding_unit,0)
+          + IF(${effective('jht_employee_enabled')}=1,
+            ROUND((wage.amount*policy.jht_employee_rate/100)/policy.rounding_unit,0)*policy.rounding_unit,0)
+          + IF(${effective('jp_employee_enabled')}=1,
+            ROUND((LEAST(wage.amount,COALESCE(policy.jp_wage_ceiling,wage.amount))*policy.jp_employee_rate/100)/policy.rounding_unit,0)*policy.rounding_unit,0)
+        END)`
       const effectiveColumns = [
         'health_employer_enabled',
         'health_employee_enabled',
@@ -544,7 +554,11 @@ payrollBpjsRouter.get(
           ORDER BY latest.id DESC LIMIT 1
         )
         LEFT JOIN payroll_bpjs_policies policy
-          ON policy.policy_year=? AND policy.status='ACTIVE'`
+          ON policy.policy_year=? AND policy.status='ACTIVE'
+        LEFT JOIN site_minimum_wages wage
+          ON wage.site_id=site.id
+         AND wage.wage_year=policy.policy_year
+         AND wage.status='ACTIVE'`
       const numberCompleteSql = `(employee.bpjs_health_number IS NOT NULL AND TRIM(employee.bpjs_health_number)<>'' AND employee.bpjs_employment_number IS NOT NULL AND TRIM(employee.bpjs_employment_number)<>'')`
       const orderColumns = {
         employee: 'employee.full_name',
@@ -569,7 +583,8 @@ payrollBpjsRouter.get(
           ${effective('jkk_employer_enabled')} jkkEmployerEnabled,
           ${effective('jkm_employer_enabled')} jkmEmployerEnabled,
           ${effective('jp_employer_enabled')} jpEmployerEnabled,
-          ${effective('jp_employee_enabled')} jpEmployeeEnabled
+          ${effective('jp_employee_enabled')} jpEmployeeEnabled,
+          ${employeeDeductionAmount} employeeDeductionAmount
         ${fromSql} WHERE ${where.join(' AND ')}
         ORDER BY ${orderColumns[input.sortBy]} ${direction},employee.full_name ASC,employee.employee_number ASC
         LIMIT ? OFFSET ?`,
@@ -600,6 +615,10 @@ payrollBpjsRouter.get(
           jkmEmployerEnabled: bool(row.jkmEmployerEnabled),
           jpEmployerEnabled: bool(row.jpEmployerEnabled),
           jpEmployeeEnabled: bool(row.jpEmployeeEnabled),
+          employeeDeductionAmount:
+            row.employeeDeductionAmount == null
+              ? null
+              : String(row.employeeDeductionAmount),
           hasHealthNumber: bool(row.hasHealthNumber),
           hasEmploymentNumber: bool(row.hasEmploymentNumber),
         })),
