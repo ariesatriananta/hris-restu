@@ -37,6 +37,7 @@ import {
   statusLabel,
 } from '../utils'
 import { ContractLifecycleActionButtons } from './contract-lifecycle-action-buttons'
+import { ContractDeleteAction } from './contract-delete-action'
 
 type ContractDetailDrawerProps = {
   contract?: EmployeeContract
@@ -224,6 +225,19 @@ export function ContractDetailDrawer({
                     Batalkan
                   </Button>
                 </div>
+              </section>
+            )}
+            {['DRAFT', 'CANCELLED'].includes(contract.status) && (
+              <section className='space-y-2 border-t pt-4'>
+                <h3 className='text-sm font-semibold'>Hapus kontrak</h3>
+                <p className='text-sm text-muted-foreground'>
+                  Hanya kontrak Draft atau Dibatalkan yang dapat dihapus.
+                </p>
+                <ContractDeleteAction
+                  contract={contract}
+                  showLabel
+                  onDeleted={() => onOpenChange(false)}
+                />
               </section>
             )}
             {contract.status === 'ACTIVE' && (

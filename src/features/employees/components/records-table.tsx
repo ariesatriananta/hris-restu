@@ -23,8 +23,8 @@ import {
   ScrollText,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { currentListReturnTo } from '@/lib/list-return-to'
 import { apiClient } from '@/lib/api-client'
+import { currentListReturnTo } from '@/lib/list-return-to'
 import { cn } from '@/lib/utils'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
@@ -59,6 +59,7 @@ import {
   contractStatusBadgeVariant,
   statusLabel,
 } from '../utils'
+import { ContractDeleteAction } from './contract-delete-action'
 import { ContractLifecycleActionButtons } from './contract-lifecycle-action-buttons'
 
 export type EmployeeRecordRow = {
@@ -209,14 +210,14 @@ export function RecordsTable({
             <Button
               type='button'
               variant='link'
-              className='h-auto max-w-72 justify-start whitespace-normal break-all p-0 text-left leading-tight font-medium'
+              className='h-auto max-w-72 justify-start p-0 text-left leading-tight font-medium break-all whitespace-normal'
               title={row.original.title}
               onClick={() => onView(row.original)}
             >
               {row.original.title}
             </Button>
           ) : (
-            <p className='break-all font-medium' title={row.original.title}>
+            <p className='font-medium break-all' title={row.original.title}>
               {row.original.title}
             </p>
           )}
@@ -433,6 +434,9 @@ export function RecordsTable({
               compact
             />
           )}
+          {prefix === 'contract' && row.original.contract && (
+            <ContractDeleteAction contract={row.original.contract} />
+          )}
         </div>
       ),
     },
@@ -470,236 +474,287 @@ export function RecordsTable({
   })
   return (
     <>
-    <div className='space-y-4'>
-      <DataTableToolbar
-        table={table}
-        searchPlaceholder={
-          prefix === 'contract'
-            ? 'Cari nama karyawan, nomor karyawan, atau nomor kontrak...'
-            : 'Cari karyawan, nomor, atau dokumen...'
-        }
-        searchDebounceMs={300}
-        filters={[
-          {
-            columnId: 'site',
-            title: 'Site',
-            options: ['JEPARA', 'SEMARANG', 'KLATEN'].map((value) => ({
-              value,
-              label: statusLabel(value),
-            })),
-          },
-          {
-            columnId: 'status',
-            title: 'Status',
-            options: statuses.map((value) => ({
-              value,
-              label: statusLabel(value),
-            })),
-          },
-          ...(prefix === 'contract'
-            ? [
-                {
-                  columnId: 'coverage',
-                  title: 'Status kontrak aktif',
-                  options: [
-                    {
-                      value: 'ACTIVE_WITHOUT_VALID_CONTRACT',
-                      label: 'Perlu dibuatkan kontrak',
-                    },
-                    {
-                      value: 'EXPIRING_WITHIN_7_DAYS',
-                      label: 'Berakhir <= 7 hari',
-                    },
-                  ],
-                },
-                {
-                  columnId: 'productionModule',
-                  title: 'Modul Produksi',
-                  options: productionModuleOptions,
-                },
-                {
-                  columnId: 'productionSection',
-                  title: 'Bagian Produksi',
-                  options: productionSectionOptions,
-                },
-              ]
-            : []),
-        ]}
-      />
-      {prefix === 'contract' && (
-        <DataTableBulkActions
+      <div className='space-y-4'>
+        <DataTableToolbar
           table={table}
-          entityName='kontrak'
-          entityNamePlural='kontrak'
-        >
-          <Button
-            variant='outline'
-            size='sm'
-            className='h-8'
-            disabled={isBulkPrintPending}
-            onClick={async () => {
-              const selectedRows = table.getFilteredSelectedRowModel().rows
-              const contractUids = selectedRows
-                .filter((row) => !row.original.contract?.isMissingContract)
-                .map((row) => row.original.uid)
-              if (!contractUids.length) return
-              if (contractUids.length > 50) {
-                toast.error('Bulk cetak maksimal 50 kontrak sekali proses.')
-                return
-              }
-              const unsupported = selectedRows.filter((row) => {
-                const contract = row.original.contract
-                return !contract?.isMissingContract &&
-                  (contract?.employeeType !== 'BORONGAN' ||
-                    contract?.contractType !== 'PKWT')
-              })
-              if (unsupported.length) {
-                toast.error('Cetak template hanya untuk karyawan Borongan dengan kontrak PKWT.')
-                return
-              }
-              const popup = window.open('', '_blank')
-              setBulkPrintPending(true)
-              try {
-                await apiClient.post('/employees/contracts/print-snapshots', {
-                  contractUids,
-                })
-                const target = `/karyawan/pkwt/cetak-bulk?contractUids=${encodeURIComponent(contractUids.join(','))}`
-                if (popup) popup.location.href = target
-                else window.open(target, '_blank')
-                table.resetRowSelection()
-              } catch (error) {
-                popup?.close()
-                const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message
-                toast.error(message ?? 'Bulk preview kontrak gagal dibuat.')
-              } finally {
-                setBulkPrintPending(false)
-              }
-            }}
-          >
-            <Printer /> Cetak Template
-          </Button>
-          <Button
-            variant='outline'
-            size='sm'
-            className='h-8'
-            onClick={() => {
-              const selectedRows = table.getFilteredSelectedRowModel().rows
-              const employeeUids = [
-                ...new Set(selectedRows.map((row) => row.original.employeeUid)),
-              ]
-              if (!employeeUids.length) return
-              if (employeeUids.length > 25) {
-                toast.error('Create multiple kontrak maksimal 25 karyawan.')
-                return
-              }
-              routerNavigate({
-                to: '/karyawan/pkwt/tambah-multiple',
-                search: {
-                  returnTo,
-                  employeeUids: employeeUids.join(','),
-                },
-              })
-            }}
-          >
-            <ScrollText /> Create Multiple Kontrak
-          </Button>
-        </DataTableBulkActions>
-      )}
-      {isPending ? (
-        <p className='py-10 text-center text-muted-foreground'>
-          Memuat data...
-        </p>
-      ) : isError ? (
-        <div className='py-10 text-center'>
-          <p>Data gagal dimuat.</p>
-          <Button variant='outline' className='mt-3' onClick={onRetry}>
-            <RefreshCcw /> Coba lagi
-          </Button>
-        </div>
-      ) : table.getRowModel().rows.length === 0 ? (
-        <div className='py-10 text-center text-muted-foreground'>
-          <FileText className='mx-auto mb-2' />
-          Tidak ada data yang sesuai filter.
-        </div>
-      ) : (
-        <>
-          <div className='overflow-x-auto rounded-md border'>
-            <Table>
-              <TableHeader>
-                {table.getHeaderGroups().map((group) => (
-                  <TableRow key={group.id}>
-                    {group.headers.map((header) => (
-                      <TableHead
-                        key={header.id}
-                        className={
-                          header.column.columnDef.meta?.className as
-                            | string
-                            | undefined
-                        }
-                      >
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(
-                              header.column.columnDef.header,
-                              header.getContext()
-                            )}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableHeader>
-              <TableBody>
-                {table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    data-state={row.getIsSelected() && 'selected'}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell
-                        key={cell.id}
-                        className={cn(
-                          cell.column.columnDef.meta?.className as
-                            | string
-                            | undefined,
-                          cell.column.columnDef.meta?.tdClassName as
-                            | string
-                            | undefined
-                        )}
-                      >
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          <DataTablePagination
+          searchPlaceholder={
+            prefix === 'contract'
+              ? 'Cari nama karyawan, nomor karyawan, atau nomor kontrak...'
+              : 'Cari karyawan, nomor, atau dokumen...'
+          }
+          searchDebounceMs={300}
+          filters={[
+            {
+              columnId: 'site',
+              title: 'Site',
+              options: ['JEPARA', 'SEMARANG', 'KLATEN'].map((value) => ({
+                value,
+                label: statusLabel(value),
+              })),
+            },
+            {
+              columnId: 'status',
+              title: 'Status',
+              options: statuses.map((value) => ({
+                value,
+                label: statusLabel(value),
+              })),
+            },
+            ...(prefix === 'contract'
+              ? [
+                  {
+                    columnId: 'coverage',
+                    title: 'Kondisi kontrak',
+                    options: [
+                      {
+                        value: 'ACTIVE_WITHOUT_VALID_CONTRACT',
+                        label: 'Tidak memiliki kontrak aktif berlaku',
+                      },
+                      {
+                        value: 'EXPIRING_WITHIN_7_DAYS',
+                        label: 'Berakhir dalam 7 hari',
+                      },
+                      {
+                        value: 'EXPIRED_WITHIN_14_DAYS',
+                        label: 'Baru berakhir dalam 14 hari',
+                      },
+                    ],
+                  },
+                  {
+                    columnId: 'productionModule',
+                    title: 'Modul Produksi',
+                    options: productionModuleOptions,
+                  },
+                  {
+                    columnId: 'productionSection',
+                    title: 'Bagian Produksi',
+                    options: productionSectionOptions,
+                  },
+                ]
+              : []),
+          ]}
+        />
+        {prefix === 'contract' && (
+          <DataTableBulkActions
             table={table}
-            summary={
-              <>
-                Menampilkan{' '}
-                {data.total ? (data.page - 1) * data.pageSize + 1 : 0}-
-                {Math.min(data.page * data.pageSize, data.total)} dari{' '}
-                {data.total} data.
-              </>
-            }
-          />
-        </>
+            entityName='kontrak'
+            entityNamePlural='kontrak'
+          >
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-8'
+              disabled={isBulkPrintPending}
+              onClick={async () => {
+                const selectedRows = table.getFilteredSelectedRowModel().rows
+                const contractUids = selectedRows
+                  .filter((row) => !row.original.contract?.isMissingContract)
+                  .map((row) => row.original.uid)
+                if (!contractUids.length) return
+                if (contractUids.length > 50) {
+                  toast.error('Bulk cetak maksimal 50 kontrak sekali proses.')
+                  return
+                }
+                const unsupported = selectedRows.filter((row) => {
+                  const contract = row.original.contract
+                  return (
+                    !contract?.isMissingContract &&
+                    (contract?.employeeType !== 'BORONGAN' ||
+                      contract?.contractType !== 'PKWT')
+                  )
+                })
+                if (unsupported.length) {
+                  toast.error(
+                    'Cetak template hanya untuk karyawan Borongan dengan kontrak PKWT.'
+                  )
+                  return
+                }
+                const popup = window.open('', '_blank')
+                setBulkPrintPending(true)
+                try {
+                  await apiClient.post('/employees/contracts/print-snapshots', {
+                    contractUids,
+                  })
+                  const target = `/karyawan/pkwt/cetak-bulk?contractUids=${encodeURIComponent(contractUids.join(','))}`
+                  if (popup) popup.location.href = target
+                  else window.open(target, '_blank')
+                  table.resetRowSelection()
+                } catch (error) {
+                  popup?.close()
+                  const message = (
+                    error as { response?: { data?: { message?: string } } }
+                  ).response?.data?.message
+                  toast.error(message ?? 'Bulk preview kontrak gagal dibuat.')
+                } finally {
+                  setBulkPrintPending(false)
+                }
+              }}
+            >
+              <Printer /> Cetak Template
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-8'
+              onClick={() => {
+                const selectedRows = table.getFilteredSelectedRowModel().rows
+                if (!selectedRows.length) return
+                if (selectedRows.length > 50) {
+                  toast.error('Perpanjangan maksimal 50 kontrak sekali proses.')
+                  return
+                }
+                const invalidRows = selectedRows.filter((row) => {
+                  const contract = row.original.contract
+                  return (
+                    !contract ||
+                    contract.isMissingContract ||
+                    contract.status !== 'EXPIRED' ||
+                    !contract.isLatestForEmployee
+                  )
+                })
+                if (invalidRows.length) {
+                  toast.error(
+                    'Perpanjangan massal hanya untuk kontrak terakhir yang berstatus Berakhir.'
+                  )
+                  return
+                }
+                routerNavigate({
+                  to: '/karyawan/pkwt/tambah-multiple',
+                  search: {
+                    returnTo,
+                    renewalSourceUids: selectedRows
+                      .map((row) => row.original.uid)
+                      .join(','),
+                  },
+                })
+              }}
+            >
+              <FilePlus2 /> Perpanjang Terpilih
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-8'
+              onClick={() => {
+                const selectedRows = table.getFilteredSelectedRowModel().rows
+                const employeeUids = [
+                  ...new Set(
+                    selectedRows.map((row) => row.original.employeeUid)
+                  ),
+                ]
+                if (!employeeUids.length) return
+                if (employeeUids.length > 50) {
+                  toast.error('Create multiple kontrak maksimal 50 karyawan.')
+                  return
+                }
+                routerNavigate({
+                  to: '/karyawan/pkwt/tambah-multiple',
+                  search: {
+                    returnTo,
+                    employeeUids: employeeUids.join(','),
+                  },
+                })
+              }}
+            >
+              <ScrollText /> Create Multiple Kontrak
+            </Button>
+          </DataTableBulkActions>
+        )}
+        {isPending ? (
+          <p className='py-10 text-center text-muted-foreground'>
+            Memuat data...
+          </p>
+        ) : isError ? (
+          <div className='py-10 text-center'>
+            <p>Data gagal dimuat.</p>
+            <Button variant='outline' className='mt-3' onClick={onRetry}>
+              <RefreshCcw /> Coba lagi
+            </Button>
+          </div>
+        ) : table.getRowModel().rows.length === 0 ? (
+          <div className='py-10 text-center text-muted-foreground'>
+            <FileText className='mx-auto mb-2' />
+            Tidak ada data yang sesuai filter.
+          </div>
+        ) : (
+          <>
+            <div className='overflow-x-auto rounded-md border'>
+              <Table>
+                <TableHeader>
+                  {table.getHeaderGroups().map((group) => (
+                    <TableRow key={group.id}>
+                      {group.headers.map((header) => (
+                        <TableHead
+                          key={header.id}
+                          className={
+                            header.column.columnDef.meta?.className as
+                              | string
+                              | undefined
+                          }
+                        >
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(
+                                header.column.columnDef.header,
+                                header.getContext()
+                              )}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody>
+                  {table.getRowModel().rows.map((row) => (
+                    <TableRow
+                      key={row.id}
+                      data-state={row.getIsSelected() && 'selected'}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          className={cn(
+                            cell.column.columnDef.meta?.className as
+                              | string
+                              | undefined,
+                            cell.column.columnDef.meta?.tdClassName as
+                              | string
+                              | undefined
+                          )}
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <DataTablePagination
+              table={table}
+              summary={
+                <>
+                  Menampilkan{' '}
+                  {data.total ? (data.page - 1) * data.pageSize + 1 : 0}-
+                  {Math.min(data.page * data.pageSize, data.total)} dari{' '}
+                  {data.total} data.
+                </>
+              }
+            />
+          </>
+        )}
+      </div>
+      {prefix === 'contract' && (
+        <ContractFilePreviewDialog
+          contract={previewContract}
+          returnTo={returnTo}
+          onOpenChange={(open) => {
+            if (!open) setPreviewContract(undefined)
+          }}
+        />
       )}
-    </div>
-    {prefix === 'contract' && (
-      <ContractFilePreviewDialog
-        contract={previewContract}
-        returnTo={returnTo}
-        onOpenChange={(open) => {
-          if (!open) setPreviewContract(undefined)
-        }}
-      />
-    )}
     </>
   )
 }
@@ -721,7 +776,9 @@ function ContractFilePreviewDialog({
     const popup = window.open('', '_blank')
     setTemplatePending(true)
     try {
-      await apiClient.post(`/employees/contracts/${contract.uid}/print-snapshot`)
+      await apiClient.post(
+        `/employees/contracts/${contract.uid}/print-snapshot`
+      )
       await apiClient.post(
         `/employees/contracts/${contract.uid}/normalize-print-snapshot`
       )
@@ -791,15 +848,15 @@ function ContractFilePreviewDialog({
               {!contract?.isMissingContract &&
                 contract?.employeeType === 'BORONGAN' &&
                 contract.contractType === 'PKWT' && (
-                <Button
-                  size='sm'
-                  variant='outline'
-                  disabled={isTemplatePending}
-                  onClick={() => void downloadTemplate()}
-                >
-                  <Printer /> Cetak Template Kontrak
-                </Button>
-              )}
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    disabled={isTemplatePending}
+                    onClick={() => void downloadTemplate()}
+                  >
+                    <Printer /> Cetak Template Kontrak
+                  </Button>
+                )}
             </DialogFooter>
           </>
         )}

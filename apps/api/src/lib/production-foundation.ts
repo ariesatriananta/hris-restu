@@ -128,18 +128,34 @@ export const productionAssignmentInput = z
 
 export const productionAssignmentBatchInput = z
   .object({
-    employeeUids: z.array(z.string().uuid()).min(1).max(200),
-    jobUid: z.string().uuid(),
+    items: z
+      .array(
+        z.object({
+          employeeUid: z.string().uuid(),
+          jobUid: z.string().uuid(),
+          effectiveFrom: z.string().date().optional(),
+        })
+      )
+      .min(1)
+      .max(200),
     site: productionSiteCode,
-    effectiveFrom: z.string().date(),
+    effectiveFrom: z.string().date().optional(),
   })
   .strict()
   .superRefine((value, context) => {
-    if (new Set(value.employeeUids).size !== value.employeeUids.length) {
+    const employeeUids = value.items.map((item) => item.employeeUid)
+    if (new Set(employeeUids).size !== employeeUids.length) {
       context.addIssue({
         code: 'custom',
-        path: ['employeeUids'],
+        path: ['items'],
         message: 'Daftar karyawan tidak boleh berisi data ganda.',
+      })
+    }
+    if (!value.effectiveFrom && value.items.some((item) => !item.effectiveFrom)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['items'],
+        message: 'Tanggal mulai wajib diisi pada setiap karyawan.',
       })
     }
   })
@@ -172,7 +188,7 @@ export const productionRateExceptionInput = z.object({
   idempotencyKey: z.string().uuid(),
 }).strict()
 
-export const productionActiveRateCorrectionInput = productionRateExceptionInput.extend({
+const productionActiveRateCorrectionFields = {
   rateAmount: z.union([z.string(), z.number()]).transform(String),
   tiers: z.array(z.object({
     minQuantity: z.union([z.string(), z.number()]).transform(String),
@@ -181,12 +197,27 @@ export const productionActiveRateCorrectionInput = productionRateExceptionInput.
   effectiveTo: z.string().date().optional().nullable(),
   referenceNumber: nullableText(100),
   notes: nullableText(500),
-}).strict().superRefine((value, context) => {
+}
+
+function validateActiveRateCorrection(
+  value: { rateAmount: string; tiers?: Array<{ minQuantity: string; rateAmount: string }> },
+  context: z.RefinementCtx
+) {
   if (!/^\d+(\.\d{1,4})?$/.test(value.rateAmount)) {
     context.addIssue({ code: 'custom', path: ['rateAmount'], message: 'Tarif maksimal memiliki empat angka desimal.' })
   }
   validateRateTiers(value.tiers, value.rateAmount, context)
-})
+}
+
+export const productionActiveRateCorrectionPreviewInput = z
+  .object(productionActiveRateCorrectionFields)
+  .strict()
+  .superRefine(validateActiveRateCorrection)
+
+export const productionActiveRateCorrectionInput = productionRateExceptionInput
+  .extend(productionActiveRateCorrectionFields)
+  .strict()
+  .superRefine(validateActiveRateCorrection)
 
 export function pageParams(page: unknown, pageSize: unknown) {
   const parsedPage = Number(page ?? 1)

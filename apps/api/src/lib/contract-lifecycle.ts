@@ -18,7 +18,10 @@ import {
   type ContractTransitionAction,
 } from './contract-lifecycle-policy.js'
 import type { AuthContext } from '../middleware/authenticate.js'
-import { reconcileProductionAssignmentsAtEmploymentBoundary } from './production-assignment-lifecycle.js'
+import {
+  continuePrimaryProductionAssignmentAfterRenewal,
+  type ContinuedProductionAssignment,
+} from './production-assignment-lifecycle.js'
 import {
   contractEmployeeTypeRuleMessage,
   isContractEmployeeTypeCombinationAllowed,
@@ -44,7 +47,9 @@ export async function employeeStatus(conn: PoolConnection, employeeId: number, n
   const employee = employees[0]
   if (!employee) throw new ApiError(404, 'Karyawan tidak ditemukan.')
   if (next === 'ACTIVE' && ['RESIGNED', 'LEAVE'].includes(employee.currentStatus)) throw new ApiError(422, 'Karyawan dengan status terminal tidak dapat diaktifkan lewat kontrak.')
-  if (employee.currentStatus === next) return false
+  // Status utama dan histori bisa tidak sinkron setelah migrasi atau proses
+  // lifecycle lama. Jangan berhenti hanya karena status utama sudah sama;
+  // bagian di bawah tetap harus menyelaraskan histori efektifnya.
   const [target] = await conn.query<RowDataPacket[]>('SELECT id FROM employee_statuses WHERE code=?', [next])
   const [later] = await conn.query<RowDataPacket[]>('SELECT id FROM employee_employment_histories WHERE employee_id=? AND effective_from>? LIMIT 1', [employeeId, effectiveDate])
   if (later[0]) throw new ApiError(422, 'Tanggal efektif memiliki histori penempatan yang lebih baru.')
@@ -56,12 +61,6 @@ export async function employeeStatus(conn: PoolConnection, employeeId: number, n
     await conn.execute('UPDATE employee_employment_histories SET employee_status_id=?,updated_by=? WHERE id=?', [target[0].id, actor?.id ?? null, active[0].id])
   }
   await conn.execute('UPDATE employees SET employee_status_id=?,resign_date=?,resign_reason=?,updated_by=? WHERE id=?', [target[0].id,next === 'RESIGNED' ? effectiveDate : null,next === 'RESIGNED' ? reason ?? null : null,actor?.id ?? null,employeeId])
-  await reconcileProductionAssignmentsAtEmploymentBoundary(
-    conn,
-    employeeId,
-    effectiveDate,
-    actor?.id ?? null
-  )
   return true
 }
 
@@ -148,12 +147,6 @@ async function repairEmployeeStatusTimeline(
       WHERE id=? AND employee_status_id<>?`,
     [targetId, employeeId, targetId]
   )
-  await reconcileProductionAssignmentsAtEmploymentBoundary(
-    conn,
-    employeeId,
-    effectiveDate,
-    null
-  )
   return Number((result as { affectedRows?: number }).affectedRows ?? 0) > 0 ||
     String(boundary.status) !== targetStatus ||
     laterRows.some((row) => String(row.status) !== targetStatus)
@@ -163,6 +156,44 @@ export async function auditLifecycle(connection: PoolConnection, input: { auth?:
   const audit = { siteId: input.siteId, action: 'OTHER' as const, table: 'employee_contracts', recordId: input.contractId, recordUid: input.contractUid, description: input.description }
   if (input.auth) await writeAudit({ ...audit, auth: input.auth }, connection)
   else await writeSystemAudit(audit, connection)
+}
+
+async function auditContinuedProductionAssignment(
+  conn: PoolConnection,
+  assignment: ContinuedProductionAssignment | undefined,
+  auth?: AuthContext
+) {
+  if (!assignment) return
+  const audit = {
+    module: 'PRODUCTION',
+    siteId: assignment.siteId,
+    action: assignment.mode === 'REALIGNED' ? ('UPDATE' as const) : ('CREATE' as const),
+    table: 'employee_job_assignments',
+    recordId: assignment.id,
+    recordUid: assignment.uid,
+    description:
+      assignment.mode === 'REALIGNED'
+        ? 'Menyelaraskan tanggal mulai pekerjaan utama dengan kontrak perpanjangan.'
+        : 'Melanjutkan otomatis pekerjaan utama setelah perpanjangan kontrak.',
+    reason:
+      assignment.mode === 'REALIGNED'
+        ? 'Penugasan pekerjaan lanjutan yang sama dimulai setelah tanggal kontrak baru.'
+        : 'Pekerjaan utama sebelumnya dilanjutkan pada tanggal mulai kontrak baru.',
+    beforeData:
+      assignment.mode === 'REALIGNED'
+        ? { effectiveFrom: assignment.previousEffectiveFrom }
+        : undefined,
+    afterData: {
+      employeeId: assignment.employeeId,
+      jobId: assignment.jobId,
+      sourceAssignmentUid: assignment.sourceAssignmentUid,
+      effectiveFrom: assignment.effectiveFrom,
+      effectiveTo: assignment.effectiveTo ?? null,
+      isPrimary: true,
+    },
+  }
+  if (auth) await writeAudit({ ...audit, auth }, conn)
+  else await writeSystemAudit(audit, conn)
 }
 
 export async function assertNoOpenScheduledStatusChange(
@@ -249,7 +280,19 @@ export async function transitionContract(contractUid: string, action: ContractTr
     if (next === 'TERMINATED') {
       if ((await validActiveContracts(conn, contract.employee_id, effectiveDate, contract.id)).length) throw new ApiError(409, 'Ditemukan kontrak aktif lain yang masih berlaku. Selesaikan konflik kontrak terlebih dahulu.')
     }
-    if (next === 'ACTIVE') await employeeStatus(conn, contract.employee_id, 'ACTIVE', effectiveDate, source, undefined, auth)
+    if (next === 'ACTIVE') {
+      await employeeStatus(conn, contract.employee_id, 'ACTIVE', effectiveDate, source, undefined, auth)
+      await auditContinuedProductionAssignment(
+        conn,
+        await continuePrimaryProductionAssignmentAfterRenewal(conn, {
+          contractId: Number(contract.id),
+          employeeId: Number(contract.employee_id),
+          contractStartDate: effectiveDate,
+          actorUserId: auth?.id ?? null,
+        }),
+        auth
+      )
+    }
     if (next === 'TERMINATED') await employeeStatus(conn, contract.employee_id, action === 'resign' ? 'RESIGNED' : 'INACTIVE', effectiveDate, source, input.reason, auth)
     await conn.execute('UPDATE employee_contracts SET status=?,terminated_at=?,termination_reason=?,updated_by=? WHERE id=?', [next,next === 'TERMINATED' ? effectiveDate : null,next === 'TERMINATED' ? input.reason?.trim() ?? null : null,auth?.id ?? null,contract.id])
     await conn.execute('INSERT INTO employee_contract_lifecycle_events(uid,contract_id,from_status,to_status,effective_date,reason,source,actor_user_id) VALUES(?,?,?,?,?,?,?,?)', [randomUUID(),contract.id,contract.status,next,effectiveDate,input.reason?.trim() ?? null,auth ? 'MANUAL' : 'CRON',auth?.id ?? null])
@@ -352,6 +395,16 @@ export async function activateContractsBatch(
         effectiveDate,
         'MANUAL',
         undefined,
+        auth
+      )
+      await auditContinuedProductionAssignment(
+        conn,
+        await continuePrimaryProductionAssignmentAfterRenewal(conn, {
+          contractId: Number(contract.id),
+          employeeId: Number(contract.employee_id),
+          contractStartDate: effectiveDate,
+          actorUserId: auth.id,
+        }),
         auth
       )
       await conn.execute(

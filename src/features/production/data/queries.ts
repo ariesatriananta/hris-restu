@@ -234,10 +234,13 @@ export function useCreateProductionAssignmentsBatch() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (input: {
-      employeeUids: string[]
-      jobUid: string
+      items: Array<{
+        employeeUid: string
+        jobUid: string
+        effectiveFrom?: string
+      }>
       site: ProductionSite
-      effectiveFrom: string
+      effectiveFrom?: string
     }) =>
       (
         await apiClient.post<{

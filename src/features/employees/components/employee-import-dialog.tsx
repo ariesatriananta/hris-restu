@@ -134,7 +134,12 @@ export function EmployeeImportDialog({
     data['!cols'] = employeeImportTemplateHeaders.map((header) => ({
       wch: Math.max(15, header.length + 2),
     }))
-    data['!autofilter'] = { ref: 'A1:AL1' }
+    data['!autofilter'] = {
+      ref: XLSX.utils.encode_range({
+        s: { r: 0, c: 0 },
+        e: { r: 0, c: employeeImportTemplateHeaders.length - 1 },
+      }),
+    }
     XLSX.utils.book_append_sheet(workbook, data, 'Karyawan')
 
     const referenceRows = [
@@ -208,13 +213,16 @@ export function EmployeeImportDialog({
         '6. EDUCATION_LEVEL diisi memakai kode pendidikan pada sheet Referensi.',
       ],
       [
-        '7. Status awal selalu Nonaktif; nomor karyawan dan barcode dibuat otomatis oleh sistem.',
+        '7. EMPLOYEE_ID boleh diisi dengan ID dari sistem lama. Jika kosong, ID karyawan dan barcode dibuat otomatis oleh sistem.',
       ],
       [
-        '8. Maksimal 200 baris. Seluruh baris harus valid sebelum import dapat dijalankan.',
+        '8. Untuk ID yang memiliki angka nol di depan, atur kolom EMPLOYEE_ID sebagai Text agar angkanya tidak berubah.',
       ],
       [
-        '9. Foto, scan KTP/KK, dan kontrak dapat dilengkapi setelah karyawan berhasil dibuat.',
+        '9. Maksimal 200 baris. Seluruh baris harus valid sebelum import dapat dijalankan.',
+      ],
+      [
+        '10. Foto, scan KTP/KK, dan kontrak dapat dilengkapi setelah karyawan berhasil dibuat.',
       ],
     ])
     guide['!cols'] = [{ wch: 115 }]
@@ -486,8 +494,11 @@ function ImportPreview({
                 className={row.valid ? undefined : 'bg-destructive/5'}
               >
                 <TableCell className='text-center'>{row.rowNumber}</TableCell>
-                <TableCell className='min-w-52 font-medium'>
-                  {row.fullName || '—'}
+                <TableCell className='min-w-52'>
+                  <div className='font-medium'>{row.fullName || '—'}</div>
+                  <div className='text-muted-foreground'>
+                    {row.employeeNumber || 'ID dibuat otomatis'}
+                  </div>
                 </TableCell>
                 <TableCell>{row.employeeType || '—'}</TableCell>
                 <TableCell>{row.site || '—'}</TableCell>

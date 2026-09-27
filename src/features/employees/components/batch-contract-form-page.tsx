@@ -29,14 +29,20 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DatePicker } from '@/components/date-picker'
 import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
-import { httpEmployeeRepository } from '../data/http-employee-repository'
+import {
+  httpEmployeeRepository,
+  previewContractsBatchRenewal,
+} from '../data/http-employee-repository'
 import {
   useActivateContractsBatch,
   usePreviewContractsBatchActivation,
+  useRenewContractsBatch,
   useSaveContractsBatch,
 } from '../data/queries'
 import type {
   ContractBatchActivationPreview,
+  ContractBatchRenewalPreview,
+  ContractBatchRenewalPreviewItem,
   Employee,
   EmployeeContract,
 } from '../domain'
@@ -49,13 +55,76 @@ import {
 import { EmployeePicker } from './employee-picker'
 import { OnboardingSteps } from './onboarding-steps'
 
+type BatchContractEmployee = Pick<
+  Employee,
+  | 'uid'
+  | 'employeeNumber'
+  | 'fullName'
+  | 'employeeType'
+  | 'employeeStatus'
+  | 'site'
+  | 'department'
+  | 'position'
+  | 'joinDate'
+>
+
 type BatchContractRow = {
-  employee: Employee
+  employee: BatchContractEmployee
   contracts: EmployeeContract[]
   input: BatchContractInput
+  renewalSourceUid?: string
+}
+
+const renewalPreviewRequests = new Map<
+  string,
+  Promise<ContractBatchRenewalPreview>
+>()
+
+function loadRenewalPreview(sourceUids: string[]) {
+  const key = sourceUids.join(',')
+  const pending = renewalPreviewRequests.get(key)
+  if (pending) return pending
+  const request = previewContractsBatchRenewal(sourceUids).finally(() => {
+    if (renewalPreviewRequests.get(key) === request) {
+      renewalPreviewRequests.delete(key)
+    }
+  })
+  renewalPreviewRequests.set(key, request)
+  return request
 }
 
 export function BatchContractFormPage({
+  returnTo,
+  employeeUids,
+  renewalSourceUids,
+  contractUids,
+  onboarding = false,
+}: {
+  returnTo?: string
+  employeeUids?: string
+  renewalSourceUids?: string
+  contractUids?: string
+  onboarding?: boolean
+}) {
+  if (renewalSourceUids) {
+    return (
+      <ContractRenewalBatchFormPage
+        returnTo={returnTo}
+        renewalSourceUids={renewalSourceUids}
+      />
+    )
+  }
+  return (
+    <StandardBatchContractFormPage
+      returnTo={returnTo}
+      employeeUids={employeeUids}
+      contractUids={contractUids}
+      onboarding={onboarding}
+    />
+  )
+}
+
+function StandardBatchContractFormPage({
   returnTo,
   employeeUids,
   contractUids,
@@ -488,6 +557,370 @@ export function BatchContractFormPage({
       {confirmation}
     </Main>
   )
+}
+
+function ContractRenewalBatchFormPage({
+  returnTo,
+  renewalSourceUids,
+}: {
+  returnTo?: string
+  renewalSourceUids: string
+}) {
+  const navigate = useNavigate()
+  const listReturnTo = safeInternalReturnTo(returnTo, '/karyawan/pkwt-dokumen')
+  const sourceUids = useMemo(
+    () => uniqueUids(renewalSourceUids).slice(0, 51),
+    [renewalSourceUids]
+  )
+  const [rows, setRows] = useState<BatchContractRow[]>([])
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [createdContractUids, setCreatedContractUids] = useState<string[]>([])
+  const [activationPreview, setActivationPreview] =
+    useState<ContractBatchActivationPreview>()
+  const [renewalPreview, setRenewalPreview] =
+    useState<ContractBatchRenewalPreview>()
+  const [isRenewalPreviewPending, setRenewalPreviewPending] = useState(false)
+  const [isRenewalPreviewError, setRenewalPreviewError] = useState(false)
+  const [renewalPreviewAttempt, setRenewalPreviewAttempt] = useState(0)
+  const renewBatch = useRenewContractsBatch()
+  const activationPreviewMutation = usePreviewContractsBatchActivation()
+  const activateBatch = useActivateContractsBatch()
+  const { confirmation } = useUnsavedChanges(rows.length > 0)
+  const rowErrors = useMemo(() => validateRows(rows), [rows])
+
+  useEffect(() => {
+    if (!sourceUids.length || sourceUids.length > 50) return
+    let cancelled = false
+    queueMicrotask(async () => {
+      setRenewalPreviewPending(true)
+      setRenewalPreviewError(false)
+      try {
+        const preview = await loadRenewalPreview(sourceUids)
+        if (cancelled) return
+        setRenewalPreview(preview)
+        setRows(renewalPreviewRows(preview))
+      } catch {
+        if (cancelled) return
+        setRenewalPreviewError(true)
+        toast.error('Preview perpanjangan kontrak gagal dimuat.')
+      } finally {
+        if (!cancelled) setRenewalPreviewPending(false)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [renewalPreviewAttempt, sourceUids])
+
+  const preview = renewalPreview
+  const updateRow = (
+    index: number,
+    patch: Partial<BatchContractRow['input']>
+  ) => {
+    setRows((current) =>
+      current.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, input: { ...row.input, ...patch } } : row
+      )
+    )
+  }
+
+  const save = () => {
+    const nextErrors = validateRows(rows)
+    if (!preview?.canCreate || Object.keys(nextErrors).length || !rows.length) {
+      setConfirmOpen(false)
+      toast.error('Periksa kontrak yang masih memiliki kendala.')
+      return
+    }
+    renewBatch.mutate(
+      rows.map((row) => ({
+        sourceContractUid: row.renewalSourceUid!,
+        input: {
+          contractType: row.input.contractType,
+          startDate: row.input.startDate,
+          endDate: row.input.endDate || undefined,
+          notes: row.input.notes || undefined,
+        },
+      })),
+      {
+        onSuccess: (result) => {
+          toast.success(
+            `${result.created.length} kontrak perpanjangan dibuat sebagai Draft.`
+          )
+          setConfirmOpen(false)
+          const contractUids = result.created.map((item) => item.uid)
+          setCreatedContractUids(contractUids)
+          activationPreviewMutation.mutate(contractUids, {
+            onSuccess: setActivationPreview,
+            onError: () =>
+              toast.error('Preview aktivasi kontrak gagal dimuat.'),
+          })
+        },
+        onError: (error) =>
+          toast.error(
+            isAxiosError<{ message?: string }>(error)
+              ? (error.response?.data?.message ??
+                  'Perpanjangan kontrak massal gagal disimpan.')
+              : 'Perpanjangan kontrak massal gagal disimpan.'
+          ),
+      }
+    )
+  }
+
+  return (
+    <Main className='max-w-none'>
+      <Button
+        variant='ghost'
+        className='mb-3 -ml-3'
+        onClick={() => navigate({ to: listReturnTo })}
+      >
+        <ArrowLeft /> Kontrak Karyawan
+      </Button>
+      <div className='mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end'>
+        <div>
+          <h1 className='text-2xl font-bold'>Perpanjang Kontrak Terpilih</h1>
+          <p className='text-muted-foreground'>
+            Tinjau periode lanjutan yang disiapkan dari kontrak terakhir setiap
+            karyawan sebelum membuat Draft.
+          </p>
+        </div>
+        <span className='w-fit rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary'>
+          Maksimal 50 kontrak
+        </span>
+      </div>
+
+      {createdContractUids.length ? (
+        <ActivationReview
+          preview={activationPreview}
+          isLoading={activationPreviewMutation.isPending}
+          isActivating={activateBatch.isPending}
+          onActivate={() =>
+            activateBatch.mutate(createdContractUids, {
+              onSuccess: (result) => {
+                const scheduledText = result.scheduled.length
+                  ? `, ${result.scheduled.length} dijadwalkan`
+                  : ''
+                toast.success(
+                  `${result.activated.length} kontrak aktif${scheduledText}.`
+                )
+                navigate({ to: listReturnTo, ignoreBlocker: true })
+              },
+              onError: (error) =>
+                toast.error(
+                  isAxiosError<{ message?: string }>(error)
+                    ? (error.response?.data?.message ?? 'Aktivasi batch gagal.')
+                    : 'Aktivasi batch gagal.'
+                ),
+            })
+          }
+        />
+      ) : sourceUids.length > 50 ? (
+        <div className='rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive'>
+          Perpanjangan maksimal 50 kontrak sekali proses.
+        </div>
+      ) : isRenewalPreviewPending ? (
+        <div className='flex items-center gap-2 rounded-lg border p-5 text-sm text-muted-foreground'>
+          <LoaderCircle className='size-4 animate-spin' /> Menyiapkan preview
+          perpanjangan...
+        </div>
+      ) : isRenewalPreviewError ? (
+        <div className='rounded-lg border p-5 text-sm'>
+          <p>Preview perpanjangan gagal dimuat.</p>
+          <Button
+            className='mt-3'
+            variant='outline'
+            onClick={() => setRenewalPreviewAttempt((attempt) => attempt + 1)}
+          >
+            Muat ulang
+          </Button>
+        </div>
+      ) : preview ? (
+        <div className='space-y-4 pb-24'>
+          <div className='grid gap-3 sm:grid-cols-3'>
+            <SummaryCard label='Kontrak dipilih' value={preview.total} />
+            <SummaryCard label='Siap diperpanjang' value={preview.ready} />
+            <SummaryCard label='Terblokir' value={preview.blocked} />
+          </div>
+          {preview.blockers.length > 0 && (
+            <div className='rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm'>
+              <p className='font-medium text-destructive'>Perlu ditindak</p>
+              <div className='mt-3 grid max-h-64 gap-2 overflow-y-auto'>
+                {preview.items
+                  .filter((item) => !item.valid)
+                  .map((item) => (
+                    <div
+                      key={item.sourceContractUid}
+                      className='rounded-md border bg-background/70 p-3'
+                    >
+                      <p className='font-medium text-foreground'>
+                        {item.employeeName ?? 'Kontrak tidak ditemukan'}
+                      </p>
+                      <p className='text-xs text-muted-foreground'>
+                        {item.employeeNumber ?? item.sourceContractUid}
+                        {item.sourceContractNumber
+                          ? ` - ${item.sourceContractNumber}`
+                          : ''}
+                      </p>
+                      <ul className='mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground'>
+                        {item.issues.map((issue) => (
+                          <li key={issue}>{issue}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+              </div>
+              <p className='mt-3 text-xs text-muted-foreground'>
+                Kembali ke daftar dan keluarkan kontrak yang terblokir dari
+                pilihan. Batch hanya dapat dibuat jika seluruh baris valid.
+              </p>
+            </div>
+          )}
+          {rows.length > 0 && (
+            <div className='rounded-lg border'>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className='w-12 text-center'>No.</TableHead>
+                    <TableHead>Karyawan</TableHead>
+                    <TableHead>Jenis</TableHead>
+                    <TableHead>Mulai baru</TableHead>
+                    <TableHead>Berakhir baru</TableHead>
+                    <TableHead>Catatan</TableHead>
+                    <TableHead className='w-12' />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((row, index) => (
+                    <BatchContractTableRow
+                      key={row.renewalSourceUid}
+                      row={row}
+                      rowNumber={index + 1}
+                      error={rowErrors[index]}
+                      onChange={(patch) => updateRow(index, patch)}
+                      onRemove={() =>
+                        setRows((current) =>
+                          current.filter((_, rowIndex) => rowIndex !== index)
+                        )
+                      }
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          <div className='flex justify-end'>
+            <Button
+              onClick={() => setConfirmOpen(true)}
+              disabled={
+                !preview.canCreate ||
+                !rows.length ||
+                Object.keys(rowErrors).length > 0 ||
+                renewBatch.isPending
+              }
+            >
+              <Save /> Tinjau dan buat Draft ({rows.length})
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          if (!open && !renewBatch.isPending) setConfirmOpen(false)
+        }}
+        title='Konfirmasi perpanjangan kontrak'
+        desc={<BatchContractSummary rows={rows} />}
+        cancelBtnText='Kembali periksa'
+        confirmText='Buat seluruh Draft'
+        isLoading={renewBatch.isPending}
+        handleConfirm={save}
+      />
+      {confirmation}
+    </Main>
+  )
+}
+
+function renewalPreviewRows(preview: ContractBatchRenewalPreview) {
+  return preview.items
+    .filter(
+      (
+        item
+      ): item is ContractBatchRenewalPreviewItem & {
+        proposed: NonNullable<ContractBatchRenewalPreviewItem['proposed']>
+        employeeUid: string
+        employeeNumber: string
+        employeeName: string
+        employeeType: NonNullable<
+          ContractBatchRenewalPreviewItem['employeeType']
+        >
+        employeeStatus: NonNullable<
+          ContractBatchRenewalPreviewItem['employeeStatus']
+        >
+        site: NonNullable<ContractBatchRenewalPreviewItem['site']>
+        sourceContractNumber: string
+        sourceStartDate: string
+        sourceEndDate: string
+      } => item.valid && Boolean(item.proposed && item.employeeUid)
+    )
+    .map(renewalPreviewToRow)
+}
+
+function renewalPreviewToRow(
+  item: ContractBatchRenewalPreviewItem & {
+    proposed: NonNullable<ContractBatchRenewalPreviewItem['proposed']>
+    employeeUid: string
+    employeeNumber: string
+    employeeName: string
+    employeeType: NonNullable<ContractBatchRenewalPreviewItem['employeeType']>
+    employeeStatus: NonNullable<
+      ContractBatchRenewalPreviewItem['employeeStatus']
+    >
+    site: NonNullable<ContractBatchRenewalPreviewItem['site']>
+    sourceContractNumber: string
+    sourceStartDate: string
+    sourceEndDate: string
+  }
+): BatchContractRow {
+  const contractType = isBatchContractType(item.proposed.contractType)
+    ? item.proposed.contractType
+    : 'PKWT'
+  return {
+    renewalSourceUid: item.sourceContractUid,
+    employee: {
+      uid: item.employeeUid,
+      employeeNumber: item.employeeNumber,
+      fullName: item.employeeName,
+      employeeType: item.employeeType,
+      employeeStatus: item.employeeStatus,
+      site: item.site,
+      position: item.position,
+      joinDate: item.sourceStartDate,
+    },
+    contracts: [
+      {
+        uid: item.sourceContractUid,
+        employeeUid: item.employeeUid,
+        contractNumber: item.sourceContractNumber,
+        contractType: item.contractType ?? contractType,
+        sequenceNumber: 0,
+        startDate: item.sourceStartDate,
+        endDate: item.sourceEndDate,
+        status: 'EXPIRED',
+      },
+    ],
+    input: {
+      contractType,
+      startDate: item.proposed.startDate,
+      endDate: item.proposed.endDate ?? '',
+      notes: item.proposed.notes ?? '',
+    },
+  }
+}
+
+function isBatchContractType(
+  value: string
+): value is BatchContractInput['contractType'] {
+  return value === 'TRAINING' || value === 'PKWT' || value === 'PKWTT'
 }
 
 function SharedContractForm({

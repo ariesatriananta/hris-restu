@@ -568,7 +568,8 @@ export type AttendanceBatchSite = 'ALL' | AttendanceSiteCode
 export type AttendanceBatchMode = 'RANDOM' | 'FULL_PRESENT'
 
 export interface AttendanceBatchInputPreviewInput {
-  businessDate: string
+  dateFrom: string
+  dateTo: string
   site: AttendanceBatchSite
   mode: AttendanceBatchMode
 }
@@ -579,9 +580,20 @@ export interface AttendanceBatchInputRunInput extends AttendanceBatchInputPrevie
 }
 
 export interface AttendanceBatchInputPreview {
-  businessDate: string
+  dateFrom: string
+  dateTo: string
   site: AttendanceBatchSite
   mode: AttendanceBatchMode
+  dateCount: number
+  eligibleEmployeeCount: number
+  siteCount: number
+  canCreate: boolean
+  blockers: string[]
+  rows: AttendanceBatchInputPreviewRow[]
+}
+
+export interface AttendanceBatchInputPreviewRow {
+  businessDate: string
   eligibleEmployeeCount: number
   siteCount: number
   canCreate: boolean

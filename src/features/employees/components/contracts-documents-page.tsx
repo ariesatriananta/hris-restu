@@ -255,7 +255,13 @@ export function ContractsDocumentsPage({
             onExtendContract={(contract) =>
               routerNavigate({
                 to: '/karyawan/pkwt/tambah',
-                search: { employeeUid: contract.employeeUid, returnTo },
+                search: {
+                  employeeUid: contract.employeeUid,
+                  renewFromContractUid: contract.isMissingContract
+                    ? undefined
+                    : contract.uid,
+                  returnTo,
+                },
               })
             }
             isPending={contracts.isPending}
@@ -496,7 +502,7 @@ function ContractConflictItem({
       </div>
       <p className='text-sm leading-relaxed'>{conflict.reason}</p>
       {conflict.contractNumbers.length ? (
-        <p className='break-words text-xs text-muted-foreground'>
+        <p className='text-xs break-words text-muted-foreground'>
           Kontrak: {conflict.contractNumbers.join(', ')}
         </p>
       ) : null}
@@ -686,7 +692,9 @@ function mapContracts(
         ? 'ACTIVE_WITHOUT_VALID_CONTRACT'
         : item.isExpiringWithin7Days
           ? 'EXPIRING_WITHIN_7_DAYS'
-          : 'NORMAL',
+          : item.isExpiredWithin14Days
+            ? 'EXPIRED_WITHIN_14_DAYS'
+            : 'NORMAL',
       expiry: item.status === 'ACTIVE' ? expiry(item.endDate) : undefined,
       contract: item,
     })),

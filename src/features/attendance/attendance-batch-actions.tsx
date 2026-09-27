@@ -150,7 +150,8 @@ function AttendanceBatchInputDialog({
   goLiveDate: string
   sites: AttendanceSite[]
 }) {
-  const [businessDate, setBusinessDate] = useState(initialDate)
+  const [dateFrom, setDateFrom] = useState(initialDate)
+  const [dateTo, setDateTo] = useState(initialDate)
   const [site, setSite] = useState<AttendanceBatchSite>(initialSite)
   const [mode, setMode] = useState<AttendanceBatchMode>('RANDOM')
   const [reason, setReason] = useState('')
@@ -159,12 +160,13 @@ function AttendanceBatchInputDialog({
   const run = useRunAttendanceBatchInput()
 
   const loadPreview = (
-    nextDate = businessDate,
+    nextFrom = dateFrom,
+    nextTo = dateTo,
     nextSite = site,
     nextMode = mode
   ) =>
     preview.mutate(
-      { businessDate: nextDate, site: nextSite, mode: nextMode },
+      { dateFrom: nextFrom, dateTo: nextTo, site: nextSite, mode: nextMode },
       {
         onError: (error) =>
           toast.error(
@@ -175,7 +177,7 @@ function AttendanceBatchInputDialog({
 
   useEffect(() => {
     if (!open) return
-    loadPreview(initialDate, initialSite, 'RANDOM')
+    loadPreview(initialDate, initialDate, initialSite, 'RANDOM')
     // Mutation is stable for this dialog lifecycle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -185,11 +187,15 @@ function AttendanceBatchInputDialog({
     preview.reset()
   }
   const previewMatches =
-    preview.data?.businessDate === businessDate &&
+    preview.data?.dateFrom === dateFrom &&
+    preview.data.dateTo === dateTo &&
     preview.data.site === site &&
     preview.data.mode === mode
+  const selectedDateCount = inclusiveDateCount(dateFrom, dateTo)
+  const dateRangeValid = selectedDateCount >= 1 && selectedDateCount <= 7
   const canSubmit =
     previewMatches &&
+    dateRangeValid &&
     preview.data?.canCreate === true &&
     reason.trim().length >= 5 &&
     confirmation.trim().toUpperCase() === 'PROSES' &&
@@ -199,7 +205,8 @@ function AttendanceBatchInputDialog({
     if (!canSubmit) return
     run.mutate(
       {
-        businessDate,
+        dateFrom,
+        dateTo,
         site,
         mode,
         reason: reason.trim(),
@@ -208,7 +215,7 @@ function AttendanceBatchInputDialog({
       {
         onSuccess: (result) => {
           toast.success(
-            `${formatNumber(result.attendanceRecords)} record Attendance berhasil dibuat.`
+            `${formatNumber(result.attendanceRecords)} record Attendance pada ${formatNumber(result.preview.dateCount)} tanggal berhasil dibuat.`
           )
           onOpenChange(false)
         },
@@ -230,12 +237,12 @@ function AttendanceBatchInputDialog({
           <DialogTitle>Input Attendance Batch</DialogTitle>
           <DialogDescription>
             Khusus data demo. Periksa kesiapan sebelum membuat Attendance untuk
-            satu tanggal.
+            rentang maksimal 7 hari.
           </DialogDescription>
         </DialogHeader>
 
-        <div className='grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1'>
-          <div className='grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-[1fr_1fr_1.2fr_auto] sm:items-end'>
+        <div className='flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1 lg:overflow-hidden'>
+          <div className='grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2 sm:items-end lg:grid-cols-[1fr_1fr_1fr_1.2fr_auto]'>
             <SiteField
               value={site}
               sites={sites}
@@ -245,11 +252,25 @@ function AttendanceBatchInputDialog({
               }}
             />
             <DateField
-              label='Tanggal Attendance'
-              value={businessDate}
+              label='Dari tanggal'
+              value={dateFrom}
               goLiveDate={goLiveDate}
               onChange={(value) => {
-                setBusinessDate(value)
+                setDateFrom(value)
+                if (dateTo < value || inclusiveDateCount(value, dateTo) > 7) {
+                  setDateTo(value)
+                }
+                resetPreview()
+              }}
+            />
+            <DateField
+              label='Sampai tanggal'
+              value={dateTo}
+              goLiveDate={goLiveDate}
+              minDate={dateFrom}
+              maxDate={addDateOnlyDays(dateFrom, 6)}
+              onChange={(value) => {
+                setDateTo(value)
                 resetPreview()
               }}
             />
@@ -276,7 +297,7 @@ function AttendanceBatchInputDialog({
             <Button
               type='button'
               variant='outline'
-              disabled={preview.isPending}
+              disabled={preview.isPending || !dateRangeValid}
               onClick={() => loadPreview()}
             >
               {preview.isPending ? (
@@ -288,22 +309,20 @@ function AttendanceBatchInputDialog({
             </Button>
           </div>
 
-          <p className='text-xs text-muted-foreground'>
-            {mode === 'RANDOM'
-              ? 'Membuat variasi hadir, terlambat, pulang awal, abnormal, klasifikasi, dan Alpha secara stabil untuk data demo.'
-              : 'Semua karyawan eligible dibuat hadir dengan jam masuk dan pulang lengkap yang mendekati shift aktif.'}
-          </p>
-
-          <div className='overflow-hidden rounded-lg border'>
+          <div className='flex min-h-32 shrink-0 flex-col overflow-hidden rounded-lg border lg:min-h-0 lg:flex-1'>
             {preview.isPending ? (
               <div className='grid h-32 place-items-center'>
                 <Loader2 className='size-5 animate-spin text-muted-foreground' />
               </div>
             ) : previewMatches && preview.data ? (
               <>
-                <div className='grid gap-2 border-b bg-muted/20 p-3 sm:grid-cols-3'>
+                <div className='grid gap-2 border-b bg-muted/20 p-3 sm:grid-cols-4'>
                   <SummaryValue
-                    label='Karyawan eligible'
+                    label='Tanggal'
+                    value={formatNumber(preview.data.dateCount)}
+                  />
+                  <SummaryValue
+                    label='Karyawan-hari eligible'
                     value={formatNumber(preview.data.eligibleEmployeeCount)}
                   />
                   <SummaryValue
@@ -318,21 +337,52 @@ function AttendanceBatchInputDialog({
                     ready={preview.data.canCreate}
                   />
                 </div>
-                {preview.data.blockers.length ? (
-                  <div className='grid gap-1 p-3 text-sm text-destructive'>
-                    {preview.data.blockers.map((blocker) => (
-                      <p key={blocker} className='flex items-start gap-2'>
-                        <AlertTriangle className='mt-0.5 size-4 shrink-0' />
-                        {blocker}
-                      </p>
-                    ))}
-                  </div>
-                ) : (
-                  <div className='flex items-center gap-2 p-3 text-sm text-emerald-700 dark:text-emerald-400'>
-                    <CheckCircle2 className='size-4' />
-                    Tanggal bersih dan seluruh kebutuhan site tersedia.
-                  </div>
-                )}
+                <div className='max-h-64 overflow-auto lg:max-h-none lg:min-h-0 lg:flex-1'>
+                  <table className='w-full min-w-[680px] text-xs'>
+                    <thead className='sticky top-0 z-10 bg-background shadow-sm'>
+                      <tr className='border-b'>
+                        <NativeHead>Tanggal</NativeHead>
+                        <NativeHead align='right'>Karyawan</NativeHead>
+                        <NativeHead align='right'>Site</NativeHead>
+                        <NativeHead>Kesiapan</NativeHead>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.data.rows.map((row) => (
+                        <tr
+                          key={row.businessDate}
+                          className='border-b last:border-b-0'
+                        >
+                          <td className='px-4 py-2 font-medium whitespace-nowrap'>
+                            {formatDate(row.businessDate)}
+                          </td>
+                          <NumberCell value={row.eligibleEmployeeCount} />
+                          <NumberCell value={row.siteCount} />
+                          <td className='min-w-80 px-4 py-2 align-top'>
+                            {row.canCreate ? (
+                              <span className='inline-flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-400'>
+                                <CheckCircle2 className='size-3.5' /> Siap
+                                diproses
+                              </span>
+                            ) : (
+                              <div className='grid gap-1 text-destructive'>
+                                {row.blockers.map((blocker) => (
+                                  <p
+                                    key={blocker}
+                                    className='flex items-start gap-1.5'
+                                  >
+                                    <AlertTriangle className='mt-0.5 size-3.5 shrink-0' />
+                                    {blocker}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </>
             ) : (
               <div className='grid h-28 place-items-center px-4 text-center text-sm text-muted-foreground'>
@@ -341,8 +391,8 @@ function AttendanceBatchInputDialog({
             )}
           </div>
 
-          <div className='grid gap-3 sm:grid-cols-2'>
-            <div className='grid gap-1.5 sm:col-span-2'>
+          <div className='grid shrink-0 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(13rem,0.75fr)_minmax(0,1.2fr)] lg:items-start'>
+            <div className='grid gap-1.5'>
               <Label htmlFor='attendance-batch-input-reason'>
                 Alasan input
               </Label>
@@ -351,16 +401,14 @@ function AttendanceBatchInputDialog({
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
                 placeholder='Contoh: Menyiapkan data demo Attendance untuk pengujian.'
-                rows={2}
+                rows={1}
                 maxLength={500}
+                className='min-h-9 resize-none'
               />
-              <p className='text-xs text-muted-foreground'>
-                Minimal 5 karakter.
-              </p>
             </div>
-            <div className='grid gap-1.5 sm:col-span-2'>
+            <div className='grid gap-1.5'>
               <Label htmlFor='attendance-batch-input-confirmation'>
-                Ketik PROSES untuk konfirmasi
+                Konfirmasi
               </Label>
               <Input
                 id='attendance-batch-input-confirmation'
@@ -369,7 +417,10 @@ function AttendanceBatchInputDialog({
                 autoComplete='off'
                 placeholder='PROSES'
               />
-              <div className='grid gap-0.5 text-xs'>
+            </div>
+            <div className='grid gap-1.5'>
+              <span className='text-sm font-medium'>Validasi proses</span>
+              <div className='grid gap-0.5 rounded-md border bg-muted/20 px-3 py-2 text-xs'>
                 <Requirement
                   ready={previewMatches && preview.data?.canCreate === true}
                 >
@@ -777,14 +828,20 @@ function DateField({
   label,
   value,
   goLiveDate,
+  minDate,
+  maxDate,
   onChange,
 }: {
   label: string
   value: string
   goLiveDate: string
+  minDate?: string
+  maxDate?: string
   onChange: (value: string) => void
 }) {
   const today = dateOnlyToInput(new Date())
+  const minimum = minDate && minDate > goLiveDate ? minDate : goLiveDate
+  const maximum = maxDate && maxDate < today ? maxDate : today
   return (
     <label className='grid gap-1 text-sm'>
       <span className='font-medium'>{label}</span>
@@ -796,11 +853,22 @@ function DateField({
         }}
         disabledDates={(date) => {
           const next = dateOnlyToInput(date)
-          return next < goLiveDate || next > today
+          return next < minimum || next > maximum
         }}
       />
     </label>
   )
+}
+
+function inclusiveDateCount(dateFrom: string, dateTo: string) {
+  const start = Date.parse(`${dateFrom}T00:00:00Z`)
+  const end = Date.parse(`${dateTo}T00:00:00Z`)
+  return Math.floor((end - start) / 86_400_000) + 1
+}
+
+function addDateOnlyDays(value: string, days: number) {
+  const start = Date.parse(`${value}T00:00:00Z`)
+  return new Date(start + days * 86_400_000).toISOString().slice(0, 10)
 }
 
 function SummaryValue({

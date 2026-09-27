@@ -11,6 +11,9 @@ describe('employee import workbook', () => {
     for (const headers of [
       employeeImportTemplateHeaders,
       employeeImportTemplateHeaders.map((header) => header.replace(/ \*$/, '')),
+      employeeImportTemplateHeaders.filter(
+        (header) => header !== 'EMPLOYEE_ID'
+      ),
     ]) {
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(
@@ -57,6 +60,35 @@ describe('employee import workbook', () => {
     expect(rows[0].birthDate).toBe('1995-01-15')
   })
 
+  it('membaca ID karyawan lama dan tetap mengizinkan ID kosong', async () => {
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([
+        employeeImportTemplateHeaders,
+        employeeImportTemplateHeaders.map((header) => {
+          if (header === 'EMPLOYEE_ID') return 'LEGACY-00017'
+          if (header.startsWith('FULL_NAME')) return 'SITI AMINAH'
+          return ''
+        }),
+        employeeImportTemplateHeaders.map((header) =>
+          header.startsWith('FULL_NAME') ? 'BUDI SANTOSO' : ''
+        ),
+      ]),
+      'Karyawan'
+    )
+    const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
+    const rows = await parseEmployeeImportWorkbook(
+      new File([buffer], 'karyawan.xlsx')
+    )
+    expect(rows[0]).toMatchObject({
+      employeeNumber: 'LEGACY-00017',
+      fullName: 'SITI AMINAH',
+    })
+    expect(rows[1]).toMatchObject({ fullName: 'BUDI SANTOSO' })
+    expect(rows[1].employeeNumber).toBeUndefined()
+  })
+
   it('membuat hasil validasi yang dapat diperbaiki dan diunggah ulang', async () => {
     const workbook = buildEmployeeImportValidationWorkbook(
       [{ fullName: 'SITI AMINAH', employeeType: 'BORONGAN' }],
@@ -71,7 +103,7 @@ describe('employee import workbook', () => {
       }
     )
     const sheet = workbook.Sheets.Karyawan
-    expect(sheet.A1.v).toBe('FULL_NAME *')
+    expect(sheet.A1.v).toBe('EMPLOYEE_ID')
     const statusColumn = XLSX.utils.encode_col(
       employeeImportTemplateHeaders.length + 1
     )

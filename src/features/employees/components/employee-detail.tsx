@@ -6,6 +6,7 @@ import {
   Download,
   ExternalLink,
   Eye,
+  FilePlus2,
   ImageIcon,
   GitBranchPlus,
   IdCard,
@@ -455,6 +456,14 @@ export function EmployeeDetail({
                 )
                   ? undefined
                   : `/karyawan/pkwt/${item.uid}/ubah`,
+                renew:
+                  item.isLatestForEmployee &&
+                  (item.status === 'EXPIRED' || item.isExpiringWithin7Days)
+                    ? {
+                        employeeUid: item.employeeUid,
+                        contractUid: item.uid,
+                      }
+                    : undefined,
                 onDetail: () => setSelectedContractUid(item.uid),
               }))}
           />
@@ -611,6 +620,10 @@ function Records({
     content?: ReactNode
     actionLabel?: string
     edit?: string
+    renew?: {
+      employeeUid: string
+      contractUid: string
+    }
     file?: string
     onDetail?: () => void
   }[]
@@ -679,6 +692,23 @@ function Records({
                       <a href={withReturnTo(item.edit, returnTo)}>
                         <Pencil />
                       </a>
+                    </DataTableActionButton>
+                  )}
+                  {item.renew && (
+                    <DataTableActionButton
+                      label={`Perpanjang kontrak ${item.actionLabel ?? item.label}`}
+                      asChild
+                    >
+                      <Link
+                        to='/karyawan/pkwt/tambah'
+                        search={{
+                          employeeUid: item.renew.employeeUid,
+                          renewFromContractUid: item.renew.contractUid,
+                          returnTo,
+                        }}
+                      >
+                        <FilePlus2 />
+                      </Link>
                     </DataTableActionButton>
                   )}
                   {item.file && !item.onDetail && (

@@ -5,6 +5,7 @@ import { EmployeeRecordFormPage } from '@/features/employees/components/employee
 export const Route = createFileRoute('/_authenticated/karyawan/pkwt/tambah')({
   validateSearch: z.object({
     employeeUid: z.string().uuid().optional(),
+    renewFromContractUid: z.string().uuid().optional(),
     returnTo: z.string().optional(),
   }),
   component: ContractCreatePage,
@@ -16,6 +17,7 @@ function ContractCreatePage() {
     <EmployeeRecordFormPage
       kind='contract'
       employeeUid={search.employeeUid}
+      renewFromContractUid={search.renewFromContractUid}
       returnTo={search.returnTo}
     />
   )

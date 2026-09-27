@@ -8,6 +8,7 @@ export const Route = createFileRoute(
   validateSearch: z.object({
     returnTo: z.string().optional(),
     employeeUids: z.string().optional(),
+    renewalSourceUids: z.string().optional(),
     contractUids: z.string().optional(),
     onboarding: z.boolean().optional(),
   }),
@@ -22,6 +23,7 @@ function ContractBatchCreatePage() {
     <BatchContractFormPage
       returnTo={search.returnTo}
       employeeUids={search.employeeUids}
+      renewalSourceUids={search.renewalSourceUids}
       contractUids={search.contractUids}
       onboarding={search.onboarding === true}
     />

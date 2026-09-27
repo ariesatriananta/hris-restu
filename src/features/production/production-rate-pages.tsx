@@ -1495,7 +1495,7 @@ function ActiveRateCorrectionDialog({ rate }: { rate: ProductionRate }) {
     setIdempotencyKey(createIdempotencyKey())
   }
   const apply = async () => {
-    if (!preview.data?.canApply || reason.trim().length < 5) return
+    if (!preview.data?.canApply || reason.trim().length < 10) return
     try {
       await correction.mutateAsync({
         ...proposal,
@@ -1649,7 +1649,7 @@ function ActiveRateCorrectionDialog({ rate }: { rate: ProductionRate }) {
           <Button
             disabled={
               !preview.data?.canApply ||
-              reason.trim().length < 5 ||
+              reason.trim().length < 10 ||
               correction.isPending
             }
             onClick={() => void apply()}

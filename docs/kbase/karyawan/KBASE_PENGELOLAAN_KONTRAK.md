@@ -114,6 +114,26 @@ Gunakan **Perpanjang kontrak** ketika hubungan kerja akan dilanjutkan dengan mas
 
 Perpanjangan harus menjadi catatan baru. Jangan mengubah tanggal akhir kontrak lama untuk membuatnya terlihat seperti kontrak baru karena riwayat perjanjian akan menjadi kabur.
 
+### Memperpanjang beberapa kontrak sekaligus
+
+Untuk kontrak karyawan yang terlewat dipantau:
+
+1. buka tab **Daftar Kontrak**;
+2. gunakan Status **Berakhir** untuk melihat seluruh kontrak kedaluwarsa;
+3. gunakan Kondisi kontrak **Baru berakhir dalam 14 hari** jika hanya ingin
+   melihat kontrak yang baru berakhir;
+4. pilih maksimal 50 kontrak terakhir yang akan dilanjutkan;
+5. tekan **Perpanjang Terpilih**;
+6. periksa periode baru dan kendala setiap karyawan;
+7. koreksi data yang memang perlu disesuaikan;
+8. buat seluruh kontrak sebagai Draft;
+9. lakukan pemeriksaan aktivasi sebelum mengaktifkan kontrak.
+
+Secara awal, periode baru dimulai satu hari setelah kontrak sumber berakhir dan
+disiapkan selama 12 bulan. Sistem membatalkan seluruh batch jika satu kontrak
+tidak lagi memenuhi syarat saat penyimpanan. Keluarkan kontrak yang terblokir
+dari pilihan dan tindak lanjuti penyebabnya secara terpisah.
+
 ## Membatalkan kontrak yang belum berlaku
 
 Gunakan **Batalkan kontrak** bila rancangan atau kontrak terjadwal dipastikan tidak jadi digunakan.

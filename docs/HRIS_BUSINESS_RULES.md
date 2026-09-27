@@ -20,6 +20,9 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   Produksi. Hasil Produksi Training hanya menjadi fakta monitoring dan tidak
   menjadi sumber nominal Payroll.
 - Semua jenis karyawan wajib memiliki penempatan Modul dan Bagian produksi pada registrasi dan mutasi.
+- Import Master Karyawan boleh memakai Employee ID dari sistem lama. Jika
+  Employee ID kosong, sistem membuat nomor otomatis; jika diisi, nilainya wajib
+  valid dan belum digunakan karyawan lain.
 - Tanggal bergabung karyawan yang sudah tersimpan tidak boleh diubah melalui
   form Edit Karyawan biasa. Selama data registrasi masih memenuhi syarat
   Koreksi Data Registrasi, perubahan tanggal wajib sekaligus memperbarui
@@ -71,6 +74,11 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Kombinasi jenis kontrak dan jenis karyawan berlaku ketat: kontrak `TRAINING`
   hanya untuk jenis karyawan `TRAINING`, sedangkan `PKWT`/`PKWTT` hanya untuk
   `BORONGAN`, `HARIAN`, atau `BULANAN`.
+- Perpanjangan kontrak massal menerima maksimal 50 kontrak terakhir berstatus
+  `EXPIRED`. Sistem wajib menampilkan preview per karyawan, memblokir konflik
+  kontrak atau perubahan terjadwal, lalu membuat seluruh kontrak baru sebagai
+  `DRAFT` dalam satu transaksi atomik. Perpanjangan tidak mengubah kontrak lama
+  dan tidak boleh mengaktifkan kontrak baru tanpa pemeriksaan berikutnya.
 - Cetak template kontrak produksi tahap pertama hanya untuk kombinasi karyawan `BORONGAN` dengan kontrak `PKWT`.
 - Kontrak `ACTIVE` tidak dapat dikoreksi periodenya. Salah aktivasi hanya dapat dibatalkan menjadi `CANCELLED` bila belum memiliki tanda tangan/lampiran dan belum digunakan oleh attendance, produksi, payroll, histori lanjutan, atau status kerja terjadwal; selain itu gunakan Terminasi lalu buat kontrak baru.
 - Aktivasi kontrak membuat status karyawan `ACTIVE` efektif sejak tanggal mulai kontrak, termasuk ketika HR terlambat menjalankan aktivasi. Aktivasi ditolak bila penyelarasan mundur akan melewati histori employment yang lebih baru.
@@ -146,12 +154,23 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Penugasan pekerjaan Produksi disimpan sebagai histori, tidak dihapus atau
   ditimpa. Satu pekerja maksimal memiliki satu pekerjaan utama efektif pada
   tanggal yang sama.
+- Kontrak berakhir, terminasi, resign, atau perubahan status kerja menjadi
+  `INACTIVE` tidak menutup penugasan pekerjaan Produksi yang memang dibuat
+  tanpa tanggal akhir. Eligibility dari histori kerja tetap memblokir setoran
+  ketika karyawan tidak aktif. Penugasan hanya ditutup otomatis ketika mutasi
+  membuat karyawan berpindah site atau tidak lagi eligible Produksi. Saat
+  aktivasi perpanjangan, assignment utama lama yang telanjur ditutup otomatis
+  oleh perilaku lifecycle sebelumnya dilanjutkan sejak awal kontrak baru. Jika
+  assignment lanjutan dengan pekerjaan dan site yang sama sudah dibuat pada
+  tanggal yang lebih akhir, tanggal mulainya diselaraskan ke awal kontrak baru;
+  assignment yang pernah ditutup atau dikoreksi manual tidak dilanjutkan.
 - Onboarding karyawan Produksi belum dinyatakan selesai hanya dengan kontrak
   aktif dan penugasan Shift. Karyawan `BORONGAN` atau `TRAINING` yang eligible
   Produksi wajib memiliki tepat satu pekerjaan utama aktif serta tarif aktif
   untuk kombinasi site dan pekerjaan tersebut. Penugasan awal dari onboarding
-  dibuat sekaligus per site, berlaku mulai hari berjalan, dan seluruh batch
-  dibatalkan bila satu karyawan gagal validasi.
+  dibuat sekaligus per site dan otomatis mengikuti Bagian Produksi melalui kode
+  pekerjaan `BORONGAN-{KODE_BAGIAN}`. Penugasan berlaku mulai hari berjalan,
+  dan seluruh batch dibatalkan bila satu karyawan gagal validasi.
 - Transaksi produksi menyimpan tarif dasar, rincian tingkat yang dipakai, dan
   bruto sebagai snapshot agar histori tidak berubah saat master diperbarui.
 - Koreksi transaksi Produksi bersifat append-only dan dapat diterapkan langsung

@@ -103,6 +103,8 @@ Gunakan cara ini jika data yang akan ditambahkan cukup banyak.
 
 Satu file dapat memuat paling banyak 200 karyawan. Untuk jumlah yang lebih besar, bagi menjadi beberapa file agar pemeriksaannya lebih mudah. Kolom **EDUCATION_LEVEL** wajib diisi memakai kode yang tersedia pada lembar **Referensi**.
 
+Kolom **EMPLOYEE_ID** bersifat opsional. Isi kolom ini jika karyawan sudah mempunyai ID dari sistem lama; sistem akan mempertahankan ID tersebut selama belum digunakan karyawan lain. Jika dikosongkan, ID karyawan dan barcode dibuat otomatis. Atur sel sebagai **Text** bila ID diawali angka nol agar Excel tidak mengubah nilainya.
+
 ### Kesalahan impor yang sering terjadi
 
 - nama kolom berubah;

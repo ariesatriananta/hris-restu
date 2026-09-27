@@ -15,7 +15,7 @@ export const Route = createRootRouteWithContext<{
       <>
         <NavigationProgress />
         <Outlet />
-        <Toaster duration={5000} />
+        <Toaster duration={5000} expand visibleToasts={5} gap={8} />
         {/* {import.meta.env.MODE === 'development' && (
           <>
             <ReactQueryDevtools buttonPosition='bottom-left' />

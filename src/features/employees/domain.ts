@@ -209,6 +209,7 @@ export interface EmployeeContract {
   isMissingContract?: boolean
   isCoverageIssue?: boolean
   isExpiringWithin7Days?: boolean
+  isExpiredWithin14Days?: boolean
   lifecycleEvents?: ContractLifecycleEvent[]
   correctionHistory?: ContractCorrectionHistory[]
 }
@@ -268,6 +269,9 @@ export interface EmployeeOnboardingReadinessItem {
   contractUid?: string
   contractNumber?: string
   contractStartDate?: string
+  previousContractEndDate?: string
+  productionAssignmentEligibleFrom?: string
+  productionAssignmentEligibleTo?: string
   productionSectionUid?: string
   productionSectionCode?: string
   productionSectionName?: string
@@ -365,6 +369,53 @@ export interface ContractBatchItem {
 }
 export interface ContractBatchResult {
   created: { uid: string; employeeUid: string; contractNumber: string }[]
+}
+export interface ContractBatchRenewalPreviewItem {
+  sourceContractUid: string
+  sourceContractNumber?: string
+  employeeUid?: string
+  employeeNumber?: string
+  employeeName?: string
+  employeeType?: EmployeeTypeCode
+  employeeStatus?: EmployeeStatusCode
+  site?: SiteCode
+  position?: string
+  contractType?: string
+  sourceStartDate?: string
+  sourceEndDate?: string
+  proposed?: {
+    contractType: string
+    startDate: string
+    endDate?: string
+    notes?: string
+  }
+  valid: boolean
+  issues: string[]
+}
+export interface ContractBatchRenewalPreview {
+  canCreate: boolean
+  total: number
+  ready: number
+  blocked: number
+  items: ContractBatchRenewalPreviewItem[]
+  blockers: string[]
+}
+export interface ContractBatchRenewalItem {
+  sourceContractUid: string
+  input: {
+    contractType: string
+    startDate: string
+    endDate?: string
+    notes?: string
+  }
+}
+export interface ContractBatchRenewalResult {
+  created: {
+    uid: string
+    employeeUid: string
+    contractNumber: string
+    sourceContractUid: string
+  }[]
 }
 export interface ContractBatchActivationPreview {
   canActivate: boolean

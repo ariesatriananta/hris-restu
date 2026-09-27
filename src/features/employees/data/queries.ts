@@ -22,6 +22,7 @@ import type {
   BatchMutationItem,
   ContractLifecycleAction,
   ContractBatchItem,
+  ContractBatchRenewalItem,
   ContractKpiSummary,
   ContractConflictListParams,
   ScheduledStatusChangeAction,
@@ -31,11 +32,14 @@ import type {
 import {
   httpEmployeeRepository,
   getContract,
+  deleteContract,
   getDocument,
   transitionContract,
   listContracts,
   getContractKpiSummary,
   saveContractsBatch,
+  previewContractsBatchRenewal,
+  renewContractsBatch,
   previewContractsBatchActivation,
   activateContractsBatch,
   listContractConflicts,
@@ -255,6 +259,13 @@ export const useContract = (uid: string) =>
       enabled: Boolean(uid),
     })
   )
+export function useDeleteContract() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (uid: string) => deleteContract(uid),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
 export const useDocument = (uid: string) =>
   useQuery(
     queryOptions({
@@ -369,6 +380,20 @@ export function useSaveContractsBatch() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (items: ContractBatchItem[]) => saveContractsBatch(items),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function usePreviewContractsBatchRenewal() {
+  return useMutation({
+    mutationFn: (sourceContractUids: string[]) =>
+      previewContractsBatchRenewal(sourceContractUids),
+  })
+}
+export function useRenewContractsBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (items: ContractBatchRenewalItem[]) =>
+      renewContractsBatch(items),
     onSuccess: () => invalidate(queryClient),
   })
 }

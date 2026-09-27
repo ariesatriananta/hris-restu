@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx'
 
 export const employeeImportColumns = [
+  ['EMPLOYEE_ID', 'employeeNumber'],
   ['FULL_NAME', 'fullName'],
   ['NICKNAME', 'nickname'],
   ['EMPLOYEE_TYPE', 'employeeType'],
@@ -95,7 +96,7 @@ export async function parseEmployeeImportWorkbook(
   })
   const importedHeaders = (rows[0] ?? []).map(normalizeHeader)
   const missing = employeeImportHeaders.filter(
-    (header) => !importedHeaders.includes(header)
+    (header) => header !== 'EMPLOYEE_ID' && !importedHeaders.includes(header)
   )
   if (missing.length) {
     throw new Error(
@@ -155,7 +156,13 @@ export function buildEmployeeImportValidationWorkbook(
     { wch: 75 },
   ]
   sheet['!autofilter'] = {
-    ref: `A1:AO${preview.rows.length + 1}`,
+    ref: XLSX.utils.encode_range({
+      s: { r: 0, c: 0 },
+      e: {
+        r: preview.rows.length,
+        c: employeeImportTemplateHeaders.length + 2,
+      },
+    }),
   }
 
   const workbook = XLSX.utils.book_new()

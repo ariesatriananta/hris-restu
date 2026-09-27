@@ -117,6 +117,9 @@ describe('kesiapan onboarding karyawan', () => {
           shiftAssignmentCount: 1,
           primaryAssignmentCount: 0,
           primaryActiveRateCount: 0,
+          previousContractEndDate: '2026-09-18',
+          productionAssignmentEligibleFrom: '2026-09-19',
+          productionAssignmentEligibleTo: '2027-09-18',
         },
         {
           ...employee,
@@ -144,7 +147,13 @@ describe('kesiapan onboarding karyawan', () => {
 
     expect(response.status).toBe(200)
     const body = (await response.json()) as {
-      items: { stage: string; canContinue: boolean }[]
+      items: Array<{
+        stage: string
+        canContinue: boolean
+        previousContractEndDate?: string
+        productionAssignmentEligibleFrom?: string
+        productionAssignmentEligibleTo?: string
+      }>
       total: number
       counts: Record<string, number>
     }
@@ -166,6 +175,11 @@ describe('kesiapan onboarding karyawan', () => {
       true,
       true,
     ])
+    expect(body.items[4]).toMatchObject({
+      previousContractEndDate: '2026-09-18',
+      productionAssignmentEligibleFrom: '2026-09-19',
+      productionAssignmentEligibleTo: '2027-09-18',
+    })
     expect(body).toMatchObject({
       total: 7,
       counts: {

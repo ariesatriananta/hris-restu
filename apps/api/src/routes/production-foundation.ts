@@ -17,6 +17,7 @@ import {
   productionAssignmentBatchInput,
   productionAssignmentCorrectionInput,
   productionActiveRateCorrectionInput,
+  productionActiveRateCorrectionPreviewInput,
   productionRateExceptionInput,
   productionAssignmentReadinessIssue,
   productionEligibleEmployeeType,
@@ -1091,7 +1092,7 @@ productionFoundationRouter.post(
   async (req, res, next) => {
     const connection = await pool.getConnection()
     try {
-      const input = productionActiveRateCorrectionInput.parse(req.body)
+      const input = productionActiveRateCorrectionPreviewInput.parse(req.body)
       const auth = res.locals.auth as AuthContext
       const rate = await activeRateContext(connection, routeParam(req.params.uid), false)
       enforceSite(auth, String(rate.site))
@@ -1669,123 +1670,206 @@ productionFoundationRouter.post(
     try {
       const input = productionAssignmentBatchInput.parse(req.body)
       const auth = res.locals.auth as AuthContext
-      if (input.effectiveFrom !== businessDate()) {
+      const items = input.items.map((item) => ({
+        ...item,
+        effectiveFrom: item.effectiveFrom ?? input.effectiveFrom!,
+      }))
+      if (items.some((item) => item.effectiveFrom > businessDate())) {
         throw new ApiError(
           422,
-          'Penugasan onboarding harus mulai berlaku hari ini.'
+          'Tanggal mulai penugasan tidak boleh melewati hari ini.'
         )
       }
       enforceSite(auth, input.site)
       await connection.beginTransaction()
 
+      const jobUids = [...new Set(items.map((item) => item.jobUid))]
+      const jobPlaceholders = jobUids.map(() => '?').join(',')
       const [references] = await connection.query<RowDataPacket[]>(
-        `SELECT j.id jobId,j.code jobCode,j.name jobName,s.id siteId
+        `SELECT j.id jobId,j.uid jobUid,j.code jobCode,j.name jobName,s.id siteId
            FROM production_jobs j CROSS JOIN sites s
-          WHERE j.uid=? AND j.is_active=1 AND s.code=? AND s.is_active=1
+          WHERE j.uid IN (${jobPlaceholders}) AND j.is_active=1
+            AND s.code=? AND s.is_active=1
           FOR UPDATE`,
-        [input.jobUid, input.site]
+        [...jobUids, input.site]
       )
-      const reference = references[0]
-      if (!reference) {
-        throw new ApiError(422, 'Pekerjaan atau site tidak valid.')
+      const referencesByUid = new Map(
+        references.map((reference) => [String(reference.jobUid), reference])
+      )
+      if (jobUids.some((jobUid) => !referencesByUid.has(jobUid))) {
+        throw new ApiError(422, 'Ada pekerjaan yang tidak aktif atau tidak valid.')
       }
+      const siteId = Number(references[0].siteId)
 
-      const [rates] = await connection.query<RowDataPacket[]>(
-        `SELECT rate.id FROM production_job_rates rate
-           JOIN work_units unit ON unit.id=rate.unit_id AND unit.is_active=1
-          WHERE rate.site_id=? AND rate.production_job_id=? AND rate.status='ACTIVE'
-            AND rate.effective_from<=?
-            AND (rate.effective_to IS NULL OR rate.effective_to>=?)
-          FOR UPDATE`,
-        [
-          reference.siteId,
-          reference.jobId,
-          input.effectiveFrom,
-          input.effectiveFrom,
-        ]
-      )
-      if (rates.length !== 1) {
-        throw new ApiError(
-          422,
-          rates.length === 0
-            ? 'Tarif aktif pekerjaan untuk site dan tanggal tersebut belum tersedia.'
-            : 'Tarif aktif pekerjaan untuk site dan tanggal tersebut tidak unik.'
+      const jobIds = references.map((reference) => Number(reference.jobId))
+      const effectiveDates = new Set(items.map((item) => item.effectiveFrom))
+      if (effectiveDates.size === 1) {
+        const [rates] = await connection.query<RowDataPacket[]>(
+          `SELECT rate.production_job_id jobId,COUNT(*) rateCount
+             FROM production_job_rates rate
+             JOIN work_units unit ON unit.id=rate.unit_id AND unit.is_active=1
+            WHERE rate.site_id=? AND rate.production_job_id IN (${jobIds.map(() => '?').join(',')})
+              AND rate.status='ACTIVE' AND rate.effective_from<=?
+              AND (rate.effective_to IS NULL OR rate.effective_to>=?)
+            GROUP BY rate.production_job_id
+            FOR UPDATE`,
+          [siteId, ...jobIds, items[0].effectiveFrom, items[0].effectiveFrom]
         )
+        const activeRateCounts = new Map(
+          rates.map((rate) => [Number(rate.jobId), Number(rate.rateCount)])
+        )
+        const invalidRateJob = references.find(
+          (reference) => activeRateCounts.get(Number(reference.jobId)) !== 1
+        )
+        if (invalidRateJob) {
+          throw new ApiError(
+            422,
+            `Tarif aktif pekerjaan ${invalidRateJob.jobName} belum tersedia atau tidak unik.`
+          )
+        }
+      } else {
+        for (const item of items) {
+          const reference = referencesByUid.get(item.jobUid)!
+          const [rates] = await connection.query<RowDataPacket[]>(
+            `SELECT rate.id
+               FROM production_job_rates rate
+               JOIN work_units unit ON unit.id=rate.unit_id AND unit.is_active=1
+              WHERE rate.site_id=? AND rate.production_job_id=?
+                AND rate.status='ACTIVE' AND rate.effective_from<=?
+                AND (rate.effective_to IS NULL OR rate.effective_to>=?)
+              FOR UPDATE`,
+            [siteId, reference.jobId, item.effectiveFrom, item.effectiveFrom]
+          )
+          if (rates.length !== 1) {
+            throw new ApiError(
+              422,
+              `Tarif aktif pekerjaan ${reference.jobName} belum tersedia atau tidak unik pada ${item.effectiveFrom}.`
+            )
+          }
+        }
       }
 
-      const placeholders = input.employeeUids.map(() => '?').join(',')
+      const employeeUids = items.map((item) => item.employeeUid)
+      const placeholders = employeeUids.map(() => '?').join(',')
       const [employees] = await connection.query<RowDataPacket[]>(
         `SELECT e.id employeeId,e.uid,e.employee_number employeeNumber,
                 e.full_name fullName
            FROM employees e
           WHERE e.uid IN (${placeholders})
           FOR UPDATE`,
-        input.employeeUids
+        employeeUids
       )
       const employeesByUid = new Map(
         employees.map((employee) => [String(employee.uid), employee])
       )
-      const missingEmployee = input.employeeUids.find(
+      const missingEmployee = employeeUids.find(
         (uid) => !employeesByUid.has(uid)
       )
       if (missingEmployee) {
         throw new ApiError(422, 'Ada karyawan yang tidak ditemukan.')
       }
 
-      const employeeIds = input.employeeUids.map((uid) =>
-        Number(employeesByUid.get(uid)!.employeeId)
-      )
-      const employeePlaceholders = employeeIds.map(() => '?').join(',')
-      const [eligibleHistories] = await connection.query<RowDataPacket[]>(
-        `SELECT history.employee_id employeeId,COUNT(*) historyCount
-           FROM employee_employment_histories history
-           JOIN employee_statuses status
-             ON status.id=history.employee_status_id AND status.allows_production=1
-           JOIN employee_types employee_type
-             ON employee_type.id=history.employee_type_id
-            AND employee_type.code IN ('BORONGAN','TRAINING')
-          WHERE history.employee_id IN (${employeePlaceholders})
-            AND history.site_id=? AND history.effective_from<=?
-            AND history.effective_to IS NULL
-          GROUP BY history.employee_id`,
-        [...employeeIds, reference.siteId, input.effectiveFrom]
-      )
-      const eligibleHistoryCount = new Map(
-        eligibleHistories.map((history) => [
-          Number(history.employeeId),
-          Number(history.historyCount),
-        ])
-      )
-      const invalidEmployee = employeeIds.find(
-        (employeeId) => eligibleHistoryCount.get(employeeId) !== 1
-      )
-      if (invalidEmployee) {
-        throw new ApiError(
-          422,
-          'Ada karyawan yang tidak aktif atau tidak eligible untuk Produksi pada site dan tanggal tersebut.'
+      if (effectiveDates.size === 1) {
+        const employeeIds = employeeUids.map((uid) =>
+          Number(employeesByUid.get(uid)!.employeeId)
         )
+        const [eligibleHistories] = await connection.query<RowDataPacket[]>(
+          `SELECT history.employee_id employeeId,COUNT(*) historyCount
+             FROM employee_employment_histories history
+             JOIN employee_statuses status
+               ON status.id=history.employee_status_id AND status.allows_production=1
+             JOIN employee_types employee_type
+               ON employee_type.id=history.employee_type_id
+              AND employee_type.code IN ('BORONGAN','TRAINING')
+            WHERE history.employee_id IN (${employeeIds.map(() => '?').join(',')})
+              AND history.site_id=? AND history.effective_from<=?
+              AND (history.effective_to IS NULL OR history.effective_to>=?)
+            GROUP BY history.employee_id`,
+          [...employeeIds, siteId, items[0].effectiveFrom, items[0].effectiveFrom]
+        )
+        const eligibleHistoryCount = new Map(
+          eligibleHistories.map((history) => [
+            Number(history.employeeId),
+            Number(history.historyCount),
+          ])
+        )
+        if (employeeIds.some((id) => eligibleHistoryCount.get(id) !== 1)) {
+          throw new ApiError(
+            422,
+            'Ada karyawan yang tidak aktif atau tidak eligible untuk Produksi pada site dan tanggal tersebut.'
+          )
+        }
+      } else {
+        for (const item of items) {
+          const employeeId = Number(employeesByUid.get(item.employeeUid)!.employeeId)
+          const [eligibleHistories] = await connection.query<RowDataPacket[]>(
+            `SELECT history.id
+               FROM employee_employment_histories history
+               JOIN employee_statuses status
+                 ON status.id=history.employee_status_id AND status.allows_production=1
+               JOIN employee_types employee_type
+                 ON employee_type.id=history.employee_type_id
+                AND employee_type.code IN ('BORONGAN','TRAINING')
+              WHERE history.employee_id=? AND history.site_id=?
+                AND history.effective_from<=?
+                AND (history.effective_to IS NULL OR history.effective_to>=?)`,
+            [employeeId, siteId, item.effectiveFrom, item.effectiveFrom]
+          )
+          if (eligibleHistories.length !== 1) {
+            throw new ApiError(
+              422,
+              `Karyawan ${item.employeeUid} tidak aktif atau tidak eligible untuk Produksi pada ${item.effectiveFrom}.`
+            )
+          }
+        }
       }
 
-      const [primaryAssignments] = await connection.query<RowDataPacket[]>(
-        `SELECT employee_id employeeId
-           FROM employee_job_assignments
-          WHERE employee_id IN (${employeePlaceholders}) AND site_id=?
-            AND status='ACTIVE' AND is_primary=1
-            AND (effective_to IS NULL OR effective_to>=?)
-          FOR UPDATE`,
-        [...employeeIds, reference.siteId, input.effectiveFrom]
-      )
-      if (primaryAssignments.length > 0) {
-        throw new ApiError(
-          409,
-          'Ada karyawan yang sudah memiliki pekerjaan utama pada periode tersebut.'
+      if (effectiveDates.size === 1) {
+        const employeeIds = employeeUids.map((uid) =>
+          Number(employeesByUid.get(uid)!.employeeId)
         )
+        const [primaryAssignments] = await connection.query<RowDataPacket[]>(
+          `SELECT employee_id employeeId
+             FROM employee_job_assignments
+            WHERE employee_id IN (${employeeIds.map(() => '?').join(',')}) AND site_id=?
+              AND status='ACTIVE' AND is_primary=1
+              AND (effective_to IS NULL OR effective_to>=?)
+            FOR UPDATE`,
+          [...employeeIds, siteId, items[0].effectiveFrom]
+        )
+        if (primaryAssignments.length > 0) {
+          throw new ApiError(
+            409,
+            'Ada karyawan yang sudah memiliki pekerjaan utama pada periode tersebut.'
+          )
+        }
+      } else {
+        for (const item of items) {
+          const employeeId = Number(employeesByUid.get(item.employeeUid)!.employeeId)
+          const [primaryAssignments] = await connection.query<RowDataPacket[]>(
+            `SELECT id
+               FROM employee_job_assignments
+              WHERE employee_id=? AND site_id=?
+                AND status='ACTIVE' AND is_primary=1
+                AND (effective_to IS NULL OR effective_to>=?)
+              FOR UPDATE`,
+            [employeeId, siteId, item.effectiveFrom]
+          )
+          if (primaryAssignments.length > 0) {
+            throw new ApiError(
+              409,
+              'Ada karyawan yang sudah memiliki pekerjaan utama pada periode tersebut.'
+            )
+          }
+        }
       }
 
       const reason = 'Penugasan awal pekerjaan Produksi dari onboarding karyawan.'
-      const items: Array<{ uid: string; employeeUid: string }> = []
-      for (const employeeUid of input.employeeUids) {
+      const createdItems: Array<{ uid: string; employeeUid: string }> = []
+      for (const item of items) {
+        const employeeUid = item.employeeUid
         const employee = employeesByUid.get(employeeUid)!
+        const reference = referencesByUid.get(item.jobUid)!
         const uid = randomUUID()
         await connection.execute(
           `INSERT INTO employee_job_assignments(
@@ -1796,8 +1880,8 @@ productionFoundationRouter.post(
             uid,
             employee.employeeId,
             reference.jobId,
-            reference.siteId,
-            input.effectiveFrom,
+            siteId,
+            item.effectiveFrom,
             auth.id,
             auth.id,
           ]
@@ -1807,7 +1891,7 @@ productionFoundationRouter.post(
             auth,
             request: req,
             module: 'PRODUCTION',
-            siteId: Number(reference.siteId),
+            siteId,
             action: 'CREATE',
             table: 'employee_job_assignments',
             recordUid: uid,
@@ -1815,19 +1899,19 @@ productionFoundationRouter.post(
             reason,
             afterData: {
               employeeUid,
-              jobUid: input.jobUid,
+              jobUid: item.jobUid,
               site: input.site,
-              effectiveFrom: input.effectiveFrom,
+              effectiveFrom: item.effectiveFrom,
               isPrimary: true,
             },
           },
           connection
         )
-        items.push({ uid, employeeUid })
+        createdItems.push({ uid, employeeUid })
       }
 
       await connection.commit()
-      res.status(201).json({ created: items.length, items })
+      res.status(201).json({ created: createdItems.length, items: createdItems })
     } catch (error) {
       await connection.rollback()
       next(error)

@@ -360,3 +360,90 @@ describe('hapus permanen karyawan', () => {
     ).toBe(true)
   })
 })
+
+describe('hapus kontrak Draft atau Dibatalkan', () => {
+  const contractUid = '00000000-0000-4000-8000-000000000099'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    setAuth()
+    mocks.execute.mockResolvedValue([{ affectedRows: 1 }])
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it.each(['DRAFT', 'CANCELLED'])(
+    'menghapus kontrak berstatus %s beserta lifecycle event-nya',
+    async (status) => {
+      mocks.query.mockResolvedValueOnce([[
+        {
+          id: 99,
+          uid: contractUid,
+          contractNumber: 'PKWT/RSIAKDS-HR/099/IX/2026',
+          status,
+          startDate: '2026-09-26',
+          endDate: '2027-09-25',
+          employeeUid: employee.uid,
+          employeeNumber: employee.employeeNumber,
+          siteId: employee.siteId,
+          site: employee.siteCode,
+        },
+      ]])
+
+      const response = await request(`/contracts/${contractUid}`, {
+        method: 'DELETE',
+      })
+
+      expect(response.status).toBe(204)
+      expect(mocks.execute).toHaveBeenNthCalledWith(
+        1,
+        'DELETE FROM employee_contract_lifecycle_events WHERE contract_id=?',
+        [99]
+      )
+      expect(mocks.execute).toHaveBeenNthCalledWith(
+        2,
+        'DELETE FROM employee_contracts WHERE id=?',
+        [99]
+      )
+      expect(mocks.audit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DELETE',
+          table: 'employee_contracts',
+          recordUid: contractUid,
+          beforeData: expect.objectContaining({ status }),
+        }),
+        connection
+      )
+      expect(mocks.commit).toHaveBeenCalledOnce()
+      expect(mocks.rollback).not.toHaveBeenCalled()
+    }
+  )
+
+  it('menolak penghapusan kontrak Aktif', async () => {
+    mocks.query.mockResolvedValueOnce([[
+      {
+        id: 99,
+        uid: contractUid,
+        contractNumber: 'PKWT/RSIAKDS-HR/099/IX/2026',
+        status: 'ACTIVE',
+        startDate: '2026-09-26',
+        endDate: '2027-09-25',
+        employeeUid: employee.uid,
+        employeeNumber: employee.employeeNumber,
+        siteId: employee.siteId,
+        site: employee.siteCode,
+      },
+    ]])
+
+    const response = await request(`/contracts/${contractUid}`, {
+      method: 'DELETE',
+    })
+
+    expect(response.status).toBe(409)
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.commit).not.toHaveBeenCalled()
+    expect(mocks.rollback).toHaveBeenCalledOnce()
+  })
+})

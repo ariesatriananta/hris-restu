@@ -130,7 +130,8 @@ describe('Attendance batch tools API', () => {
       ])
 
     const response = await post('/batch-input/preview', {
-      businessDate: '2026-09-03',
+      dateFrom: '2026-09-03',
+      dateTo: '2026-09-03',
       site: 'JEPARA',
       mode: 'FULL_PRESENT',
     })
@@ -138,13 +139,112 @@ describe('Attendance batch tools API', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       data: expect.objectContaining({
-        businessDate: '2026-09-03',
+        dateFrom: '2026-09-03',
+        dateTo: '2026-09-03',
+        dateCount: 1,
         eligibleEmployeeCount: 1,
         siteCount: 1,
         canCreate: true,
         blockers: [],
+        rows: [
+          expect.objectContaining({
+            businessDate: '2026-09-03',
+            canCreate: true,
+          }),
+        ],
       }),
     })
+  })
+
+  it('memeriksa beberapa tanggal sampai maksimal tujuh hari', async () => {
+    const cleanFacts = {
+      recordCount: 0,
+      finalizationCount: 0,
+      classificationCount: 0,
+      orphanScanCount: 0,
+      productionCount: 0,
+      processedPayrollCount: 0,
+      payrollSnapshotCount: 0,
+    }
+    mocks.query
+      .mockResolvedValueOnce([[candidate]])
+      .mockResolvedValueOnce([[cleanFacts]])
+      .mockResolvedValueOnce([[candidate]])
+      .mockResolvedValueOnce([[cleanFacts]])
+
+    const response = await post('/batch-input/preview', {
+      dateFrom: '2026-09-02',
+      dateTo: '2026-09-03',
+      site: 'JEPARA',
+      mode: 'FULL_PRESENT',
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      data: expect.objectContaining({
+        dateCount: 2,
+        eligibleEmployeeCount: 2,
+        canCreate: true,
+        rows: [
+          expect.objectContaining({ businessDate: '2026-09-02' }),
+          expect.objectContaining({ businessDate: '2026-09-03' }),
+        ],
+      }),
+    })
+  })
+
+  it('menolak rentang input Attendance lebih dari tujuh hari', async () => {
+    const response = await post('/batch-input/preview', {
+      dateFrom: '2026-09-01',
+      dateTo: '2026-09-08',
+      site: 'JEPARA',
+      mode: 'RANDOM',
+    })
+
+    expect(response.status).toBe(422)
+    expect(mocks.query).not.toHaveBeenCalled()
+  })
+
+  it('mengeksekusi seluruh tanggal dalam satu transaksi', async () => {
+    const cleanFacts = {
+      recordCount: 0,
+      finalizationCount: 0,
+      classificationCount: 0,
+      orphanScanCount: 0,
+      productionCount: 0,
+      processedPayrollCount: 0,
+      payrollSnapshotCount: 0,
+    }
+    mocks.connectionQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM employee_employment_histories eh')) {
+        return [[candidate]]
+      }
+      if (sql.includes('(SELECT COUNT(*) FROM attendance_records')) {
+        return [[cleanFacts]]
+      }
+      return [[]]
+    })
+    mocks.execute.mockResolvedValue([{ affectedRows: 1 }])
+
+    const response = await post('/batch-input', {
+      dateFrom: '2026-09-02',
+      dateTo: '2026-09-03',
+      site: 'JEPARA',
+      mode: 'FULL_PRESENT',
+      reason: 'Menyiapkan data demo dua hari.',
+      confirmation: 'PROSES',
+    })
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toEqual({
+      data: expect.objectContaining({
+        attendanceRecords: 2,
+        preview: expect.objectContaining({ dateCount: 2, canCreate: true }),
+      }),
+    })
+    expect(mocks.beginTransaction).toHaveBeenCalledOnce()
+    expect(mocks.commit).toHaveBeenCalledOnce()
+    expect(mocks.rollback).not.toHaveBeenCalled()
   })
 
   it('menjelaskan blocker sebelum input dijalankan', async () => {
@@ -165,7 +265,8 @@ describe('Attendance batch tools API', () => {
       ])
 
     const response = await post('/batch-input/preview', {
-      businessDate: '2026-09-03',
+      dateFrom: '2026-09-03',
+      dateTo: '2026-09-03',
       site: 'JEPARA',
       mode: 'RANDOM',
     })
@@ -187,7 +288,8 @@ describe('Attendance batch tools API', () => {
     const response = await post(
       '/batch-input/preview',
       {
-        businessDate: '2026-09-03',
+        dateFrom: '2026-09-03',
+        dateTo: '2026-09-03',
         site: 'JEPARA',
         mode: 'RANDOM',
       },

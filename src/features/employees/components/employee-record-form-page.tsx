@@ -79,11 +79,13 @@ export function EmployeeRecordFormPage({
   kind,
   recordUid,
   employeeUid,
+  renewFromContractUid,
   returnTo,
 }: {
   kind: 'contract' | 'document'
   recordUid?: string
   employeeUid?: string
+  renewFromContractUid?: string
   returnTo?: string
 }) {
   const navigate = useNavigate()
@@ -94,19 +96,27 @@ export function EmployeeRecordFormPage({
   const contract = useContract(
     kind === 'contract' && recordUid ? recordUid : ''
   )
+  const renewalSource = useContract(
+    kind === 'contract' && !recordUid && renewFromContractUid
+      ? renewFromContractUid
+      : ''
+  )
   const document = useDocument(
     kind === 'document' && recordUid ? recordUid : ''
   )
   const isLoading =
-    Boolean(recordUid) &&
-    (kind === 'contract' ? contract.isPending : document.isPending)
+    (Boolean(recordUid) &&
+      (kind === 'contract' ? contract.isPending : document.isPending)) ||
+    Boolean(renewFromContractUid && renewalSource.isPending)
   const failed =
-    Boolean(recordUid) &&
-    (kind === 'contract' ? contract.isError : document.isError)
+    (Boolean(recordUid) &&
+      (kind === 'contract' ? contract.isError : document.isError)) ||
+    Boolean(renewFromContractUid && renewalSource.isError)
   if (isLoading) return <Main>Memuat data...</Main>
   if (
     failed ||
-    (recordUid && !(kind === 'contract' ? contract.data : document.data))
+    (recordUid && !(kind === 'contract' ? contract.data : document.data)) ||
+    (renewFromContractUid && !renewalSource.data)
   )
     return (
       <Main>
@@ -119,7 +129,8 @@ export function EmployeeRecordFormPage({
   return kind === 'contract' ? (
     <ContractForm
       record={contract.data}
-      employeeUid={employeeUid}
+      employeeUid={employeeUid ?? renewalSource.data?.employeeUid}
+      renewalSource={renewalSource.data}
       onBack={() => goBack()}
       onSaved={() => goBack(true)}
     />
@@ -136,11 +147,13 @@ export function EmployeeRecordFormPage({
 function ContractForm({
   record,
   employeeUid,
+  renewalSource,
   onBack,
   onSaved,
 }: {
   record?: EmployeeContract
   employeeUid?: string
+  renewalSource?: EmployeeContract
   onBack: () => void
   onSaved: () => void
 }) {
@@ -150,8 +163,18 @@ function ContractForm({
   const [attachment, setAttachment] = useState<MockFileAttachment | undefined>(
     record?.issuedFile
   )
+  const renewalStartDate =
+    !record && renewalSource?.endDate
+      ? addDaysToInput(renewalSource.endDate, 1)
+      : ''
+  const initialStartDate = record?.startDate?.slice(0, 10) ?? renewalStartDate
+  const initialEndDate =
+    record?.endDate?.slice(0, 10) ??
+    (renewalStartDate ? calculateContractEndDate(renewalStartDate, 12) : '')
   const [contractPeriod, setContractPeriod] = useState<ContractPeriod>(() =>
-    deriveContractPeriod(record?.startDate, record?.endDate)
+    renewalSource
+      ? '12'
+      : deriveContractPeriod(record?.startDate, record?.endDate)
   )
   const form = useForm<ContractValues>({
     resolver: zodResolver(contractSchema),
@@ -160,8 +183,8 @@ function ContractForm({
       contractNumber: record?.contractNumber ?? '',
       contractType: record?.contractType ?? 'PKWT',
       sequenceNumber: record?.sequenceNumber ?? 0,
-      startDate: record?.startDate?.slice(0, 10) ?? '',
-      endDate: record?.endDate?.slice(0, 10) ?? '',
+      startDate: initialStartDate,
+      endDate: initialEndDate,
       notes: record?.notes ?? '',
     },
   })
@@ -239,14 +262,30 @@ function ContractForm({
         issuedFile: attachment,
       },
     })
-    toast.success(record ? 'Kontrak diperbarui.' : 'Kontrak ditambahkan.')
+    toast.success(
+      record
+        ? 'Kontrak diperbarui.'
+        : renewalSource
+          ? 'Kontrak perpanjangan ditambahkan.'
+          : 'Kontrak ditambahkan.'
+    )
     form.reset(value)
     onSaved()
   }
   return (
     <RecordLayout
-      title={record ? 'Ubah kontrak' : 'Tambah kontrak'}
-      description='Kelola kontrak kerja dan lampirannya pada halaman penuh.'
+      title={
+        record
+          ? 'Ubah kontrak'
+          : renewalSource
+            ? 'Perpanjang kontrak'
+            : 'Tambah kontrak'
+      }
+      description={
+        renewalSource
+          ? `Periode baru dimulai sehari setelah ${renewalSource.contractNumber} berakhir dan disiapkan untuk 12 bulan.`
+          : 'Kelola kontrak kerja dan lampirannya pada halaman penuh.'
+      }
       formId='contract-form'
       pending={save.isPending}
       submitDisabled={Boolean(overlappingContract) || isCheckingContractOverlap}
@@ -300,13 +339,25 @@ function ContractForm({
           label='Tanggal mulai'
           error={form.formState.errors.startDate?.message}
           value={startDate}
-          disabled={isActiveContract}
-          disabledDates={(date) =>
-            Boolean(
-              selectedEmployee.data?.joinDate &&
-              dateToInput(date) < selectedEmployee.data.joinDate
-            )
+          disabled={
+            isActiveContract ||
+            Boolean(selectedEmployeeUid && employeeContracts.isPending)
           }
+          disabledDates={(date) => {
+            const value = dateToInput(date)
+            return (
+              Boolean(
+                selectedEmployee.data?.joinDate &&
+                value < selectedEmployee.data.joinDate
+              ) ||
+              Boolean(renewalStartDate && value < renewalStartDate) ||
+              isDateCoveredByAnotherContract(
+                value,
+                employeeContracts.data,
+                record?.uid
+              )
+            )
+          }}
           onChange={(date) => {
             const value = dateToInput(date)
             form.setValue('startDate', value, {
@@ -368,8 +419,8 @@ function ContractForm({
               Periode kontrak bertumpang tindih dengan{' '}
               {overlappingContract.contractNumber} (
               {formatInputDate(overlappingContract.startDate)} -{' '}
-              {formatInputDate(effectiveContractEndDate(overlappingContract))}). Ubah tanggal
-              mulai atau tanggal berakhir sebelum menyimpan.
+              {formatInputDate(effectiveContractEndDate(overlappingContract))}).
+              Ubah tanggal mulai atau tanggal berakhir sebelum menyimpan.
             </AlertDescription>
           </Alert>
         )}
@@ -666,6 +717,22 @@ function effectiveContractEndDate(contract: EmployeeContract) {
   return contract.endDate || '9999-12-31'
 }
 
+function isDateCoveredByAnotherContract(
+  date: string,
+  contracts: EmployeeContract[] | undefined,
+  exceptUid?: string
+) {
+  return Boolean(
+    contracts?.some(
+      (contract) =>
+        contract.uid !== exceptUid &&
+        contract.status !== 'CANCELLED' &&
+        contract.startDate <= date &&
+        effectiveContractEndDate(contract) >= date
+    )
+  )
+}
+
 function formatInputDate(value?: string) {
   return value?.slice(0, 10) || 'tanpa tanggal akhir'
 }
@@ -722,6 +789,13 @@ function calculateContractEndDate(startDate: string, months: number) {
   )
   endDate.setDate(endDate.getDate() - 1)
   return dateToInput(endDate)
+}
+
+function addDaysToInput(value: string, days: number) {
+  const date = dateFromInput(value)
+  if (!date) return ''
+  date.setDate(date.getDate() + days)
+  return dateToInput(date)
 }
 
 function deriveContractPeriod(startDate?: string, endDate?: string) {

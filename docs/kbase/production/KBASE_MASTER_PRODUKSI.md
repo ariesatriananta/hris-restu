@@ -151,6 +151,8 @@ Jika nama tidak muncul, jangan membuat data pengganti. Periksa status kerja, kon
 
 Satu karyawan boleh memiliki beberapa pekerjaan aktif, tetapi hanya boleh memiliki satu pekerjaan utama pada tanggal yang sama.
 
+Pada alur onboarding massal, sistem mengelompokkan karyawan berdasarkan **Bagian Produksi** dan memilih pekerjaan utama bertarif aktif dengan kode `BORONGAN-{KODE_BAGIAN}`. Periksa pilihan setiap kelompok sebelum menyimpan. Jika pekerjaan otomatis tidak ditemukan, pilih pekerjaan yang benar pada kelompok tersebut; seluruh batch baru disimpan setelah semua kelompok lengkap dan valid.
+
 ### 7.3 Mengakhiri penugasan
 
 Gunakan **Akhiri Penugasan** jika pekerjaan memang selesai sejak tanggal tertentu.

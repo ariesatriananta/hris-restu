@@ -9,14 +9,33 @@ export const attendanceBatchSite = z.enum([
 
 export const attendanceBatchInputPreviewInput = z
   .object({
-    businessDate: z.string().date(),
+    dateFrom: z.string().date(),
+    dateTo: z.string().date(),
     site: attendanceBatchSite,
     mode: z.enum(['RANDOM', 'FULL_PRESENT']),
   })
   .strict()
+  .superRefine((value, context) => {
+    const start = Date.parse(`${value.dateFrom}T00:00:00Z`)
+    const end = Date.parse(`${value.dateTo}T00:00:00Z`)
+    const days = Math.floor((end - start) / 86_400_000) + 1
+    if (days < 1) {
+      context.addIssue({
+        code: 'custom',
+        path: ['dateTo'],
+        message: 'Tanggal akhir tidak boleh sebelum tanggal awal.',
+      })
+    } else if (days > 7) {
+      context.addIssue({
+        code: 'custom',
+        path: ['dateTo'],
+        message: 'Input Attendance Batch maksimal untuk 7 hari.',
+      })
+    }
+  })
 
 export const attendanceBatchInputRunInput = attendanceBatchInputPreviewInput
-  .extend({
+  .safeExtend({
     reason: z.string().trim().min(5).max(500),
     confirmation: z.literal('PROSES'),
   })

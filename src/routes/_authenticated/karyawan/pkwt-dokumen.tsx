@@ -22,7 +22,11 @@ export const Route = createFileRoute('/_authenticated/karyawan/pkwt-dokumen')({
       .optional(),
     contractCoverage: z
       .array(
-        z.enum(['ACTIVE_WITHOUT_VALID_CONTRACT', 'EXPIRING_WITHIN_7_DAYS'])
+        z.enum([
+          'ACTIVE_WITHOUT_VALID_CONTRACT',
+          'EXPIRING_WITHIN_7_DAYS',
+          'EXPIRED_WITHIN_14_DAYS',
+        ])
       )
       .optional(),
     contractProductionModule: z.array(z.string()).optional(),

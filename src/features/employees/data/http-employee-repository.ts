@@ -260,6 +260,10 @@ export const listContractConflicts = async (
 export const getContract = async (uid: string) =>
   (await apiClient.get<EmployeeContract>(`/employees/contracts/${uid}`)).data
 
+export const deleteContract = async (uid: string) => {
+  await apiClient.delete(`/employees/contracts/${uid}`)
+}
+
 export const getDocument = async (uid: string) =>
   (await apiClient.get<EmployeeDocument>(`/employees/documents/${uid}`)).data
 export const transitionContract = async (
@@ -324,6 +328,26 @@ export const saveContractsBatch = async (items: ContractBatchItem[]) =>
     })
   ).data
 
+export const previewContractsBatchRenewal = async (
+  sourceContractUids: string[]
+) =>
+  (
+    await apiClient.post<import('../domain').ContractBatchRenewalPreview>(
+      '/employees/contracts/batch/renewal-preview',
+      { sourceContractUids }
+    )
+  ).data
+
+export const renewContractsBatch = async (
+  items: import('../domain').ContractBatchRenewalItem[]
+) =>
+  (
+    await apiClient.post<import('../domain').ContractBatchRenewalResult>(
+      '/employees/contracts/batch/renew',
+      { items }
+    )
+  ).data
+
 export const previewContractsBatchActivation = async (contractUids: string[]) =>
   (
     await apiClient.post<import('../domain').ContractBatchActivationPreview>(
@@ -343,6 +367,7 @@ export const activateContractsBatch = async (contractUids: string[]) =>
 export type EmployeeImportPreview = {
   rows: {
     rowNumber: number
+    employeeNumber?: string
     fullName?: string
     employeeType?: string
     site?: string

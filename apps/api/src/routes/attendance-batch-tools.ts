@@ -61,6 +61,19 @@ type InputPreview = {
   }>
 }
 
+type InputRangePreview = {
+  dateFrom: string
+  dateTo: string
+  site: AttendanceBatchSite
+  mode: AttendanceBatchMode
+  dateCount: number
+  eligibleEmployeeCount: number
+  siteCount: number
+  canCreate: boolean
+  blockers: string[]
+  rows: InputPreview[]
+}
+
 type DeleteSummaryRow = {
   businessDate: string
   siteCount: number
@@ -113,15 +126,20 @@ function assertAllowedDate(businessDate: string) {
   }
 }
 
-function rangeDates(dateFrom: string, dateTo: string) {
+function rangeDates(dateFrom: string, dateTo: string, maximumDays = 31) {
   const start = Date.parse(`${dateFrom}T00:00:00Z`)
   const end = Date.parse(`${dateTo}T00:00:00Z`)
   const days = Math.floor((end - start) / 86_400_000) + 1
   if (days < 1) {
     throw new ApiError(422, 'Tanggal akhir tidak boleh sebelum tanggal awal.')
   }
-  if (days > 31) {
-    throw new ApiError(422, 'Ringkasan hapus maksimal untuk 31 hari.')
+  if (days > maximumDays) {
+    throw new ApiError(
+      422,
+      maximumDays === 7
+        ? 'Input Attendance Batch maksimal untuk 7 hari.'
+        : 'Ringkasan hapus maksimal untuk 31 hari.'
+    )
   }
   return Array.from({ length: days }, (_, index) =>
     new Date(start + index * 86_400_000).toISOString().slice(0, 10)
@@ -193,25 +211,63 @@ export async function attendanceInputPreview(
   if (!candidateRows.length) {
     blockers.push('Tidak ada karyawan eligible pada tanggal dan site terpilih.')
   }
-  if (candidateRows.some((row) => Number(row.siteActive) !== 1)) {
-    blockers.push('Ada karyawan eligible pada site yang sedang nonaktif.')
-  }
-  if (candidateRows.some((row) => Number(row.employmentCount) !== 1)) {
-    blockers.push('Ada histori employment efektif yang tumpang tindih.')
-  }
-  if (
-    candidateRows.some(
-      (row) =>
-        Number(row.assignmentCount) !== 1 ||
-        Number(row.validAssignmentCount) !== 1
-    )
-  ) {
+  const employeeCountWhere = (predicate: (row: InputCandidateRow) => boolean) =>
+    new Set(
+      candidateRows
+        .filter(predicate)
+        .map((row) => Number(row.employeeId))
+    ).size
+  const inactiveSiteEmployees = employeeCountWhere(
+    (row) => Number(row.siteActive) !== 1
+  )
+  if (inactiveSiteEmployees > 0) {
     blockers.push(
-      'Ada penugasan shift yang hilang, ambigu, nonaktif, berbeda site, atau tanpa hari kerja.'
+      `${inactiveSiteEmployees} karyawan berada pada site yang sedang nonaktif.`
     )
   }
-  if (candidateRows.some((row) => row.deviceId == null)) {
-    blockers.push('Setiap site terpilih wajib memiliki perangkat Attendance aktif dan teraktivasi.')
+  const overlappingEmploymentEmployees = employeeCountWhere(
+    (row) => Number(row.employmentCount) !== 1
+  )
+  if (overlappingEmploymentEmployees > 0) {
+    blockers.push(
+      `${overlappingEmploymentEmployees} karyawan memiliki histori employment efektif yang hilang atau tumpang tindih.`
+    )
+  }
+  const missingShiftEmployees = employeeCountWhere(
+    (row) => Number(row.assignmentCount) === 0
+  )
+  if (missingShiftEmployees > 0) {
+    blockers.push(
+      `${missingShiftEmployees} karyawan tidak memiliki penugasan shift.`
+    )
+  }
+  const ambiguousShiftEmployees = employeeCountWhere(
+    (row) => Number(row.assignmentCount) > 1
+  )
+  if (ambiguousShiftEmployees > 0) {
+    blockers.push(
+      `${ambiguousShiftEmployees} karyawan memiliki lebih dari satu penugasan shift efektif.`
+    )
+  }
+  const invalidShiftEmployees = employeeCountWhere(
+    (row) =>
+      Number(row.assignmentCount) === 1 &&
+      Number(row.validAssignmentCount) !== 1
+  )
+  if (invalidShiftEmployees > 0) {
+    blockers.push(
+      `${invalidShiftEmployees} karyawan memiliki penugasan shift yang nonaktif, berbeda site, atau tanpa hari kerja.`
+    )
+  }
+  const sitesWithoutDevice = new Set(
+    candidateRows
+      .filter((row) => row.deviceId == null)
+      .map((row) => String(row.siteName))
+  )
+  if (sitesWithoutDevice.size > 0) {
+    blockers.push(
+      `${sitesWithoutDevice.size} site belum memiliki perangkat Attendance aktif dan teraktivasi: ${[...sitesWithoutDevice].sort().join(', ')}.`
+    )
   }
 
   const [facts] = await executor.query<RowDataPacket[]>(
@@ -252,22 +308,38 @@ export async function attendanceInputPreview(
     ]
   )
   const fact = facts[0]
-  if (
-    Number(fact.recordCount) > 0 ||
-    Number(fact.finalizationCount) > 0 ||
-    Number(fact.classificationCount) > 0 ||
-    Number(fact.orphanScanCount) > 0
-  ) {
-    blockers.push('Tanggal belum bersih. Hapus data Attendance tanggal tersebut terlebih dahulu.')
+  if (Number(fact.recordCount) > 0) {
+    blockers.push(
+      `Tanggal belum bersih: ${Number(fact.recordCount)} record Attendance sudah tersedia.`
+    )
+  }
+  if (Number(fact.finalizationCount) > 0) {
+    blockers.push(
+      `Tanggal belum bersih: ${Number(fact.finalizationCount)} finalisasi Attendance sudah tersedia.`
+    )
+  }
+  if (Number(fact.classificationCount) > 0) {
+    blockers.push(
+      `Tanggal belum bersih: ${Number(fact.classificationCount)} klasifikasi Attendance sudah tersedia.`
+    )
+  }
+  if (Number(fact.orphanScanCount) > 0) {
+    blockers.push(
+      `Tanggal belum bersih: ${Number(fact.orphanScanCount)} scan tanpa record Attendance sudah tersedia.`
+    )
   }
   if (Number(fact.productionCount) > 0) {
-    blockers.push('Tanggal sudah dipakai transaksi Produksi.')
+    blockers.push(
+      `${Number(fact.productionCount)} transaksi Produksi sudah menggunakan tanggal ini.`
+    )
   }
   if (
     Number(fact.processedPayrollCount) > 0 ||
     Number(fact.payrollSnapshotCount) > 0
   ) {
-    blockers.push('Tanggal sudah masuk proses atau snapshot Payroll.')
+    blockers.push(
+      `Tanggal sudah masuk ${Number(fact.processedPayrollCount)} proses Payroll dan ${Number(fact.payrollSnapshotCount)} snapshot Payroll.`
+    )
   }
 
   return {
@@ -286,6 +358,42 @@ export async function attendanceInputPreview(
         hasReadyDevice: item.hasReadyDevice,
       }))
       .sort((left, right) => left.site.localeCompare(right.site)),
+  }
+}
+
+async function attendanceInputRangePreview(
+  executor: Executor,
+  dateFrom: string,
+  dateTo: string,
+  site: AttendanceBatchSite,
+  mode: AttendanceBatchMode
+): Promise<InputRangePreview> {
+  assertAllowedDate(dateFrom)
+  assertAllowedDate(dateTo)
+  const dates = rangeDates(dateFrom, dateTo, 7)
+  const rows: InputPreview[] = []
+  for (const businessDate of dates) {
+    rows.push(await attendanceInputPreview(executor, businessDate, site, mode))
+  }
+  const coveredSites = new Set(
+    rows.flatMap((row) => row.sites.map((item) => item.site))
+  )
+  return {
+    dateFrom,
+    dateTo,
+    site,
+    mode,
+    dateCount: rows.length,
+    eligibleEmployeeCount: rows.reduce(
+      (total, row) => total + row.eligibleEmployeeCount,
+      0
+    ),
+    siteCount: coveredSites.size,
+    canCreate: rows.every((row) => row.canCreate),
+    blockers: rows.flatMap((row) =>
+      row.blockers.map((blocker) => `${row.businessDate}: ${blocker}`)
+    ),
+    rows,
   }
 }
 
@@ -1269,9 +1377,10 @@ attendanceBatchToolsRouter.post(
       assertBatchAccess(auth)
       const input = attendanceBatchInputPreviewInput.parse(req.body)
       res.json({
-        data: await attendanceInputPreview(
+        data: await attendanceInputRangePreview(
           pool,
-          input.businessDate,
+          input.dateFrom,
+          input.dateTo,
           input.site,
           input.mode
         ),
@@ -1296,27 +1405,40 @@ attendanceBatchToolsRouter.post(
         `SELECT site.id FROM sites site
           WHERE site.is_active=1${siteSql('site', input.site)} FOR UPDATE`
       )
-      const preview = await attendanceInputPreview(
+      const preview = await attendanceInputRangePreview(
         conn,
-        input.businessDate,
+        input.dateFrom,
+        input.dateTo,
         input.site,
         input.mode
       )
       if (!preview.canCreate) {
         throw new ApiError(409, `Input dibatalkan: ${preview.blockers[0]}`)
       }
-      await createInputTemporaryTables(
-        conn,
-        input.businessDate,
-        input.site,
-        input.mode
-      )
-      const result = await insertAttendanceBatch(
-        conn,
-        input.businessDate,
-        input.mode,
-        auth.id
-      )
+      const result = {
+        attendanceRecords: 0,
+        scanEvents: 0,
+        classificationRequests: 0,
+        corrections: 0,
+      }
+      for (const row of preview.rows) {
+        await createInputTemporaryTables(
+          conn,
+          row.businessDate,
+          input.site,
+          input.mode
+        )
+        const dateResult = await insertAttendanceBatch(
+          conn,
+          row.businessDate,
+          input.mode,
+          auth.id
+        )
+        result.attendanceRecords += dateResult.attendanceRecords
+        result.scanEvents += dateResult.scanEvents
+        result.classificationRequests += dateResult.classificationRequests
+        result.corrections += dateResult.corrections
+      }
       await writeAudit(
         {
           auth,
@@ -1324,13 +1446,18 @@ attendanceBatchToolsRouter.post(
           module: 'ATTENDANCE',
           action: 'CREATE',
           table: 'attendance_records',
-          description: `Input Attendance batch tanggal ${input.businessDate}.`,
+          description:
+            input.dateFrom === input.dateTo
+              ? `Input Attendance batch tanggal ${input.dateFrom}.`
+              : `Input Attendance batch tanggal ${input.dateFrom} s.d. ${input.dateTo}.`,
           reason: input.reason,
           afterData: {
-            businessDate: input.businessDate,
+            dateFrom: input.dateFrom,
+            dateTo: input.dateTo,
+            dateCount: preview.dateCount,
             site: input.site,
             mode: input.mode,
-            eligibleEmployees: preview.eligibleEmployeeCount,
+            eligibleEmployeeDays: preview.eligibleEmployeeCount,
             ...result,
           },
         },
