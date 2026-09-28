@@ -123,6 +123,136 @@ describe('Production foundation API', () => {
     expect(mocks.query).not.toHaveBeenCalled()
   })
 
+  it('menerima payload preview koreksi tanpa field penerapan final', async () => {
+    mocks.query.mockResolvedValueOnce([[]])
+
+    const response = await request(
+      '/assignments/11111111-1111-4111-8111-111111111111/correction-preview',
+      {
+        method: 'POST',
+        auth: auth({ permissions: ['production.manage_master'] }),
+        body: {
+          jobUid: '22222222-2222-4222-8222-222222222222',
+          effectiveFrom: '2026-08-01',
+          effectiveTo: null,
+          isPrimary: true,
+        },
+      }
+    )
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({
+      message: 'Penugasan tidak ditemukan.',
+    })
+    expect(mocks.query).toHaveBeenCalledTimes(1)
+  })
+
+  it('mengizinkan koreksi penugasan menjadi tanpa tanggal akhir setelah kontrak habis', async () => {
+    mocks.query
+      .mockResolvedValueOnce([
+        [
+          {
+            id: 31,
+            employeeId: 42,
+            jobId: 21,
+            siteId: 1,
+            site: 'SEMARANG',
+            jobUid: '22222222-2222-4222-8222-222222222222',
+            jobCode: 'BORONGAN-LINTING',
+            jobName: 'Linting',
+            effectiveFrom: '2026-08-01',
+            effectiveTo: '2026-09-19',
+            status: 'ACTIVE',
+            isPrimary: 1,
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([
+        [
+          {
+            id: 21,
+            uid: '22222222-2222-4222-8222-222222222222',
+            code: 'BORONGAN-LINTING',
+            name: 'Linting',
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([[{ id: 11 }]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+
+    const response = await request(
+      '/assignments/11111111-1111-4111-8111-111111111111/correction-preview',
+      {
+        method: 'POST',
+        auth: auth({
+          permissions: ['production.manage_master'],
+          sites: ['SEMARANG'],
+        }),
+        body: {
+          jobUid: '22222222-2222-4222-8222-222222222222',
+          effectiveFrom: '2026-08-01',
+          effectiveTo: null,
+          isPrimary: true,
+        },
+      }
+    )
+
+    expect(response.status).toBe(200)
+    const historySql = String(mocks.query.mock.calls[2]?.[0])
+    expect(historySql).toContain('later_history.site_id<>?')
+    expect(await response.json()).toMatchObject({
+      proposed: { effectiveFrom: '2026-08-01', effectiveTo: null },
+      canApply: true,
+    })
+  })
+
+  it('menghapus penugasan yang belum memiliki transaksi atau revisi', async () => {
+    mocks.query
+      .mockResolvedValueOnce([
+        [
+          {
+            id: 31,
+            employeeId: 42,
+            jobId: 21,
+            siteId: 1,
+            site: 'JEPARA',
+            employeeNumber: 'PKDS-001',
+            employeeName: 'Siti',
+            jobCode: 'LINTING',
+            jobName: 'Linting',
+            effectiveFrom: '2026-08-01',
+            effectiveTo: null,
+            status: 'ACTIVE',
+            isPrimary: 1,
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([[{ revisionCount: 0, transactionCount: 0 }]])
+
+    const response = await request(
+      '/assignments/11111111-1111-4111-8111-111111111111/delete',
+      {
+        method: 'POST',
+        auth: auth({ permissions: ['production.manage_master'] }),
+        body: {
+          reason: 'Penugasan tercatat ganda.',
+          confirmation: 'HAPUS',
+        },
+      }
+    )
+
+    expect(response.status).toBe(204)
+    expect(mocks.execute).toHaveBeenCalledWith(
+      'DELETE FROM employee_job_assignments WHERE id=?',
+      [31]
+    )
+    expect(mocks.audit).toHaveBeenCalledOnce()
+    expect(mocks.commit).toHaveBeenCalledOnce()
+  })
+
   it('memuat karyawan eligible beserta assignment tanpa fungsi JSON agregat', async () => {
     mocks.query
       .mockResolvedValueOnce([[{ total: 1 }]])

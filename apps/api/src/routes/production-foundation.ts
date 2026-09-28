@@ -11,11 +11,13 @@ import {
   assignmentStatusSql,
   booleanFilter,
   closeProductionAssignmentInput,
+  deleteProductionAssignmentInput,
   csvValues,
   pageParams,
   productionAssignmentInput,
   productionAssignmentBatchInput,
   productionAssignmentCorrectionInput,
+  productionAssignmentCorrectionPreviewInput,
   productionActiveRateCorrectionInput,
   productionActiveRateCorrectionPreviewInput,
   productionRateExceptionInput,
@@ -118,7 +120,7 @@ async function resolveJobReferences(
 async function assignmentCorrectionProposal(
   connection: PoolConnection,
   uid: string,
-  input: z.infer<typeof productionAssignmentCorrectionInput>,
+  input: z.infer<typeof productionAssignmentCorrectionPreviewInput>,
   lock: boolean
 ) {
   const [rows] = await connection.query<RowDataPacket[]>(
@@ -147,10 +149,34 @@ async function assignmentCorrectionProposal(
       JOIN employee_types et ON et.id=eh.employee_type_id AND et.code IN ('BORONGAN','TRAINING')
      WHERE eh.employee_id=? AND eh.site_id=? AND eh.effective_from<=?
        AND (eh.effective_to IS NULL OR eh.effective_to>=?)
-       AND ((? IS NULL AND eh.effective_to IS NULL) OR (? IS NOT NULL AND (eh.effective_to IS NULL OR eh.effective_to>=?)))`,
-    [current.employeeId,current.siteId,input.effectiveFrom,input.effectiveFrom,input.effectiveTo??null,input.effectiveTo??null,input.effectiveTo??null]
+       AND (
+         (? IS NOT NULL AND (eh.effective_to IS NULL OR eh.effective_to>=?))
+         OR
+         (? IS NULL AND NOT EXISTS(
+           SELECT 1 FROM employee_employment_histories later_history
+            WHERE later_history.employee_id=eh.employee_id
+              AND later_history.effective_from>?
+              AND later_history.site_id<>?
+         ))
+       )`,
+    [
+      current.employeeId,
+      current.siteId,
+      input.effectiveFrom,
+      input.effectiveFrom,
+      input.effectiveTo ?? null,
+      input.effectiveTo ?? null,
+      input.effectiveTo ?? null,
+      input.effectiveFrom,
+      current.siteId,
+    ]
   )
-  if (histories.length !== 1) throw new ApiError(422, 'Periode koreksi harus berada dalam satu histori kerja Produksi eligible.')
+  if (histories.length !== 1) {
+    throw new ApiError(
+      422,
+      'Tanggal mulai harus berada pada histori kerja Produksi eligible. Penugasan tanpa tanggal akhir tidak boleh melewati mutasi ke site lain.'
+    )
+  }
   const periodEnd = input.effectiveTo ?? '9999-12-31'
   const [overlaps] = await connection.query<RowDataPacket[]>(
     `SELECT id FROM employee_job_assignments WHERE employee_id=? AND site_id=?
@@ -2208,12 +2234,107 @@ productionFoundationRouter.post(
 )
 
 productionFoundationRouter.post(
+  '/assignments/:uid/delete',
+  requirePermission('production.manage_master'),
+  async (req, res, next) => {
+    const connection = await pool.getConnection()
+    try {
+      const input = deleteProductionAssignmentInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const uid = routeParam(req.params.uid)
+      await connection.beginTransaction()
+      const [rows] = await connection.query<RowDataPacket[]>(
+        `SELECT a.id,a.employee_id employeeId,a.production_job_id jobId,
+                a.site_id siteId,a.status,a.is_primary isPrimary,
+                s.code site,e.employee_number employeeNumber,e.full_name employeeName,
+                j.code jobCode,j.name jobName,
+                DATE_FORMAT(a.effective_from,'%Y-%m-%d') effectiveFrom,
+                DATE_FORMAT(a.effective_to,'%Y-%m-%d') effectiveTo
+           FROM employee_job_assignments a
+           JOIN employees e ON e.id=a.employee_id
+           JOIN production_jobs j ON j.id=a.production_job_id
+           JOIN sites s ON s.id=a.site_id
+          WHERE a.uid=? FOR UPDATE`,
+        [uid]
+      )
+      const assignment = rows[0]
+      if (!assignment) throw new ApiError(404, 'Penugasan tidak ditemukan.')
+      enforceSite(auth, String(assignment.site))
+
+      const [dependencies] = await connection.query<RowDataPacket[]>(
+        `SELECT
+           (SELECT COUNT(*) FROM employee_job_assignment_revisions revision
+             WHERE revision.employee_job_assignment_id=?) revisionCount,
+           (SELECT COUNT(*) FROM production_transactions transaction_row
+             WHERE transaction_row.employee_id=?
+               AND transaction_row.production_job_id=?
+               AND transaction_row.site_id=?
+               AND transaction_row.business_date>=?
+               AND (? IS NULL OR transaction_row.business_date<=?)) transactionCount`,
+        [
+          assignment.id,
+          assignment.employeeId,
+          assignment.jobId,
+          assignment.siteId,
+          assignment.effectiveFrom,
+          assignment.effectiveTo ?? null,
+          assignment.effectiveTo ?? null,
+        ]
+      )
+      const revisionCount = Number(dependencies[0]?.revisionCount ?? 0)
+      const transactionCount = Number(dependencies[0]?.transactionCount ?? 0)
+      if (transactionCount > 0) {
+        throw new ApiError(
+          409,
+          `Penugasan tidak dapat dihapus karena sudah digunakan oleh ${transactionCount} transaksi Produksi. Gunakan koreksi atau akhiri penugasan.`
+        )
+      }
+      if (revisionCount > 0) {
+        throw new ApiError(
+          409,
+          `Penugasan tidak dapat dihapus karena memiliki ${revisionCount} histori koreksi. Gunakan koreksi atau akhiri penugasan.`
+        )
+      }
+
+      await writeAudit(
+        {
+          auth,
+          request: req,
+          module: 'PRODUCTION',
+          siteId: Number(assignment.siteId),
+          action: 'DELETE',
+          table: 'employee_job_assignments',
+          recordId: Number(assignment.id),
+          recordUid: uid,
+          description: `Menghapus penugasan ${assignment.jobCode} milik ${assignment.employeeNumber}.`,
+          reason: input.reason,
+          beforeData: assignment,
+          afterData: { deleted: true },
+        },
+        connection
+      )
+      await connection.execute(
+        'DELETE FROM employee_job_assignments WHERE id=?',
+        [assignment.id]
+      )
+      await connection.commit()
+      res.status(204).end()
+    } catch (error) {
+      await connection.rollback()
+      next(error)
+    } finally {
+      connection.release()
+    }
+  }
+)
+
+productionFoundationRouter.post(
   '/assignments/:uid/correction-preview',
   requirePermission('production.manage_master'),
   async (req, res, next) => {
     const connection = await pool.getConnection()
     try {
-      const input = productionAssignmentCorrectionInput.parse(req.body)
+      const input = productionAssignmentCorrectionPreviewInput.parse(req.body)
       const auth = res.locals.auth as AuthContext
       const proposal = await assignmentCorrectionProposal(
         connection,

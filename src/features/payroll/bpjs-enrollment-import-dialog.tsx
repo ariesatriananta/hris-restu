@@ -405,10 +405,7 @@ async function parseWorkbook(file: File): Promise<{
   rows: PayrollBpjsEnrollmentImportRow[]
   localPreview?: PayrollBpjsEnrollmentImportPreview
 }> {
-  const workbook = XLSX.read(await file.arrayBuffer(), {
-    type: 'array',
-    cellDates: true,
-  })
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' })
   const sheet = workbook.Sheets[sheetName]
   if (!sheet) throw new Error(`Sheet ${sheetName} tidak ditemukan.`)
   const sheetRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {

@@ -16,6 +16,7 @@ import {
   FileText,
   Plus,
   RefreshCcw,
+  Trash2,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
 import {
@@ -30,6 +31,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DataTableActionButton } from '@/components/data-table'
 import { Main } from '@/components/layout/main'
+import { hasPermission } from '@/features/auth/permissions'
 import {
   useContracts,
   useDocuments,
@@ -51,6 +53,7 @@ import {
 import { ContractDetailDrawer } from './contract-detail-drawer'
 import { EmployeeDeleteAction } from './employee-delete-action'
 import { EmployeeIdCard } from './id-card'
+import { MutationDeleteDialog } from './mutation-delete-dialog'
 import { MutationDetailDrawer } from './mutation-detail-drawer'
 import { MutationDialog } from './mutation-dialog'
 
@@ -72,6 +75,7 @@ export function EmployeeDetail({
   const session = useAuthStore((state) => state.session)
   const [mutationOpen, setMutationOpen] = useState(false)
   const [selectedHistoryUid, setSelectedHistoryUid] = useState<string>()
+  const [deleteHistoryUid, setDeleteHistoryUid] = useState<string>()
   const [selectedContractUid, setSelectedContractUid] = useState<string>()
   if (employee.isPending)
     return (
@@ -344,13 +348,24 @@ export function EmployeeDetail({
                             {item.reason ?? 'Tidak ada alasan'}
                           </p>
                         </div>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          onClick={() => setSelectedHistoryUid(item.uid)}
-                        >
-                          <Eye /> Detail
-                        </Button>
+                        <div className='flex items-center gap-1'>
+                          <Button
+                            size='sm'
+                            variant='outline'
+                            onClick={() => setSelectedHistoryUid(item.uid)}
+                          >
+                            <Eye /> Detail
+                          </Button>
+                          {Boolean(item.canDelete) &&
+                            hasPermission(session, 'employees.manage') && (
+                              <DataTableActionButton
+                                label={`Hapus mutasi ${data.fullName}`}
+                                onClick={() => setDeleteHistoryUid(item.uid)}
+                              >
+                                <Trash2 className='text-destructive' />
+                              </DataTableActionButton>
+                            )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -510,6 +525,14 @@ export function EmployeeDetail({
         open={Boolean(selectedHistoryUid)}
         onOpenChange={(open) => {
           if (!open) setSelectedHistoryUid(undefined)
+        }}
+      />
+      <MutationDeleteDialog
+        history={histories.data?.find((item) => item.uid === deleteHistoryUid)}
+        employeeName={data.fullName}
+        open={Boolean(deleteHistoryUid)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteHistoryUid(undefined)
         }}
       />
       <ContractDetailDrawer

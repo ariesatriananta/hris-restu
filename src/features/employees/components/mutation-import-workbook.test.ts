@@ -50,10 +50,10 @@ describe('parseMutationImportWorkbook', () => {
     const result = await parseMutationImportWorkbook(
       workbookFile([
         mutationImportTemplateHeaders,
-        ['PKDS-002', '', 'JEPARA', 'PROD', 'KDS-MOD-A', 'PACKING', 46371],
+        ['PKDS-002', '', 'JEPARA', 'PROD', 'KDS-MOD-A', 'PACKING', 46284],
       ])
     )
 
-    expect(result[0]?.effectiveFrom).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(result[0]?.effectiveFrom).toBe('2026-09-19')
   })
 })

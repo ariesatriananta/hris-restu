@@ -42,6 +42,16 @@ const employeeTypes = ['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING'] as const
 const assignmentStatuses = ['CURRENT', 'UPCOMING', 'ENDED'] as const
 const routeParam = (value: string | string[]) =>
   Array.isArray(value) ? value[0] : value
+const deleteShiftAssignmentInput = z
+  .object({
+    reason: z
+      .string()
+      .trim()
+      .min(10, 'Alasan penghapusan minimal 10 karakter.')
+      .max(500),
+    confirmation: z.literal('HAPUS'),
+  })
+  .strict()
 
 const attendanceStatuses = [
   { value: 'PRESENT', label: 'Hadir' },
@@ -995,9 +1005,9 @@ attendanceRouter.delete(
   async (req, res, next) => {
     const conn = await pool.getConnection()
     try {
+      const input = deleteShiftAssignmentInput.parse(req.body)
       const uid = routeParam(req.params.uid)
       const auth = res.locals.auth as AuthContext
-      const today = jakartaBusinessDate()
       await conn.beginTransaction()
       const [rows] = await conn.query<RowDataPacket[]>(
         `SELECT esa.id,esa.employee_id employeeId,esa.shift_id shiftId,
@@ -1015,31 +1025,50 @@ attendanceRouter.delete(
       const assignment = rows[0]
       if (!assignment) throw new ApiError(404, 'Assignment Shift tidak ditemukan.')
       enforceSite(auth, assignment.site)
-      if (assignment.effectiveFrom <= today) {
-        throw new ApiError(
-          409,
-          'Hanya assignment Shift masa depan yang dapat dihapus.'
-        )
-      }
-      const [attendance] = await conn.query<RowDataPacket[]>(
-        `SELECT id FROM attendance_records
-          WHERE employee_id=? AND shift_id=? AND business_date>=?
-            AND (business_date<=? OR ? IS NULL)
-          LIMIT 1 FOR UPDATE`,
+      const [dependencies] = await conn.query<RowDataPacket[]>(
+        `SELECT
+           (SELECT COUNT(*) FROM attendance_records record
+             WHERE record.employee_id=? AND record.shift_id=?
+               AND record.business_date>=?
+               AND (? IS NULL OR record.business_date<=?)) attendanceCount,
+           (SELECT COUNT(*) FROM attendance_scan_events scan
+             WHERE scan.employee_id=? AND scan.site_id=?
+               AND DATE(scan.scanned_at)>=?
+               AND (? IS NULL OR DATE(scan.scanned_at)<=?)) scanCount,
+           (SELECT COUNT(*) FROM attendance_classification_details detail
+             WHERE detail.shift_assignment_id=?) classificationCount`,
         [
           assignment.employeeId,
           assignment.shiftId,
           assignment.effectiveFrom,
           assignment.effectiveTo,
           assignment.effectiveTo,
+          assignment.employeeId,
+          assignment.siteId,
+          assignment.effectiveFrom,
+          assignment.effectiveTo,
+          assignment.effectiveTo,
+          assignment.id,
         ]
       )
-      if (attendance[0]) {
-        throw new ApiError(409, 'Assignment sudah dipakai Attendance.')
+      const attendanceCount = Number(dependencies[0]?.attendanceCount ?? 0)
+      const scanCount = Number(dependencies[0]?.scanCount ?? 0)
+      const classificationCount = Number(
+        dependencies[0]?.classificationCount ?? 0
+      )
+      const blockers = [
+        attendanceCount > 0 ? `${attendanceCount} Attendance` : null,
+        scanCount > 0 ? `${scanCount} scan` : null,
+        classificationCount > 0
+          ? `${classificationCount} detail klasifikasi`
+          : null,
+      ].filter(Boolean)
+      if (blockers.length) {
+        throw new ApiError(
+          409,
+          `Penugasan Shift tidak dapat dihapus karena sudah dipakai oleh ${blockers.join(', ')}. Gunakan Koreksi Histori Penugasan.`
+        )
       }
-      await conn.execute('DELETE FROM employee_shift_assignments WHERE id=?', [
-        assignment.id,
-      ])
       await writeAudit(
         {
           auth,
@@ -1050,14 +1079,19 @@ attendanceRouter.delete(
           table: 'employee_shift_assignments',
           recordId: assignment.id,
           recordUid: uid,
-          description: `Menghapus assignment Shift masa depan ${assignment.shiftName} untuk ${assignment.employeeName}.`,
+          description: `Menghapus penugasan Shift ${assignment.shiftName} untuk ${assignment.employeeName}.`,
+          reason: input.reason,
           beforeData: {
             effectiveFrom: assignment.effectiveFrom,
             effectiveTo: assignment.effectiveTo,
           },
+          afterData: { deleted: true },
         },
         conn
       )
+      await conn.execute('DELETE FROM employee_shift_assignments WHERE id=?', [
+        assignment.id,
+      ])
       await conn.commit()
       res.status(204).end()
     } catch (error) {

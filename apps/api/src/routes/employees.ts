@@ -130,6 +130,10 @@ const mutationInput = z.object({
   effectiveFrom: z.string().date(),
   changeType: z.enum(['TRANSFER', 'PROMOTION', 'DEMOTION', 'DEPARTMENT_CHANGE', 'TYPE_CHANGE', 'GROUP_CHANGE', 'PRODUCTION_ASSIGNMENT_CHANGE', 'OTHER']), referenceNumber: optional, reason: optional, notes: optional,
 })
+const mutationDeleteInput = z.object({
+  reason: z.string().trim().min(10, 'Alasan penghapusan minimal 10 karakter.'),
+  confirmation: z.literal('HAPUS'),
+})
 const registrationCorrectionInput = z.object({
   site: siteCode,
   joinDate: z.string().date(),
@@ -174,6 +178,293 @@ function normalizeMutationImportDate(value: unknown) {
     date.getUTCDate() === Number(displayDate[1])
     ? isoDate
     : normalized
+}
+
+function addDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00.000Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+type MutationRowQuery = (
+  sql: string,
+  values: unknown[]
+) => Promise<RowDataPacket[]>
+
+type MutationTimeline = {
+  base: RowDataPacket
+  laterStatusHistories: RowDataPacket[]
+  effectiveTo: string | null
+}
+
+async function resolveMutationTimeline(
+  queryRows: MutationRowQuery,
+  input: {
+    employeeId: number
+    employeeNumber: string
+    effectiveFrom: string
+    changeType: z.infer<typeof mutationInput>['changeType']
+    lock?: boolean
+  }
+): Promise<MutationTimeline> {
+  const rows = await queryRows(
+    `SELECT history.id,history.site_id siteId,
+            history.department_id departmentId,
+            history.position_id positionId,
+            history.work_group_id workGroupId,
+            history.production_module_section_id productionModuleSectionId,
+            history.employee_type_id employeeTypeId,
+            history.employee_status_id statusId,
+            history.change_type changeType,
+            DATE_FORMAT(history.effective_from,'%Y-%m-%d') effectiveFrom,
+            DATE_FORMAT(history.effective_to,'%Y-%m-%d') effectiveTo
+       FROM employee_employment_histories history
+      WHERE history.employee_id=?
+        AND (history.effective_from<=?
+             AND (history.effective_to IS NULL OR history.effective_to>=?)
+             OR history.effective_from>?)
+      ORDER BY history.effective_from,history.id${input.lock ? ' FOR UPDATE' : ''}`,
+    [
+      input.employeeId,
+      input.effectiveFrom,
+      input.effectiveFrom,
+      input.effectiveFrom,
+    ]
+  )
+  const covering = rows.filter(
+    (history) =>
+      String(history.effectiveFrom) <= input.effectiveFrom &&
+      (!history.effectiveTo || String(history.effectiveTo) >= input.effectiveFrom)
+  )
+  if (covering.length !== 1) {
+    throw new ApiError(
+      409,
+      `Histori penempatan ${input.employeeNumber} pada ${input.effectiveFrom} tidak ditemukan atau bertumpang tindih.`
+    )
+  }
+  const base = covering[0]
+  if (input.effectiveFrom <= String(base.effectiveFrom)) {
+    throw new ApiError(
+      422,
+      `Tanggal efektif ${input.employeeNumber} harus setelah awal histori penempatan yang berlaku.`
+    )
+  }
+  const laterStatusHistories = rows.filter(
+    (history) => String(history.effectiveFrom) > input.effectiveFrom
+  )
+  if (laterStatusHistories.length) {
+    if (input.changeType !== 'TRANSFER') {
+      throw new ApiError(
+        422,
+        `Mutasi historis ${input.employeeNumber} yang melewati histori berikutnya hanya mendukung Mutasi Site.`
+      )
+    }
+    const placementFields = [
+      'siteId',
+      'departmentId',
+      'positionId',
+      'workGroupId',
+      'productionModuleSectionId',
+      'employeeTypeId',
+    ]
+    const unsafeHistory = laterStatusHistories.find(
+      (history) =>
+        String(history.changeType) !== 'STATUS_CHANGE' ||
+        placementFields.some(
+          (field) => Number(history[field] ?? 0) !== Number(base[field] ?? 0)
+        )
+    )
+    if (unsafeHistory) {
+      throw new ApiError(
+        409,
+        `Mutasi historis ${input.employeeNumber} melewati perubahan penempatan lain dan tidak aman diterapkan otomatis.`
+      )
+    }
+  }
+  return {
+    base,
+    laterStatusHistories,
+    effectiveTo: laterStatusHistories[0]
+      ? addDays(String(laterStatusHistories[0].effectiveFrom), -1)
+      : null,
+  }
+}
+
+async function applyEffectiveMutationHistory(
+  conn: PoolConnection,
+  input: {
+    employeeId: number
+    employeeNumber: string
+    effectiveFrom: string
+    changeType: z.infer<typeof mutationInput>['changeType']
+    refs: RowDataPacket
+    mutationUid: string
+    referenceNumber?: string
+    reason?: string
+    notes?: string
+    actorUserId: number
+  }
+) {
+  const timeline = await resolveMutationTimeline(
+    async (sql, values) => {
+      const [rows] = await conn.query<RowDataPacket[]>(sql, values)
+      return rows
+    },
+    { ...input, lock: true }
+  )
+  await conn.execute(
+    `UPDATE employee_employment_histories
+        SET effective_to=DATE_SUB(?,INTERVAL 1 DAY),updated_by=?
+      WHERE id=?`,
+    [input.effectiveFrom, input.actorUserId, timeline.base.id]
+  )
+  await conn.execute(
+    `INSERT INTO employee_employment_histories(
+       uid,employee_id,site_id,department_id,position_id,work_group_id,
+       production_module_section_id,employee_type_id,employee_status_id,
+       effective_from,effective_to,change_type,reference_number,reason,notes,
+       created_by,updated_by
+     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      input.mutationUid,
+      input.employeeId,
+      input.refs.siteId,
+      input.refs.departmentId,
+      input.refs.positionId,
+      input.refs.workGroupId,
+      input.refs.productionModuleSectionId,
+      input.refs.typeId,
+      timeline.base.statusId,
+      input.effectiveFrom,
+      timeline.effectiveTo,
+      input.changeType,
+      empty(input.referenceNumber),
+      empty(input.reason),
+      empty(input.notes),
+      input.actorUserId,
+      input.actorUserId,
+    ]
+  )
+  if (timeline.laterStatusHistories.length) {
+    await conn.execute(
+      `UPDATE employee_employment_histories
+          SET site_id=?,department_id=?,position_id=?,work_group_id=?,
+              production_module_section_id=?,employee_type_id=?,updated_by=?
+        WHERE employee_id=? AND effective_from>?
+          AND change_type='STATUS_CHANGE'`,
+      [
+        input.refs.siteId,
+        input.refs.departmentId,
+        input.refs.positionId,
+        input.refs.workGroupId,
+        input.refs.productionModuleSectionId,
+        input.refs.typeId,
+        input.actorUserId,
+        input.employeeId,
+        input.effectiveFrom,
+      ]
+    )
+  }
+  return timeline
+}
+
+async function assertHistoricalMutationSafe(
+  queryRows: MutationRowQuery,
+  input: {
+    employeeId: number
+    employeeNumber: string
+    effectiveFrom: string
+    targetSiteId: number
+  }
+) {
+  if (input.effectiveFrom >= businessDate()) return
+  const rows = await queryRows(
+    `SELECT
+       (SELECT COUNT(*) FROM attendance_records
+         WHERE employee_id=? AND business_date>=?) attendanceRecords,
+       (SELECT COUNT(*) FROM attendance_scan_events
+         WHERE employee_id=? AND DATE(scanned_at)>=?) attendanceScans,
+       (SELECT COUNT(*) FROM attendance_classification_requests
+         WHERE employee_id=? AND end_date>=?
+           AND approval_status IN ('PENDING','APPROVED')) attendanceClassifications,
+       (SELECT COUNT(*) FROM production_transactions
+         WHERE employee_id=? AND business_date>=?) productionTransactions,
+       (SELECT COUNT(*) FROM payroll_employee_results result
+          JOIN payroll_periods period ON period.id=result.payroll_period_id
+         WHERE result.employee_id=? AND period.period_end>=?) payrollResults,
+       (SELECT COUNT(*) FROM payroll_bpjs_monthly_settlements
+         WHERE employee_id=?
+           AND contribution_month>=DATE_FORMAT(?,'%Y-%m-01')) bpjsSettlements,
+       (SELECT COUNT(*) FROM employee_shift_assignments assignment
+          JOIN shifts shift_row ON shift_row.id=assignment.shift_id
+         WHERE assignment.employee_id=? AND shift_row.site_id<>?
+           AND assignment.effective_from>=?) futureShiftAssignments`,
+    [
+      input.employeeId,
+      input.effectiveFrom,
+      input.employeeId,
+      input.effectiveFrom,
+      input.employeeId,
+      input.effectiveFrom,
+      input.employeeId,
+      input.effectiveFrom,
+      input.employeeId,
+      input.effectiveFrom,
+      input.employeeId,
+      input.effectiveFrom,
+      input.employeeId,
+      input.targetSiteId,
+      input.effectiveFrom,
+    ]
+  )
+  const dependency = rows[0] ?? {}
+  const labels: Array<[string, string]> = [
+    ['attendanceRecords', 'Attendance'],
+    ['attendanceScans', 'scan Attendance'],
+    ['attendanceClassifications', 'klasifikasi Attendance'],
+    ['productionTransactions', 'transaksi Produksi'],
+    ['payrollResults', 'hasil Payroll'],
+    ['bpjsSettlements', 'settlement BPJS'],
+    ['futureShiftAssignments', 'penugasan Shift lanjutan beda site'],
+  ]
+  const blockers = labels.flatMap(([key, label]) => {
+    const count = Number(dependency[key] ?? 0)
+    return count > 0 ? [`${count} ${label}`] : []
+  })
+  if (blockers.length) {
+    throw new ApiError(
+      422,
+      `Mutasi mundur ${input.employeeNumber} diblokir karena sejak ${input.effectiveFrom} sudah ada ${blockers.join(', ')}.`
+    )
+  }
+}
+
+async function reconcileShiftAssignmentsAtSiteBoundary(
+  conn: PoolConnection,
+  input: {
+    employeeId: number
+    targetSiteId: number
+    effectiveFrom: string
+    actorUserId: number
+  }
+) {
+  await conn.execute(
+    `UPDATE employee_shift_assignments assignment
+       JOIN shifts shift_row ON shift_row.id=assignment.shift_id
+        SET assignment.effective_to=DATE_SUB(?,INTERVAL 1 DAY),
+            assignment.updated_by=?
+     WHERE assignment.employee_id=? AND shift_row.site_id<>?
+       AND assignment.effective_from<?
+       AND (assignment.effective_to IS NULL OR assignment.effective_to>=?)`,
+    [
+      input.effectiveFrom,
+      input.actorUserId,
+      input.employeeId,
+      input.targetSiteId,
+      input.effectiveFrom,
+      input.effectiveFrom,
+    ]
+  )
 }
 
 const mutationImportRowInput = z
@@ -559,9 +850,7 @@ async function prepareMutationImportRow(raw:z.infer<typeof mutationImportRowInpu
   if(!employee) throw new ApiError(422,'ID karyawan tidak ditemukan.')
   enforceSite(auth,String(employee.site)); enforceSite(auth,raw.targetSite)
   if(raw.targetSite===employee.site) throw new ApiError(422,'Site tujuan harus berbeda dari site karyawan saat ini.')
-  if(raw.effectiveFrom<businessDate()) throw new ApiError(422,'Tanggal efektif mutasi tidak boleh lampau.')
   if(Number(employee.openHistoryCount)!==1||!employee.activeHistoryFrom) throw new ApiError(409,'Karyawan harus memiliki tepat satu histori penempatan aktif.')
-  if(raw.effectiveFrom<=String(employee.activeHistoryFrom)) throw new ApiError(422,'Tanggal efektif harus setelah histori penempatan aktif.')
   if(Number(employee.openMutationCount)>0) throw new ApiError(409,'Karyawan masih memiliki mutasi terjadwal yang belum diselesaikan.')
   if(Number(employee.openStatusChangeCount)>0) throw new ApiError(409,'Karyawan masih memiliki perubahan status kerja terjadwal yang belum diselesaikan.')
   const [targets]=await pool.query<RowDataPacket[]>(`SELECT s.id siteId,s.code site,d.id departmentId,d.name department,p.id positionId,w.id workGroupId,et.id typeId,es.id statusId,pms.id productionModuleSectionId,pms.uid productionModuleSectionUid FROM sites s LEFT JOIN departments d ON d.site_id=s.id AND d.code=? AND d.is_active=1 LEFT JOIN positions p ON p.name=? AND p.is_active=1 LEFT JOIN work_groups w ON w.site_id=s.id AND w.name=? AND w.is_active=1 LEFT JOIN employee_types et ON et.code=? AND et.is_active=1 LEFT JOIN employee_statuses es ON es.code=? LEFT JOIN production_modules pm ON pm.site_id=s.id AND pm.code=? AND pm.is_active=1 LEFT JOIN production_sections ps ON ps.code=? AND ps.is_active=1 LEFT JOIN production_module_sections pms ON pms.production_module_id=pm.id AND pms.production_section_id=ps.id AND pms.is_active=1 WHERE s.code=? AND s.is_active=1 LIMIT 1`,[raw.targetDepartmentCode??'__EMPTY__',employee.position??'__EMPTY__',employee.workGroup??'__EMPTY__',employee.employeeType,employee.employeeStatus,raw.targetProductionModuleCode,raw.targetProductionSectionCode,raw.targetSite])
@@ -571,6 +860,20 @@ async function prepareMutationImportRow(raw:z.infer<typeof mutationImportRowInpu
   if(employee.position&&!refs.positionId) throw new ApiError(422,'Jabatan karyawan tidak lagi aktif.')
   if(!refs.typeId||!refs.statusId) throw new ApiError(422,'Jenis atau status karyawan tidak lagi aktif.')
   if(!refs.productionModuleSectionId||!refs.productionModuleSectionUid) throw new ApiError(422,'Pasangan kode modul dan Bagian produksi tidak valid untuk site tujuan.')
+  await resolveMutationTimeline(
+    async (sql,values) => {
+      const [rows]=await pool.query<RowDataPacket[]>(sql,values)
+      return rows
+    },
+    { employeeId:Number(employee.id),employeeNumber:String(employee.employeeNumber),effectiveFrom:raw.effectiveFrom,changeType:'TRANSFER' }
+  )
+  await assertHistoricalMutationSafe(
+    async (sql,values) => {
+      const [rows]=await pool.query<RowDataPacket[]>(sql,values)
+      return rows
+    },
+    { employeeId:Number(employee.id),employeeNumber:String(employee.employeeNumber),effectiveFrom:raw.effectiveFrom,targetSiteId:Number(refs.siteId) }
+  )
   const input=mutationInput.parse({site:raw.targetSite,department:refs.department??undefined,position:employee.position??undefined,workGroup:employee.workGroup??undefined,productionModuleSectionUid:refs.productionModuleSectionUid,employeeType:employee.employeeType,effectiveFrom:raw.effectiveFrom,changeType:'TRANSFER',reason})
   validateMutationChange(input,employee)
   return {employee,refs,input}
@@ -1393,7 +1696,9 @@ employeesRouter.get(
         values
       )
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT h.uid,e.uid employeeUid,e.full_name employeeName,e.employee_number employeeNumber,s.code site,d.name department,p.name position,w.name workGroup,pm.uid productionModuleUid,pm.name productionModule,ps.uid productionSectionUid,ps.name productionSection,et.code employeeType,es.code employeeStatus,DATE_FORMAT(h.effective_from,'%Y-%m-%d') effectiveFrom,DATE_FORMAT(h.effective_to,'%Y-%m-%d') effectiveTo,h.change_type changeType,h.reference_number referenceNumber,h.reason,h.notes ${from} WHERE ${clause} ORDER BY h.effective_from DESC,h.id DESC LIMIT ? OFFSET ?`,
+        `SELECT h.uid,e.uid employeeUid,e.full_name employeeName,e.employee_number employeeNumber,s.code site,d.name department,p.name position,w.name workGroup,pm.uid productionModuleUid,pm.name productionModule,ps.uid productionSectionUid,ps.name productionSection,et.code employeeType,es.code employeeStatus,DATE_FORMAT(h.effective_from,'%Y-%m-%d') effectiveFrom,DATE_FORMAT(h.effective_to,'%Y-%m-%d') effectiveTo,h.change_type changeType,h.reference_number referenceNumber,h.reason,h.notes,
+                (h.effective_to IS NULL AND h.change_type IN ('TRANSFER','PROMOTION','DEMOTION','TYPE_CHANGE','DEPARTMENT_CHANGE','GROUP_CHANGE','PRODUCTION_ASSIGNMENT_CHANGE','OTHER') AND h.id=(SELECT MAX(latest.id) FROM employee_employment_histories latest WHERE latest.employee_id=h.employee_id)) canDelete
+           ${from} WHERE ${clause} ORDER BY h.effective_from DESC,h.id DESC LIMIT ? OFFSET ?`,
         [...values, pageSize, (page - 1) * pageSize]
       )
     res.json({ items: rows, total: Number(count[0].total), page, pageSize })
@@ -2325,72 +2630,30 @@ employeesRouter.post(
           `Karyawan ${blocked?.employeeNumber ?? ''} masih memiliki perubahan status kerja terjadwal.`
         )
       }
-      const [activeHistories] = await conn.query<RowDataPacket[]>(
-        `SELECT id,employee_id employeeId,employee_status_id statusId,
-                DATE_FORMAT(effective_from,'%Y-%m-%d') effectiveFrom
-           FROM employee_employment_histories
-          WHERE employee_id IN (${placeholders}) AND effective_to IS NULL
-          ORDER BY employee_id,id FOR UPDATE`,
-        employeeIds
-      )
-      const historiesByEmployeeId = new Map<number, RowDataPacket[]>()
-      activeHistories.forEach((history) => {
-        const key = Number(history.employeeId)
-        historiesByEmployeeId.set(key, [
-          ...(historiesByEmployeeId.get(key) ?? []),
-          history,
-        ])
-      })
-
       let applied = 0
       let scheduled = 0
       const today = businessDate()
       for (const item of prepared) {
         const employeeId = Number(item.employee.id)
-        const histories = historiesByEmployeeId.get(employeeId) ?? []
-        if (histories.length !== 1) {
-          throw new ApiError(
-            409,
-            `Karyawan ${item.employee.employeeNumber} harus memiliki tepat satu histori penempatan aktif.`
-          )
-        }
-        const active = histories[0]
-        if (item.input.effectiveFrom <= String(active.effectiveFrom)) {
-          throw new ApiError(
-            422,
-            `Tanggal efektif ${item.employee.employeeNumber} harus setelah histori penempatan aktif.`
-          )
-        }
+        await assertHistoricalMutationSafe(
+          async (sql,values) => {
+            const [rows]=await conn!.query<RowDataPacket[]>(sql,values)
+            return rows
+          },
+          { employeeId,employeeNumber:String(item.employee.employeeNumber),effectiveFrom:item.input.effectiveFrom,targetSiteId:Number(item.refs.siteId) }
+        )
         const mutationUid = randomUUID()
-        if (item.input.effectiveFrom === today) {
-          await conn.execute(
-            `UPDATE employee_employment_histories
-                SET effective_to=DATE_SUB(?,INTERVAL 1 DAY),updated_by=?
-              WHERE id=?`,
-            [item.input.effectiveFrom, auth.id, active.id]
-          )
-          await conn.execute(
-            `INSERT INTO employee_employment_histories(
-               uid,employee_id,site_id,department_id,position_id,work_group_id,
-               production_module_section_id,employee_type_id,employee_status_id,
-               effective_from,change_type,reason,created_by,updated_by
-             ) VALUES(?,?,?,?,?,?,?,?,?,?,'TRANSFER',?,?,?)`,
-            [
-              mutationUid,
-              employeeId,
-              item.refs.siteId,
-              item.refs.departmentId,
-              item.refs.positionId,
-              item.refs.workGroupId,
-              item.refs.productionModuleSectionId,
-              item.refs.typeId,
-              active.statusId,
-              item.input.effectiveFrom,
-              input.reason,
-              auth.id,
-              auth.id,
-            ]
-          )
+        if (item.input.effectiveFrom <= today) {
+          const timeline = await applyEffectiveMutationHistory(conn, {
+            employeeId,
+            employeeNumber: String(item.employee.employeeNumber),
+            effectiveFrom: item.input.effectiveFrom,
+            changeType: 'TRANSFER',
+            refs: item.refs,
+            mutationUid,
+            reason: input.reason,
+            actorUserId: auth.id,
+          })
           await conn.execute(
             `UPDATE employees
                 SET employee_type_id=?,current_site_id=?,current_department_id=?,
@@ -2414,6 +2677,12 @@ employeesRouter.post(
             item.input.effectiveFrom,
             auth.id
           )
+          await reconcileShiftAssignmentsAtSiteBoundary(conn, {
+            employeeId,
+            targetSiteId: Number(item.refs.siteId),
+            effectiveFrom: item.input.effectiveFrom,
+            actorUserId: auth.id,
+          })
           await writeAudit(
             {
               auth,
@@ -2430,12 +2699,27 @@ employeesRouter.post(
                 targetSite: item.input.site,
                 effectiveFrom: item.input.effectiveFrom,
                 source: 'EXCEL_IMPORT',
+                carriedForwardStatusHistories:
+                  timeline.laterStatusHistories.length,
               },
             },
             conn
           )
           applied += 1
         } else {
+          const timeline = await resolveMutationTimeline(
+            async (sql, values) => {
+              const [historyRows] = await conn!.query<RowDataPacket[]>(sql, values)
+              return historyRows
+            },
+            {
+              employeeId,
+              employeeNumber: String(item.employee.employeeNumber),
+              effectiveFrom: item.input.effectiveFrom,
+              changeType: 'TRANSFER',
+              lock: true,
+            }
+          )
           await conn.execute(
             `INSERT INTO scheduled_employee_mutations(
                uid,employee_id,base_history_id,target_site_id,target_department_id,
@@ -2446,7 +2730,7 @@ employeesRouter.post(
             [
               mutationUid,
               employeeId,
-              active.id,
+              timeline.base.id,
               item.refs.siteId,
               item.refs.departmentId,
               item.refs.positionId,
@@ -2780,11 +3064,336 @@ employeesRouter.patch('/:uid', requirePermission('employees.manage'), async (req
 })
 
 employeesRouter.get('/:uid/histories', requirePermission('employees.view'), async (req, res, next) => {
-  try { const uid = routeParam(req.params.uid); await employeeAccess(uid, res.locals.auth); const [rows] = await pool.query<RowDataPacket[]>(`SELECT h.uid,e.uid employeeUid,e.full_name employeeName,e.employee_number employeeNumber,s.code site,d.name department,p.name position,w.name workGroup,pm.uid productionModuleUid,pm.name productionModule,ps.uid productionSectionUid,ps.name productionSection,et.code employeeType,es.code employeeStatus,DATE_FORMAT(h.effective_from,'%Y-%m-%d') effectiveFrom,DATE_FORMAT(h.effective_to,'%Y-%m-%d') effectiveTo,h.change_type changeType,h.reference_number referenceNumber,h.reason,h.notes FROM employee_employment_histories h JOIN employees e ON e.id=h.employee_id JOIN sites s ON s.id=h.site_id LEFT JOIN departments d ON d.id=h.department_id LEFT JOIN positions p ON p.id=h.position_id LEFT JOIN work_groups w ON w.id=h.work_group_id LEFT JOIN production_module_sections pms ON pms.id=h.production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id JOIN employee_types et ON et.id=h.employee_type_id JOIN employee_statuses es ON es.id=h.employee_status_id WHERE e.uid=? ORDER BY h.effective_from DESC`, [uid]); res.json(rows) } catch (error) { next(error) }
+  try { const uid = routeParam(req.params.uid); await employeeAccess(uid, res.locals.auth); const [rows] = await pool.query<RowDataPacket[]>(`SELECT h.uid,e.uid employeeUid,e.full_name employeeName,e.employee_number employeeNumber,s.code site,d.name department,p.name position,w.name workGroup,pm.uid productionModuleUid,pm.name productionModule,ps.uid productionSectionUid,ps.name productionSection,et.code employeeType,es.code employeeStatus,DATE_FORMAT(h.effective_from,'%Y-%m-%d') effectiveFrom,DATE_FORMAT(h.effective_to,'%Y-%m-%d') effectiveTo,h.change_type changeType,h.reference_number referenceNumber,h.reason,h.notes,(h.effective_to IS NULL AND h.change_type IN ('TRANSFER','PROMOTION','DEMOTION','TYPE_CHANGE','DEPARTMENT_CHANGE','GROUP_CHANGE','PRODUCTION_ASSIGNMENT_CHANGE','OTHER') AND h.id=(SELECT MAX(latest.id) FROM employee_employment_histories latest WHERE latest.employee_id=h.employee_id)) canDelete FROM employee_employment_histories h JOIN employees e ON e.id=h.employee_id JOIN sites s ON s.id=h.site_id LEFT JOIN departments d ON d.id=h.department_id LEFT JOIN positions p ON p.id=h.position_id LEFT JOIN work_groups w ON w.id=h.work_group_id LEFT JOIN production_module_sections pms ON pms.id=h.production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id JOIN employee_types et ON et.id=h.employee_type_id JOIN employee_statuses es ON es.id=h.employee_status_id WHERE e.uid=? ORDER BY h.effective_from DESC`, [uid]); res.json(rows) } catch (error) { next(error) }
 })
 employeesRouter.get('/:uid/scheduled-mutations', requirePermission('employees.view'), async (req, res, next) => {
   try { const uid = routeParam(req.params.uid); await employeeAccess(uid, res.locals.auth); const [rows] = await pool.query<RowDataPacket[]>(`${scheduledMutationSelect} WHERE e.uid=? AND sm.status IN ('SCHEDULED','FAILED') ORDER BY sm.effective_from ASC`, [uid]); res.json(rows) } catch (error) { next(error) }
 })
+
+employeesRouter.delete(
+  '/histories/:historyUid',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      const input = mutationDeleteInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const historyUid = routeParam(req.params.historyUid)
+      await conn.beginTransaction()
+
+      const [historyRows] = await conn.query<RowDataPacket[]>(
+        `SELECT history.*,employee.uid employeeUid,
+                employee.employee_number employeeNumber,
+                employee.full_name employeeName,
+                employee.current_site_id currentSiteId,
+                employee.current_department_id currentDepartmentId,
+                employee.current_position_id currentPositionId,
+                employee.current_work_group_id currentWorkGroupId,
+                employee.current_production_module_section_id currentProductionModuleSectionId,
+                employee.employee_type_id currentEmployeeTypeId,
+                employee.employee_status_id currentEmployeeStatusId,
+                site.code siteCode,
+                DATE_FORMAT(history.effective_from,'%Y-%m-%d') effectiveFrom
+           FROM employee_employment_histories history
+           JOIN employees employee ON employee.id=history.employee_id
+           JOIN sites site ON site.id=history.site_id
+          WHERE history.uid=?
+          FOR UPDATE`,
+        [historyUid]
+      )
+      const history = historyRows[0]
+      if (!history) throw new ApiError(404, 'Data mutasi tidak ditemukan.')
+      enforceSite(auth, String(history.siteCode))
+      const deletableMutationTypes = new Set([
+        'TRANSFER',
+        'PROMOTION',
+        'DEMOTION',
+        'TYPE_CHANGE',
+        'DEPARTMENT_CHANGE',
+        'GROUP_CHANGE',
+        'PRODUCTION_ASSIGNMENT_CHANGE',
+        'OTHER',
+      ])
+      if (!deletableMutationTypes.has(String(history.change_type))) {
+        throw new ApiError(
+          422,
+          history.change_type === 'INITIAL'
+            ? 'Histori registrasi awal tidak dapat dihapus sebagai mutasi.'
+            : 'Histori perubahan status dari lifecycle kontrak tidak dapat dihapus sebagai mutasi.'
+        )
+      }
+      if (history.effective_to !== null) {
+        throw new ApiError(409, 'Hanya mutasi terakhir yang masih berlaku yang dapat dihapus.')
+      }
+
+      const [latestRows] = await conn.query<RowDataPacket[]>(
+        `SELECT id FROM employee_employment_histories
+          WHERE employee_id=? ORDER BY effective_from DESC,id DESC LIMIT 1 FOR UPDATE`,
+        [history.employee_id]
+      )
+      if (Number(latestRows[0]?.id) !== Number(history.id)) {
+        throw new ApiError(409, 'Mutasi ini bukan histori terakhir karyawan.')
+      }
+
+      const [previousRows] = await conn.query<RowDataPacket[]>(
+        `SELECT previous.*,site.code siteCode,
+                DATE_FORMAT(previous.effective_from,'%Y-%m-%d') effectiveFrom,
+                DATE_FORMAT(previous.effective_to,'%Y-%m-%d') effectiveTo
+           FROM employee_employment_histories previous
+           JOIN sites site ON site.id=previous.site_id
+          WHERE previous.employee_id=? AND previous.id<>?
+            AND previous.effective_from<?
+          ORDER BY previous.effective_from DESC,previous.id DESC
+          LIMIT 1 FOR UPDATE`,
+        [history.employee_id, history.id, history.effectiveFrom]
+      )
+      const previous = previousRows[0]
+      if (!previous) {
+        throw new ApiError(409, 'Kondisi penempatan sebelum mutasi tidak ditemukan.')
+      }
+      enforceSite(auth, String(previous.siteCode))
+      const expectedPreviousEnd = addDays(String(history.effectiveFrom), -1)
+      if (String(previous.effectiveTo ?? '') !== expectedPreviousEnd) {
+        throw new ApiError(409, 'Rentang histori sebelum mutasi sudah berubah dan tidak aman dipulihkan.')
+      }
+      if (Number(previous.employee_status_id) !== Number(history.employee_status_id)) {
+        throw new ApiError(409, 'Status kerja sudah berubah setelah mutasi. Gunakan mutasi koreksi agar kontrak dan status tetap selaras.')
+      }
+
+      const currentMatchesHistory =
+        Number(history.currentSiteId) === Number(history.site_id) &&
+        Number(history.currentDepartmentId ?? 0) === Number(history.department_id ?? 0) &&
+        Number(history.currentPositionId ?? 0) === Number(history.position_id ?? 0) &&
+        Number(history.currentWorkGroupId ?? 0) === Number(history.work_group_id ?? 0) &&
+        Number(history.currentProductionModuleSectionId ?? 0) === Number(history.production_module_section_id ?? 0) &&
+        Number(history.currentEmployeeTypeId) === Number(history.employee_type_id) &&
+        Number(history.currentEmployeeStatusId) === Number(history.employee_status_id)
+      if (!currentMatchesHistory) {
+        throw new ApiError(409, 'Profil aktif karyawan sudah berubah setelah mutasi. Gunakan mutasi koreksi.')
+      }
+
+      const [references] = await conn.query<RowDataPacket[]>(
+        `SELECT
+          (SELECT COUNT(*) FROM scheduled_employee_mutations WHERE base_history_id=?) historyReferences,
+          (SELECT COUNT(*) FROM scheduled_employee_mutations WHERE employee_id=? AND status IN ('SCHEDULED','FAILED')) openMutations,
+          (SELECT COUNT(*) FROM scheduled_employee_status_changes WHERE employee_id=? AND status IN ('SCHEDULED','FAILED')) openStatusChanges,
+          (SELECT COUNT(*) FROM attendance_records WHERE employee_id=? AND business_date>=?) attendanceRecords,
+          (SELECT COUNT(*) FROM attendance_scan_events WHERE employee_id=? AND DATE(scanned_at)>=?) attendanceScans,
+          (SELECT COUNT(*) FROM attendance_classification_requests WHERE employee_id=? AND end_date>=? AND approval_status IN ('PENDING','APPROVED')) attendanceClassifications,
+          (SELECT COUNT(*) FROM production_transactions WHERE employee_id=? AND business_date>=?) productionTransactions,
+          (SELECT COUNT(*) FROM payroll_employee_results result JOIN payroll_periods period ON period.id=result.payroll_period_id WHERE result.employee_id=? AND period.period_end>=?) payrollResults,
+          (SELECT COUNT(*) FROM payroll_bpjs_monthly_settlements WHERE employee_id=? AND contribution_month>=DATE_FORMAT(?,'%Y-%m-01')) bpjsSettlements,
+          (SELECT COUNT(*) FROM employee_shift_assignments assignment
+             JOIN shifts shift_row ON shift_row.id=assignment.shift_id
+            WHERE assignment.employee_id=? AND (
+              assignment.effective_from>=? OR
+              (shift_row.site_id<>? AND (assignment.effective_to IS NULL OR assignment.effective_to>=?))
+            )) laterShiftAssignments,
+          (SELECT COUNT(*) FROM employee_job_assignments assignment
+            WHERE assignment.employee_id=? AND assignment.status='ACTIVE' AND (
+              assignment.effective_from>=? OR
+              (assignment.site_id<>? AND (assignment.effective_to IS NULL OR assignment.effective_to>=?))
+            )) laterJobAssignments`,
+        [
+          history.id,
+          history.employee_id,
+          history.employee_id,
+          history.employee_id,
+          history.effectiveFrom,
+          history.employee_id,
+          history.effectiveFrom,
+          history.employee_id,
+          history.effectiveFrom,
+          history.employee_id,
+          history.effectiveFrom,
+          history.employee_id,
+          history.effectiveFrom,
+          history.employee_id,
+          history.effectiveFrom,
+          history.employee_id,
+          history.effectiveFrom,
+          previous.site_id,
+          history.effectiveFrom,
+          history.employee_id,
+          history.effectiveFrom,
+          previous.site_id,
+          history.effectiveFrom,
+        ]
+      )
+      const dependency = references[0] ?? {}
+      const blockerLabels: Array<[string, string]> = [
+        ['historyReferences', 'jadwal yang memakai histori ini'],
+        ['openMutations', 'mutasi terjadwal'],
+        ['openStatusChanges', 'perubahan status terjadwal'],
+        ['attendanceRecords', 'Attendance'],
+        ['attendanceScans', 'scan Attendance'],
+        ['attendanceClassifications', 'klasifikasi Attendance'],
+        ['productionTransactions', 'transaksi Produksi'],
+        ['payrollResults', 'hasil Payroll'],
+        ['bpjsSettlements', 'settlement BPJS'],
+        ['laterShiftAssignments', 'penugasan Shift baru'],
+        ['laterJobAssignments', 'penugasan pekerjaan baru'],
+      ]
+      const blockers = blockerLabels.flatMap(([key, label]) => {
+        const count = Number(dependency[key] ?? 0)
+        return count > 0 ? [`${count} ${label}`] : []
+      })
+      if (blockers.length) {
+        throw new ApiError(409, `Mutasi ${history.employeeNumber} belum aman dihapus karena terdapat ${blockers.join(', ')} sejak ${history.effectiveFrom}.`)
+      }
+
+      const [ambiguousAssignments] = await conn.query<RowDataPacket[]>(
+        `SELECT
+          (SELECT COUNT(*) FROM employee_shift_assignments assignment
+             JOIN shifts shift_row ON shift_row.id=assignment.shift_id
+            WHERE ?='TRANSFER' AND assignment.employee_id=? AND shift_row.site_id=?
+              AND assignment.effective_to=?
+              AND NOT (assignment.updated_by <=> ?)) ambiguousShifts,
+          (SELECT COUNT(*) FROM employee_job_assignments assignment
+            WHERE assignment.employee_id=? AND assignment.site_id=?
+              AND assignment.status='ACTIVE' AND assignment.effective_to=?
+              AND NOT (assignment.updated_by <=> ?)) ambiguousJobs,
+          (SELECT COUNT(*) FROM employee_job_assignments assignment
+            WHERE assignment.employee_id=? AND assignment.status='CANCELLED'
+              AND assignment.effective_from>=?) cancelledFutureJobs`,
+        [
+          history.change_type,
+          history.employee_id,
+          previous.site_id,
+          expectedPreviousEnd,
+          history.created_by,
+          history.employee_id,
+          previous.site_id,
+          expectedPreviousEnd,
+          history.created_by,
+          history.employee_id,
+          history.effectiveFrom,
+        ]
+      )
+      const ambiguous = ambiguousAssignments[0] ?? {}
+      if (Number(ambiguous.ambiguousShifts) || Number(ambiguous.ambiguousJobs) || Number(ambiguous.cancelledFutureJobs)) {
+        throw new ApiError(409, 'Assignment yang terdampak tidak dapat dibuktikan berasal dari mutasi ini. Koreksi assignment terlebih dahulu agar histori tetap aman.')
+      }
+
+      const [restoredShifts] = await conn.execute<ResultSetHeader>(
+        `UPDATE employee_shift_assignments assignment
+           JOIN shifts shift_row ON shift_row.id=assignment.shift_id
+            SET assignment.effective_to=NULL,assignment.updated_by=?
+          WHERE assignment.employee_id=? AND shift_row.site_id=?
+            AND ?='TRANSFER' AND assignment.effective_to=?
+            AND (assignment.updated_by <=> ?)`,
+        [auth.id, history.employee_id, previous.site_id, history.change_type, expectedPreviousEnd, history.created_by]
+      )
+      const [restoredJobs] = await conn.execute<ResultSetHeader>(
+        `UPDATE employee_job_assignments
+            SET effective_to=NULL,updated_by=?
+          WHERE employee_id=? AND site_id=? AND status='ACTIVE'
+            AND effective_to=? AND (updated_by <=> ?)`,
+        [auth.id, history.employee_id, previous.site_id, expectedPreviousEnd, history.created_by]
+      )
+
+      const [appliedSchedules] = await conn.query<RowDataPacket[]>(
+        `SELECT id FROM scheduled_employee_mutations
+          WHERE employee_id=? AND base_history_id=? AND status='APPLIED'
+            AND effective_from=? AND change_type=?
+            AND target_site_id=? AND target_employee_type_id=?
+          FOR UPDATE`,
+        [
+          history.employee_id,
+          previous.id,
+          history.effectiveFrom,
+          history.change_type,
+          history.site_id,
+          history.employee_type_id,
+        ]
+      )
+      if (appliedSchedules.length > 1) {
+        throw new ApiError(409, 'Jejak jadwal mutasi terapan ambigu dan tidak aman dipulihkan.')
+      }
+      if (appliedSchedules[0]) {
+        await conn.execute(
+          `UPDATE scheduled_employee_mutations
+              SET status='CANCELLED',cancelled_at=CURRENT_TIMESTAMP(3),updated_by=?
+            WHERE id=? AND status='APPLIED'`,
+          [auth.id, appliedSchedules[0].id]
+        )
+      }
+
+      await conn.execute(
+        `UPDATE employee_employment_histories
+            SET effective_to=NULL,updated_by=?
+          WHERE id=? AND effective_to=?`,
+        [auth.id, previous.id, expectedPreviousEnd]
+      )
+      await conn.execute(
+        `UPDATE employees
+            SET employee_type_id=?,employee_status_id=?,current_site_id=?,
+                current_department_id=?,current_position_id=?,current_work_group_id=?,
+                current_production_module_section_id=?,updated_by=?
+          WHERE id=?`,
+        [
+          previous.employee_type_id,
+          previous.employee_status_id,
+          previous.site_id,
+          previous.department_id,
+          previous.position_id,
+          previous.work_group_id,
+          previous.production_module_section_id,
+          auth.id,
+          history.employee_id,
+        ]
+      )
+      const [deleted] = await conn.execute<ResultSetHeader>(
+        'DELETE FROM employee_employment_histories WHERE id=? AND uid=? AND effective_to IS NULL',
+        [history.id, historyUid]
+      )
+      if (Number(deleted.affectedRows) !== 1) {
+        throw new ApiError(409, 'Mutasi berubah saat diproses. Muat ulang data dan coba lagi.')
+      }
+
+      await writeAudit(
+        {
+          auth,
+          request: req,
+          siteId: Number(previous.site_id),
+          action: 'DELETE',
+          table: 'employee_employment_histories',
+          recordId: Number(history.id),
+          recordUid: historyUid,
+          description: `Menghapus mutasi terakhir ${history.employeeNumber} dan memulihkan kondisi sebelumnya.`,
+          reason: input.reason,
+          beforeData: {
+            employeeNumber: history.employeeNumber,
+            effectiveFrom: history.effectiveFrom,
+            changeType: history.change_type,
+            siteId: history.site_id,
+          },
+          afterData: {
+            restoredHistoryUid: previous.uid,
+            restoredSite: previous.siteCode,
+            restoredShiftAssignments: Number(restoredShifts.affectedRows ?? 0),
+            restoredJobAssignments: Number(restoredJobs.affectedRows ?? 0),
+            cancelledScheduledMutation: Boolean(appliedSchedules[0]),
+          },
+        },
+        conn
+      )
+      await conn.commit()
+      res.json({
+        deleted: true,
+        restoredHistoryUid: String(previous.uid),
+        restoredShiftAssignments: Number(restoredShifts.affectedRows ?? 0),
+        restoredJobAssignments: Number(restoredJobs.affectedRows ?? 0),
+      })
+    } catch (error) {
+      await conn.rollback()
+      next(error)
+    } finally {
+      conn.release()
+    }
+  }
+)
+
 employeesRouter.get('/:uid/contracts', requirePermission('employees.view'), async (req, res, next) => {
   try { const uid = routeParam(req.params.uid); await employeeAccess(uid, res.locals.auth); const [rows] = await pool.query<RowDataPacket[]>(`${contractSelect()} WHERE e.uid=? ORDER BY c.start_date DESC`, [uid]); res.json(rows.map(mapContract)) } catch (error) { next(error) }
 })
@@ -2816,13 +3425,17 @@ employeesRouter.post('/mutations/batch', requirePermission('employees.manage'), 
     const today = businessDate()
     const prepared = await Promise.all(
       items.map(async ({ employeeUid, input }) => {
-        if (input.effectiveFrom < today) {
-          throw new ApiError(422, 'Tanggal efektif mutasi tidak boleh lampau.')
-        }
         const employee = await employeeAccess(employeeUid, auth)
         validateMutationChange(input, employee)
         enforceSite(auth, input.site)
         const refs = await references(input, employee.employeeStatus)
+        await assertHistoricalMutationSafe(
+          async (sql,values) => {
+            const [rows]=await pool.query<RowDataPacket[]>(sql,values)
+            return rows
+          },
+          { employeeId:Number(employee.id),employeeNumber:String(employee.employeeNumber),effectiveFrom:input.effectiveFrom,targetSiteId:Number(refs.siteId) }
+        )
         return { employeeUid, input, employee, refs }
       })
     )
@@ -2907,40 +3520,27 @@ employeesRouter.post('/mutations/batch', requirePermission('employees.manage'), 
             `Histori penempatan aktif untuk ${employee.employeeNumber} tidak ditemukan.`
           )
         }
-        if (item.input.effectiveFrom <= String(active.effectiveFrom)) {
-          throw new ApiError(
-            422,
-            `Tanggal efektif ${employee.employeeNumber} harus setelah histori aktif.`
-          )
-        }
+        await assertHistoricalMutationSafe(
+          async (sql,values) => {
+            const [rows]=await conn.query<RowDataPacket[]>(sql,values)
+            return rows
+          },
+          { employeeId:Number(employee.id),employeeNumber:String(employee.employeeNumber),effectiveFrom:item.input.effectiveFrom,targetSiteId:Number(item.refs.siteId) }
+        )
         const mutationUid = randomUUID()
-        if (item.input.effectiveFrom === today) {
-          await conn.execute(
-            'UPDATE employee_employment_histories SET effective_to=DATE_SUB(?,INTERVAL 1 DAY),updated_by=? WHERE id=?',
-            [item.input.effectiveFrom, auth.id, active.id]
-          )
-          await conn.execute(
-            `INSERT INTO employee_employment_histories(uid,employee_id,site_id,department_id,position_id,work_group_id,production_module_section_id,employee_type_id,employee_status_id,effective_from,change_type,reference_number,reason,notes,created_by,updated_by)
-             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-            [
-              mutationUid,
-              employee.id,
-              item.refs.siteId,
-              item.refs.departmentId,
-              item.refs.positionId,
-              item.refs.workGroupId,
-              item.refs.productionModuleSectionId,
-              item.refs.typeId,
-              active.statusId,
-              item.input.effectiveFrom,
-              item.input.changeType,
-              empty(item.input.referenceNumber),
-              empty(item.input.reason),
-              empty(item.input.notes),
-              auth.id,
-              auth.id,
-            ]
-          )
+        if (item.input.effectiveFrom <= today) {
+          const timeline = await applyEffectiveMutationHistory(conn, {
+            employeeId: Number(employee.id),
+            employeeNumber: String(employee.employeeNumber),
+            effectiveFrom: item.input.effectiveFrom,
+            changeType: item.input.changeType,
+            refs: item.refs,
+            mutationUid,
+            referenceNumber: item.input.referenceNumber,
+            reason: item.input.reason,
+            notes: item.input.notes,
+            actorUserId: auth.id,
+          })
           await conn.execute(
             'UPDATE employees SET employee_type_id=?,current_site_id=?,current_department_id=?,current_position_id=?,current_work_group_id=?,current_production_module_section_id=?,updated_by=? WHERE id=?',
             [
@@ -2960,6 +3560,14 @@ employeesRouter.post('/mutations/batch', requirePermission('employees.manage'), 
             item.input.effectiveFrom,
             auth.id
           )
+          if (item.input.changeType === 'TRANSFER') {
+            await reconcileShiftAssignmentsAtSiteBoundary(conn, {
+              employeeId: Number(employee.id),
+              targetSiteId: Number(item.refs.siteId),
+              effectiveFrom: item.input.effectiveFrom,
+              actorUserId: auth.id,
+            })
+          }
           await writeAudit(
             {
               auth,
@@ -2969,11 +3577,22 @@ employeesRouter.post('/mutations/batch', requirePermission('employees.manage'), 
               table: 'employee_employment_histories',
               recordUid: mutationUid,
               description: `Mencatat mutasi batch ${item.input.changeType} untuk ${employee.employeeNumber}.`,
+              afterData: {
+                effectiveFrom: item.input.effectiveFrom,
+                carriedForwardStatusHistories:
+                  timeline.laterStatusHistories.length,
+              },
             },
             conn
           )
             applied.push(item.employeeUid)
           } else {
+            if (item.input.effectiveFrom <= String(active.effectiveFrom)) {
+              throw new ApiError(
+                422,
+                `Tanggal efektif ${employee.employeeNumber} harus setelah histori aktif.`
+              )
+            }
             await conn.execute(
               `INSERT INTO scheduled_employee_mutations(uid,employee_id,base_history_id,target_site_id,target_department_id,target_position_id,target_work_group_id,target_production_module_section_id,target_employee_type_id,effective_from,change_type,reference_number,reason,notes,status,created_by,updated_by)
              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'SCHEDULED',?,?)`,

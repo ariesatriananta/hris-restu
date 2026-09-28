@@ -82,10 +82,7 @@ type ValidationPreview = {
 export async function parseEmployeeImportWorkbook(
   file: File
 ): Promise<EmployeeImportItem[]> {
-  const workbook = XLSX.read(await file.arrayBuffer(), {
-    type: 'array',
-    cellDates: true,
-  })
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' })
   const sheet = workbook.Sheets.Karyawan
   if (!sheet) throw new Error('Sheet Karyawan tidak ditemukan.')
 
@@ -178,9 +175,6 @@ function normalizeHeader(value: unknown) {
 }
 
 function cleanCell(value: unknown) {
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10)
-  }
   return String(value ?? '').trim()
 }
 
@@ -190,9 +184,6 @@ function normalizeEmployeeDate(value: unknown) {
     if (parsed) {
       return `${String(parsed.y).padStart(4, '0')}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`
     }
-  }
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10)
   }
   const raw = String(value ?? '').trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw

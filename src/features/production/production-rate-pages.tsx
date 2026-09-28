@@ -12,6 +12,7 @@ import {
   Ban,
   Plus,
   Ruler,
+  Trash2,
   UsersRound,
   X,
 } from 'lucide-react'
@@ -280,8 +281,28 @@ function createIdempotencyKey() {
 
 function apiMessage(error: unknown, fallback: string) {
   if (!error || typeof error !== 'object') return fallback
-  const response = (error as { response?: { data?: { message?: unknown } } })
-    .response
+  const response = (
+    error as {
+      response?: {
+        data?: {
+          message?: unknown
+          issues?: {
+            formErrors?: unknown
+            fieldErrors?: Record<string, unknown>
+          }
+        }
+      }
+    }
+  ).response
+  const issues = response?.data?.issues
+  const formError = Array.isArray(issues?.formErrors)
+    ? issues.formErrors.find((message) => typeof message === 'string')
+    : undefined
+  const fieldError = Object.values(issues?.fieldErrors ?? {})
+    .flatMap((messages) => (Array.isArray(messages) ? messages : []))
+    .find((message) => typeof message === 'string')
+  if (typeof formError === 'string') return formError
+  if (typeof fieldError === 'string') return fieldError
   return typeof response?.data?.message === 'string'
     ? response.data.message
     : fallback
@@ -1141,7 +1162,7 @@ function AssignmentCorrectionDialog({
     (!form.effectiveTo || form.effectiveTo >= form.effectiveFrom)
   )
   const apply = async () => {
-    if (!preview.data?.canApply || reason.trim().length < 5) return
+    if (!preview.data?.canApply || reason.trim().length < 10) return
     try {
       await correction.mutateAsync({
         ...proposal,
@@ -1312,13 +1333,98 @@ function AssignmentCorrectionDialog({
           <Button
             disabled={
               !preview.data?.canApply ||
-              reason.trim().length < 5 ||
+              reason.trim().length < 10 ||
               correction.isPending
             }
             onClick={() => void apply()}
           >
             {correction.isPending && <LoaderCircle className='animate-spin' />}
             Terapkan Koreksi
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function DeleteAssignmentDialog({ assignment }: { assignment: ProductionAssignment }) {
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const command = useProductionCommand()
+  const ready =
+    reason.trim().length >= 10 && confirmation.trim().toUpperCase() === 'HAPUS'
+  const remove = () =>
+    command.mutate(
+      {
+        path: `/production-structure/assignments/${assignment.uid}/delete`,
+        body: { reason: reason.trim(), confirmation: 'HAPUS' },
+      },
+      {
+        onSuccess: () => {
+          toast.success('Penugasan berhasil dihapus.')
+          setOpen(false)
+        },
+        onError: (error) =>
+          toast.error(apiMessage(error, 'Penugasan gagal dihapus.')),
+      }
+    )
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (next) {
+          setReason('')
+          setConfirmation('')
+        }
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button
+          size='sm'
+          variant='ghost'
+          className='text-destructive hover:text-destructive'
+          aria-label='Hapus penugasan'
+        >
+          <Trash2 className='size-4' />
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Hapus Penugasan?</DialogTitle>
+          <DialogDescription>
+            {assignment.employee.fullName} · {assignment.job.name}. Penugasan
+            yang sudah dipakai transaksi atau memiliki histori koreksi tidak
+            dapat dihapus.
+          </DialogDescription>
+        </DialogHeader>
+        <Field label='Alasan penghapusan'>
+          <Textarea
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder='Jelaskan alasan penugasan ini dihapus.'
+          />
+        </Field>
+        <Field label='Ketik HAPUS untuk konfirmasi'>
+          <Input
+            value={confirmation}
+            onChange={(event) => setConfirmation(event.target.value)}
+            placeholder='HAPUS'
+          />
+        </Field>
+        <DialogFooter>
+          <Button variant='outline' onClick={() => setOpen(false)}>
+            Batal
+          </Button>
+          <Button
+            variant='destructive'
+            disabled={!ready || command.isPending}
+            onClick={remove}
+          >
+            {command.isPending && <LoaderCircle className='animate-spin' />}
+            Hapus Penugasan
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -2336,6 +2442,7 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
                                   }}
                                 />
                               )}
+                            <DeleteAssignmentDialog assignment={row} />
                           </TableCell>
                         )}
                       </TableRow>

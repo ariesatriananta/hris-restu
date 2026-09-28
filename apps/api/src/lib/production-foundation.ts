@@ -167,21 +167,60 @@ export const closeProductionAssignmentInput = z
   })
   .strict()
 
+export const deleteProductionAssignmentInput = z
+  .object({
+    reason: z
+      .string()
+      .trim()
+      .min(10, 'Alasan penghapusan minimal 10 karakter.')
+      .max(500),
+    confirmation: z.literal('HAPUS'),
+  })
+  .strict()
+
+const productionAssignmentCorrectionFields = {
+  jobUid: z.string().uuid(),
+  effectiveFrom: z.string().date('Tanggal mulai tidak valid.'),
+  effectiveTo: z
+    .string()
+    .date('Tanggal selesai tidak valid.')
+    .optional()
+    .nullable(),
+  isPrimary: z.boolean(),
+}
+
+function validateProductionAssignmentCorrectionPeriod(
+  value: { effectiveFrom: string; effectiveTo?: string | null },
+  context: z.RefinementCtx
+) {
+  if (value.effectiveTo && value.effectiveTo < value.effectiveFrom) {
+    context.addIssue({
+      code: 'custom',
+      path: ['effectiveTo'],
+      message: 'Tanggal selesai tidak boleh mendahului tanggal mulai.',
+    })
+  }
+}
+
+export const productionAssignmentCorrectionPreviewInput = z
+  .object({
+    ...productionAssignmentCorrectionFields,
+  })
+  .strict()
+  .superRefine(validateProductionAssignmentCorrectionPeriod)
+
 export const productionAssignmentCorrectionInput = z
   .object({
-    jobUid: z.string().uuid(),
-    effectiveFrom: z.string().date(),
-    effectiveTo: z.string().date().optional().nullable(),
-    isPrimary: z.boolean(),
-    reason: z.string().trim().min(10).max(500),
+    ...productionAssignmentCorrectionFields,
+    reason: z
+      .string()
+      .trim()
+      .min(10, 'Alasan koreksi minimal 10 karakter.')
+      .max(500),
     idempotencyKey: z.string().uuid(),
   })
   .strict()
-  .superRefine((value, context) => {
-    if (value.effectiveTo && value.effectiveTo < value.effectiveFrom) {
-      context.addIssue({ code: 'custom', path: ['effectiveTo'], message: 'Tanggal selesai tidak boleh mendahului tanggal mulai.' })
-    }
-  })
+  .superRefine(validateProductionAssignmentCorrectionPeriod)
 
 export const productionRateExceptionInput = z.object({
   reason: z.string().trim().min(10).max(500),

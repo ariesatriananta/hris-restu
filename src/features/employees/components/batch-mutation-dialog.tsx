@@ -70,7 +70,7 @@ export function BatchMutationDialog({
 
   const directCount = useMemo(
     () =>
-      rows.filter((row) => row.input.effectiveFrom === businessDateInput())
+      rows.filter((row) => row.input.effectiveFrom <= businessDateInput())
         .length,
     [rows]
   )
@@ -201,6 +201,7 @@ export function BatchMutationDialog({
           <DialogDescription>
             Atur target dan tanggal efektif per karyawan. Batch akan tersimpan
             seluruhnya atau batal seluruhnya jika ada satu baris yang gagal.
+            Tanggal lampau diperiksa terhadap transaksi terkait.
           </DialogDescription>
         </DialogHeader>
         <div className='flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-4 sm:px-8'>
@@ -306,9 +307,6 @@ export function BatchMutationDialog({
 }
 
 function batchRowError(row: BatchRow) {
-  if (row.input.effectiveFrom < businessDateInput()) {
-    return 'Tanggal efektif tidak boleh lampau.'
-  }
   if (
     editableMutationFields(row.input.changeType, row.input.employeeType).has(
       'productionAssignment'
@@ -499,9 +497,7 @@ function BatchMutationTableRow({
             <InlineSelect
               aria-label='Modul produksi'
               value={row.input.productionModuleUid ?? ''}
-              disabled={
-                !editableFields.has('productionAssignment')
-              }
+              disabled={!editableFields.has('productionAssignment')}
               onChange={(event) =>
                 onChange({
                   productionModuleUid: event.target.value || undefined,
@@ -509,9 +505,7 @@ function BatchMutationTableRow({
                 })
               }
             >
-              <option value=''>
-                Pilih modul
-              </option>
+              <option value=''>Pilih modul</option>
               {modules.map((item) => (
                 <option key={item.uid} value={item.uid}>
                   {item.name}
@@ -531,9 +525,7 @@ function BatchMutationTableRow({
                 })
               }
             >
-              <option value=''>
-                Pilih Bagian
-              </option>
+              <option value=''>Pilih Bagian</option>
               {sections.map((item) => (
                 <option key={item.uid} value={item.uid}>
                   {item.sectionName}
@@ -590,7 +582,7 @@ function BatchMutationSummary({ rows }: { rows: BatchRow[] }) {
             <span className='text-muted-foreground'>
               {row.input.effectiveFrom > businessDateInput()
                 ? 'Dijadwalkan'
-                : 'Diterapkan hari ini'}
+                : 'Diterapkan langsung'}
             </span>
           </div>
           <p className='mt-1 text-muted-foreground'>

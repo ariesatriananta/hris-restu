@@ -16,6 +16,7 @@ import {
   GitBranchPlus,
   Pencil,
   RefreshCcw,
+  Trash2,
   X,
 } from 'lucide-react'
 import { currentListReturnTo } from '@/lib/list-return-to'
@@ -57,6 +58,7 @@ import type {
 } from '../domain'
 import { formatDate, statusLabel } from '../utils'
 import { BatchMutationDialog } from './batch-mutation-dialog'
+import { MutationDeleteDialog } from './mutation-delete-dialog'
 import { MutationDetailDrawer } from './mutation-detail-drawer'
 import { MutationDialog } from './mutation-dialog'
 import { MutationImportDialog } from './mutation-import-dialog'
@@ -95,6 +97,7 @@ const filters = [
 
 function getColumns(
   onView: (history: MutationRow) => void,
+  onDelete: (history: MutationRow) => void,
   returnTo?: string
 ): ColumnDef<MutationRow>[] {
   return [
@@ -151,14 +154,24 @@ function getColumns(
     {
       id: 'actions',
       cell: ({ row }) => (
-        <Button
-          size='sm'
-          variant='ghost'
-          onClick={() => onView(row.original)}
-          aria-label={`Lihat detail mutasi ${row.original.employeeName}`}
-        >
-          <Eye /> Detail
-        </Button>
+        <div className='flex justify-end gap-1'>
+          <Button
+            size='sm'
+            variant='ghost'
+            onClick={() => onView(row.original)}
+            aria-label={`Lihat detail mutasi ${row.original.employeeName}`}
+          >
+            <Eye /> Detail
+          </Button>
+          {Boolean(row.original.canDelete) && (
+            <DataTableActionButton
+              label={`Hapus mutasi ${row.original.employeeName}`}
+              onClick={() => onDelete(row.original)}
+            >
+              <Trash2 className='text-destructive' />
+            </DataTableActionButton>
+          )}
+        </div>
       ),
     },
   ]
@@ -174,6 +187,7 @@ export function MutationPage({
   const returnTo = currentListReturnTo()
   const [sorting, setSorting] = useState<SortingState>([])
   const [selectedHistory, setSelectedHistory] = useState<MutationRow>()
+  const [deleteTarget, setDeleteTarget] = useState<MutationRow>()
   const [batchMutationOpen, setBatchMutationOpen] = useState(false)
   const [mutationImportOpen, setMutationImportOpen] = useState(false)
   const tableState = useTableUrlState({
@@ -212,7 +226,7 @@ export function MutationPage({
   const table = useReactTable({
     data: rows,
     columns: useMemo(
-      () => getColumns(setSelectedHistory, returnTo),
+      () => getColumns(setSelectedHistory, setDeleteTarget, returnTo),
       [returnTo]
     ),
     state: {
@@ -239,7 +253,7 @@ export function MutationPage({
         <div>
           <h1 className='text-2xl font-bold'>Mutasi Karyawan</h1>
           <p className='text-muted-foreground'>
-            Jejak penempatan dan perubahan status yang bersifat append-only.
+            Riwayat penempatan dan perubahan status karyawan.
           </p>
         </div>
         <DropdownMenu modal={false}>
@@ -392,6 +406,14 @@ export function MutationPage({
       <MutationImportDialog
         open={mutationImportOpen}
         onOpenChange={setMutationImportOpen}
+      />
+      <MutationDeleteDialog
+        history={deleteTarget}
+        employeeName={deleteTarget?.employeeName}
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(undefined)
+        }}
       />
     </Main>
   )

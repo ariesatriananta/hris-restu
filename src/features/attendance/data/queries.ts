@@ -193,8 +193,16 @@ export const useApplyHistoricalShiftAssignment = () =>
     httpAttendanceRepository.applyHistoricalShiftAssignment(input)
   )
 export const useDeleteShiftAssignment = () =>
-  useAttendanceMutation((uid: string) =>
-    httpAttendanceRepository.deleteShiftAssignment(uid)
+  useAttendanceMutation(
+    (request: {
+      uid: string
+      reason: string
+      confirmation: 'HAPUS'
+    }) =>
+      httpAttendanceRepository.deleteShiftAssignment(request.uid, {
+        reason: request.reason,
+        confirmation: request.confirmation,
+      })
   )
 
 export const useAttendanceDevices = (params: AttendanceDeviceListParams) =>

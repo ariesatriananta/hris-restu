@@ -53,6 +53,7 @@ import {
   importMutations,
   updateScheduledMutation,
   cancelScheduledMutation,
+  deleteEmploymentMutation,
   listScheduledStatusChanges,
   scheduleStatusChange,
   updateScheduledStatusChange,
@@ -449,6 +450,23 @@ export function useCancelScheduledMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (uid: string) => cancelScheduledMutation(uid),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function useDeleteEmploymentMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      historyUid,
+      reason,
+    }: {
+      historyUid: string
+      reason: string
+    }) =>
+      deleteEmploymentMutation(historyUid, {
+        reason,
+        confirmation: 'HAPUS',
+      }),
     onSuccess: () => invalidate(queryClient),
   })
 }

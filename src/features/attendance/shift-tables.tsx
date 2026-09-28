@@ -476,15 +476,13 @@ export function ShiftAssignmentTable({
                 <Pencil />
               </DataTableActionButton>
             )}
-            {row.original.status === 'UPCOMING' && (
-              <DataTableActionButton
-                className='text-destructive hover:text-destructive'
-                label={`Hapus penugasan mendatang ${row.original.employeeName}`}
-                onClick={() => onDelete(row.original)}
-              >
-                <Trash2 />
-              </DataTableActionButton>
-            )}
+            <DataTableActionButton
+              className='text-destructive hover:text-destructive'
+              label={`Hapus penugasan ${row.original.employeeName}`}
+              onClick={() => onDelete(row.original)}
+            >
+              <Trash2 />
+            </DataTableActionButton>
           </div>
         ),
         meta: { className: 'w-[5%] px-1' },
@@ -598,16 +596,14 @@ export function ShiftAssignmentTable({
                 <Pencil /> Koreksi penugasan
               </Button>
             )}
-            {assignment.status === 'UPCOMING' && (
-              <Button
-                size='sm'
-                variant='outline'
-                className='w-full text-destructive'
-                onClick={() => onDelete(assignment)}
-              >
-                <Trash2 /> Hapus penugasan
-              </Button>
-            )}
+            <Button
+              size='sm'
+              variant='outline'
+              className='w-full text-destructive'
+              onClick={() => onDelete(assignment)}
+            >
+              <Trash2 /> Hapus penugasan
+            </Button>
           </CardContent>
         </Card>
       )}

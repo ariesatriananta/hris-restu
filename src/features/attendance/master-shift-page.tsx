@@ -7,7 +7,17 @@ import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
@@ -61,6 +71,9 @@ export function MasterShiftPage({
   const [deleteShiftTarget, setDeleteShiftTarget] = useState<Shift>()
   const [deleteAssignmentTarget, setDeleteAssignmentTarget] =
     useState<ShiftAssignment>()
+  const [deleteAssignmentReason, setDeleteAssignmentReason] = useState('')
+  const [deleteAssignmentConfirmation, setDeleteAssignmentConfirmation] =
+    useState('')
   const [correctionAssignmentTarget, setCorrectionAssignmentTarget] =
     useState<ShiftAssignment>()
   const shiftParams: ShiftListParams = {
@@ -96,7 +109,11 @@ export function MasterShiftPage({
     []
   )
   const requestDeleteAssignment = useCallback(
-    (assignment: ShiftAssignment) => setDeleteAssignmentTarget(assignment),
+    (assignment: ShiftAssignment) => {
+      setDeleteAssignmentTarget(assignment)
+      setDeleteAssignmentReason('')
+      setDeleteAssignmentConfirmation('')
+    },
     []
   )
   const allShifts = assignmentShifts.data?.items ?? []
@@ -352,28 +369,79 @@ export function MasterShiftPage({
           })
         }}
       />
-      <ConfirmDialog
+      <Dialog
         open={Boolean(deleteAssignmentTarget)}
-        onOpenChange={(open) => !open && setDeleteAssignmentTarget(undefined)}
-        title='Hapus penugasan mendatang?'
-        desc={`Penugasan ${deleteAssignmentTarget?.employeeName ?? ''} pada shift ${deleteAssignmentTarget?.shiftName ?? ''} akan dihapus. Penugasan berjalan atau yang sudah dipakai tidak dapat dihapus.`}
-        confirmText='Hapus penugasan'
-        destructive
-        isLoading={deleteAssignment.isPending}
-        handleConfirm={() => {
-          if (!deleteAssignmentTarget) return
-          deleteAssignment.mutate(deleteAssignmentTarget.uid, {
-            onSuccess: () => {
-              toast.success('Penugasan shift berhasil dihapus.')
-              setDeleteAssignmentTarget(undefined)
-            },
-            onError: (error) => {
-              toast.error(apiMessage(error, 'Penugasan shift gagal dihapus.'))
-              setDeleteAssignmentTarget(undefined)
-            },
-          })
+        onOpenChange={(open) => {
+          if (!open) setDeleteAssignmentTarget(undefined)
         }}
-      />
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Hapus Penugasan Shift?</DialogTitle>
+            <DialogDescription>
+              Penugasan {deleteAssignmentTarget?.employeeName ?? ''} pada Shift{' '}
+              {deleteAssignmentTarget?.shiftName ?? ''} akan dihapus permanen.
+              Data yang sudah dipakai Attendance tetap dilindungi.
+            </DialogDescription>
+          </DialogHeader>
+          <div className='space-y-2'>
+            <label className='text-sm font-medium'>Alasan penghapusan</label>
+            <Textarea
+              value={deleteAssignmentReason}
+              onChange={(event) => setDeleteAssignmentReason(event.target.value)}
+              placeholder='Jelaskan alasan penugasan ini dihapus.'
+            />
+          </div>
+          <div className='space-y-2'>
+            <label className='text-sm font-medium'>Ketik HAPUS untuk konfirmasi</label>
+            <Input
+              value={deleteAssignmentConfirmation}
+              onChange={(event) =>
+                setDeleteAssignmentConfirmation(event.target.value)
+              }
+              placeholder='HAPUS'
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setDeleteAssignmentTarget(undefined)}
+            >
+              Batal
+            </Button>
+            <Button
+              variant='destructive'
+              disabled={
+                deleteAssignmentReason.trim().length < 10 ||
+                deleteAssignmentConfirmation.trim().toUpperCase() !== 'HAPUS' ||
+                deleteAssignment.isPending
+              }
+              onClick={() => {
+                if (!deleteAssignmentTarget) return
+                deleteAssignment.mutate(
+                  {
+                    uid: deleteAssignmentTarget.uid,
+                    reason: deleteAssignmentReason.trim(),
+                    confirmation: 'HAPUS',
+                  },
+                  {
+                    onSuccess: () => {
+                      toast.success('Penugasan shift berhasil dihapus.')
+                      setDeleteAssignmentTarget(undefined)
+                    },
+                    onError: (error) =>
+                      toast.error(
+                        apiMessage(error, 'Penugasan shift gagal dihapus.')
+                      ),
+                  }
+                )
+              }}
+            >
+              Hapus Penugasan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Main>
   )
 }

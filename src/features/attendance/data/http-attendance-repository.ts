@@ -198,8 +198,10 @@ export const httpAttendanceRepository: AttendanceRepository = {
       )
     ).data
   },
-  async deleteShiftAssignment(uid) {
-    await apiClient.delete(`/attendance/shift-assignments/${uid}`)
+  async deleteShiftAssignment(uid, input) {
+    await apiClient.delete(`/attendance/shift-assignments/${uid}`, {
+      data: input,
+    })
   },
   async listDevices(input) {
     return (

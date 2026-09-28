@@ -557,6 +557,13 @@ jumlah hari Alpha/Izin`. Kalkulasi dibulatkan `HALF_UP` ke Rp1 per komponen
   `scheduled_employee_mutations`; jadwal berstatus `APPLIED` tidak ditampilkan
   lagi karena hasilnya sudah menjadi histori kerja dan akan menyebabkan data
   ganda.
+- Mutasi Site bertanggal lampau boleh disisipkan sebelum histori
+  `STATUS_CHANGE` yang lebih baru jika tidak ada Attendance, Produksi, Payroll,
+  BPJS, assignment lanjutan beda site, atau perubahan penempatan lain yang
+  terdampak. Penempatan tujuan diteruskan ke histori `STATUS_CHANGE` berikutnya,
+  sedangkan status kerja, tanggal efektif, alasan, dan jejak lifecycle tetap
+  dipertahankan. Kondisi ambigu wajib diblokir dan tidak boleh dirapikan dengan
+  menghapus histori status.
 - Kondisi sebelum mutasi wajib memakai histori kerja sebelumnya atau histori
   dasar jadwal, sedangkan kondisi sesudah memakai histori atau target jadwal.
   Data current pada tabel karyawan tidak boleh menggantikan kedua sumber

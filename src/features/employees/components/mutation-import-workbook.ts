@@ -26,10 +26,9 @@ export const mutationImportTemplateHeaders = mutationImportColumns.map(
 export async function parseMutationImportWorkbook(
   file: File
 ): Promise<MutationImportItem[]> {
-  const workbook = XLSX.read(await file.arrayBuffer(), {
-    type: 'array',
-    cellDates: true,
-  })
+  // Keep Excel dates as serial numbers. Converting them to JavaScript Date
+  // objects can shift the calendar day when the browser timezone is applied.
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' })
   const sheet =
     workbook.Sheets.Mutasi ?? workbook.Sheets[workbook.SheetNames[0]]
   if (!sheet) throw new Error('Sheet Mutasi tidak ditemukan.')
@@ -132,9 +131,6 @@ function normalizeExcelDate(value: unknown) {
   if (typeof value === 'number' && Number.isFinite(value)) {
     const parsed = XLSX.SSF.parse_date_code(value)
     if (parsed) return isoDate(parsed.y, parsed.m, parsed.d)
-  }
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return isoDate(value.getFullYear(), value.getMonth() + 1, value.getDate())
   }
   const raw = String(value ?? '').trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw

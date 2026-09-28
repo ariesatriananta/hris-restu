@@ -60,6 +60,28 @@ describe('employee import workbook', () => {
     expect(rows[0].birthDate).toBe('1995-01-15')
   })
 
+  it('mempertahankan tanggal kalender dari serial Excel tanpa bergeser timezone', async () => {
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([
+        employeeImportTemplateHeaders,
+        employeeImportTemplateHeaders.map((header) => {
+          if (header.startsWith('FULL_NAME')) return 'SITI AMINAH'
+          if (header.startsWith('JOIN_DATE')) return 46284
+          return ''
+        }),
+      ]),
+      'Karyawan'
+    )
+    const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
+    const rows = await parseEmployeeImportWorkbook(
+      new File([buffer], 'karyawan.xlsx')
+    )
+
+    expect(rows[0].joinDate).toBe('2026-09-19')
+  })
+
   it('membaca ID karyawan lama dan tetap mengizinkan ID kosong', async () => {
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(

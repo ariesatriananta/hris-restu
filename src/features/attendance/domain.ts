@@ -131,7 +131,10 @@ export interface AttendanceRepository {
   applyHistoricalShiftAssignment(
     input: HistoricalShiftAssignmentApplyInput
   ): Promise<HistoricalShiftAssignmentApplyResult>
-  deleteShiftAssignment(uid: string): Promise<void>
+  deleteShiftAssignment(
+    uid: string,
+    input: ShiftAssignmentDeleteInput
+  ): Promise<void>
   listDevices(
     input: AttendanceDeviceListParams
   ): Promise<PaginatedAttendanceResult<AttendanceDevice>>
@@ -220,6 +223,11 @@ export interface AttendanceRepository {
   uploadClassificationAttachment(
     file: File
   ): Promise<AttendanceClassificationAttachment>
+}
+
+export type ShiftAssignmentDeleteInput = {
+  reason: string
+  confirmation: 'HAPUS'
 }
 
 export type AttendanceSiteCode = 'JEPARA' | 'SEMARANG' | 'KLATEN'

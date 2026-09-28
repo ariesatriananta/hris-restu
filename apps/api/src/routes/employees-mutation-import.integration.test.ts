@@ -57,6 +57,9 @@ vi.mock('../middleware/authenticate.js', () => ({
 }))
 
 const employeeUid = '11111111-1111-4111-8111-111111111111'
+let historicalDependencies: Record<string, number>
+let currentEmployee: ReturnType<typeof employeeRow>
+let mutationTimelineRows: Array<Record<string, unknown>>
 
 function auth(): AuthContext {
   return {
@@ -110,6 +113,12 @@ function tomorrow() {
     iso,
     display: `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`,
   }
+}
+
+function yesterday() {
+  const date = new Date(`${tomorrow().iso}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() - 2)
+  return date.toISOString().slice(0, 10)
 }
 
 function employeeRow() {
@@ -175,15 +184,46 @@ function payload(effectiveFrom: string) {
 describe('import Excel mutasi site', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    historicalDependencies = {}
+    currentEmployee = employeeRow()
+    mutationTimelineRows = [
+      {
+        id: 31,
+        siteId: 1,
+        departmentId: 11,
+        positionId: 12,
+        workGroupId: null,
+        productionModuleSectionId: 13,
+        employeeTypeId: 14,
+        statusId: 15,
+        changeType: 'INITIAL',
+        effectiveFrom: '2026-01-01',
+        effectiveTo: null,
+      },
+    ]
     mocks.execute.mockResolvedValue([{ affectedRows: 1 }])
     mocks.query.mockImplementation(async (sqlValue: unknown) => {
       const sql = String(sqlValue)
-      if (sql.includes('WHERE e.employee_number=?')) return [[employeeRow()]]
+      if (sql.includes('attendanceRecords')) {
+        return [[historicalDependencies]]
+      }
+      if (sql.includes('history.change_type changeType')) {
+        return [mutationTimelineRows]
+      }
+      if (sql.includes('WHERE e.employee_number=?')) return [[currentEmployee]]
+      if (sql.includes('WHERE e.uid=?')) return [[currentEmployee]]
+      if (sql.includes('WHERE e.uid IN')) return [[currentEmployee]]
       if (
         sql.includes('FROM sites s') &&
         sql.includes('production_modules pm')
       ) {
         return [[targetRefs()]]
+      }
+      if (sql.includes('SELECT s.id siteId')) {
+        return [[{ ...targetRefs(), employeeNumberPrefix: 'PSMG' }]]
+      }
+      if (sql.includes('FROM production_module_sections pms')) {
+        return [[{ id: 22 }]]
       }
       if (sql.includes('FROM employees e') && sql.includes('FOR UPDATE')) {
         return [[employeeRow()]]
@@ -259,6 +299,35 @@ describe('import Excel mutasi site', () => {
     expect(mocks.query).not.toHaveBeenCalled()
   })
 
+  it('preview menerima tanggal lampau ketika belum ada transaksi terkait', async () => {
+    const response = await request(
+      '/mutations/import/preview',
+      payload(yesterday())
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(
+      expect.objectContaining({ total: 1, valid: 1, invalid: 0 })
+    )
+  })
+
+  it('preview menjelaskan transaksi yang memblokir tanggal lampau', async () => {
+    historicalDependencies = { attendanceRecords: 3, payrollResults: 1 }
+    const response = await request(
+      '/mutations/import/preview',
+      payload(yesterday())
+    )
+    const result = (await response.json()) as {
+      invalid: number
+      rows: Array<{ issues: string[] }>
+    }
+
+    expect(response.status).toBe(200)
+    expect(result.invalid).toBe(1)
+    expect(result.rows[0].issues[0]).toContain('3 Attendance')
+    expect(result.rows[0].issues[0]).toContain('1 hasil Payroll')
+  })
+
   it('menjadwalkan seluruh import dalam satu transaksi untuk tanggal mendatang', async () => {
     const date = tomorrow()
     const response = await request('/mutations/import', payload(date.iso))
@@ -297,5 +366,98 @@ describe('import Excel mutasi site', () => {
     expect(mocks.beginTransaction).toHaveBeenCalledTimes(1)
     expect(mocks.commit).not.toHaveBeenCalled()
     expect(mocks.rollback).toHaveBeenCalledTimes(1)
+  })
+
+  it('menerapkan tanggal lampau langsung pada import dan batch mutasi', async () => {
+    const effectiveFrom = yesterday()
+    const imported = await request(
+      '/mutations/import',
+      payload(effectiveFrom)
+    )
+    expect(imported.status).toBe(201)
+    expect(await imported.json()).toEqual({ applied: 1, scheduled: 0 })
+
+    const batched = await request('/mutations/batch', {
+      items: [
+        {
+          employeeUid,
+          input: {
+            site: 'SEMARANG',
+            department: 'Produksi',
+            position: 'Operator',
+            productionModuleSectionUid:
+              '44444444-4444-4444-8444-444444444444',
+            employeeType: 'BORONGAN',
+            effectiveFrom,
+            changeType: 'TRANSFER',
+            reason: 'Kebutuhan operasional site.',
+          },
+        },
+      ],
+    })
+
+    expect(batched.status).toBe(201)
+    expect(await batched.json()).toEqual({ applied: 1, scheduled: 0 })
+    expect(mocks.execute).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE employee_shift_assignments'),
+      expect.any(Array)
+    )
+  })
+
+  it('menyisipkan mutasi sebelum histori status dan membawa site baru ke histori berikutnya', async () => {
+    currentEmployee = {
+      ...employeeRow(),
+      employeeStatus: 'INACTIVE',
+      activeHistoryFrom: '2026-09-20',
+    }
+    mutationTimelineRows = [
+      {
+        id: 30,
+        siteId: 1,
+        departmentId: 11,
+        positionId: 12,
+        workGroupId: null,
+        productionModuleSectionId: 13,
+        employeeTypeId: 14,
+        statusId: 15,
+        changeType: 'STATUS_CHANGE',
+        effectiveFrom: '2026-01-01',
+        effectiveTo: '2026-09-19',
+      },
+      {
+        id: 31,
+        siteId: 1,
+        departmentId: 11,
+        positionId: 12,
+        workGroupId: null,
+        productionModuleSectionId: 13,
+        employeeTypeId: 14,
+        statusId: 4,
+        changeType: 'STATUS_CHANGE',
+        effectiveFrom: '2026-09-20',
+        effectiveTo: null,
+      },
+    ]
+
+    const response = await request(
+      '/mutations/import',
+      payload('2026-09-19')
+    )
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toEqual({ applied: 1, scheduled: 0 })
+    expect(mocks.execute).toHaveBeenCalledWith(
+      expect.stringContaining("change_type='STATUS_CHANGE'"),
+      expect.arrayContaining([2, 10, '2026-09-19'])
+    )
+    expect(mocks.audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        afterData: expect.objectContaining({
+          effectiveFrom: '2026-09-19',
+          carriedForwardStatusHistories: 1,
+        }),
+      }),
+      connection
+    )
   })
 })

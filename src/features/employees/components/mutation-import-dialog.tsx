@@ -160,7 +160,7 @@ export function MutationImportDialog({
       ],
       ['5. EFFECTIVE_DATE menerima DD/MM/YYYY atau YYYY-MM-DD.'],
       [
-        '6. Tanggal hari ini diterapkan langsung; tanggal mendatang dijadwalkan.',
+        '6. Tanggal lampau atau hari ini diterapkan langsung; tanggal mendatang dijadwalkan. Tanggal lampau hanya dapat diproses bila belum memiliki transaksi terkait.',
       ],
       [
         '7. Maksimal 200 karyawan dan seluruh baris harus valid sebelum diproses.',
@@ -239,6 +239,7 @@ export function MutationImportDialog({
           <DialogTitle>Import Excel Mutasi</DialogTitle>
           <DialogDescription>
             Unduh template kosong, isi mutasi, lalu periksa hasil validasinya.
+            Tanggal lampau hanya diproses jika belum memiliki transaksi terkait.
           </DialogDescription>
         </DialogHeader>
 

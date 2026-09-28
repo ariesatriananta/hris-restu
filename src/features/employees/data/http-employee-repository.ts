@@ -433,6 +433,19 @@ export const cancelScheduledMutation = async (uid: string) => {
   await apiClient.post(`/employees/scheduled-mutations/${uid}/cancel`)
 }
 
+export const deleteEmploymentMutation = async (
+  historyUid: string,
+  input: { reason: string; confirmation: 'HAPUS' }
+) =>
+  (
+    await apiClient.delete<{
+      deleted: boolean
+      restoredHistoryUid: string
+      restoredShiftAssignments: number
+      restoredJobAssignments: number
+    }>(`/employees/histories/${historyUid}`, { data: input })
+  ).data
+
 export const listScheduledStatusChanges = async (
   input: EmployeeRecordListParams
 ) =>

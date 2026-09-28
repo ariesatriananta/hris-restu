@@ -180,6 +180,7 @@ export interface EmploymentHistory {
   referenceNumber?: string
   reason?: string
   notes?: string
+  canDelete?: boolean | number
 }
 export interface EmployeeContract {
   uid: string

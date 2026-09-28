@@ -60,6 +60,25 @@ describe('parser import Attendance', () => {
     ])
   })
 
+  it('mempertahankan tanggal kalender dari serial Excel tanpa bergeser timezone', async () => {
+    const rows = await parseAttendanceWorkbook(
+      workbookFile([
+        [
+          'TANGGAL',
+          'NOMOR_KARYAWAN',
+          'NAMA_KARYAWAN',
+          'STATUS',
+          'JAM_MASUK',
+          'JAM_PULANG',
+          'KETERANGAN',
+        ],
+        [46284, 'PKDS-001', 'Siti', 'hadir', '07:00', '15:00', ''],
+      ])
+    )
+
+    expect(rows[0].businessDate).toBe('2026-09-19')
+  })
+
   it('menolak template dengan header yang berubah', async () => {
     await expect(
       parseAttendanceWorkbook(
