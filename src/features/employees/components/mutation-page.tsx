@@ -9,7 +9,9 @@ import {
 } from '@tanstack/react-table'
 import {
   CalendarClock,
+  ChevronDown,
   Eye,
+  FileSpreadsheet,
   GitBranch,
   GitBranchPlus,
   Pencil,
@@ -19,6 +21,12 @@ import {
 import { currentListReturnTo } from '@/lib/list-return-to'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Table,
   TableBody,
@@ -51,6 +59,7 @@ import { formatDate, statusLabel } from '../utils'
 import { BatchMutationDialog } from './batch-mutation-dialog'
 import { MutationDetailDrawer } from './mutation-detail-drawer'
 import { MutationDialog } from './mutation-dialog'
+import { MutationImportDialog } from './mutation-import-dialog'
 
 type MutationRow = EmploymentHistory & {
   employeeName: string
@@ -166,6 +175,7 @@ export function MutationPage({
   const [sorting, setSorting] = useState<SortingState>([])
   const [selectedHistory, setSelectedHistory] = useState<MutationRow>()
   const [batchMutationOpen, setBatchMutationOpen] = useState(false)
+  const [mutationImportOpen, setMutationImportOpen] = useState(false)
   const tableState = useTableUrlState({
     search,
     navigate,
@@ -232,9 +242,21 @@ export function MutationPage({
             Jejak penempatan dan perubahan status yang bersifat append-only.
           </p>
         </div>
-        <Button onClick={() => setBatchMutationOpen(true)}>
-          <GitBranchPlus /> Catat mutasi
-        </Button>
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild>
+            <Button>
+              <GitBranchPlus /> Catat mutasi <ChevronDown className='size-4' />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align='end' className='w-56'>
+            <DropdownMenuItem onSelect={() => setBatchMutationOpen(true)}>
+              <GitBranchPlus /> Input Batch Mutasi
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setMutationImportOpen(true)}>
+              <FileSpreadsheet /> Import Excel Mutasi
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <Tabs
         value={(search.tab as string) ?? 'history'}
@@ -366,6 +388,10 @@ export function MutationPage({
       <BatchMutationDialog
         open={batchMutationOpen}
         onOpenChange={setBatchMutationOpen}
+      />
+      <MutationImportDialog
+        open={mutationImportOpen}
+        onOpenChange={setMutationImportOpen}
       />
     </Main>
   )

@@ -49,6 +49,8 @@ import {
   scheduleMutation,
   correctRegistration,
   applyBatchMutation,
+  previewMutationImport,
+  importMutations,
   updateScheduledMutation,
   cancelScheduledMutation,
   listScheduledStatusChanges,
@@ -373,6 +375,16 @@ export function useApplyBatchMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (items: BatchMutationItem[]) => applyBatchMutation(items),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function usePreviewMutationImport() {
+  return useMutation({ mutationFn: previewMutationImport })
+}
+export function useImportMutations() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: importMutations,
     onSuccess: () => invalidate(queryClient),
   })
 }

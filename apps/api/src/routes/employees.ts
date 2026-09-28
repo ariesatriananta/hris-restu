@@ -1,17 +1,16 @@
-import { randomUUID } from 'node:crypto'
+import { z } from 'zod'
 import { Router, type Request } from 'express'
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { PoolConnection } from 'mysql2/promise'
-import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
 import { env } from '../config.js'
 import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
 import {
-  EmployeeNumberSequenceExhaustedError,
-  reserveEmployeeNumber,
-} from '../lib/employee-number.js'
-import { ApiError } from '../lib/errors.js'
-import { educationLevelSchema } from '../lib/education-level.js'
+  assertScheduledStatusWithinContract,
+  cronConflict,
+  paginationMeta,
+} from '../lib/contract-lifecycle-policy.js'
 import {
   assertContractRules,
   activateContractsBatch,
@@ -23,18 +22,6 @@ import {
   synchronizeActiveContractAfterEdit,
   transitionContract,
 } from '../lib/contract-lifecycle.js'
-import { runContractsReconcile } from '../lib/cron-reconcile.js'
-import {
-  assertScheduledStatusWithinContract,
-  cronConflict,
-  paginationMeta,
-} from '../lib/contract-lifecycle-policy.js'
-import {
-  contractEmployeeTypeRuleMessage,
-  contractTypeRuleMessage,
-  isContractEmployeeTypeCombinationAllowed,
-  isContractTypeAllowed,
-} from '../lib/employee-contract-policy.js'
 import {
   acquireContractNumberLock,
   canPreserveContractNumberSequence,
@@ -43,10 +30,27 @@ import {
   nextContractNumberSequence,
   releaseContractNumberLock,
 } from '../lib/contract-number.js'
-import { authenticate, requirePermission, type AuthContext } from '../middleware/authenticate.js'
+import { runContractsReconcile } from '../lib/cron-reconcile.js'
+import { educationLevelSchema } from '../lib/education-level.js'
+import {
+  contractEmployeeTypeRuleMessage,
+  contractTypeRuleMessage,
+  isContractEmployeeTypeCombinationAllowed,
+  isContractTypeAllowed,
+} from '../lib/employee-contract-policy.js'
+import {
+  EmployeeNumberSequenceExhaustedError,
+  reserveEmployeeNumber,
+} from '../lib/employee-number.js'
+import { ApiError } from '../lib/errors.js'
+import { reconcileProductionAssignmentsAtEmploymentBoundary } from '../lib/production-assignment-lifecycle.js'
+import {
+  authenticate,
+  requirePermission,
+  type AuthContext,
+} from '../middleware/authenticate.js'
 import { employeeIdCardsRouter } from './employee-id-cards.js'
 import { employeeSummaryRouter } from './employee-summary.js'
-import { reconcileProductionAssignmentsAtEmploymentBoundary } from '../lib/production-assignment-lifecycle.js'
 
 const siteCode = z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])
 const optional = z
@@ -156,14 +160,82 @@ const mutationBatchInput = z
       seen.add(item.employeeUid)
     })
   })
+
+function normalizeMutationImportDate(value: unknown) {
+  if (typeof value !== 'string') return value
+  const normalized = value.trim()
+  const displayDate = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(normalized)
+  if (!displayDate) return normalized
+  const isoDate = `${displayDate[3]}-${displayDate[2]}-${displayDate[1]}`
+  const date = new Date(`${isoDate}T00:00:00Z`)
+  return !Number.isNaN(date.getTime()) &&
+    date.getUTCFullYear() === Number(displayDate[3]) &&
+    date.getUTCMonth() + 1 === Number(displayDate[2]) &&
+    date.getUTCDate() === Number(displayDate[1])
+    ? isoDate
+    : normalized
+}
+
+const mutationImportRowInput = z
+  .object({
+    employeeNumber: z
+      .string()
+      .trim()
+      .min(1, 'ID karyawan wajib diisi.')
+      .max(50),
+    employeeName: optional,
+    targetSite: siteCode,
+    targetDepartmentCode: optional,
+    targetProductionModuleCode: z
+      .string()
+      .trim()
+      .min(1, 'Kode modul produksi wajib diisi.'),
+    targetProductionSectionCode: z
+      .string()
+      .trim()
+      .min(1, 'Kode Bagian produksi wajib diisi.'),
+    effectiveFrom: z.preprocess(
+      normalizeMutationImportDate,
+      z
+        .string()
+        .date('Tanggal efektif wajib berformat DD/MM/YYYY atau YYYY-MM-DD.')
+    ),
+  })
+  .strict()
+
+const mutationImportInput = z.object({
+  mutationType: z.literal('SITE_MUTATION'),
+  reason: z
+    .string()
+    .trim()
+    .min(3, 'Alasan mutasi minimal 3 karakter.')
+    .max(255),
+  items: z
+    .array(z.unknown())
+    .min(1, 'File tidak memiliki baris data.')
+    .max(200, 'Satu file maksimal 200 karyawan.'),
+})
 const contractFields = {
   contractType: z.string().trim().min(1),
-  startDate: z.string().date(), endDate: optionalDate, signedDate: optionalDate,
-  issuedFileUid: z.string().uuid().optional(), notes: optional,
+  startDate: z.string().date(),
+  endDate: optionalDate,
+  signedDate: optionalDate,
+  issuedFileUid: z.string().uuid().optional(),
+  notes: optional,
 }
-const contractCreateInput = z.object(contractFields).refine((value) => !value.endDate || value.endDate >= value.startDate, { message: 'Tanggal kontrak tidak valid.', path: ['endDate'] })
-const contractUpdateInput = z.object(contractFields).strict()
-  .refine((value) => !value.endDate || value.endDate >= value.startDate, { message: 'Tanggal kontrak tidak valid.', path: ['endDate'] })
+const contractCreateInput = z
+  .object(contractFields)
+  .refine((value) => !value.endDate || value.endDate >= value.startDate, {
+    message: 'Tanggal kontrak tidak valid.',
+    path: ['endDate'],
+  })
+const contractUpdateInput = z
+  .object(contractFields)
+  .strict()
+  .refine((value) => !value.endDate || value.endDate >= value.startDate, {
+    message: 'Tanggal kontrak tidak valid.',
+    path: ['endDate'],
+  })
 const contractBatchInput = z
   .object({
     items: z
@@ -384,12 +456,17 @@ async function validateEmployeeImport(
   const rows: ImportPreviewRow[] = []
   for (const [index, item] of items.entries()) {
     const parsed = employeeImportRowInput.safeParse(item)
-    const base = typeof item === 'object' && item ? item as Record<string, unknown> : {}
+    const base =
+      typeof item === 'object' && item ? (item as Record<string, unknown>) : {}
     const row: ImportPreviewRow = {
       rowNumber: index + 2,
-      employeeNumber: typeof base.employeeNumber === 'string' ? base.employeeNumber : undefined,
+      employeeNumber:
+        typeof base.employeeNumber === 'string'
+          ? base.employeeNumber
+          : undefined,
       fullName: typeof base.fullName === 'string' ? base.fullName : undefined,
-      employeeType: typeof base.employeeType === 'string' ? base.employeeType : undefined,
+      employeeType:
+        typeof base.employeeType === 'string' ? base.employeeType : undefined,
       site: typeof base.site === 'string' ? base.site : undefined,
       valid: false,
       issues: [],
@@ -413,13 +490,27 @@ async function validateEmployeeImport(
     rows.push(row)
   }
 
-  const markDuplicate = (value: string | undefined, field: 'nationalIdNumber' | 'email', message: string) => {
+  const markDuplicate = (
+    value: string | undefined,
+    field: 'nationalIdNumber' | 'email',
+    message: string
+  ) => {
     if (!value) return
-    const matches = rows.filter((row) => row.input?.[field]?.toLowerCase() === value.toLowerCase())
-    if (matches.length > 1) matches.forEach((row) => { row.valid = false; row.issues.push(message) })
+    const matches = rows.filter(
+      (row) => row.input?.[field]?.toLowerCase() === value.toLowerCase()
+    )
+    if (matches.length > 1)
+      matches.forEach((row) => {
+        row.valid = false
+        row.issues.push(message)
+      })
   }
   rows.forEach((row) => {
-    markDuplicate(row.input?.nationalIdNumber, 'nationalIdNumber', 'NIK duplikat dalam file.')
+    markDuplicate(
+      row.input?.nationalIdNumber,
+      'nationalIdNumber',
+      'NIK duplikat dalam file.'
+    )
     markDuplicate(row.input?.email, 'email', 'Email duplikat dalam file.')
   })
 
@@ -454,6 +545,47 @@ async function validateEmployeeImport(
       if (row.input?.email && existingEmails.has(row.input.email.toLowerCase())) { row.valid = false; row.issues.push('Email sudah digunakan.') }
     })
   }
+  return rows
+}
+
+type MutationImportRow = { rowNumber:number; employeeNumber?:string; employeeName?:string; sourceSite?:string; targetSite?:string; effectiveFrom?:string; valid:boolean; issues:string[]; prepared?:{ employee:RowDataPacket; refs:RowDataPacket; input:z.infer<typeof mutationInput> } }
+
+async function prepareMutationImportRow(raw:z.infer<typeof mutationImportRowInput>,reason:string,auth:AuthContext) {
+  const [employees]=await pool.query<RowDataPacket[]>(`SELECT e.id,e.uid,e.employee_number employeeNumber,e.full_name employeeName,e.current_site_id currentSiteId,e.current_department_id currentDepartmentId,e.current_position_id currentPositionId,e.current_work_group_id currentWorkGroupId,e.current_production_module_section_id currentProductionModuleSectionId,e.employee_type_id employeeTypeId,e.employee_status_id employeeStatusId,s.code site,d.name department,p.name position,w.name workGroup,et.code employeeType,es.code employeeStatus,pms.uid productionModuleSectionUid,(SELECT COUNT(*) FROM employee_employment_histories h WHERE h.employee_id=e.id AND h.effective_to IS NULL) openHistoryCount,(SELECT DATE_FORMAT(MAX(h.effective_from),'%Y-%m-%d') FROM employee_employment_histories h WHERE h.employee_id=e.id AND h.effective_to IS NULL) activeHistoryFrom,(SELECT COUNT(*) FROM scheduled_employee_mutations sm WHERE sm.employee_id=e.id AND sm.status IN ('SCHEDULED','FAILED')) openMutationCount,(SELECT COUNT(*) FROM scheduled_employee_status_changes sc WHERE sc.employee_id=e.id AND sc.status IN ('SCHEDULED','FAILED')) openStatusChangeCount FROM employees e JOIN sites s ON s.id=e.current_site_id JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id LEFT JOIN departments d ON d.id=e.current_department_id LEFT JOIN positions p ON p.id=e.current_position_id LEFT JOIN work_groups w ON w.id=e.current_work_group_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id WHERE e.employee_number=? LIMIT 1`,[raw.employeeNumber])
+  const employee=employees[0]
+  if(!employee) throw new ApiError(422,'ID karyawan tidak ditemukan.')
+  enforceSite(auth,String(employee.site)); enforceSite(auth,raw.targetSite)
+  if(raw.targetSite===employee.site) throw new ApiError(422,'Site tujuan harus berbeda dari site karyawan saat ini.')
+  if(raw.effectiveFrom<businessDate()) throw new ApiError(422,'Tanggal efektif mutasi tidak boleh lampau.')
+  if(Number(employee.openHistoryCount)!==1||!employee.activeHistoryFrom) throw new ApiError(409,'Karyawan harus memiliki tepat satu histori penempatan aktif.')
+  if(raw.effectiveFrom<=String(employee.activeHistoryFrom)) throw new ApiError(422,'Tanggal efektif harus setelah histori penempatan aktif.')
+  if(Number(employee.openMutationCount)>0) throw new ApiError(409,'Karyawan masih memiliki mutasi terjadwal yang belum diselesaikan.')
+  if(Number(employee.openStatusChangeCount)>0) throw new ApiError(409,'Karyawan masih memiliki perubahan status kerja terjadwal yang belum diselesaikan.')
+  const [targets]=await pool.query<RowDataPacket[]>(`SELECT s.id siteId,s.code site,d.id departmentId,d.name department,p.id positionId,w.id workGroupId,et.id typeId,es.id statusId,pms.id productionModuleSectionId,pms.uid productionModuleSectionUid FROM sites s LEFT JOIN departments d ON d.site_id=s.id AND d.code=? AND d.is_active=1 LEFT JOIN positions p ON p.name=? AND p.is_active=1 LEFT JOIN work_groups w ON w.site_id=s.id AND w.name=? AND w.is_active=1 LEFT JOIN employee_types et ON et.code=? AND et.is_active=1 LEFT JOIN employee_statuses es ON es.code=? LEFT JOIN production_modules pm ON pm.site_id=s.id AND pm.code=? AND pm.is_active=1 LEFT JOIN production_sections ps ON ps.code=? AND ps.is_active=1 LEFT JOIN production_module_sections pms ON pms.production_module_id=pm.id AND pms.production_section_id=ps.id AND pms.is_active=1 WHERE s.code=? AND s.is_active=1 LIMIT 1`,[raw.targetDepartmentCode??'__EMPTY__',employee.position??'__EMPTY__',employee.workGroup??'__EMPTY__',employee.employeeType,employee.employeeStatus,raw.targetProductionModuleCode,raw.targetProductionSectionCode,raw.targetSite])
+  const refs=targets[0]
+  if(!refs) throw new ApiError(422,'Site tujuan tidak aktif atau tidak ditemukan.')
+  if(raw.targetDepartmentCode&&!refs.departmentId) throw new ApiError(422,'Kode departemen tidak valid untuk site tujuan.')
+  if(employee.position&&!refs.positionId) throw new ApiError(422,'Jabatan karyawan tidak lagi aktif.')
+  if(!refs.typeId||!refs.statusId) throw new ApiError(422,'Jenis atau status karyawan tidak lagi aktif.')
+  if(!refs.productionModuleSectionId||!refs.productionModuleSectionUid) throw new ApiError(422,'Pasangan kode modul dan Bagian produksi tidak valid untuk site tujuan.')
+  const input=mutationInput.parse({site:raw.targetSite,department:refs.department??undefined,position:employee.position??undefined,workGroup:employee.workGroup??undefined,productionModuleSectionUid:refs.productionModuleSectionUid,employeeType:employee.employeeType,effectiveFrom:raw.effectiveFrom,changeType:'TRANSFER',reason})
+  validateMutationChange(input,employee)
+  return {employee,refs,input}
+}
+
+async function validateMutationImport(items:unknown[],reason:string,auth:AuthContext):Promise<MutationImportRow[]> {
+  const rows:MutationImportRow[]=[]
+  for(const [index,item] of items.entries()) {
+    const base=typeof item==='object'&&item?item as Record<string,unknown>:{}
+    const parsed=mutationImportRowInput.safeParse(item)
+    const row:MutationImportRow={rowNumber:index+2,employeeNumber:typeof base.employeeNumber==='string'?base.employeeNumber.trim():undefined,employeeName:typeof base.employeeName==='string'?base.employeeName.trim():undefined,targetSite:typeof base.targetSite==='string'?base.targetSite:undefined,effectiveFrom:typeof base.effectiveFrom==='string'?String(normalizeMutationImportDate(base.effectiveFrom)):undefined,valid:false,issues:[]}
+    if(!parsed.success){row.issues=parsed.error.issues.map(issue=>issue.message);rows.push(row);continue}
+    try{row.prepared=await prepareMutationImportRow(parsed.data,reason,auth);row.employeeNumber=String(row.prepared.employee.employeeNumber);row.employeeName=String(row.prepared.employee.employeeName);row.sourceSite=String(row.prepared.employee.site);row.targetSite=parsed.data.targetSite;row.effectiveFrom=parsed.data.effectiveFrom;row.valid=true}catch(error){row.issues=[issueMessage(error)]}
+    rows.push(row)
+  }
+  const counts=new Map<string,number>()
+  rows.forEach(row=>{const key=row.employeeNumber?.toLowerCase();if(key)counts.set(key,(counts.get(key)??0)+1)})
+  rows.forEach(row=>{const key=row.employeeNumber?.toLowerCase();if(key&&counts.get(key)!==1){row.valid=false;row.issues.push('ID karyawan duplikat dalam file.')}})
   return rows
 }
 
@@ -804,25 +936,57 @@ function settingObject(value: unknown, label: string) {
   return parsed as Record<string, unknown>
 }
 
-function requiredSettingText(setting: Record<string, unknown>, field: string, label: string) {
+function requiredSettingText(
+  setting: Record<string, unknown>,
+  field: string,
+  label: string
+) {
   const value = String(setting[field] ?? '').trim()
-  if (!value) throw new ApiError(422, `${label} pada Pengaturan Sistem belum diisi.`)
+  if (!value)
+    throw new ApiError(422, `${label} pada Pengaturan Sistem belum diisi.`)
   return value
 }
 
-async function ensureContractPrintSnapshot(conn: PoolConnection, auth: AuthContext, request: Request, uid: string) {
-  const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.contract_number contractNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.terms_json termsJson,ct.code contractType,et.code employeeType,e.id employeeId,e.full_name fullName,e.employee_number employeeNumber,e.national_id_number nationalIdNumber,e.birth_place birthPlace,DATE_FORMAT(e.birth_date,'%Y-%m-%d') birthDate,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,e.address,e.rtrw,e.kelurahan,e.kecamatan,e.city,e.province,s.code currentSite FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [uid])
+async function ensureContractPrintSnapshot(
+  conn: PoolConnection,
+  auth: AuthContext,
+  request: Request,
+  uid: string
+) {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT c.id,c.uid,c.contract_number contractNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.terms_json termsJson,ct.code contractType,et.code employeeType,e.id employeeId,e.full_name fullName,e.employee_number employeeNumber,e.national_id_number nationalIdNumber,e.birth_place birthPlace,DATE_FORMAT(e.birth_date,'%Y-%m-%d') birthDate,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,e.address,e.rtrw,e.kelurahan,e.kecamatan,e.city,e.province,s.code currentSite FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`,
+    [uid]
+  )
   const c = rows[0]
   if (!c) throw new ApiError(404, 'Kontrak tidak ditemukan.')
   enforceSite(auth, c.currentSite)
   assertContractPrintEligible(c.employeeType, c.contractType)
-  const terms = typeof c.termsJson === 'string' ? JSON.parse(c.termsJson || '{}') : c.termsJson ?? {}
-  if (terms.contractPrintV2?.version === 'PKWT_PRODUCTION_SECTION_V2') return terms.contractPrintV2
-  if (!c.nationalIdNumber || !c.address) throw new ApiError(422, `NIK dan alamat karyawan wajib tersedia sebelum kontrak ${c.contractNumber} dicetak.`)
-  const [history] = await conn.query<RowDataPacket[]>(`SELECT s.id siteId,s.name siteName,p.name positionName,pm.name productionModuleName,ps.code productionSectionCode,ps.name productionSectionName FROM employee_employment_histories h JOIN sites s ON s.id=h.site_id LEFT JOIN positions p ON p.id=h.position_id LEFT JOIN production_module_sections pms ON pms.id=h.production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id WHERE h.employee_id=? AND h.effective_from<=? AND (h.effective_to IS NULL OR h.effective_to>=?) ORDER BY h.effective_from DESC,h.id DESC LIMIT 1`, [c.employeeId, c.startDate, c.startDate])
+  const terms =
+    typeof c.termsJson === 'string'
+      ? JSON.parse(c.termsJson || '{}')
+      : (c.termsJson ?? {})
+  if (terms.contractPrintV2?.version === 'PKWT_PRODUCTION_SECTION_V2')
+    return terms.contractPrintV2
+  if (!c.nationalIdNumber || !c.address)
+    throw new ApiError(
+      422,
+      `NIK dan alamat karyawan wajib tersedia sebelum kontrak ${c.contractNumber} dicetak.`
+    )
+  const [history] = await conn.query<RowDataPacket[]>(
+    `SELECT s.id siteId,s.name siteName,p.name positionName,pm.name productionModuleName,ps.code productionSectionCode,ps.name productionSectionName FROM employee_employment_histories h JOIN sites s ON s.id=h.site_id LEFT JOIN positions p ON p.id=h.position_id LEFT JOIN production_module_sections pms ON pms.id=h.production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id WHERE h.employee_id=? AND h.effective_from<=? AND (h.effective_to IS NULL OR h.effective_to>=?) ORDER BY h.effective_from DESC,h.id DESC LIMIT 1`,
+    [c.employeeId, c.startDate, c.startDate]
+  )
   const employment = history[0]
-  if (!employment?.positionName) throw new ApiError(422, `Jabatan karyawan pada tanggal mulai kontrak ${c.contractNumber} wajib tersedia sebelum kontrak dicetak.`)
-  if (!employment.productionSectionCode || !employment.productionSectionName) throw new ApiError(422, `Bagian produksi karyawan pada tanggal mulai kontrak ${c.contractNumber} wajib tersedia sebelum kontrak dicetak.`)
+  if (!employment?.positionName)
+    throw new ApiError(
+      422,
+      `Jabatan karyawan pada tanggal mulai kontrak ${c.contractNumber} wajib tersedia sebelum kontrak dicetak.`
+    )
+  if (!employment.productionSectionCode || !employment.productionSectionName)
+    throw new ApiError(
+      422,
+      `Bagian produksi karyawan pada tanggal mulai kontrak ${c.contractNumber} wajib tersedia sebelum kontrak dicetak.`
+    )
 
   const targetSettingKey = `contract.pkwt.target.${employment.productionSectionCode}`
   const [settingRows] = await conn.query<RowDataPacket[]>(
@@ -1177,70 +1341,203 @@ employeesRouter.get(
   }
 )
 
-employeesRouter.get('/histories', requirePermission('employees.view'), async (req, res, next) => {
+employeesRouter.get(
+  '/histories',
+  requirePermission('employees.view'),
+  async (req, res, next) => {
   try {
-    const page = Math.max(1, Number(req.query.page ?? 1)); const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 50)))
-    const where = ['1=1']; const values: unknown[] = []; const query = String(req.query.query ?? '')
-    const addList = (field: string, raw: unknown) => { const list = String(raw ?? '').split(',').filter(Boolean); if (list.length) { where.push(`${field} IN (${list.map(() => '?').join(',')})`); values.push(...list) } }
-    if (query) { where.push('(e.full_name LIKE ? OR e.employee_number LIKE ? OR p.name LIKE ?)'); values.push(`%${query}%`, `%${query}%`, `%${query}%`) }
-    addList('s.code', req.query.site); addList('h.change_type', req.query.changeType)
-    const scoped = scopeWhere(res.locals.auth as AuthContext); where.push(scoped.sql); values.push(...scoped.params)
+      const page = Math.max(1, Number(req.query.page ?? 1))
+      const pageSize = Math.min(
+        500,
+        Math.max(1, Number(req.query.pageSize ?? 50))
+      )
+      const where = ['1=1']
+      const values: unknown[] = []
+      const query = String(req.query.query ?? '')
+      const addList = (field: string, raw: unknown) => {
+        const list = String(raw ?? '')
+          .split(',')
+          .filter(Boolean)
+        if (list.length) {
+          where.push(`${field} IN (${list.map(() => '?').join(',')})`)
+          values.push(...list)
+        }
+      }
+      if (query) {
+        where.push(
+          '(e.full_name LIKE ? OR e.employee_number LIKE ? OR p.name LIKE ?)'
+        )
+        values.push(`%${query}%`, `%${query}%`, `%${query}%`)
+      }
+      addList('s.code', req.query.site)
+      addList('h.change_type', req.query.changeType)
+      const scoped = scopeWhere(res.locals.auth as AuthContext)
+      where.push(scoped.sql)
+      values.push(...scoped.params)
     const clause = where.join(' AND ')
     const from = `FROM employee_employment_histories h JOIN employees e ON e.id=h.employee_id JOIN sites s ON s.id=h.site_id LEFT JOIN departments d ON d.id=h.department_id LEFT JOIN positions p ON p.id=h.position_id LEFT JOIN work_groups w ON w.id=h.work_group_id LEFT JOIN production_module_sections pms ON pms.id=h.production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id JOIN employee_types et ON et.id=h.employee_type_id JOIN employee_statuses es ON es.id=h.employee_status_id`
-    const [count] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) total ${from} WHERE ${clause}`, values)
-    const [rows] = await pool.query<RowDataPacket[]>(`SELECT h.uid,e.uid employeeUid,e.full_name employeeName,e.employee_number employeeNumber,s.code site,d.name department,p.name position,w.name workGroup,pm.uid productionModuleUid,pm.name productionModule,ps.uid productionSectionUid,ps.name productionSection,et.code employeeType,es.code employeeStatus,DATE_FORMAT(h.effective_from,'%Y-%m-%d') effectiveFrom,DATE_FORMAT(h.effective_to,'%Y-%m-%d') effectiveTo,h.change_type changeType,h.reference_number referenceNumber,h.reason,h.notes ${from} WHERE ${clause} ORDER BY h.effective_from DESC,h.id DESC LIMIT ? OFFSET ?`, [...values, pageSize, (page - 1) * pageSize])
+      const [count] = await pool.query<RowDataPacket[]>(
+        `SELECT COUNT(*) total ${from} WHERE ${clause}`,
+        values
+      )
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT h.uid,e.uid employeeUid,e.full_name employeeName,e.employee_number employeeNumber,s.code site,d.name department,p.name position,w.name workGroup,pm.uid productionModuleUid,pm.name productionModule,ps.uid productionSectionUid,ps.name productionSection,et.code employeeType,es.code employeeStatus,DATE_FORMAT(h.effective_from,'%Y-%m-%d') effectiveFrom,DATE_FORMAT(h.effective_to,'%Y-%m-%d') effectiveTo,h.change_type changeType,h.reference_number referenceNumber,h.reason,h.notes ${from} WHERE ${clause} ORDER BY h.effective_from DESC,h.id DESC LIMIT ? OFFSET ?`,
+        [...values, pageSize, (page - 1) * pageSize]
+      )
     res.json({ items: rows, total: Number(count[0].total), page, pageSize })
-  } catch (error) { next(error) }
-})
+    } catch (error) {
+      next(error)
+    }
+  }
+)
 
-employeesRouter.get('/scheduled-mutations', requirePermission('employees.view'), async (req, res, next) => {
+employeesRouter.get(
+  '/scheduled-mutations',
+  requirePermission('employees.view'),
+  async (req, res, next) => {
   try {
-    const page = Math.max(1, Number(req.query.page ?? 1)); const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 50)))
-    const where = ['1=1']; const values: unknown[] = []; const query = String(req.query.query ?? '')
-    if (query) { where.push('(e.full_name LIKE ? OR e.employee_number LIKE ? OR targetPosition.name LIKE ?)'); values.push(`%${query}%`, `%${query}%`, `%${query}%`) }
-    const sites = String(req.query.site ?? '').split(',').filter(Boolean); if (sites.length) { where.push(`targetSite.code IN (${sites.map(() => '?').join(',')})`); values.push(...sites) }
-    const statuses = String(req.query.status ?? '').split(',').filter(Boolean); if (statuses.length) { where.push(`sm.status IN (${statuses.map(() => '?').join(',')})`); values.push(...statuses) }
-    const scoped = scopeWhere(res.locals.auth as AuthContext, 'sourceSite.code'); where.push(scoped.sql); values.push(...scoped.params)
+      const page = Math.max(1, Number(req.query.page ?? 1))
+      const pageSize = Math.min(
+        500,
+        Math.max(1, Number(req.query.pageSize ?? 50))
+      )
+      const where = ['1=1']
+      const values: unknown[] = []
+      const query = String(req.query.query ?? '')
+      if (query) {
+        where.push(
+          '(e.full_name LIKE ? OR e.employee_number LIKE ? OR targetPosition.name LIKE ?)'
+        )
+        values.push(`%${query}%`, `%${query}%`, `%${query}%`)
+      }
+      const sites = String(req.query.site ?? '')
+        .split(',')
+        .filter(Boolean)
+      if (sites.length) {
+        where.push(`targetSite.code IN (${sites.map(() => '?').join(',')})`)
+        values.push(...sites)
+      }
+      const statuses = String(req.query.status ?? '')
+        .split(',')
+        .filter(Boolean)
+      if (statuses.length) {
+        where.push(`sm.status IN (${statuses.map(() => '?').join(',')})`)
+        values.push(...statuses)
+      }
+      const scoped = scopeWhere(
+        res.locals.auth as AuthContext,
+        'sourceSite.code'
+      )
+      where.push(scoped.sql)
+      values.push(...scoped.params)
     const clause = where.join(' AND ')
-    const [count] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) total FROM scheduled_employee_mutations sm JOIN employees e ON e.id=sm.employee_id JOIN sites sourceSite ON sourceSite.id=e.current_site_id JOIN sites targetSite ON targetSite.id=sm.target_site_id LEFT JOIN positions targetPosition ON targetPosition.id=sm.target_position_id WHERE ${clause}`, values)
-    const [rows] = await pool.query<RowDataPacket[]>(`${scheduledMutationSelect} WHERE ${clause} ORDER BY sm.effective_from ASC,sm.created_at DESC,sm.id DESC LIMIT ? OFFSET ?`, [...values, pageSize, (page - 1) * pageSize])
+      const [count] = await pool.query<RowDataPacket[]>(
+        `SELECT COUNT(*) total FROM scheduled_employee_mutations sm JOIN employees e ON e.id=sm.employee_id JOIN sites sourceSite ON sourceSite.id=e.current_site_id JOIN sites targetSite ON targetSite.id=sm.target_site_id LEFT JOIN positions targetPosition ON targetPosition.id=sm.target_position_id WHERE ${clause}`,
+        values
+      )
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `${scheduledMutationSelect} WHERE ${clause} ORDER BY sm.effective_from ASC,sm.created_at DESC,sm.id DESC LIMIT ? OFFSET ?`,
+        [...values, pageSize, (page - 1) * pageSize]
+      )
     res.json({ items: rows, total: Number(count[0].total), page, pageSize })
-  } catch (error) { next(error) }
-})
+    } catch (error) {
+      next(error)
+    }
+  }
+)
 
-employeesRouter.get('/scheduled-status-changes', requirePermission('employees.view'), async (req, res, next) => {
+employeesRouter.get(
+  '/scheduled-status-changes',
+  requirePermission('employees.view'),
+  async (req, res, next) => {
   try {
     const page = Math.max(1, Number(req.query.page ?? 1))
-    const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 50)))
-    const where = ['1=1']; const values: unknown[] = []
+      const pageSize = Math.min(
+        500,
+        Math.max(1, Number(req.query.pageSize ?? 50))
+      )
+      const where = ['1=1']
+      const values: unknown[] = []
     const query = String(req.query.query ?? '')
-    if (query) { where.push('(e.full_name LIKE ? OR e.employee_number LIKE ? OR c.contract_number LIKE ?)'); values.push(`%${query}%`, `%${query}%`, `%${query}%`) }
-    const sites = String(req.query.site ?? '').split(',').filter(Boolean)
-    if (sites.length) { where.push(`s.code IN (${sites.map(() => '?').join(',')})`); values.push(...sites) }
-    const statuses = String(req.query.status ?? '').split(',').filter(Boolean)
-    if (statuses.length) { where.push(`sc.status IN (${statuses.map(() => '?').join(',')})`); values.push(...statuses) }
-    const actions = String(req.query.action ?? '').split(',').filter(Boolean)
-    if (actions.length) { where.push(`sc.action IN (${actions.map(() => '?').join(',')})`); values.push(...actions) }
-    const scoped = scopeWhere(res.locals.auth as AuthContext, 's.code'); where.push(scoped.sql); values.push(...scoped.params)
+      if (query) {
+        where.push(
+          '(e.full_name LIKE ? OR e.employee_number LIKE ? OR c.contract_number LIKE ?)'
+        )
+        values.push(`%${query}%`, `%${query}%`, `%${query}%`)
+      }
+      const sites = String(req.query.site ?? '')
+        .split(',')
+        .filter(Boolean)
+      if (sites.length) {
+        where.push(`s.code IN (${sites.map(() => '?').join(',')})`)
+        values.push(...sites)
+      }
+      const statuses = String(req.query.status ?? '')
+        .split(',')
+        .filter(Boolean)
+      if (statuses.length) {
+        where.push(`sc.status IN (${statuses.map(() => '?').join(',')})`)
+        values.push(...statuses)
+      }
+      const actions = String(req.query.action ?? '')
+        .split(',')
+        .filter(Boolean)
+      if (actions.length) {
+        where.push(`sc.action IN (${actions.map(() => '?').join(',')})`)
+        values.push(...actions)
+      }
+      const scoped = scopeWhere(res.locals.auth as AuthContext, 's.code')
+      where.push(scoped.sql)
+      values.push(...scoped.params)
     const clause = where.join(' AND ')
     const from = `FROM scheduled_employee_status_changes sc JOIN employees e ON e.id=sc.employee_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN employee_contracts c ON c.id=sc.contract_id`
-    const [count] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) total ${from} WHERE ${clause}`, values)
-    const [rows] = await pool.query<RowDataPacket[]>(`SELECT sc.uid,e.uid employeeUid,e.full_name employeeName,e.employee_number employeeNumber,s.code site,c.uid contractUid,c.contract_number contractNumber,sc.action,DATE_FORMAT(sc.effective_date,'%Y-%m-%d') effectiveDate,sc.reason,sc.status,sc.failure_reason failureReason,DATE_FORMAT(sc.applied_at,'%Y-%m-%dT%H:%i:%s') appliedAt ${from} WHERE ${clause} ORDER BY sc.effective_date ASC,sc.created_at DESC,sc.id DESC LIMIT ? OFFSET ?`, [...values, pageSize, (page - 1) * pageSize])
+      const [count] = await pool.query<RowDataPacket[]>(
+        `SELECT COUNT(*) total ${from} WHERE ${clause}`,
+        values
+      )
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT sc.uid,e.uid employeeUid,e.full_name employeeName,e.employee_number employeeNumber,s.code site,c.uid contractUid,c.contract_number contractNumber,sc.action,DATE_FORMAT(sc.effective_date,'%Y-%m-%d') effectiveDate,sc.reason,sc.status,sc.failure_reason failureReason,DATE_FORMAT(sc.applied_at,'%Y-%m-%dT%H:%i:%s') appliedAt ${from} WHERE ${clause} ORDER BY sc.effective_date ASC,sc.created_at DESC,sc.id DESC LIMIT ? OFFSET ?`,
+        [...values, pageSize, (page - 1) * pageSize]
+      )
     res.json({ items: rows, total: Number(count[0].total), page, pageSize })
-  } catch (error) { next(error) }
-})
+    } catch (error) {
+      next(error)
+    }
+  }
+)
 
-employeesRouter.get('/contracts', requirePermission('employees.view'), async (req, res, next) => {
+employeesRouter.get(
+  '/contracts',
+  requirePermission('employees.view'),
+  async (req, res, next) => {
   try {
-    const page = Math.max(1, Number(req.query.page ?? 1)); const pageSize = Math.min(500, Math.max(1, Number(req.query.pageSize ?? 50)))
-    const where = ['1=1']; const values: unknown[] = []; const query = String(req.query.query ?? '').trim().replace(/\s+/g, ' ')
-    const coverage = String(req.query.coverage ?? '').split(',').filter(Boolean)
+      const page = Math.max(1, Number(req.query.page ?? 1))
+      const pageSize = Math.min(
+        500,
+        Math.max(1, Number(req.query.pageSize ?? 50))
+      )
+      const where = ['1=1']
+      const values: unknown[] = []
+      const query = String(req.query.query ?? '')
+        .trim()
+        .replace(/\s+/g, ' ')
+      const coverage = String(req.query.coverage ?? '')
+        .split(',')
+        .filter(Boolean)
     const scoped = scopeWhere(res.locals.auth as AuthContext)
     if (coverage.length) {
-      const sites = String(req.query.site ?? '').split(',').filter(Boolean)
-      const statuses = String(req.query.status ?? '').split(',').filter(Boolean)
-      const productionModules = String(req.query.productionModule ?? '').split(',').filter(Boolean)
-      const productionSections = String(req.query.productionSection ?? '').split(',').filter(Boolean)
+        const sites = String(req.query.site ?? '')
+          .split(',')
+          .filter(Boolean)
+        const statuses = String(req.query.status ?? '')
+          .split(',')
+          .filter(Boolean)
+        const productionModules = String(req.query.productionModule ?? '')
+          .split(',')
+          .filter(Boolean)
+        const productionSections = String(req.query.productionSection ?? '')
+          .split(',')
+          .filter(Boolean)
       const selections: string[] = []
       const selectionValues: unknown[] = []
       const today = businessDate()
@@ -1317,16 +1614,49 @@ employeesRouter.get('/contracts', requirePermission('employees.view'), async (re
           `NOT EXISTS (SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=c.employee_id AND newer.status<>'CANCELLED' AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id)))`,
           scoped.sql,
         ]
-        const recentlyExpiredValues: unknown[] = [today, today, ...scoped.params]
+          const recentlyExpiredValues: unknown[] = [
+            today,
+            today,
+            ...scoped.params,
+          ]
         if (query) {
-          recentlyExpiredWhere.push('(c.contract_number LIKE ? OR e.full_name LIKE ? OR e.nickname LIKE ? OR e.employee_number LIKE ?)')
-          recentlyExpiredValues.push(`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`)
-        }
-        if (sites.length) { recentlyExpiredWhere.push(`s.code IN (${sites.map(() => '?').join(',')})`); recentlyExpiredValues.push(...sites) }
-        if (statuses.length) { recentlyExpiredWhere.push(`c.status IN (${statuses.map(() => '?').join(',')})`); recentlyExpiredValues.push(...statuses) }
-        if (productionModules.length) { recentlyExpiredWhere.push(`pm.uid IN (${productionModules.map(() => '?').join(',')})`); recentlyExpiredValues.push(...productionModules) }
-        if (productionSections.length) { recentlyExpiredWhere.push(`ps.uid IN (${productionSections.map(() => '?').join(',')})`); recentlyExpiredValues.push(...productionSections) }
-        selections.push(`${contractSelect()} WHERE ${recentlyExpiredWhere.join(' AND ')}`)
+            recentlyExpiredWhere.push(
+              '(c.contract_number LIKE ? OR e.full_name LIKE ? OR e.nickname LIKE ? OR e.employee_number LIKE ?)'
+            )
+            recentlyExpiredValues.push(
+              `%${query}%`,
+              `%${query}%`,
+              `%${query}%`,
+              `%${query}%`
+            )
+          }
+          if (sites.length) {
+            recentlyExpiredWhere.push(
+              `s.code IN (${sites.map(() => '?').join(',')})`
+            )
+            recentlyExpiredValues.push(...sites)
+          }
+          if (statuses.length) {
+            recentlyExpiredWhere.push(
+              `c.status IN (${statuses.map(() => '?').join(',')})`
+            )
+            recentlyExpiredValues.push(...statuses)
+          }
+          if (productionModules.length) {
+            recentlyExpiredWhere.push(
+              `pm.uid IN (${productionModules.map(() => '?').join(',')})`
+            )
+            recentlyExpiredValues.push(...productionModules)
+          }
+          if (productionSections.length) {
+            recentlyExpiredWhere.push(
+              `ps.uid IN (${productionSections.map(() => '?').join(',')})`
+            )
+            recentlyExpiredValues.push(...productionSections)
+          }
+          selections.push(
+            `${contractSelect()} WHERE ${recentlyExpiredWhere.join(' AND ')}`
+          )
         selectionValues.push(...recentlyExpiredValues)
       }
 
@@ -1558,17 +1888,33 @@ employeesRouter.get('/contracts/print-previews', requirePermission('employees.vi
       if (!row) throw new ApiError(404, 'Kontrak tidak ditemukan.')
       enforceSite(res.locals.auth as AuthContext, row.site)
       assertContractPrintEligible(row.employeeType, row.contractType)
-      const terms = typeof row.termsJson === 'string' ? JSON.parse(row.termsJson || '{}') : row.termsJson ?? {}
-      if (!terms.contractPrintV2) throw new ApiError(409, 'Preview format PKWT terbaru belum dibuat. Buat snapshot kontrak terlebih dahulu.')
+        const terms =
+          typeof row.termsJson === 'string'
+            ? JSON.parse(row.termsJson || '{}')
+            : (row.termsJson ?? {})
+        if (!terms.contractPrintV2)
+          throw new ApiError(
+            409,
+            'Preview format PKWT terbaru belum dibuat. Buat snapshot kontrak terlebih dahulu.'
+          )
       return terms.contractPrintV2
     })
     res.json({ items })
-  } catch (error) { next(error) }
-})
-employeesRouter.get('/contracts/:contractUid', requirePermission('employees.view'), async (req, res, next) => {
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+employeesRouter.get(
+  '/contracts/:contractUid',
+  requirePermission('employees.view'),
+  async (req, res, next) => {
   try {
     const uid = routeParam(req.params.contractUid)
-    const [rows] = await pool.query<RowDataPacket[]>(`${contractSelect()} WHERE c.uid=?`, [uid])
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `${contractSelect()} WHERE c.uid=?`,
+        [uid]
+      )
     const row = rows[0]
     if (!row) throw new ApiError(404, 'Kontrak tidak ditemukan.')
     enforceSite(res.locals.auth as AuthContext, row.site)
@@ -1603,13 +1949,34 @@ employeesRouter.get('/contracts/:contractUid', requirePermission('employees.view
       afterData: parseAuditData(item.afterData),
     }))
     res.json({ ...mapContract(row), lifecycleEvents, correctionHistory })
-  } catch (error) { next(error) }
-})
-employeesRouter.get('/documents/:documentUid', requirePermission('employees.view'), async (req, res, next) => {
-  try { const uid = routeParam(req.params.documentUid); const [rows] = await pool.query<RowDataPacket[]>(`${documentSelect()} WHERE d.uid=?`, [uid]); if (!rows[0]) throw new ApiError(404, 'Dokumen tidak ditemukan.'); enforceSite(res.locals.auth as AuthContext, rows[0].site); res.json(mapDocument(rows[0])) } catch (error) { next(error) }
-})
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+employeesRouter.get(
+  '/documents/:documentUid',
+  requirePermission('employees.view'),
+  async (req, res, next) => {
+    try {
+      const uid = routeParam(req.params.documentUid)
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `${documentSelect()} WHERE d.uid=?`,
+        [uid]
+      )
+      if (!rows[0]) throw new ApiError(404, 'Dokumen tidak ditemukan.')
+      enforceSite(res.locals.auth as AuthContext, rows[0].site)
+      res.json(mapDocument(rows[0]))
+    } catch (error) {
+      next(error)
+    }
+  }
+)
 
-employeesRouter.get('/contracts/:contractUid/print-preview', requirePermission('employees.view'), async (req, res, next) => {
+employeesRouter.get(
+  '/contracts/:contractUid/print-preview',
+  requirePermission('employees.view'),
+  async (req, res, next) => {
   try {
     const uid = routeParam(req.params.contractUid)
     const [rows] = await pool.query<RowDataPacket[]>(
@@ -1626,12 +1993,25 @@ employeesRouter.get('/contracts/:contractUid/print-preview', requirePermission('
     if (!row) throw new ApiError(404, 'Kontrak tidak ditemukan.')
     enforceSite(res.locals.auth as AuthContext, row.site)
     assertContractPrintEligible(row.employeeType, row.contractType)
-    const terms = typeof row.termsJson === 'string' ? JSON.parse(row.termsJson || '{}') : row.termsJson ?? {}
-    if (!terms.contractPrintV2) throw new ApiError(409, 'Preview format PKWT terbaru belum dibuat. Buat snapshot kontrak terlebih dahulu.')
+      const terms =
+        typeof row.termsJson === 'string'
+          ? JSON.parse(row.termsJson || '{}')
+          : (row.termsJson ?? {})
+      if (!terms.contractPrintV2)
+        throw new ApiError(
+          409,
+          'Preview format PKWT terbaru belum dibuat. Buat snapshot kontrak terlebih dahulu.'
+        )
     res.json(terms.contractPrintV2)
-  } catch (error) { next(error) }
-})
-employeesRouter.post('/contracts/:contractUid/normalize-print-snapshot', requirePermission('employees.manage'), async (req, res, next) => {
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+employeesRouter.post(
+  '/contracts/:contractUid/normalize-print-snapshot',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
   try {
     const auth = res.locals.auth as AuthContext
     const uid = routeParam(req.params.contractUid)
@@ -1652,31 +2032,107 @@ employeesRouter.post('/contracts/:contractUid/normalize-print-snapshot', require
     if (!row) throw new ApiError(404, 'Kontrak tidak ditemukan.')
     enforceSite(auth, row.site)
     assertContractPrintEligible(row.employeeType, row.contractType)
-    const terms = typeof row.termsJson === 'string' ? JSON.parse(row.termsJson || '{}') : row.termsJson ?? {}
-    if (!terms.contractPrintV1 && !terms.contractPrintV2) throw new ApiError(409, 'Snapshot kontrak belum tersedia.')
-    if (terms.contractPrintV1) terms.contractPrintV1.contract = { ...terms.contractPrintV1.contract, startDate: row.startDate, endDate: row.endDate, signedDate: row.signedDate }
-    if (terms.contractPrintV2) terms.contractPrintV2.contract = { ...terms.contractPrintV2.contract, startDate: row.startDate, endDate: row.endDate, signedDate: row.signedDate }
-    await pool.execute('UPDATE employee_contracts SET terms_json=?,updated_by=? WHERE id=?', [JSON.stringify(terms), auth.id, row.id])
+      const terms =
+        typeof row.termsJson === 'string'
+          ? JSON.parse(row.termsJson || '{}')
+          : (row.termsJson ?? {})
+      if (!terms.contractPrintV1 && !terms.contractPrintV2)
+        throw new ApiError(409, 'Snapshot kontrak belum tersedia.')
+      if (terms.contractPrintV1)
+        terms.contractPrintV1.contract = {
+          ...terms.contractPrintV1.contract,
+          startDate: row.startDate,
+          endDate: row.endDate,
+          signedDate: row.signedDate,
+        }
+      if (terms.contractPrintV2)
+        terms.contractPrintV2.contract = {
+          ...terms.contractPrintV2.contract,
+          startDate: row.startDate,
+          endDate: row.endDate,
+          signedDate: row.signedDate,
+        }
+      await pool.execute(
+        'UPDATE employee_contracts SET terms_json=?,updated_by=? WHERE id=?',
+        [JSON.stringify(terms), auth.id, row.id]
+      )
     res.status(204).end()
-  } catch (error) { next(error) }
-})
-employeesRouter.post('/contracts/print-snapshots', requirePermission('employees.manage'), async (req,res,next)=>{ const conn=await pool.getConnection();try{const auth=res.locals.auth as AuthContext;const input=printSnapshotsInput.parse(req.body);const contractUids=[...new Set(input.contractUids)];await conn.beginTransaction();const items=[];for(const uid of contractUids){items.push(await ensureContractPrintSnapshot(conn,auth,req,uid))}await conn.commit();res.json({items})}catch(e){await conn.rollback();next(e)}finally{conn.release()} })
-employeesRouter.post('/contracts/:contractUid/print-snapshot', requirePermission('employees.manage'), async (req,res,next)=>{ const conn=await pool.getConnection();try{const auth=res.locals.auth as AuthContext;const uid=routeParam(req.params.contractUid);await conn.beginTransaction();const snapshot=await ensureContractPrintSnapshot(conn,auth,req,uid);await conn.commit();res.json(snapshot)}catch(e){await conn.rollback();next(e)}finally{conn.release()} })
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+employeesRouter.post(
+  '/contracts/print-snapshots',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      const auth = res.locals.auth as AuthContext
+      const input = printSnapshotsInput.parse(req.body)
+      const contractUids = [...new Set(input.contractUids)]
+      await conn.beginTransaction()
+      const items = []
+      for (const uid of contractUids) {
+        items.push(await ensureContractPrintSnapshot(conn, auth, req, uid))
+      }
+      await conn.commit()
+      res.json({ items })
+    } catch (e) {
+      await conn.rollback()
+      next(e)
+    } finally {
+      conn.release()
+    }
+  }
+)
+employeesRouter.post(
+  '/contracts/:contractUid/print-snapshot',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    try {
+      const auth = res.locals.auth as AuthContext
+      const uid = routeParam(req.params.contractUid)
+      await conn.beginTransaction()
+      const snapshot = await ensureContractPrintSnapshot(conn, auth, req, uid)
+      await conn.commit()
+      res.json(snapshot)
+    } catch (e) {
+      await conn.rollback()
+      next(e)
+    } finally {
+      conn.release()
+    }
+  }
+)
 
-employeesRouter.post('/import/preview', requirePermission('employees.manage'), async (req, res, next) => {
+employeesRouter.post(
+  '/import/preview',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
   try {
     const { items } = employeeImportInput.parse(req.body)
-    const rows = await validateEmployeeImport(items, res.locals.auth as AuthContext)
+      const rows = await validateEmployeeImport(
+        items,
+        res.locals.auth as AuthContext
+      )
     res.json({
       rows: rows.map(({ input: _input, ...row }) => row),
       total: rows.length,
       valid: rows.filter((row) => row.valid).length,
       invalid: rows.filter((row) => !row.valid).length,
     })
-  } catch (error) { next(error) }
-})
+    } catch (error) {
+      next(error)
+    }
+  }
+)
 
-employeesRouter.post('/import', requirePermission('employees.manage'), async (req, res, next) => {
+employeesRouter.post(
+  '/import',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
   const conn = await pool.getConnection()
   try {
     const { items } = employeeImportInput.parse(req.body)
@@ -1703,12 +2159,323 @@ employeesRouter.post('/import', requirePermission('employees.manage'), async (re
       return
     }
     if ((error as { code?: string }).code === 'ER_DUP_ENTRY') {
-      next(new ApiError(409, 'Data unik sudah digunakan oleh karyawan lain. Muat ulang preview lalu periksa kembali.'))
+        next(
+          new ApiError(
+            409,
+            'Data unik sudah digunakan oleh karyawan lain. Muat ulang preview lalu periksa kembali.'
+          )
+        )
       return
     }
     next(error)
-  } finally { conn.release() }
-})
+    } finally {
+      conn.release()
+    }
+  }
+)
+
+employeesRouter.post(
+  '/mutations/import/preview',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    try {
+      const input = mutationImportInput.parse(req.body)
+      const rows = await validateMutationImport(
+        input.items,
+        input.reason,
+        res.locals.auth as AuthContext
+      )
+      res.json({
+        rows: rows.map(({ prepared: _prepared, ...row }) => row),
+        total: rows.length,
+        valid: rows.filter((row) => row.valid).length,
+        invalid: rows.filter((row) => !row.valid).length,
+      })
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+employeesRouter.post(
+  '/mutations/import',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    let conn: PoolConnection | undefined
+    try {
+      const input = mutationImportInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const rows = await validateMutationImport(input.items, input.reason, auth)
+      if (rows.some((row) => !row.valid || !row.prepared)) {
+        throw new ApiError(
+          422,
+          'Import belum dapat dieksekusi. Perbaiki seluruh baris yang tidak valid.'
+        )
+      }
+      const prepared = rows.map((row) => row.prepared!)
+      conn = await pool.getConnection()
+      await conn.beginTransaction()
+
+      const employeeIds = prepared
+        .map((item) => Number(item.employee.id))
+        .sort((left, right) => left - right)
+      const placeholders = employeeIds.map(() => '?').join(',')
+      const [lockedEmployees] = await conn.query<RowDataPacket[]>(
+        `SELECT e.id,e.uid,e.employee_number employeeNumber,
+                e.current_site_id currentSiteId,e.current_department_id currentDepartmentId,
+                e.current_position_id currentPositionId,e.current_work_group_id currentWorkGroupId,
+                e.current_production_module_section_id currentProductionModuleSectionId,
+                e.employee_type_id employeeTypeId,e.employee_status_id employeeStatusId,
+                s.code site
+           FROM employees e
+           JOIN sites s ON s.id=e.current_site_id
+          WHERE e.id IN (${placeholders})
+          ORDER BY e.id FOR UPDATE`,
+        employeeIds
+      )
+      if (lockedEmployees.length !== prepared.length) {
+        throw new ApiError(
+          409,
+          'Data karyawan berubah. Muat ulang preview import.'
+        )
+      }
+      const lockedById = new Map(
+        lockedEmployees.map((employee) => [Number(employee.id), employee])
+      )
+      for (const item of prepared) {
+        const locked = lockedById.get(Number(item.employee.id))
+        if (
+          !locked ||
+          Number(locked.currentSiteId) !==
+            Number(item.employee.currentSiteId) ||
+          Number(locked.currentDepartmentId ?? 0) !==
+            Number(item.employee.currentDepartmentId ?? 0) ||
+          Number(locked.currentPositionId ?? 0) !==
+            Number(item.employee.currentPositionId ?? 0) ||
+          Number(locked.currentWorkGroupId ?? 0) !==
+            Number(item.employee.currentWorkGroupId ?? 0) ||
+          Number(locked.currentProductionModuleSectionId ?? 0) !==
+            Number(item.employee.currentProductionModuleSectionId ?? 0) ||
+          Number(locked.employeeTypeId) !==
+            Number(item.employee.employeeTypeId) ||
+          Number(locked.employeeStatusId) !==
+            Number(item.employee.employeeStatusId)
+        ) {
+          throw new ApiError(
+            409,
+            `Data penempatan ${item.employee.employeeNumber} berubah. Muat ulang preview import.`
+      )
+        }
+        enforceSite(auth, String(locked.site))
+        enforceSite(auth, item.input.site)
+      }
+
+      const [openSchedules] = await conn.query<RowDataPacket[]>(
+        `SELECT employee_id employeeId
+           FROM scheduled_employee_mutations
+          WHERE employee_id IN (${placeholders})
+            AND status IN ('SCHEDULED','FAILED')
+          ORDER BY employee_id FOR UPDATE`,
+        employeeIds
+      )
+      if (openSchedules[0]) {
+        const blocked = lockedById.get(Number(openSchedules[0].employeeId))
+        throw new ApiError(
+          409,
+          `Karyawan ${blocked?.employeeNumber ?? ''} masih memiliki mutasi terjadwal yang belum diselesaikan.`
+        )
+      }
+      const [openStatusChanges] = await conn.query<RowDataPacket[]>(
+        `SELECT employee_id employeeId
+           FROM scheduled_employee_status_changes
+          WHERE employee_id IN (${placeholders})
+            AND status IN ('SCHEDULED','FAILED')
+          ORDER BY employee_id FOR UPDATE`,
+        employeeIds
+      )
+      if (openStatusChanges[0]) {
+        const blocked = lockedById.get(Number(openStatusChanges[0].employeeId))
+        throw new ApiError(
+          409,
+          `Karyawan ${blocked?.employeeNumber ?? ''} masih memiliki perubahan status kerja terjadwal.`
+        )
+      }
+      const [activeHistories] = await conn.query<RowDataPacket[]>(
+        `SELECT id,employee_id employeeId,employee_status_id statusId,
+                DATE_FORMAT(effective_from,'%Y-%m-%d') effectiveFrom
+           FROM employee_employment_histories
+          WHERE employee_id IN (${placeholders}) AND effective_to IS NULL
+          ORDER BY employee_id,id FOR UPDATE`,
+        employeeIds
+      )
+      const historiesByEmployeeId = new Map<number, RowDataPacket[]>()
+      activeHistories.forEach((history) => {
+        const key = Number(history.employeeId)
+        historiesByEmployeeId.set(key, [
+          ...(historiesByEmployeeId.get(key) ?? []),
+          history,
+        ])
+      })
+
+      let applied = 0
+      let scheduled = 0
+      const today = businessDate()
+      for (const item of prepared) {
+        const employeeId = Number(item.employee.id)
+        const histories = historiesByEmployeeId.get(employeeId) ?? []
+        if (histories.length !== 1) {
+          throw new ApiError(
+            409,
+            `Karyawan ${item.employee.employeeNumber} harus memiliki tepat satu histori penempatan aktif.`
+          )
+        }
+        const active = histories[0]
+        if (item.input.effectiveFrom <= String(active.effectiveFrom)) {
+          throw new ApiError(
+            422,
+            `Tanggal efektif ${item.employee.employeeNumber} harus setelah histori penempatan aktif.`
+          )
+        }
+        const mutationUid = randomUUID()
+        if (item.input.effectiveFrom === today) {
+          await conn.execute(
+            `UPDATE employee_employment_histories
+                SET effective_to=DATE_SUB(?,INTERVAL 1 DAY),updated_by=?
+              WHERE id=?`,
+            [item.input.effectiveFrom, auth.id, active.id]
+          )
+          await conn.execute(
+            `INSERT INTO employee_employment_histories(
+               uid,employee_id,site_id,department_id,position_id,work_group_id,
+               production_module_section_id,employee_type_id,employee_status_id,
+               effective_from,change_type,reason,created_by,updated_by
+             ) VALUES(?,?,?,?,?,?,?,?,?,?,'TRANSFER',?,?,?)`,
+            [
+              mutationUid,
+              employeeId,
+              item.refs.siteId,
+              item.refs.departmentId,
+              item.refs.positionId,
+              item.refs.workGroupId,
+              item.refs.productionModuleSectionId,
+              item.refs.typeId,
+              active.statusId,
+              item.input.effectiveFrom,
+              input.reason,
+              auth.id,
+              auth.id,
+            ]
+          )
+          await conn.execute(
+            `UPDATE employees
+                SET employee_type_id=?,current_site_id=?,current_department_id=?,
+                    current_position_id=?,current_work_group_id=?,
+                    current_production_module_section_id=?,updated_by=?
+              WHERE id=?`,
+            [
+              item.refs.typeId,
+              item.refs.siteId,
+              item.refs.departmentId,
+              item.refs.positionId,
+              item.refs.workGroupId,
+              item.refs.productionModuleSectionId,
+              auth.id,
+              employeeId,
+            ]
+          )
+          await reconcileProductionAssignmentsAtEmploymentBoundary(
+            conn,
+            employeeId,
+            item.input.effectiveFrom,
+            auth.id
+          )
+          await writeAudit(
+            {
+              auth,
+              request: req,
+              siteId: Number(item.refs.siteId),
+              action: 'CREATE',
+              table: 'employee_employment_histories',
+              recordUid: mutationUid,
+              description: `Mengimpor mutasi site untuk ${item.employee.employeeNumber}.`,
+              reason: input.reason,
+              afterData: {
+                employeeNumber: item.employee.employeeNumber,
+                sourceSite: item.employee.site,
+                targetSite: item.input.site,
+                effectiveFrom: item.input.effectiveFrom,
+                source: 'EXCEL_IMPORT',
+              },
+            },
+            conn
+          )
+          applied += 1
+        } else {
+          await conn.execute(
+            `INSERT INTO scheduled_employee_mutations(
+               uid,employee_id,base_history_id,target_site_id,target_department_id,
+               target_position_id,target_work_group_id,target_production_module_section_id,
+               target_employee_type_id,effective_from,change_type,reason,status,
+               created_by,updated_by
+             ) VALUES(?,?,?,?,?,?,?,?,?,?,'TRANSFER',?,'SCHEDULED',?,?)`,
+            [
+              mutationUid,
+              employeeId,
+              active.id,
+              item.refs.siteId,
+              item.refs.departmentId,
+              item.refs.positionId,
+              item.refs.workGroupId,
+              item.refs.productionModuleSectionId,
+              item.refs.typeId,
+              item.input.effectiveFrom,
+              input.reason,
+              auth.id,
+              auth.id,
+            ]
+          )
+          await writeAudit(
+            {
+              auth,
+              request: req,
+              siteId: Number(item.refs.siteId),
+              action: 'CREATE',
+              table: 'scheduled_employee_mutations',
+              recordUid: mutationUid,
+              description: `Mengimpor jadwal mutasi site untuk ${item.employee.employeeNumber} pada ${item.input.effectiveFrom}.`,
+              reason: input.reason,
+              afterData: {
+                employeeNumber: item.employee.employeeNumber,
+                sourceSite: item.employee.site,
+                targetSite: item.input.site,
+                effectiveFrom: item.input.effectiveFrom,
+                source: 'EXCEL_IMPORT',
+              },
+            },
+            conn
+          )
+          scheduled += 1
+        }
+      }
+      await conn.commit()
+      res.status(201).json({ applied, scheduled })
+    } catch (error) {
+      if (conn) await conn.rollback()
+      if ((error as { code?: string }).code === 'ER_DUP_ENTRY') {
+        next(
+          new ApiError(
+            409,
+            'Data mutasi berubah atau sudah dijadwalkan. Muat ulang preview lalu coba kembali.'
+          )
+        )
+        return
+      }
+      next(error)
+    } finally {
+      conn?.release()
+    }
+  }
+)
 
 employeesRouter.get(
   '/:uid/deletion-preview',
@@ -1739,7 +2506,11 @@ employeesRouter.delete(
       const input = employeePermanentDeleteInput.parse(req.body)
 
       await conn.beginTransaction()
-      const employee = await loadEmployeeForPermanentDelete(conn, employeeUid, true)
+      const employee = await loadEmployeeForPermanentDelete(
+        conn,
+        employeeUid,
+        true
+      )
       if (input.confirmation !== employee.employeeNumber) {
         throw new ApiError(422, 'Nomor karyawan konfirmasi tidak sesuai.')
       }
@@ -1813,17 +2584,52 @@ employeesRouter.delete(
   }
 )
 
-employeesRouter.get('/:uid', requirePermission('employees.view'), async (req, res, next) => {
-  try { const uid = routeParam(req.params.uid); const [rows] = await pool.query<RowDataPacket[]>(`${employeeSelect} WHERE e.uid=?`, [uid]); if (!rows[0]) throw new ApiError(404, 'Karyawan tidak ditemukan.'); enforceSite(res.locals.auth, rows[0].site); res.json(mapEmployee(rows[0])) } catch (error) { next(error) }
-})
+employeesRouter.get(
+  '/:uid',
+  requirePermission('employees.view'),
+  async (req, res, next) => {
+    try {
+      const uid = routeParam(req.params.uid)
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `${employeeSelect} WHERE e.uid=?`,
+        [uid]
+      )
+      if (!rows[0]) throw new ApiError(404, 'Karyawan tidak ditemukan.')
+      enforceSite(res.locals.auth, rows[0].site)
+      res.json(mapEmployee(rows[0]))
+    } catch (error) {
+      next(error)
+    }
+  }
+)
 
-employeesRouter.post('/', requirePermission('employees.manage'), async (req, res, next) => {
+employeesRouter.post(
+  '/',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
   try {
-    const input = employeeInput.parse(req.body); if (input.employeeStatus !== 'INACTIVE') throw new ApiError(422, 'Karyawan baru harus dibuat dengan status Nonaktif. Buat dan aktifkan kontrak terlebih dahulu untuk mengaktifkannya.'); const auth = res.locals.auth as AuthContext; const photoId = await fileId(input.photoUid); const conn = await pool.getConnection()
+      const input = employeeInput.parse(req.body)
+      if (input.employeeStatus !== 'INACTIVE')
+        throw new ApiError(
+          422,
+          'Karyawan baru harus dibuat dengan status Nonaktif. Buat dan aktifkan kontrak terlebih dahulu untuk mengaktifkannya.'
+        )
+      const auth = res.locals.auth as AuthContext
+      const photoId = await fileId(input.photoUid)
+      const conn = await pool.getConnection()
     try {
       await conn.beginTransaction()
-      const created = await createEmployeeInTransaction(conn, input, auth, req)
-      if (photoId) await conn.execute('UPDATE employees SET photo_file_id=? WHERE uid=?', [photoId, created.uid])
+        const created = await createEmployeeInTransaction(
+          conn,
+          input,
+          auth,
+          req
+        )
+        if (photoId)
+          await conn.execute(
+            'UPDATE employees SET photo_file_id=? WHERE uid=?',
+            [photoId, created.uid]
+          )
       await conn.commit()
       res.status(201).json({ uid: created.uid })
     } catch (error) {
@@ -2141,26 +2947,390 @@ employeesRouter.post('/mutations/batch', requirePermission('employees.manage'), 
             },
             conn
           )
-          applied.push(item.employeeUid)
-        } else {
-          await conn.execute(
-            `INSERT INTO scheduled_employee_mutations(uid,employee_id,base_history_id,target_site_id,target_department_id,target_position_id,target_work_group_id,target_production_module_section_id,target_employee_type_id,effective_from,change_type,reference_number,reason,notes,status,created_by,updated_by)
+            applied.push(item.employeeUid)
+          } else {
+            await conn.execute(
+              `INSERT INTO scheduled_employee_mutations(uid,employee_id,base_history_id,target_site_id,target_department_id,target_position_id,target_work_group_id,target_production_module_section_id,target_employee_type_id,effective_from,change_type,reference_number,reason,notes,status,created_by,updated_by)
              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'SCHEDULED',?,?)`,
+              [
+                mutationUid,
+                employee.id,
+                active.id,
+                item.refs.siteId,
+                item.refs.departmentId,
+                item.refs.positionId,
+                item.refs.workGroupId,
+                item.refs.productionModuleSectionId,
+                item.refs.typeId,
+                item.input.effectiveFrom,
+                item.input.changeType,
+                empty(item.input.referenceNumber),
+                empty(item.input.reason),
+                empty(item.input.notes),
+                auth.id,
+                auth.id,
+              ]
+            )
+            await writeAudit(
+              {
+                auth,
+                request: req,
+                siteId: item.refs.siteId,
+                action: 'CREATE',
+                table: 'scheduled_employee_mutations',
+                recordUid: mutationUid,
+                description: `Menjadwalkan mutasi batch ${item.input.changeType} untuk ${employee.employeeNumber} pada ${item.input.effectiveFrom}.`,
+              },
+              conn
+            )
+            scheduled.push(item.employeeUid)
+          }
+        }
+        await conn.commit()
+        res
+          .status(201)
+          .json({ applied: applied.length, scheduled: scheduled.length })
+      } catch (error) {
+        await conn.rollback()
+        throw error
+      } finally {
+        conn.release()
+      }
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+employeesRouter.post(
+  '/:uid/scheduled-mutations',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    try {
+      const input = mutationInput.parse(req.body)
+      const today = businessDate()
+      if (input.effectiveFrom <= today)
+        throw new ApiError(
+          422,
+          'Mutasi terjadwal harus memakai tanggal setelah hari ini.'
+        )
+      const auth = res.locals.auth as AuthContext
+      const employee = await employeeAccess(routeParam(req.params.uid), auth)
+      validateMutationChange(input, employee)
+      enforceSite(auth, input.site)
+      const refs = await references(input, employee.employeeStatus)
+      const uid = randomUUID()
+      const conn = await pool.getConnection()
+      try {
+        await conn.beginTransaction()
+        const [open] = await conn.query<RowDataPacket[]>(
+          "SELECT id FROM scheduled_employee_mutations WHERE employee_id=? AND status IN ('SCHEDULED','FAILED') FOR UPDATE",
+          [employee.id]
+        )
+        if (open[0])
+          throw new ApiError(
+            409,
+            'Karyawan hanya dapat memiliki satu mutasi terjadwal yang belum diselesaikan.'
+          )
+        const [openStatusChanges] = await conn.query<RowDataPacket[]>(
+          "SELECT id FROM scheduled_employee_status_changes WHERE employee_id=? AND status IN ('SCHEDULED','FAILED') FOR UPDATE",
+          [employee.id]
+        )
+        if (openStatusChanges[0])
+          throw new ApiError(
+            409,
+            'Karyawan masih memiliki status kerja terjadwal yang belum diselesaikan.'
+          )
+        if (input.changeType === 'TYPE_CHANGE')
+          await assertTypeChangeHasNoOpenContract(conn, employee.id)
+        const [active] = await conn.query<RowDataPacket[]>(
+          "SELECT id,DATE_FORMAT(effective_from,'%Y-%m-%d') effectiveFrom FROM employee_employment_histories WHERE employee_id=? AND effective_to IS NULL FOR UPDATE",
+          [employee.id]
+        )
+        if (!active[0])
+          throw new ApiError(
+            409,
+            'Histori penempatan aktif karyawan tidak ditemukan.'
+          )
+        if (input.effectiveFrom <= active[0].effectiveFrom)
+          throw new ApiError(
+            422,
+            'Tanggal efektif harus setelah histori aktif.'
+          )
+        await conn.execute(
+          `INSERT INTO scheduled_employee_mutations(uid,employee_id,base_history_id,target_site_id,target_department_id,target_position_id,target_work_group_id,target_production_module_section_id,target_employee_type_id,effective_from,change_type,reference_number,reason,notes,status,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'SCHEDULED',?,?)`,
+          [
+            uid,
+            employee.id,
+            active[0].id,
+            refs.siteId,
+            refs.departmentId,
+            refs.positionId,
+            refs.workGroupId,
+            refs.productionModuleSectionId,
+            refs.typeId,
+            input.effectiveFrom,
+            input.changeType,
+            empty(input.referenceNumber),
+            empty(input.reason),
+            empty(input.notes),
+            auth.id,
+            auth.id,
+          ]
+        )
+        await writeAudit(
+          {
+            auth,
+            request: req,
+            siteId: refs.siteId,
+            action: 'CREATE',
+            table: 'scheduled_employee_mutations',
+            recordUid: uid,
+            description: `Menjadwalkan mutasi ${input.changeType} pada ${input.effectiveFrom}.`,
+          },
+          conn
+        )
+        await conn.commit()
+      } catch (error) {
+        await conn.rollback()
+        throw error
+      } finally {
+        conn.release()
+      }
+      res.status(201).json({ uid })
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+employeesRouter.patch(
+  '/scheduled-mutations/:scheduledUid',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    try {
+      const input = mutationInput.parse(req.body)
+      const today = businessDate()
+      if (input.effectiveFrom <= today)
+        throw new ApiError(
+          422,
+          'Jadwal mutasi harus memakai tanggal setelah hari ini.'
+        )
+      const auth = res.locals.auth as AuthContext
+      const scheduleUid = routeParam(req.params.scheduledUid)
+      const [existingRows] = await pool.query<RowDataPacket[]>(
+        `SELECT sm.id,sm.employee_id employeeId,e.uid employeeUid,es.code employeeStatus,s.code sourceSite FROM scheduled_employee_mutations sm JOIN employees e ON e.id=sm.employee_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id WHERE sm.uid=?`,
+        [scheduleUid]
+      )
+      const existing = existingRows[0]
+      if (!existing)
+        throw new ApiError(404, 'Mutasi terjadwal tidak ditemukan.')
+      const employee = await employeeAccess(existing.employeeUid, auth)
+      validateMutationChange(input, employee)
+      enforceSite(auth, existing.sourceSite)
+      enforceSite(auth, input.site)
+      const refs = await references(input, existing.employeeStatus)
+      const conn = await pool.getConnection()
+      try {
+        await conn.beginTransaction()
+        const [locked] = await conn.query<RowDataPacket[]>(
+          'SELECT id,status FROM scheduled_employee_mutations WHERE id=? FOR UPDATE',
+          [existing.id]
+        )
+        if (!locked[0] || !['SCHEDULED', 'FAILED'].includes(locked[0].status))
+          throw new ApiError(409, 'Mutasi terjadwal ini tidak dapat diubah.')
+        if (input.changeType === 'TYPE_CHANGE')
+          await assertTypeChangeHasNoOpenContract(conn, existing.employeeId)
+        const [active] = await conn.query<RowDataPacket[]>(
+          "SELECT id,DATE_FORMAT(effective_from,'%Y-%m-%d') effectiveFrom FROM employee_employment_histories WHERE employee_id=? AND effective_to IS NULL FOR UPDATE",
+          [existing.employeeId]
+        )
+        if (!active[0])
+          throw new ApiError(
+            409,
+            'Histori penempatan aktif karyawan tidak ditemukan.'
+          )
+        if (input.effectiveFrom <= active[0].effectiveFrom)
+          throw new ApiError(
+            422,
+            'Tanggal efektif harus setelah histori aktif.'
+          )
+        await conn.execute(
+          `UPDATE scheduled_employee_mutations SET base_history_id=?,target_site_id=?,target_department_id=?,target_position_id=?,target_work_group_id=?,target_production_module_section_id=?,target_employee_type_id=?,effective_from=?,change_type=?,reference_number=?,reason=?,notes=?,status='SCHEDULED',failure_reason=NULL,updated_by=? WHERE id=?`,
+          [
+            active[0].id,
+            refs.siteId,
+            refs.departmentId,
+            refs.positionId,
+            refs.workGroupId,
+            refs.productionModuleSectionId,
+            refs.typeId,
+            input.effectiveFrom,
+            input.changeType,
+            empty(input.referenceNumber),
+            empty(input.reason),
+            empty(input.notes),
+            auth.id,
+            existing.id,
+          ]
+        )
+        await writeAudit(
+          {
+            auth,
+            request: req,
+            siteId: refs.siteId,
+            action: 'UPDATE',
+            table: 'scheduled_employee_mutations',
+            recordUid: scheduleUid,
+            description: `Memperbarui jadwal mutasi menjadi ${input.effectiveFrom}.`,
+          },
+          conn
+        )
+        await conn.commit()
+      } catch (error) {
+        await conn.rollback()
+        throw error
+      } finally {
+        conn.release()
+      }
+      res.status(204).end()
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+employeesRouter.post(
+  '/scheduled-mutations/:scheduledUid/cancel',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    try {
+      const auth = res.locals.auth as AuthContext
+      const scheduleUid = routeParam(req.params.scheduledUid)
+      const conn = await pool.getConnection()
+      try {
+        await conn.beginTransaction()
+        const [rows] = await conn.query<RowDataPacket[]>(
+          `SELECT sm.id,sm.status,e.current_site_id siteId,s.code site FROM scheduled_employee_mutations sm JOIN employees e ON e.id=sm.employee_id JOIN sites s ON s.id=e.current_site_id WHERE sm.uid=? FOR UPDATE`,
+          [scheduleUid]
+        )
+        const schedule = rows[0]
+        if (!schedule)
+          throw new ApiError(404, 'Mutasi terjadwal tidak ditemukan.')
+        enforceSite(auth, schedule.site)
+        if (!['SCHEDULED', 'FAILED'].includes(schedule.status))
+          throw new ApiError(
+            409,
+            'Mutasi terjadwal ini tidak dapat dibatalkan.'
+          )
+        await conn.execute(
+          "UPDATE scheduled_employee_mutations SET status='CANCELLED',cancelled_at=CURRENT_TIMESTAMP(3),updated_by=? WHERE id=?",
+          [auth.id, schedule.id]
+        )
+        await writeAudit(
+          {
+            auth,
+            request: req,
+            siteId: schedule.siteId,
+            action: 'UPDATE',
+            table: 'scheduled_employee_mutations',
+            recordUid: scheduleUid,
+            description: 'Membatalkan mutasi terjadwal.',
+          },
+          conn
+        )
+        await conn.commit()
+      } catch (error) {
+        await conn.rollback()
+        throw error
+      } finally {
+        conn.release()
+      }
+      res.status(204).end()
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+employeesRouter.post(
+  '/contracts/:contractUid/scheduled-status-changes',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    try {
+      const input = scheduledStatusChangeInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const today = businessDate()
+      if (input.effectiveDate <= today)
+        throw new ApiError(
+          422,
+          'Status kerja terjadwal harus memakai tanggal setelah hari ini.'
+        )
+      const uid = randomUUID()
+      const contractUid = routeParam(req.params.contractUid)
+      const conn = await pool.getConnection()
+      try {
+        await conn.beginTransaction()
+        const [rows] = await conn.query<RowDataPacket[]>(
+          `SELECT c.id,c.uid,c.employee_id,c.start_date,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,c.status,e.employee_status_id,es.code employeeStatus,e.current_site_id siteId,s.code site FROM employee_contracts c JOIN employees e ON e.id=c.employee_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`,
+          [contractUid]
+        )
+        const contract = rows[0]
+        if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
+        enforceSite(auth, contract.site)
+        if (
+          contract.status !== 'ACTIVE' ||
+          contract.employeeStatus !== 'ACTIVE'
+        )
+          throw new ApiError(
+            422,
+            'Jadwal hanya dapat dibuat dari kontrak Aktif milik karyawan Aktif.'
+          )
+        assertScheduledStatusWithinContract(
+          input.effectiveDate,
+          contract.endDate
+        )
+        const [newer] = await conn.query<RowDataPacket[]>(
+          'SELECT id FROM employee_contracts WHERE employee_id=? AND (start_date>? OR (start_date=? AND id>?)) LIMIT 1 FOR UPDATE',
+          [
+            contract.employee_id,
+            contract.start_date,
+            contract.start_date,
+            contract.id,
+          ]
+        )
+        if (newer[0])
+          throw new ApiError(
+            409,
+            'Jadwal hanya dapat dibuat dari kontrak terakhir karyawan.'
+          )
+        const [openStatus] = await conn.query<RowDataPacket[]>(
+          "SELECT id FROM scheduled_employee_status_changes WHERE employee_id=? AND status IN ('SCHEDULED','FAILED') FOR UPDATE",
+          [contract.employee_id]
+        )
+        if (openStatus[0])
+          throw new ApiError(
+            409,
+            'Karyawan sudah memiliki status kerja terjadwal yang belum diselesaikan.'
+          )
+        const [openMutation] = await conn.query<RowDataPacket[]>(
+          "SELECT id FROM scheduled_employee_mutations WHERE employee_id=? AND status IN ('SCHEDULED','FAILED') FOR UPDATE",
+          [contract.employee_id]
+        )
+        if (openMutation[0])
+          throw new ApiError(
+            409,
+            'Karyawan masih memiliki mutasi terjadwal yang belum diselesaikan.'
+          )
+          await conn.execute(
+          `INSERT INTO scheduled_employee_status_changes(uid,employee_id,contract_id,action,effective_date,reason,status,created_by,updated_by) VALUES(?,?,?,?,?,?,'SCHEDULED',?,?)`,
             [
-              mutationUid,
-              employee.id,
-              active.id,
-              item.refs.siteId,
-              item.refs.departmentId,
-              item.refs.positionId,
-              item.refs.workGroupId,
-              item.refs.productionModuleSectionId,
-              item.refs.typeId,
-              item.input.effectiveFrom,
-              item.input.changeType,
-              empty(item.input.referenceNumber),
-              empty(item.input.reason),
-              empty(item.input.notes),
+            uid,
+            contract.employee_id,
+            contract.id,
+            input.action,
+            input.effectiveDate,
+            input.reason,
               auth.id,
               auth.id,
             ]
@@ -2169,119 +3339,147 @@ employeesRouter.post('/mutations/batch', requirePermission('employees.manage'), 
             {
               auth,
               request: req,
-              siteId: item.refs.siteId,
+            siteId: contract.siteId,
               action: 'CREATE',
-              table: 'scheduled_employee_mutations',
-              recordUid: mutationUid,
-              description: `Menjadwalkan mutasi batch ${item.input.changeType} untuk ${employee.employeeNumber} pada ${item.input.effectiveFrom}.`,
+            table: 'scheduled_employee_status_changes',
+            recordUid: uid,
+            description: `Menjadwalkan ${input.action} pada ${input.effectiveDate}.`,
             },
             conn
           )
-          scheduled.push(item.employeeUid)
-        }
-      }
       await conn.commit()
-      res.status(201).json({ applied: applied.length, scheduled: scheduled.length })
     } catch (error) {
       await conn.rollback()
       throw error
     } finally {
       conn.release()
     }
+      res.status(201).json({ uid })
   } catch (error) {
     next(error)
   }
-})
+  }
+)
 
-employeesRouter.post('/:uid/scheduled-mutations', requirePermission('employees.manage'), async (req, res, next) => {
-  try {
-    const input = mutationInput.parse(req.body); const today = businessDate(); if (input.effectiveFrom <= today) throw new ApiError(422, 'Mutasi terjadwal harus memakai tanggal setelah hari ini.'); const auth = res.locals.auth as AuthContext; const employee = await employeeAccess(routeParam(req.params.uid), auth); validateMutationChange(input, employee); enforceSite(auth, input.site); const refs = await references(input, employee.employeeStatus); const uid = randomUUID(); const conn = await pool.getConnection()
-    try {
-      await conn.beginTransaction()
-      const [open] = await conn.query<RowDataPacket[]>("SELECT id FROM scheduled_employee_mutations WHERE employee_id=? AND status IN ('SCHEDULED','FAILED') FOR UPDATE", [employee.id]); if (open[0]) throw new ApiError(409, 'Karyawan hanya dapat memiliki satu mutasi terjadwal yang belum diselesaikan.'); const [openStatusChanges] = await conn.query<RowDataPacket[]>("SELECT id FROM scheduled_employee_status_changes WHERE employee_id=? AND status IN ('SCHEDULED','FAILED') FOR UPDATE", [employee.id]); if (openStatusChanges[0]) throw new ApiError(409, 'Karyawan masih memiliki status kerja terjadwal yang belum diselesaikan.'); if (input.changeType === 'TYPE_CHANGE') await assertTypeChangeHasNoOpenContract(conn, employee.id)
-      const [active] = await conn.query<RowDataPacket[]>("SELECT id,DATE_FORMAT(effective_from,'%Y-%m-%d') effectiveFrom FROM employee_employment_histories WHERE employee_id=? AND effective_to IS NULL FOR UPDATE", [employee.id]); if (!active[0]) throw new ApiError(409, 'Histori penempatan aktif karyawan tidak ditemukan.'); if (input.effectiveFrom <= active[0].effectiveFrom) throw new ApiError(422, 'Tanggal efektif harus setelah histori aktif.')
-      await conn.execute(`INSERT INTO scheduled_employee_mutations(uid,employee_id,base_history_id,target_site_id,target_department_id,target_position_id,target_work_group_id,target_production_module_section_id,target_employee_type_id,effective_from,change_type,reference_number,reason,notes,status,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'SCHEDULED',?,?)`, [uid,employee.id,active[0].id,refs.siteId,refs.departmentId,refs.positionId,refs.workGroupId,refs.productionModuleSectionId,refs.typeId,input.effectiveFrom,input.changeType,empty(input.referenceNumber),empty(input.reason),empty(input.notes),auth.id,auth.id])
-      await writeAudit({ auth, request: req, siteId: refs.siteId, action: 'CREATE', table: 'scheduled_employee_mutations', recordUid: uid, description: `Menjadwalkan mutasi ${input.changeType} pada ${input.effectiveFrom}.` }, conn); await conn.commit()
-    } catch (error) { await conn.rollback(); throw error } finally { conn.release() }
-    res.status(201).json({ uid })
-  } catch (error) { next(error) }
-})
-
-employeesRouter.patch('/scheduled-mutations/:scheduledUid', requirePermission('employees.manage'), async (req, res, next) => {
-  try {
-    const input = mutationInput.parse(req.body); const today = businessDate(); if (input.effectiveFrom <= today) throw new ApiError(422, 'Jadwal mutasi harus memakai tanggal setelah hari ini.'); const auth = res.locals.auth as AuthContext; const scheduleUid = routeParam(req.params.scheduledUid); const [existingRows] = await pool.query<RowDataPacket[]>(`SELECT sm.id,sm.employee_id employeeId,e.uid employeeUid,es.code employeeStatus,s.code sourceSite FROM scheduled_employee_mutations sm JOIN employees e ON e.id=sm.employee_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id WHERE sm.uid=?`, [scheduleUid]); const existing=existingRows[0]; if (!existing) throw new ApiError(404,'Mutasi terjadwal tidak ditemukan.'); const employee = await employeeAccess(existing.employeeUid, auth); validateMutationChange(input, employee); enforceSite(auth,existing.sourceSite); enforceSite(auth,input.site); const refs=await references(input,existing.employeeStatus); const conn=await pool.getConnection()
-    try { await conn.beginTransaction(); const [locked] = await conn.query<RowDataPacket[]>("SELECT id,status FROM scheduled_employee_mutations WHERE id=? FOR UPDATE",[existing.id]); if (!locked[0] || !['SCHEDULED','FAILED'].includes(locked[0].status)) throw new ApiError(409,'Mutasi terjadwal ini tidak dapat diubah.'); if (input.changeType === 'TYPE_CHANGE') await assertTypeChangeHasNoOpenContract(conn, existing.employeeId); const [active] = await conn.query<RowDataPacket[]>("SELECT id,DATE_FORMAT(effective_from,'%Y-%m-%d') effectiveFrom FROM employee_employment_histories WHERE employee_id=? AND effective_to IS NULL FOR UPDATE",[existing.employeeId]); if(!active[0]) throw new ApiError(409,'Histori penempatan aktif karyawan tidak ditemukan.'); if(input.effectiveFrom<=active[0].effectiveFrom) throw new ApiError(422,'Tanggal efektif harus setelah histori aktif.'); await conn.execute(`UPDATE scheduled_employee_mutations SET base_history_id=?,target_site_id=?,target_department_id=?,target_position_id=?,target_work_group_id=?,target_production_module_section_id=?,target_employee_type_id=?,effective_from=?,change_type=?,reference_number=?,reason=?,notes=?,status='SCHEDULED',failure_reason=NULL,updated_by=? WHERE id=?`,[active[0].id,refs.siteId,refs.departmentId,refs.positionId,refs.workGroupId,refs.productionModuleSectionId,refs.typeId,input.effectiveFrom,input.changeType,empty(input.referenceNumber),empty(input.reason),empty(input.notes),auth.id,existing.id]); await writeAudit({auth,request:req,siteId:refs.siteId,action:'UPDATE',table:'scheduled_employee_mutations',recordUid:scheduleUid,description:`Memperbarui jadwal mutasi menjadi ${input.effectiveFrom}.`},conn); await conn.commit() } catch(error) { await conn.rollback(); throw error } finally { conn.release() }
-    res.status(204).end()
-  } catch(error) { next(error) }
-})
-
-employeesRouter.post('/scheduled-mutations/:scheduledUid/cancel', requirePermission('employees.manage'), async (req,res,next) => {
-  try { const auth=res.locals.auth as AuthContext; const scheduleUid=routeParam(req.params.scheduledUid); const conn=await pool.getConnection(); try { await conn.beginTransaction(); const [rows]=await conn.query<RowDataPacket[]>(`SELECT sm.id,sm.status,e.current_site_id siteId,s.code site FROM scheduled_employee_mutations sm JOIN employees e ON e.id=sm.employee_id JOIN sites s ON s.id=e.current_site_id WHERE sm.uid=? FOR UPDATE`,[scheduleUid]); const schedule=rows[0]; if(!schedule) throw new ApiError(404,'Mutasi terjadwal tidak ditemukan.'); enforceSite(auth,schedule.site); if(!['SCHEDULED','FAILED'].includes(schedule.status)) throw new ApiError(409,'Mutasi terjadwal ini tidak dapat dibatalkan.'); await conn.execute("UPDATE scheduled_employee_mutations SET status='CANCELLED',cancelled_at=CURRENT_TIMESTAMP(3),updated_by=? WHERE id=?",[auth.id,schedule.id]); await writeAudit({auth,request:req,siteId:schedule.siteId,action:'UPDATE',table:'scheduled_employee_mutations',recordUid:scheduleUid,description:'Membatalkan mutasi terjadwal.'},conn); await conn.commit() } catch(error) { await conn.rollback(); throw error } finally {conn.release()} res.status(204).end() } catch(error){next(error)}
-})
-
-employeesRouter.post('/contracts/:contractUid/scheduled-status-changes', requirePermission('employees.manage'), async (req, res, next) => {
+employeesRouter.patch(
+  '/scheduled-status-changes/:scheduledUid',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
   try {
     const input = scheduledStatusChangeInput.parse(req.body)
-    const auth = res.locals.auth as AuthContext
     const today = businessDate()
-    if (input.effectiveDate <= today) throw new ApiError(422, 'Status kerja terjadwal harus memakai tanggal setelah hari ini.')
-    const uid = randomUUID(); const contractUid = routeParam(req.params.contractUid); const conn = await pool.getConnection()
+      if (input.effectiveDate <= today)
+        throw new ApiError(
+          422,
+          'Jadwal status kerja harus memakai tanggal setelah hari ini.'
+        )
+      const auth = res.locals.auth as AuthContext
+      const uid = routeParam(req.params.scheduledUid)
+      const conn = await pool.getConnection()
     try {
       await conn.beginTransaction()
-      const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.employee_id,c.start_date,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,c.status,e.employee_status_id,es.code employeeStatus,e.current_site_id siteId,s.code site FROM employee_contracts c JOIN employees e ON e.id=c.employee_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [contractUid])
-      const contract = rows[0]
-      if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
-      enforceSite(auth, contract.site)
-      if (contract.status !== 'ACTIVE' || contract.employeeStatus !== 'ACTIVE') throw new ApiError(422, 'Jadwal hanya dapat dibuat dari kontrak Aktif milik karyawan Aktif.')
-      assertScheduledStatusWithinContract(input.effectiveDate, contract.endDate)
-      const [newer] = await conn.query<RowDataPacket[]>('SELECT id FROM employee_contracts WHERE employee_id=? AND (start_date>? OR (start_date=? AND id>?)) LIMIT 1 FOR UPDATE', [contract.employee_id, contract.start_date, contract.start_date, contract.id])
-      if (newer[0]) throw new ApiError(409, 'Jadwal hanya dapat dibuat dari kontrak terakhir karyawan.')
-      const [openStatus] = await conn.query<RowDataPacket[]>("SELECT id FROM scheduled_employee_status_changes WHERE employee_id=? AND status IN ('SCHEDULED','FAILED') FOR UPDATE", [contract.employee_id])
-      if (openStatus[0]) throw new ApiError(409, 'Karyawan sudah memiliki status kerja terjadwal yang belum diselesaikan.')
-      const [openMutation] = await conn.query<RowDataPacket[]>("SELECT id FROM scheduled_employee_mutations WHERE employee_id=? AND status IN ('SCHEDULED','FAILED') FOR UPDATE", [contract.employee_id])
-      if (openMutation[0]) throw new ApiError(409, 'Karyawan masih memiliki mutasi terjadwal yang belum diselesaikan.')
-      await conn.execute(`INSERT INTO scheduled_employee_status_changes(uid,employee_id,contract_id,action,effective_date,reason,status,created_by,updated_by) VALUES(?,?,?,?,?,?,'SCHEDULED',?,?)`, [uid, contract.employee_id, contract.id, input.action, input.effectiveDate, input.reason, auth.id, auth.id])
-      await writeAudit({ auth, request: req, siteId: contract.siteId, action: 'CREATE', table: 'scheduled_employee_status_changes', recordUid: uid, description: `Menjadwalkan ${input.action} pada ${input.effectiveDate}.` }, conn)
+        const [rows] = await conn.query<RowDataPacket[]>(
+          `SELECT sc.id,sc.status,DATE_FORMAT(c.end_date,'%Y-%m-%d') contractEndDate,e.current_site_id siteId,s.code site FROM scheduled_employee_status_changes sc JOIN employees e ON e.id=sc.employee_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN employee_contracts c ON c.id=sc.contract_id WHERE sc.uid=? FOR UPDATE`,
+          [uid]
+        )
+        const schedule = rows[0]
+        if (!schedule)
+          throw new ApiError(404, 'Jadwal status kerja tidak ditemukan.')
+        enforceSite(auth, schedule.site)
+        if (!['SCHEDULED', 'FAILED'].includes(schedule.status))
+          throw new ApiError(409, 'Jadwal status kerja ini tidak dapat diubah.')
+        assertScheduledStatusWithinContract(
+          input.effectiveDate,
+          schedule.contractEndDate
+        )
+        await conn.execute(
+          "UPDATE scheduled_employee_status_changes SET action=?,effective_date=?,reason=?,status='SCHEDULED',failure_reason=NULL,updated_by=? WHERE id=?",
+          [
+            input.action,
+            input.effectiveDate,
+            input.reason,
+            auth.id,
+            schedule.id,
+          ]
+        )
+        await writeAudit(
+          {
+            auth,
+            request: req,
+            siteId: schedule.siteId,
+            action: 'UPDATE',
+            table: 'scheduled_employee_status_changes',
+            recordUid: uid,
+            description: `Memperbarui jadwal status kerja menjadi ${input.effectiveDate}.`,
+          },
+          conn
+        )
       await conn.commit()
-    } catch (error) { await conn.rollback(); throw error } finally { conn.release() }
-    res.status(201).json({ uid })
-  } catch (error) { next(error) }
-})
-
-employeesRouter.patch('/scheduled-status-changes/:scheduledUid', requirePermission('employees.manage'), async (req, res, next) => {
-  try {
-    const input = scheduledStatusChangeInput.parse(req.body); const today = businessDate()
-    if (input.effectiveDate <= today) throw new ApiError(422, 'Jadwal status kerja harus memakai tanggal setelah hari ini.')
-    const auth = res.locals.auth as AuthContext; const uid = routeParam(req.params.scheduledUid); const conn = await pool.getConnection()
-    try {
-      await conn.beginTransaction()
-      const [rows] = await conn.query<RowDataPacket[]>(`SELECT sc.id,sc.status,DATE_FORMAT(c.end_date,'%Y-%m-%d') contractEndDate,e.current_site_id siteId,s.code site FROM scheduled_employee_status_changes sc JOIN employees e ON e.id=sc.employee_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN employee_contracts c ON c.id=sc.contract_id WHERE sc.uid=? FOR UPDATE`, [uid])
-      const schedule = rows[0]; if (!schedule) throw new ApiError(404, 'Jadwal status kerja tidak ditemukan.'); enforceSite(auth, schedule.site)
-      if (!['SCHEDULED', 'FAILED'].includes(schedule.status)) throw new ApiError(409, 'Jadwal status kerja ini tidak dapat diubah.')
-      assertScheduledStatusWithinContract(input.effectiveDate, schedule.contractEndDate)
-      await conn.execute("UPDATE scheduled_employee_status_changes SET action=?,effective_date=?,reason=?,status='SCHEDULED',failure_reason=NULL,updated_by=? WHERE id=?", [input.action, input.effectiveDate, input.reason, auth.id, schedule.id])
-      await writeAudit({ auth, request: req, siteId: schedule.siteId, action: 'UPDATE', table: 'scheduled_employee_status_changes', recordUid: uid, description: `Memperbarui jadwal status kerja menjadi ${input.effectiveDate}.` }, conn)
-      await conn.commit()
-    } catch (error) { await conn.rollback(); throw error } finally { conn.release() }
+      } catch (error) {
+        await conn.rollback()
+        throw error
+      } finally {
+        conn.release()
+      }
     res.status(204).end()
-  } catch (error) { next(error) }
-})
+    } catch (error) {
+      next(error)
+    }
+  }
+)
 
-employeesRouter.post('/scheduled-status-changes/:scheduledUid/cancel', requirePermission('employees.manage'), async (req, res, next) => {
+employeesRouter.post(
+  '/scheduled-status-changes/:scheduledUid/cancel',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
   try {
-    const auth = res.locals.auth as AuthContext; const uid = routeParam(req.params.scheduledUid); const conn = await pool.getConnection()
+      const auth = res.locals.auth as AuthContext
+      const uid = routeParam(req.params.scheduledUid)
+      const conn = await pool.getConnection()
     try {
       await conn.beginTransaction()
-      const [rows] = await conn.query<RowDataPacket[]>(`SELECT sc.id,sc.status,e.current_site_id siteId,s.code site FROM scheduled_employee_status_changes sc JOIN employees e ON e.id=sc.employee_id JOIN sites s ON s.id=e.current_site_id WHERE sc.uid=? FOR UPDATE`, [uid])
-      const schedule = rows[0]; if (!schedule) throw new ApiError(404, 'Jadwal status kerja tidak ditemukan.'); enforceSite(auth, schedule.site)
-      if (!['SCHEDULED', 'FAILED'].includes(schedule.status)) throw new ApiError(409, 'Jadwal status kerja ini tidak dapat dibatalkan.')
-      await conn.execute("UPDATE scheduled_employee_status_changes SET status='CANCELLED',cancelled_at=CURRENT_TIMESTAMP(3),updated_by=? WHERE id=?", [auth.id, schedule.id])
-      await writeAudit({ auth, request: req, siteId: schedule.siteId, action: 'UPDATE', table: 'scheduled_employee_status_changes', recordUid: uid, description: 'Membatalkan jadwal status kerja.' }, conn)
+        const [rows] = await conn.query<RowDataPacket[]>(
+          `SELECT sc.id,sc.status,e.current_site_id siteId,s.code site FROM scheduled_employee_status_changes sc JOIN employees e ON e.id=sc.employee_id JOIN sites s ON s.id=e.current_site_id WHERE sc.uid=? FOR UPDATE`,
+          [uid]
+        )
+        const schedule = rows[0]
+        if (!schedule)
+          throw new ApiError(404, 'Jadwal status kerja tidak ditemukan.')
+        enforceSite(auth, schedule.site)
+        if (!['SCHEDULED', 'FAILED'].includes(schedule.status))
+          throw new ApiError(
+            409,
+            'Jadwal status kerja ini tidak dapat dibatalkan.'
+          )
+        await conn.execute(
+          "UPDATE scheduled_employee_status_changes SET status='CANCELLED',cancelled_at=CURRENT_TIMESTAMP(3),updated_by=? WHERE id=?",
+          [auth.id, schedule.id]
+        )
+        await writeAudit(
+          {
+            auth,
+            request: req,
+            siteId: schedule.siteId,
+            action: 'UPDATE',
+            table: 'scheduled_employee_status_changes',
+            recordUid: uid,
+            description: 'Membatalkan jadwal status kerja.',
+          },
+          conn
+        )
       await conn.commit()
-    } catch (error) { await conn.rollback(); throw error } finally { conn.release() }
+      } catch (error) {
+        await conn.rollback()
+        throw error
+      } finally {
+        conn.release()
+      }
     res.status(204).end()
-  } catch (error) { next(error) }
-})
+    } catch (error) {
+      next(error)
+    }
+  }
+)
 
 function renewalSourceSelect(sourceContractUids: string[]) {
   return `SELECT c.id,c.uid sourceContractUid,c.employee_id employeeId,c.contract_number sourceContractNumber,c.status sourceStatus,DATE_FORMAT(c.start_date,'%Y-%m-%d') sourceStartDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') sourceEndDate,DATE_FORMAT(DATE_ADD(c.end_date,INTERVAL 1 DAY),'%Y-%m-%d') proposedStartDate,DATE_FORMAT(DATE_SUB(DATE_ADD(DATE_ADD(c.end_date,INTERVAL 1 DAY),INTERVAL 12 MONTH),INTERVAL 1 DAY),'%Y-%m-%d') proposedEndDate,ct.code contractType,ct.is_active contractTypeActive,e.uid employeeUid,e.employee_number employeeNumber,e.full_name employeeName,es.code employeeStatus,et.code employeeType,s.id siteId,s.code site,p.name position,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,
@@ -2434,64 +3632,157 @@ employeesRouter.post('/contracts/batch', requirePermission('employees.manage'), 
   } finally {
     let connectionDestroyed = false
     if (contractNumberLockAcquired) {
-      try { await releaseContractNumberLock(conn) } catch { conn.destroy(); connectionDestroyed = true }
+  try {
+          await releaseContractNumberLock(conn)
+        } catch {
+          conn.destroy()
+          connectionDestroyed = true
+        }
+      }
+      if (!connectionDestroyed) conn.release()
+    }
+  }
+)
+
+employeesRouter.post(
+  '/contracts/batch/renewal-preview',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    try {
+      const { sourceContractUids } = contractRenewalSourceInput.parse(req.body)
+      const [rows] = await pool.query<RowDataPacket[]>(
+        renewalSourceSelect(sourceContractUids),
+        sourceContractUids
+      )
+      const items = renewalPreviewItems(
+        sourceContractUids,
+        rows,
+        res.locals.auth as AuthContext
+      )
+      const blockers = [...new Set(items.flatMap((item) => item.issues))]
+      const ready = items.filter((item) => item.valid).length
+      res.json({
+        canCreate: ready === items.length,
+        total: items.length,
+        ready,
+        blocked: items.length - ready,
+        items,
+        blockers,
+      })
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+employeesRouter.post(
+  '/contracts/batch/renew',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    const conn = await pool.getConnection()
+    let contractNumberLockAcquired = false
+    try {
+      const { items } = contractRenewalBatchInput.parse(req.body)
+      const sourceContractUids = items.map((item) => item.sourceContractUid)
+      const auth = res.locals.auth as AuthContext
+      await conn.beginTransaction()
+      await acquireContractNumberLock(conn)
+      contractNumberLockAcquired = true
+      const [sourceLocks] = await conn.query<RowDataPacket[]>(
+        `SELECT c.id,c.employee_id employeeId FROM employee_contracts c WHERE c.uid IN (${sourceContractUids.map(() => '?').join(',')}) ORDER BY c.employee_id,c.id FOR UPDATE`,
+        sourceContractUids
+      )
+      const employeeIds = [
+        ...new Set(sourceLocks.map((row) => Number(row.employeeId))),
+      ]
+      if (employeeIds.length) {
+        await conn.query(
+          `SELECT id FROM employees WHERE id IN (${employeeIds.map(() => '?').join(',')}) ORDER BY id FOR UPDATE`,
+          employeeIds
+        )
+        await conn.query(
+          `SELECT id FROM employee_contracts WHERE employee_id IN (${employeeIds.map(() => '?').join(',')}) ORDER BY employee_id,id FOR UPDATE`,
+          employeeIds
+        )
+        await conn.query(
+          `SELECT id FROM scheduled_employee_status_changes WHERE employee_id IN (${employeeIds.map(() => '?').join(',')}) AND status IN ('SCHEDULED','FAILED') ORDER BY employee_id,id FOR UPDATE`,
+          employeeIds
+        )
+        await conn.query(
+          `SELECT id FROM scheduled_employee_mutations WHERE employee_id IN (${employeeIds.map(() => '?').join(',')}) AND status IN ('SCHEDULED','FAILED') ORDER BY employee_id,id FOR UPDATE`,
+          employeeIds
+        )
+      }
+      const [sourceRows] = await conn.query<RowDataPacket[]>(
+        renewalSourceSelect(sourceContractUids),
+        sourceContractUids
+      )
+      const previewItems = renewalPreviewItems(
+        sourceContractUids,
+        sourceRows,
+        auth
+      )
+      const invalidItems = previewItems.filter((item) => !item.valid)
+      if (invalidItems.length)
+        throw new ApiError(
+          409,
+          `Perpanjangan dibatalkan karena ${invalidItems.length} kontrak tidak valid. ${invalidItems[0]?.issues[0] ?? 'Kontrak sumber tidak lagi memenuhi syarat.'}`
+        )
+      const sourceByUid = new Map(
+        sourceRows.map((row) => [String(row.sourceContractUid), row])
+      )
+      for (const item of items) {
+        const source = sourceByUid.get(item.sourceContractUid)!
+        if (item.input.startDate <= String(source.sourceEndDate))
+          throw new ApiError(
+            422,
+            `Tanggal mulai perpanjangan ${source.sourceContractNumber} harus setelah tanggal akhir kontrak sumber.`
+          )
+        await assertContractRules(
+          conn,
+          Number(source.employeeId),
+          item.input.contractType,
+          item.input.startDate,
+          item.input.endDate,
+          undefined,
+          String(source.joinDate)
+        )
+      }
+      const created = []
+      for (const item of items) {
+        const source = sourceByUid.get(item.sourceContractUid)!
+        const contract = await createDraftContract(
+          conn,
+          auth,
+          req,
+          String(source.employeeUid),
+          { ...item.input, signedDate: undefined },
+          {
+            uid: item.sourceContractUid,
+            contractNumber: String(source.sourceContractNumber),
+          }
+        )
+        created.push({ ...contract, sourceContractUid: item.sourceContractUid })
+      }
+      await conn.commit()
+      res.status(201).json({ created })
+    } catch (error) {
+      await conn.rollback()
+      next(error)
+    } finally {
+      let connectionDestroyed = false
+      if (contractNumberLockAcquired) {
+        try {
+          await releaseContractNumberLock(conn)
+        } catch {
+          conn.destroy()
+          connectionDestroyed = true
+    }
     }
     if (!connectionDestroyed) conn.release()
   }
-})
-
-employeesRouter.post('/contracts/batch/renewal-preview', requirePermission('employees.manage'), async (req, res, next) => {
-  try {
-    const { sourceContractUids } = contractRenewalSourceInput.parse(req.body)
-    const [rows] = await pool.query<RowDataPacket[]>(renewalSourceSelect(sourceContractUids), sourceContractUids)
-    const items = renewalPreviewItems(sourceContractUids, rows, res.locals.auth as AuthContext)
-    const blockers = [...new Set(items.flatMap((item) => item.issues))]
-    const ready = items.filter((item) => item.valid).length
-    res.json({ canCreate: ready === items.length, total: items.length, ready, blocked: items.length - ready, items, blockers })
-  } catch (error) { next(error) }
-})
-
-employeesRouter.post('/contracts/batch/renew', requirePermission('employees.manage'), async (req, res, next) => {
-  const conn = await pool.getConnection()
-  let contractNumberLockAcquired = false
-  try {
-    const { items } = contractRenewalBatchInput.parse(req.body)
-    const sourceContractUids = items.map((item) => item.sourceContractUid)
-    const auth = res.locals.auth as AuthContext
-    await conn.beginTransaction()
-    await acquireContractNumberLock(conn); contractNumberLockAcquired = true
-    const [sourceLocks] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.employee_id employeeId FROM employee_contracts c WHERE c.uid IN (${sourceContractUids.map(() => '?').join(',')}) ORDER BY c.employee_id,c.id FOR UPDATE`, sourceContractUids)
-    const employeeIds = [...new Set(sourceLocks.map((row) => Number(row.employeeId)))]
-    if (employeeIds.length) {
-      await conn.query(`SELECT id FROM employees WHERE id IN (${employeeIds.map(() => '?').join(',')}) ORDER BY id FOR UPDATE`, employeeIds)
-      await conn.query(`SELECT id FROM employee_contracts WHERE employee_id IN (${employeeIds.map(() => '?').join(',')}) ORDER BY employee_id,id FOR UPDATE`, employeeIds)
-      await conn.query(`SELECT id FROM scheduled_employee_status_changes WHERE employee_id IN (${employeeIds.map(() => '?').join(',')}) AND status IN ('SCHEDULED','FAILED') ORDER BY employee_id,id FOR UPDATE`, employeeIds)
-      await conn.query(`SELECT id FROM scheduled_employee_mutations WHERE employee_id IN (${employeeIds.map(() => '?').join(',')}) AND status IN ('SCHEDULED','FAILED') ORDER BY employee_id,id FOR UPDATE`, employeeIds)
-    }
-    const [sourceRows] = await conn.query<RowDataPacket[]>(renewalSourceSelect(sourceContractUids), sourceContractUids)
-    const previewItems = renewalPreviewItems(sourceContractUids, sourceRows, auth)
-    const invalidItems = previewItems.filter((item) => !item.valid)
-    if (invalidItems.length) throw new ApiError(409, `Perpanjangan dibatalkan karena ${invalidItems.length} kontrak tidak valid. ${invalidItems[0]?.issues[0] ?? 'Kontrak sumber tidak lagi memenuhi syarat.'}`)
-    const sourceByUid = new Map(sourceRows.map((row) => [String(row.sourceContractUid), row]))
-    for (const item of items) {
-      const source = sourceByUid.get(item.sourceContractUid)!
-      if (item.input.startDate <= String(source.sourceEndDate)) throw new ApiError(422, `Tanggal mulai perpanjangan ${source.sourceContractNumber} harus setelah tanggal akhir kontrak sumber.`)
-      await assertContractRules(conn, Number(source.employeeId), item.input.contractType, item.input.startDate, item.input.endDate, undefined, String(source.joinDate))
-    }
-    const created = []
-    for (const item of items) {
-      const source = sourceByUid.get(item.sourceContractUid)!
-      const contract = await createDraftContract(conn, auth, req, String(source.employeeUid), { ...item.input, signedDate: undefined }, { uid: item.sourceContractUid, contractNumber: String(source.sourceContractNumber) })
-      created.push({ ...contract, sourceContractUid: item.sourceContractUid })
-    }
-    await conn.commit(); res.status(201).json({ created })
-  } catch (error) { await conn.rollback(); next(error) }
-  finally {
-    let connectionDestroyed = false
-    if (contractNumberLockAcquired) { try { await releaseContractNumberLock(conn) } catch { conn.destroy(); connectionDestroyed = true } }
-    if (!connectionDestroyed) conn.release()
   }
-})
+)
 
 employeesRouter.post(
   '/contracts/batch/activation-preview',
@@ -2589,7 +3880,7 @@ employeesRouter.post(
         .flatMap((item) => item.issues)
       const itemRows = items.map((item) => ({
         ...item,
-        action: item.valid ? 'ACTIVATE' as const : 'BLOCKED' as const,
+        action: item.valid ? ('ACTIVATE' as const) : ('BLOCKED' as const),
         reason: item.valid ? undefined : item.issues.join(' '),
       }))
       res.json({
@@ -2623,29 +3914,54 @@ employeesRouter.post(
   }
 )
 
-employeesRouter.post('/:uid/contracts', requirePermission('employees.manage'), async (req, res, next) => {
+employeesRouter.post(
+  '/:uid/contracts',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
   try {
-    const input = contractCreateInput.parse(req.body); const auth = res.locals.auth as AuthContext; const conn = await pool.getConnection()
+      const input = contractCreateInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const conn = await pool.getConnection()
     let uid = ''
     let contractNumberLockAcquired = false
     try {
       await conn.beginTransaction()
       await acquireContractNumberLock(conn)
       contractNumberLockAcquired = true
-      const created = await createDraftContract(conn, auth, req, routeParam(req.params.uid), input)
+        const created = await createDraftContract(
+          conn,
+          auth,
+          req,
+          routeParam(req.params.uid),
+          input
+        )
       uid = created.uid
       await conn.commit()
-    } catch (error) { await conn.rollback(); throw error } finally {
+      } catch (error) {
+        await conn.rollback()
+        throw error
+      } finally {
       let connectionDestroyed = false
       if (contractNumberLockAcquired) {
-        try { await releaseContractNumberLock(conn) } catch { conn.destroy(); connectionDestroyed = true }
+          try {
+            await releaseContractNumberLock(conn)
+          } catch {
+            conn.destroy()
+            connectionDestroyed = true
+          }
       }
       if (!connectionDestroyed) conn.release()
     }
     res.status(201).json({ uid })
-  } catch (error) { next(error) }
-})
-employeesRouter.patch('/contracts/:contractUid', requirePermission('employees.manage'), async (req, res, next) => {
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+employeesRouter.patch(
+  '/contracts/:contractUid',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
   try {
     const input = contractUpdateInput.parse(req.body)
     const auth = res.locals.auth as AuthContext
@@ -2656,42 +3972,118 @@ employeesRouter.patch('/contracts/:contractUid', requirePermission('employees.ma
       await conn.beginTransaction()
       await acquireContractNumberLock(conn)
       contractNumberLockAcquired = true
-      const [rows] = await conn.query<RowDataPacket[]>(`SELECT c.id,c.uid,c.employee_id,c.contract_number,c.sequence_number,c.status,c.site_name_snapshot siteNameSnapshot,ct.code contractType,et.code employeeType,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.notes,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,s.id siteId,s.code site FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`, [contractUid])
+        const [rows] = await conn.query<RowDataPacket[]>(
+          `SELECT c.id,c.uid,c.employee_id,c.contract_number,c.sequence_number,c.status,c.site_name_snapshot siteNameSnapshot,ct.code contractType,et.code employeeType,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.notes,DATE_FORMAT(e.join_date,'%Y-%m-%d') joinDate,s.id siteId,s.code site FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_types et ON et.id=e.employee_type_id JOIN sites s ON s.id=e.current_site_id WHERE c.uid=? FOR UPDATE`,
+          [contractUid]
+        )
       const contract = rows[0]
       if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
       enforceSite(auth, contract.site)
-      if (['EXPIRED', 'TERMINATED', 'CANCELLED'].includes(contract.status)) throw new ApiError(409, 'Kontrak final tidak dapat diubah.')
-      if (!['DRAFT', 'SCHEDULED'].includes(contract.status) && input.contractType !== contract.contractType) throw new ApiError(422, 'Jenis kontrak hanya dapat diubah saat status Draft atau Dijadwalkan.')
-      if (contract.status === 'ACTIVE' && (input.startDate !== contract.startDate || (input.endDate ?? null) !== (contract.endDate ?? null))) throw new ApiError(422, 'Periode kontrak aktif tidak dapat diubah. Terminasi kontrak lama lalu buat kontrak baru.')
-      const [types] = await conn.query<RowDataPacket[]>('SELECT id,code FROM contract_types WHERE code=? AND is_active=1 FOR UPDATE', [input.contractType])
+        if (['EXPIRED', 'TERMINATED', 'CANCELLED'].includes(contract.status))
+          throw new ApiError(409, 'Kontrak final tidak dapat diubah.')
+        if (
+          !['DRAFT', 'SCHEDULED'].includes(contract.status) &&
+          input.contractType !== contract.contractType
+        )
+          throw new ApiError(
+            422,
+            'Jenis kontrak hanya dapat diubah saat status Draft atau Dijadwalkan.'
+          )
+        if (
+          contract.status === 'ACTIVE' &&
+          (input.startDate !== contract.startDate ||
+            (input.endDate ?? null) !== (contract.endDate ?? null))
+        )
+          throw new ApiError(
+            422,
+            'Periode kontrak aktif tidak dapat diubah. Terminasi kontrak lama lalu buat kontrak baru.'
+          )
+        const [types] = await conn.query<RowDataPacket[]>(
+          'SELECT id,code FROM contract_types WHERE code=? AND is_active=1 FOR UPDATE',
+          [input.contractType]
+        )
       const type = types[0]
-      if (!type) throw new ApiError(422, 'Tipe kontrak tidak valid atau tidak aktif.')
-      if (!isContractTypeAllowed(type.code)) throw new ApiError(422, contractTypeRuleMessage())
-      if (!isContractEmployeeTypeCombinationAllowed(type.code, contract.employeeType)) {
+        if (!type)
+          throw new ApiError(422, 'Tipe kontrak tidak valid atau tidak aktif.')
+        if (!isContractTypeAllowed(type.code))
+          throw new ApiError(422, contractTypeRuleMessage())
+        if (
+          !isContractEmployeeTypeCombinationAllowed(
+            type.code,
+            contract.employeeType
+          )
+        ) {
         throw new ApiError(422, contractEmployeeTypeRuleMessage())
       }
-      await assertNoOpenScheduledStatusChange(conn, contract.employee_id, contract.id)
-      await assertContractRules(conn, contract.employee_id, type.code, input.startDate, input.endDate, contract.id, contract.joinDate)
+        await assertNoOpenScheduledStatusChange(
+          conn,
+          contract.employee_id,
+          contract.id
+        )
+        await assertContractRules(
+          conn,
+          contract.employee_id,
+          type.code,
+          input.startDate,
+          input.endDate,
+          contract.id,
+          contract.joinDate
+        )
       const contractNumberSite = contractNumberSiteFromSnapshot(
         contract.siteNameSnapshot,
         contract.site
       )
-      const preservedContractNumberSequence = canPreserveContractNumberSequence(
+        const preservedContractNumberSequence =
+          canPreserveContractNumberSequence(
         contract.contract_number,
         contractNumberSite,
         input.startDate
       )
-      const contractNumberSequence = preservedContractNumberSequence ?? await nextContractNumberSequence(
+        const contractNumberSequence =
+          preservedContractNumberSequence ??
+          (await nextContractNumberSequence(
         conn,
         contractNumberSite,
         input.startDate
-      )
-      const contractNumber = contract.status === 'ACTIVE'
+          ))
+        const contractNumber =
+          contract.status === 'ACTIVE'
         ? contract.contract_number
-        : formatContractNumber(type.code, contractNumberSite, contractNumberSequence, input.startDate)
-      await conn.execute("UPDATE employee_contracts SET contract_number=?,contract_type_id=?,start_date=?,end_date=?,signed_date=?,issued_file_id=?,notes=?,terms_json=JSON_REMOVE(COALESCE(terms_json,JSON_OBJECT()), '$.contractPrintV1', '$.contractPrintV2'),updated_by=? WHERE id=?", [contractNumber,type.id,input.startDate,empty(input.endDate),empty(input.signedDate),await fileId(input.issuedFileUid),empty(input.notes),auth.id,contract.id])
-      await synchronizeActiveContractAfterEdit(conn,{ id: contract.id, uid: contract.uid, employeeId: contract.employee_id, siteId: contract.siteId, status: contract.status, startDate: input.startDate, endDate: input.endDate },auth)
-      await writeAudit({
+            : formatContractNumber(
+                type.code,
+                contractNumberSite,
+                contractNumberSequence,
+                input.startDate
+              )
+        await conn.execute(
+          "UPDATE employee_contracts SET contract_number=?,contract_type_id=?,start_date=?,end_date=?,signed_date=?,issued_file_id=?,notes=?,terms_json=JSON_REMOVE(COALESCE(terms_json,JSON_OBJECT()), '$.contractPrintV1', '$.contractPrintV2'),updated_by=? WHERE id=?",
+          [
+            contractNumber,
+            type.id,
+            input.startDate,
+            empty(input.endDate),
+            empty(input.signedDate),
+            await fileId(input.issuedFileUid),
+            empty(input.notes),
+            auth.id,
+            contract.id,
+          ]
+        )
+        await synchronizeActiveContractAfterEdit(
+          conn,
+          {
+            id: contract.id,
+            uid: contract.uid,
+            employeeId: contract.employee_id,
+            siteId: contract.siteId,
+            status: contract.status,
+            startDate: input.startDate,
+            endDate: input.endDate,
+          },
+          auth
+        )
+        await writeAudit(
+          {
         auth,
         request: req,
         siteId: contract.siteId,
@@ -2716,19 +4108,35 @@ employeesRouter.patch('/contracts/:contractUid', requirePermission('employees.ma
           signedDate: input.signedDate ?? null,
           notes: input.notes ?? null,
         },
-      }, conn)
+          },
+          conn
+        )
       await conn.commit()
-    } catch (error) { await conn.rollback(); throw error } finally {
+      } catch (error) {
+        await conn.rollback()
+        throw error
+      } finally {
       let connectionDestroyed = false
       if (contractNumberLockAcquired) {
-        try { await releaseContractNumberLock(conn) } catch { conn.destroy(); connectionDestroyed = true }
+          try {
+            await releaseContractNumberLock(conn)
+          } catch {
+            conn.destroy()
+            connectionDestroyed = true
+          }
       }
       if (!connectionDestroyed) conn.release()
     }
     res.status(204).end()
-  } catch (error) { next(error) }
-})
-employeesRouter.delete('/contracts/:contractUid', requirePermission('employees.manage'), async (req, res, next) => {
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+employeesRouter.delete(
+  '/contracts/:contractUid',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
   const conn = await pool.getConnection()
   try {
     const auth = res.locals.auth as AuthContext
@@ -2750,30 +4158,314 @@ employeesRouter.delete('/contracts/:contractUid', requirePermission('employees.m
     if (!contract) throw new ApiError(404, 'Kontrak tidak ditemukan.')
     enforceSite(auth, contract.site)
     if (!['DRAFT', 'CANCELLED'].includes(String(contract.status))) {
-      throw new ApiError(409, 'Hanya kontrak berstatus Draft atau Dibatalkan yang dapat dihapus.')
+        throw new ApiError(
+          409,
+          'Hanya kontrak berstatus Draft atau Dibatalkan yang dapat dihapus.'
+        )
+      }
+      await writeAudit(
+        {
+          auth,
+          request: req,
+          siteId: Number(contract.siteId),
+          action: 'DELETE',
+          table: 'employee_contracts',
+          recordId: Number(contract.id),
+          recordUid: contractUid,
+          description: `Menghapus kontrak ${contract.contractNumber}.`,
+          reason: 'Kontrak Draft atau Dibatalkan dihapus oleh pengguna.',
+          beforeData: {
+            employeeUid: contract.employeeUid,
+            employeeNumber: contract.employeeNumber,
+            contractNumber: contract.contractNumber,
+            status: contract.status,
+            startDate: contract.startDate,
+            endDate: contract.endDate ?? null,
+          },
+        },
+        conn
+      )
+      await conn.execute(
+        'DELETE FROM employee_contract_lifecycle_events WHERE contract_id=?',
+        [contract.id]
+      )
+      await conn.execute('DELETE FROM employee_contracts WHERE id=?', [
+        contract.id,
+      ])
+      await conn.commit()
+      res.status(204).end()
+    } catch (error) {
+      await conn.rollback()
+      next(error)
+    } finally {
+      conn.release()
     }
-    await writeAudit({ auth, request: req, siteId: Number(contract.siteId), action: 'DELETE', table: 'employee_contracts', recordId: Number(contract.id), recordUid: contractUid, description: `Menghapus kontrak ${contract.contractNumber}.`, reason: 'Kontrak Draft atau Dibatalkan dihapus oleh pengguna.', beforeData: { employeeUid: contract.employeeUid, employeeNumber: contract.employeeNumber, contractNumber: contract.contractNumber, status: contract.status, startDate: contract.startDate, endDate: contract.endDate ?? null } }, conn)
-    await conn.execute('DELETE FROM employee_contract_lifecycle_events WHERE contract_id=?', [contract.id])
-    await conn.execute('DELETE FROM employee_contracts WHERE id=?', [contract.id])
-    await conn.commit(); res.status(204).end()
-  } catch (error) { await conn.rollback(); next(error) }
-  finally { conn.release() }
-})
-employeesRouter.post('/contracts/:contractUid/:action', requirePermission('employees.manage'), async (req,res,next)=>{ try { const action=z.enum(['schedule','activate','terminate','resign','cancel','cancel_activation','close_expired_terminate','close_expired_resign','resolve_active_conflict']).parse(req.params.action); const input=z.object({effectiveDate:z.string().date().optional(),reason:z.string().trim().min(1).max(500).optional()}).parse(req.body); const contractUid=routeParam(req.params.contractUid); if (action === 'cancel_activation') { res.json(await cancelActiveContractActivation(contractUid,input,res.locals.auth,{ip:req.ip,userAgent:req.get('user-agent')})); return } if (action === 'close_expired_terminate' || action === 'close_expired_resign') { res.json(await closeExpiredContractEmployeeStatus(contractUid,action,input,res.locals.auth)); return } if (action === 'resolve_active_conflict') { res.json(await resolveActiveContractConflict(contractUid,input,res.locals.auth)); return } res.json(await transitionContract(contractUid,action,input,res.locals.auth)) }catch(error){next(error)} })
-employeesRouter.post('/:uid/documents', requirePermission('documents.manage'), async (req, res, next) => {
-  try { const input = documentInput.parse(req.body); const auth = res.locals.auth as AuthContext; const employee = await employeeAccess(routeParam(req.params.uid), auth); const uid = randomUUID(); await pool.execute('INSERT INTO employee_documents(uid,employee_id,document_type,document_number,name,file_id,issued_date,expiry_date,status,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)', [uid,employee.id,input.documentType,empty(input.documentNumber),input.name,await fileId(input.fileUid),empty(input.issuedDate),empty(input.expiryDate),input.status,empty(input.notes),auth.id,auth.id]); await writeAudit({ auth, request: req, siteId: employee.siteId, action: 'CREATE', table: 'employee_documents', recordUid: uid, description: `Menambah dokumen ${input.name}.` }); res.status(201).json({ uid }) } catch (error) { next(error) }
-})
-employeesRouter.patch('/documents/:documentUid', requirePermission('documents.manage'), async (req, res, next) => {
-  try { const input = documentInput.parse(req.body); const auth = res.locals.auth as AuthContext; const documentUid = routeParam(req.params.documentUid); const [rows] = await pool.query<RowDataPacket[]>('SELECT d.id,s.id siteId,s.code site FROM employee_documents d JOIN employees e ON e.id=d.employee_id JOIN sites s ON s.id=e.current_site_id WHERE d.uid=?', [documentUid]); if (!rows[0]) throw new ApiError(404, 'Dokumen tidak ditemukan.'); enforceSite(auth, rows[0].site); await pool.execute('UPDATE employee_documents SET document_type=?,document_number=?,name=?,file_id=?,issued_date=?,expiry_date=?,status=?,notes=?,updated_by=? WHERE id=?', [input.documentType,empty(input.documentNumber),input.name,await fileId(input.fileUid),empty(input.issuedDate),empty(input.expiryDate),input.status,empty(input.notes),auth.id,rows[0].id]); await writeAudit({ auth, request: req, siteId: rows[0].siteId, action: 'UPDATE', table: 'employee_documents', recordId: rows[0].id, recordUid: documentUid, description: `Memperbarui dokumen ${input.name}.` }); res.status(204).end() } catch (error) { next(error) }
-})
+  }
+)
+employeesRouter.post(
+  '/contracts/:contractUid/:action',
+  requirePermission('employees.manage'),
+  async (req, res, next) => {
+    try {
+      const action = z
+        .enum([
+          'schedule',
+          'activate',
+          'terminate',
+          'resign',
+          'cancel',
+          'cancel_activation',
+          'close_expired_terminate',
+          'close_expired_resign',
+          'resolve_active_conflict',
+        ])
+        .parse(req.params.action)
+      const input = z
+        .object({
+          effectiveDate: z.string().date().optional(),
+          reason: z.string().trim().min(1).max(500).optional(),
+        })
+        .parse(req.body)
+      const contractUid = routeParam(req.params.contractUid)
+      if (action === 'cancel_activation') {
+        res.json(
+          await cancelActiveContractActivation(
+            contractUid,
+            input,
+            res.locals.auth,
+            { ip: req.ip, userAgent: req.get('user-agent') }
+          )
+        )
+        return
+      }
+      if (
+        action === 'close_expired_terminate' ||
+        action === 'close_expired_resign'
+      ) {
+        res.json(
+          await closeExpiredContractEmployeeStatus(
+            contractUid,
+            action,
+            input,
+            res.locals.auth
+          )
+        )
+        return
+      }
+      if (action === 'resolve_active_conflict') {
+        res.json(
+          await resolveActiveContractConflict(
+            contractUid,
+            input,
+            res.locals.auth
+          )
+        )
+        return
+      }
+      res.json(
+        await transitionContract(contractUid, action, input, res.locals.auth)
+      )
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+employeesRouter.post(
+  '/:uid/documents',
+  requirePermission('documents.manage'),
+  async (req, res, next) => {
+    try {
+      const input = documentInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const employee = await employeeAccess(routeParam(req.params.uid), auth)
+      const uid = randomUUID()
+      await pool.execute(
+        'INSERT INTO employee_documents(uid,employee_id,document_type,document_number,name,file_id,issued_date,expiry_date,status,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+        [
+          uid,
+          employee.id,
+          input.documentType,
+          empty(input.documentNumber),
+          input.name,
+          await fileId(input.fileUid),
+          empty(input.issuedDate),
+          empty(input.expiryDate),
+          input.status,
+          empty(input.notes),
+          auth.id,
+          auth.id,
+        ]
+      )
+      await writeAudit({
+        auth,
+        request: req,
+        siteId: employee.siteId,
+        action: 'CREATE',
+        table: 'employee_documents',
+        recordUid: uid,
+        description: `Menambah dokumen ${input.name}.`,
+      })
+      res.status(201).json({ uid })
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+employeesRouter.patch(
+  '/documents/:documentUid',
+  requirePermission('documents.manage'),
+  async (req, res, next) => {
+    try {
+      const input = documentInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const documentUid = routeParam(req.params.documentUid)
+      const [rows] = await pool.query<RowDataPacket[]>(
+        'SELECT d.id,s.id siteId,s.code site FROM employee_documents d JOIN employees e ON e.id=d.employee_id JOIN sites s ON s.id=e.current_site_id WHERE d.uid=?',
+        [documentUid]
+      )
+      if (!rows[0]) throw new ApiError(404, 'Dokumen tidak ditemukan.')
+      enforceSite(auth, rows[0].site)
+      await pool.execute(
+        'UPDATE employee_documents SET document_type=?,document_number=?,name=?,file_id=?,issued_date=?,expiry_date=?,status=?,notes=?,updated_by=? WHERE id=?',
+        [
+          input.documentType,
+          empty(input.documentNumber),
+          input.name,
+          await fileId(input.fileUid),
+          empty(input.issuedDate),
+          empty(input.expiryDate),
+          input.status,
+          empty(input.notes),
+          auth.id,
+          rows[0].id,
+        ]
+      )
+      await writeAudit({
+        auth,
+        request: req,
+        siteId: rows[0].siteId,
+        action: 'UPDATE',
+        table: 'employee_documents',
+        recordId: rows[0].id,
+        recordUid: documentUid,
+        description: `Memperbarui dokumen ${input.name}.`,
+      })
+      res.status(204).end()
+    } catch (error) {
+      next(error)
+    }
+  }
+)
 
-function contractFrom() { return `FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_statuses currentEs ON currentEs.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id LEFT JOIN files f ON f.id=c.issued_file_id` }
-function contractCoverageFrom() { return `FROM employees e JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id LEFT JOIN employee_contracts c ON c.employee_id=e.id AND NOT EXISTS(SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=e.id AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id))) LEFT JOIN contract_types ct ON ct.id=c.contract_type_id LEFT JOIN files f ON f.id=c.issued_file_id` }
-function contractSelect() { return `SELECT c.id internalContractId,c.uid,e.uid employeeUid,e.full_name employeeName,et.code employeeType,currentEs.code employeeStatus,s.code site,pm.name productionModule,ps.name productionSection,c.contract_number contractNumber,ct.code contractType,c.sequence_number sequenceNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.status,DATE_FORMAT(c.terminated_at,'%Y-%m-%d') terminatedAt,c.termination_reason terminationReason,c.position_name_snapshot positionNameSnapshot,c.site_name_snapshot siteNameSnapshot,c.salary_or_rate_notes salaryOrRateNotes,c.notes,NOT EXISTS(SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=c.employee_id AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id))) isLatestForEmployee,(SELECT COUNT(*) FROM employee_contracts activeContract WHERE activeContract.employee_id=c.employee_id AND activeContract.status='ACTIVE' AND activeContract.start_date<=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')) AND (activeContract.end_date IS NULL OR activeContract.end_date>=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')))) activeValidContractCount,0 isMissingContract,0 isCoverageIssue,f.uid issuedFileUid,f.original_name issuedFileName,f.mime_type issuedFileMimeType,f.size_bytes issuedFileSizeBytes,f.extension issuedFileExtension,f.storage_path issuedFilePath ${contractFrom()} JOIN employee_types et ON et.id=e.employee_type_id` }
-function contractCoverageSelect() { return `SELECT COALESCE(c.uid,e.uid) uid,e.uid employeeUid,e.full_name employeeName,et.code employeeType,es.code employeeStatus,s.code site,pm.name productionModule,ps.name productionSection,COALESCE(c.contract_number,'Belum ada kontrak') contractNumber,COALESCE(ct.code,'MISSING') contractType,COALESCE(c.sequence_number,0) sequenceNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,COALESCE(c.status,'MISSING') status,DATE_FORMAT(c.terminated_at,'%Y-%m-%d') terminatedAt,c.termination_reason terminationReason,c.position_name_snapshot positionNameSnapshot,c.site_name_snapshot siteNameSnapshot,c.salary_or_rate_notes salaryOrRateNotes,c.notes,1 isLatestForEmployee,(SELECT COUNT(*) FROM employee_contracts activeContract WHERE activeContract.employee_id=e.id AND activeContract.status='ACTIVE' AND activeContract.start_date<=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')) AND (activeContract.end_date IS NULL OR activeContract.end_date>=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')))) activeValidContractCount,(c.id IS NULL) isMissingContract,1 isCoverageIssue,f.uid issuedFileUid,f.original_name issuedFileName,f.mime_type issuedFileMimeType,f.size_bytes issuedFileSizeBytes,f.extension issuedFileExtension,f.storage_path issuedFilePath ${contractCoverageFrom()}` }
-function mapContract(row: RowDataPacket) { const { internalContractId: _internalContractId, issuedFileUid, issuedFileName, issuedFileMimeType, issuedFileSizeBytes, issuedFileExtension, issuedFilePath, employeeName, site, employeeType, employeeStatus, isLatestForEmployee, activeValidContractCount, isMissingContract, isCoverageIssue, ...contract } = row; const today = businessDate(); const endDate = String(contract.endDate ?? ''); const isExpiringWithin7Days = contract.status === 'ACTIVE' && endDate >= today && endDate <= addBusinessDays(today, 7); const isExpiredWithin14Days = contract.status === 'EXPIRED' && endDate >= addBusinessDays(today, -14) && endDate < today; return { ...contract, employeeName, site, employeeType, employeeStatus, isLatestForEmployee: Boolean(isLatestForEmployee), activeValidContractCount: Number(activeValidContractCount ?? 0), isMissingContract: Boolean(isMissingContract), isCoverageIssue: Boolean(isCoverageIssue), isExpiringWithin7Days, isExpiredWithin14Days, issuedFile: issuedFileUid ? { uid: issuedFileUid, originalName: issuedFileName, mimeType: issuedFileMimeType, sizeBytes: Number(issuedFileSizeBytes), extension: issuedFileExtension, url: fileUrl(issuedFilePath) } : undefined } }
-function parseAuditData(value: unknown) { if (!value) return undefined; if (typeof value === 'object') return value; if (typeof value !== 'string') return undefined; try { return JSON.parse(value) } catch { return undefined } }
-function addBusinessDays(date: string, days: number) { const value = new Date(`${date}T00:00:00.000Z`); value.setUTCDate(value.getUTCDate() + days); return value.toISOString().slice(0, 10) }
-function documentFrom() { return `FROM employee_documents d JOIN employees e ON e.id=d.employee_id JOIN sites s ON s.id=e.current_site_id JOIN files f ON f.id=d.file_id` }
-function documentSelect() { return `SELECT d.uid,e.uid employeeUid,e.full_name employeeName,s.code site,d.document_type documentType,d.document_number documentNumber,d.name,DATE_FORMAT(d.issued_date,'%Y-%m-%d') issuedDate,DATE_FORMAT(d.expiry_date,'%Y-%m-%d') expiryDate,d.status,d.notes,f.uid fileUid,f.original_name originalName,f.mime_type mimeType,f.size_bytes sizeBytes,f.extension,f.storage_path filePath ${documentFrom()}` }
-function mapDocument(row: RowDataPacket) { const { fileUid, originalName, mimeType, sizeBytes, extension, filePath, employeeName, site, ...document } = row; return { ...document, employeeName, site, file: { uid: fileUid, originalName, mimeType, sizeBytes: Number(sizeBytes), extension, url: fileUrl(filePath) } } }
+function contractFrom() {
+  return `FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_statuses currentEs ON currentEs.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id LEFT JOIN files f ON f.id=c.issued_file_id`
+}
+function contractCoverageFrom() {
+  return `FROM employees e JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id LEFT JOIN employee_contracts c ON c.employee_id=e.id AND NOT EXISTS(SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=e.id AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id))) LEFT JOIN contract_types ct ON ct.id=c.contract_type_id LEFT JOIN files f ON f.id=c.issued_file_id`
+}
+function contractSelect() {
+  return `SELECT c.id internalContractId,c.uid,e.uid employeeUid,e.full_name employeeName,et.code employeeType,currentEs.code employeeStatus,s.code site,pm.name productionModule,ps.name productionSection,c.contract_number contractNumber,ct.code contractType,c.sequence_number sequenceNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.status,DATE_FORMAT(c.terminated_at,'%Y-%m-%d') terminatedAt,c.termination_reason terminationReason,c.position_name_snapshot positionNameSnapshot,c.site_name_snapshot siteNameSnapshot,c.salary_or_rate_notes salaryOrRateNotes,c.notes,NOT EXISTS(SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=c.employee_id AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id))) isLatestForEmployee,(SELECT COUNT(*) FROM employee_contracts activeContract WHERE activeContract.employee_id=c.employee_id AND activeContract.status='ACTIVE' AND activeContract.start_date<=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')) AND (activeContract.end_date IS NULL OR activeContract.end_date>=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')))) activeValidContractCount,0 isMissingContract,0 isCoverageIssue,f.uid issuedFileUid,f.original_name issuedFileName,f.mime_type issuedFileMimeType,f.size_bytes issuedFileSizeBytes,f.extension issuedFileExtension,f.storage_path issuedFilePath ${contractFrom()} JOIN employee_types et ON et.id=e.employee_type_id`
+}
+function contractCoverageSelect() {
+  return `SELECT COALESCE(c.uid,e.uid) uid,e.uid employeeUid,e.full_name employeeName,et.code employeeType,es.code employeeStatus,s.code site,pm.name productionModule,ps.name productionSection,COALESCE(c.contract_number,'Belum ada kontrak') contractNumber,COALESCE(ct.code,'MISSING') contractType,COALESCE(c.sequence_number,0) sequenceNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,COALESCE(c.status,'MISSING') status,DATE_FORMAT(c.terminated_at,'%Y-%m-%d') terminatedAt,c.termination_reason terminationReason,c.position_name_snapshot positionNameSnapshot,c.site_name_snapshot siteNameSnapshot,c.salary_or_rate_notes salaryOrRateNotes,c.notes,1 isLatestForEmployee,(SELECT COUNT(*) FROM employee_contracts activeContract WHERE activeContract.employee_id=e.id AND activeContract.status='ACTIVE' AND activeContract.start_date<=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')) AND (activeContract.end_date IS NULL OR activeContract.end_date>=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')))) activeValidContractCount,(c.id IS NULL) isMissingContract,1 isCoverageIssue,f.uid issuedFileUid,f.original_name issuedFileName,f.mime_type issuedFileMimeType,f.size_bytes issuedFileSizeBytes,f.extension issuedFileExtension,f.storage_path issuedFilePath ${contractCoverageFrom()}`
+}
+function mapContract(row: RowDataPacket) {
+  const {
+    internalContractId: _internalContractId,
+    issuedFileUid,
+    issuedFileName,
+    issuedFileMimeType,
+    issuedFileSizeBytes,
+    issuedFileExtension,
+    issuedFilePath,
+    employeeName,
+    site,
+    employeeType,
+    employeeStatus,
+    isLatestForEmployee,
+    activeValidContractCount,
+    isMissingContract,
+    isCoverageIssue,
+    ...contract
+  } = row
+  const today = businessDate()
+  const endDate = String(contract.endDate ?? '')
+  const isExpiringWithin7Days =
+    contract.status === 'ACTIVE' &&
+    endDate >= today &&
+    endDate <= addBusinessDays(today, 7)
+  const isExpiredWithin14Days =
+    contract.status === 'EXPIRED' &&
+    endDate >= addBusinessDays(today, -14) &&
+    endDate < today
+  return {
+    ...contract,
+    employeeName,
+    site,
+    employeeType,
+    employeeStatus,
+    isLatestForEmployee: Boolean(isLatestForEmployee),
+    activeValidContractCount: Number(activeValidContractCount ?? 0),
+    isMissingContract: Boolean(isMissingContract),
+    isCoverageIssue: Boolean(isCoverageIssue),
+    isExpiringWithin7Days,
+    isExpiredWithin14Days,
+    issuedFile: issuedFileUid
+      ? {
+          uid: issuedFileUid,
+          originalName: issuedFileName,
+          mimeType: issuedFileMimeType,
+          sizeBytes: Number(issuedFileSizeBytes),
+          extension: issuedFileExtension,
+          url: fileUrl(issuedFilePath),
+        }
+      : undefined,
+  }
+}
+function parseAuditData(value: unknown) {
+  if (!value) return undefined
+  if (typeof value === 'object') return value
+  if (typeof value !== 'string') return undefined
+  try {
+    return JSON.parse(value)
+  } catch {
+    return undefined
+  }
+}
+function addBusinessDays(date: string, days: number) {
+  const value = new Date(`${date}T00:00:00.000Z`)
+  value.setUTCDate(value.getUTCDate() + days)
+  return value.toISOString().slice(0, 10)
+}
+function documentFrom() {
+  return `FROM employee_documents d JOIN employees e ON e.id=d.employee_id JOIN sites s ON s.id=e.current_site_id JOIN files f ON f.id=d.file_id`
+}
+function documentSelect() {
+  return `SELECT d.uid,e.uid employeeUid,e.full_name employeeName,s.code site,d.document_type documentType,d.document_number documentNumber,d.name,DATE_FORMAT(d.issued_date,'%Y-%m-%d') issuedDate,DATE_FORMAT(d.expiry_date,'%Y-%m-%d') expiryDate,d.status,d.notes,f.uid fileUid,f.original_name originalName,f.mime_type mimeType,f.size_bytes sizeBytes,f.extension,f.storage_path filePath ${documentFrom()}`
+}
+function mapDocument(row: RowDataPacket) {
+  const {
+    fileUid,
+    originalName,
+    mimeType,
+    sizeBytes,
+    extension,
+    filePath,
+    employeeName,
+    site,
+    ...document
+  } = row
+  return {
+    ...document,
+    employeeName,
+    site,
+    file: {
+      uid: fileUid,
+      originalName,
+      mimeType,
+      sizeBytes: Number(sizeBytes),
+      extension,
+      url: fileUrl(filePath),
+    },
+  }
+}

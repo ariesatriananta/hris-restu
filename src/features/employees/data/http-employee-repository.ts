@@ -316,6 +316,26 @@ export const applyBatchMutation = async (items: BatchMutationItem[]) =>
     })
   ).data
 
+export const previewMutationImport = async (
+  input: import('../domain').MutationImportInput
+) =>
+  (
+    await apiClient.post<import('../domain').MutationImportPreview>(
+      '/employees/mutations/import/preview',
+      input
+    )
+  ).data
+
+export const importMutations = async (
+  input: import('../domain').MutationImportInput
+) =>
+  (
+    await apiClient.post<BatchMutationResult>(
+      '/employees/mutations/import',
+      input
+    )
+  ).data
+
 export const correctRegistration = async (
   employeeUid: string,
   input: RegistrationCorrectionInput

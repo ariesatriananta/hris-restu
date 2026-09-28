@@ -358,6 +358,35 @@ export interface BatchMutationResult {
   applied: number
   scheduled: number
 }
+export interface MutationImportItem {
+  employeeNumber: string
+  employeeName?: string
+  targetSite: SiteCode | string
+  targetDepartmentCode?: string
+  targetProductionModuleCode: string
+  targetProductionSectionCode: string
+  effectiveFrom: string
+}
+export interface MutationImportPreview {
+  rows: {
+    rowNumber: number
+    employeeNumber?: string
+    employeeName?: string
+    sourceSite?: SiteCode
+    targetSite?: SiteCode
+    effectiveFrom?: string
+    valid: boolean
+    issues: string[]
+  }[]
+  total: number
+  valid: number
+  invalid: number
+}
+export interface MutationImportInput {
+  mutationType: 'SITE_MUTATION'
+  reason: string
+  items: MutationImportItem[]
+}
 export interface ContractBatchItem {
   employeeUid: string
   input: {
