@@ -25,7 +25,10 @@ export const Route = createFileRoute('/_authenticated/karyawan/pkwt-dokumen')({
         z.enum([
           'ACTIVE_WITHOUT_VALID_CONTRACT',
           'EXPIRING_WITHIN_7_DAYS',
+          'EXPIRING_WITHIN_14_DAYS',
           'EXPIRED_WITHIN_14_DAYS',
+          'EXPIRED_WITHIN_30_DAYS',
+          'EXPIRED_WITHIN_60_DAYS',
         ])
       )
       .optional(),

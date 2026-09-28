@@ -209,7 +209,10 @@ export interface EmployeeContract {
   isMissingContract?: boolean
   isCoverageIssue?: boolean
   isExpiringWithin7Days?: boolean
+  isExpiringWithin14Days?: boolean
   isExpiredWithin14Days?: boolean
+  isExpiredWithin30Days?: boolean
+  isExpiredWithin60Days?: boolean
   lifecycleEvents?: ContractLifecycleEvent[]
   correctionHistory?: ContractCorrectionHistory[]
 }

@@ -504,7 +504,7 @@ export function RecordsTable({
               ? [
                   {
                     columnId: 'coverage',
-                    title: 'Kondisi kontrak',
+                    title: 'Kondisi Kontrak',
                     options: [
                       {
                         value: 'ACTIVE_WITHOUT_VALID_CONTRACT',
@@ -512,11 +512,23 @@ export function RecordsTable({
                       },
                       {
                         value: 'EXPIRING_WITHIN_7_DAYS',
-                        label: 'Berakhir dalam 7 hari',
+                        label: 'Akan Berakhir dalam 7 hari',
+                      },
+                      {
+                        value: 'EXPIRING_WITHIN_14_DAYS',
+                        label: 'Akan Berakhir dalam 14 hari',
                       },
                       {
                         value: 'EXPIRED_WITHIN_14_DAYS',
-                        label: 'Baru berakhir dalam 14 hari',
+                        label: 'Sudah Berakhir dalam 14 hari',
+                      },
+                      {
+                        value: 'EXPIRED_WITHIN_30_DAYS',
+                        label: 'Sudah Berakhir dalam 30 hari',
+                      },
+                      {
+                        value: 'EXPIRED_WITHIN_60_DAYS',
+                        label: 'Sudah Berakhir dalam 60 hari',
                       },
                     ],
                   },

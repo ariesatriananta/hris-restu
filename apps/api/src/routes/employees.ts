@@ -1576,10 +1576,15 @@ employeesRouter.get(
         selectionValues.push(...coverageValues)
       }
 
-      if (coverage.includes('EXPIRING_WITHIN_7_DAYS')) {
+      const expiringCoverageOptions = [
+        { value: 'EXPIRING_WITHIN_7_DAYS', days: 7 },
+        { value: 'EXPIRING_WITHIN_14_DAYS', days: 14 },
+      ] as const
+      for (const option of expiringCoverageOptions) {
+        if (!coverage.includes(option.value)) continue
         const expiringWhere = [
           "c.status='ACTIVE'",
-          'c.end_date BETWEEN ? AND DATE_ADD(?, INTERVAL 7 DAY)',
+          `c.end_date BETWEEN ? AND DATE_ADD(?, INTERVAL ${option.days} DAY)`,
           scoped.sql,
         ]
         const expiringValues: unknown[] = [today, today, ...scoped.params]
@@ -1607,10 +1612,16 @@ employeesRouter.get(
         selectionValues.push(...expiringValues)
       }
 
-      if (coverage.includes('EXPIRED_WITHIN_14_DAYS')) {
+      const expiredCoverageOptions = [
+        { value: 'EXPIRED_WITHIN_14_DAYS', days: 14 },
+        { value: 'EXPIRED_WITHIN_30_DAYS', days: 30 },
+        { value: 'EXPIRED_WITHIN_60_DAYS', days: 60 },
+      ] as const
+      for (const option of expiredCoverageOptions) {
+        if (!coverage.includes(option.value)) continue
         const recentlyExpiredWhere = [
           "c.status='EXPIRED'",
-          'c.end_date BETWEEN DATE_SUB(?, INTERVAL 14 DAY) AND DATE_SUB(?, INTERVAL 1 DAY)',
+          `c.end_date BETWEEN DATE_SUB(?, INTERVAL ${option.days} DAY) AND DATE_SUB(?, INTERVAL 1 DAY)`,
           `NOT EXISTS (SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=c.employee_id AND newer.status<>'CANCELLED' AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id)))`,
           scoped.sql,
         ]
@@ -1661,7 +1672,9 @@ employeesRouter.get(
       }
 
       if (selections.length) {
-        const union = selections.join(' UNION ALL ')
+        // Opsi rentang bersifat kumulatif (7 termasuk 14, 14 termasuk 30/60).
+        // UNION mencegah baris ganda saat beberapa opsi dipilih bersamaan.
+        const union = selections.join(' UNION ')
         const [count] = await pool.query<RowDataPacket[]>(
           `SELECT COUNT(*) total FROM (${union}) coverage_rows`,
           selectionValues
@@ -4394,9 +4407,21 @@ function mapContract(row: RowDataPacket) {
     contract.status === 'ACTIVE' &&
     endDate >= today &&
     endDate <= addBusinessDays(today, 7)
+  const isExpiringWithin14Days =
+    contract.status === 'ACTIVE' &&
+    endDate >= today &&
+    endDate <= addBusinessDays(today, 14)
   const isExpiredWithin14Days =
     contract.status === 'EXPIRED' &&
     endDate >= addBusinessDays(today, -14) &&
+    endDate < today
+  const isExpiredWithin30Days =
+    contract.status === 'EXPIRED' &&
+    endDate >= addBusinessDays(today, -30) &&
+    endDate < today
+  const isExpiredWithin60Days =
+    contract.status === 'EXPIRED' &&
+    endDate >= addBusinessDays(today, -60) &&
     endDate < today
   return {
     ...contract,
@@ -4409,7 +4434,10 @@ function mapContract(row: RowDataPacket) {
     isMissingContract: Boolean(isMissingContract),
     isCoverageIssue: Boolean(isCoverageIssue),
     isExpiringWithin7Days,
+    isExpiringWithin14Days,
     isExpiredWithin14Days,
+    isExpiredWithin30Days,
+    isExpiredWithin60Days,
     issuedFile: issuedFileUid
       ? {
           uid: issuedFileUid,

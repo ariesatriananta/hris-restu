@@ -108,6 +108,44 @@ describe('perpanjangan kontrak massal', () => {
     )
   })
 
+  it.each([
+    ['EXPIRING_WITHIN_14_DAYS', "c.status='ACTIVE'", 'INTERVAL 14 DAY'],
+    ['EXPIRED_WITHIN_30_DAYS', "c.status='EXPIRED'", 'INTERVAL 30 DAY'],
+    ['EXPIRED_WITHIN_60_DAYS', "c.status='EXPIRED'", 'INTERVAL 60 DAY'],
+  ])(
+    'menerapkan rentang kondisi kontrak %s',
+    async (coverage, expectedStatus, expectedInterval) => {
+      mocks.query
+        .mockResolvedValueOnce([[{ total: 0 }]])
+        .mockResolvedValueOnce([[]])
+
+      const response = await request(`/contracts?coverage=${coverage}`)
+
+      expect(response.status).toBe(200)
+      const countSql = String(mocks.query.mock.calls[0]?.[0])
+      expect(countSql).toContain(expectedStatus)
+      expect(countSql).toContain(expectedInterval)
+    }
+  )
+
+  it('menghapus duplikasi saat rentang kondisi kontrak yang bertumpuk dipilih bersama', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[{ total: 0 }]])
+      .mockResolvedValueOnce([[]])
+
+    const response = await request(
+      '/contracts?coverage=EXPIRING_WITHIN_7_DAYS,EXPIRING_WITHIN_14_DAYS,EXPIRED_WITHIN_14_DAYS,EXPIRED_WITHIN_30_DAYS,EXPIRED_WITHIN_60_DAYS'
+    )
+
+    expect(response.status).toBe(200)
+    const countSql = String(mocks.query.mock.calls[0]?.[0])
+    expect(countSql).toContain('INTERVAL 7 DAY')
+    expect(countSql).toContain('INTERVAL 14 DAY')
+    expect(countSql).toContain('INTERVAL 30 DAY')
+    expect(countSql).toContain('INTERVAL 60 DAY')
+    expect(countSql).not.toContain('UNION ALL')
+  })
+
   it('mempertahankan urutan pilihan dan menandai sumber yang hilang', async () => {
     const foundUid = '00000000-0000-4000-8000-000000000101'
     const missingUid = '00000000-0000-4000-8000-000000000102'

@@ -593,7 +593,7 @@ function ContractKpiCards({
         'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400',
     },
     {
-      label: 'Berakhir <= 7 hari',
+      label: 'Akan berakhir dalam 7 hari',
       value: data?.expiringWithin7Days,
       icon: Clock3,
       className:
@@ -692,9 +692,15 @@ function mapContracts(
         ? 'ACTIVE_WITHOUT_VALID_CONTRACT'
         : item.isExpiringWithin7Days
           ? 'EXPIRING_WITHIN_7_DAYS'
-          : item.isExpiredWithin14Days
-            ? 'EXPIRED_WITHIN_14_DAYS'
-            : 'NORMAL',
+          : item.isExpiringWithin14Days
+            ? 'EXPIRING_WITHIN_14_DAYS'
+            : item.isExpiredWithin14Days
+              ? 'EXPIRED_WITHIN_14_DAYS'
+              : item.isExpiredWithin30Days
+                ? 'EXPIRED_WITHIN_30_DAYS'
+                : item.isExpiredWithin60Days
+                  ? 'EXPIRED_WITHIN_60_DAYS'
+                  : 'NORMAL',
       expiry: item.status === 'ACTIVE' ? expiry(item.endDate) : undefined,
       contract: item,
     })),
