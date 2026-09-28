@@ -2,6 +2,8 @@
 import { Link } from '@tanstack/react-router'
 import {
   ArrowLeft,
+  BriefcaseBusiness,
+  CalendarClock,
   Contact,
   Download,
   ExternalLink,
@@ -39,7 +41,6 @@ import {
   useHistories,
   useScheduledMutations,
 } from '../data/queries'
-import type { Employee, EmployeeContract } from '../domain'
 import { educationLevelLabel } from '../education-level'
 import {
   contractStatusBadgeClassName,
@@ -51,6 +52,11 @@ import {
   statusLabel,
 } from '../utils'
 import { ContractDetailDrawer } from './contract-detail-drawer'
+import {
+  EmployeeProductionAssignments,
+  EmployeeShiftAssignments,
+} from './employee-assignment-tabs'
+import { EmployeeCurrentSummary } from './employee-current-summary'
 import { EmployeeDeleteAction } from './employee-delete-action'
 import { EmployeeIdCard } from './id-card'
 import { MutationDeleteDialog } from './mutation-delete-dialog'
@@ -100,6 +106,11 @@ export function EmployeeDetail({
       </Main>
     )
   const data = employee.data
+  const canViewShiftAssignments = hasPermission(
+    session,
+    'attendance.manage_shift'
+  )
+  const canViewProductionAssignments = hasPermission(session, 'production.view')
   return (
     <Main>
       <div className='mb-6'>
@@ -171,142 +182,148 @@ export function EmployeeDetail({
           </TabsTrigger>
           <TabsTrigger value='pribadi' className='h-10 flex-none gap-2 px-4'>
             <Contact className='size-4' />
-            Data pribadi
-          </TabsTrigger>
-          <TabsTrigger
-            value='foto-identitas'
-            className='h-10 flex-none gap-2 px-4'
-          >
-            <ImageIcon className='size-4' />
-            Foto Identitas
+            Data Pribadi
           </TabsTrigger>
           <TabsTrigger value='mutasi' className='h-10 flex-none gap-2 px-4'>
             <GitBranchPlus className='size-4' />
-            Penempatan & Mutasi
+            Mutasi
           </TabsTrigger>
           <TabsTrigger value='kontrak' className='h-10 flex-none gap-2 px-4'>
             <FileSignature className='size-4' />
             Kontrak
           </TabsTrigger>
+          {canViewShiftAssignments && (
+            <TabsTrigger value='shift' className='h-10 flex-none gap-2 px-4'>
+              <CalendarClock className='size-4' />
+              Shift
+            </TabsTrigger>
+          )}
+          {canViewProductionAssignments && (
+            <TabsTrigger
+              value='pekerjaan'
+              className='h-10 flex-none gap-2 px-4'
+            >
+              <BriefcaseBusiness className='size-4' />
+              Pekerjaan
+            </TabsTrigger>
+          )}
           <TabsTrigger value='dokumen' className='h-10 flex-none gap-2 px-4'>
             <FileText className='size-4' />
-            Dokumen
-          </TabsTrigger>
-          <TabsTrigger value='id-card' className='h-10 flex-none gap-2 px-4'>
-            <IdCard className='size-4' />
-            ID Card
+            Dokumen & ID Card
           </TabsTrigger>
         </TabsList>
         <TabsContent value='ringkasan'>
-          <div className='grid gap-4 md:grid-cols-2'>
-            <InfoCard
-              title='Penempatan aktif'
-              rows={[
-                ['Site', data.site],
-                ['Departemen', data.department],
-                ['Jabatan', data.position],
-                [
-                  'Penempatan produksi',
-                  [data.productionModule, data.productionSection]
-                    .filter(Boolean)
-                    .join(' • '),
-                ],
-                ['Jenis', statusLabel(data.employeeType)],
-                ['Bergabung', formatDate(data.joinDate)],
-              ]}
-            />
-            <InfoCard
-              title='Status kerja'
-              rows={[
-                [
-                  'Status',
-                  <EmployeeStatusBadge status={data.employeeStatus} />,
-                ],
-                ['Ringkasan', employmentStatusSummary(data, contracts.data)],
-                ['Tanggal tetap', formatDate(data.permanentDate)],
-                ['Tanggal resign', formatDate(data.resignDate)],
-                ['Alasan resign', data.resignReason],
-                ['Catatan', data.notes],
-              ]}
-            />
-          </div>
+          <EmployeeCurrentSummary
+            employee={data}
+            contracts={contracts.data}
+            contractsPending={contracts.isPending}
+            contractsError={contracts.isError}
+            documents={documents.data}
+            documentsPending={documents.isPending}
+            documentsError={documents.isError}
+            canViewShiftAssignments={canViewShiftAssignments}
+            canViewProductionAssignments={canViewProductionAssignments}
+          />
         </TabsContent>
         <TabsContent value='pribadi'>
-          <div className='grid gap-4 md:grid-cols-2'>
-            <InfoCard
-              title='Identitas, domisili & kontak'
-              rows={[
-                ['Nama panggilan', data.nickname],
-                ['Jenis kelamin', genderLabel(data.gender)],
-                [
-                  'Tempat/tanggal lahir',
-                  `${data.birthPlace ?? '—'} / ${formatDate(data.birthDate)}`,
-                ],
-                ['Status perkawinan', maritalStatusLabel(data.maritalStatus)],
-                ['Agama', data.religion],
-                [
-                  'Pendidikan terakhir',
-                  educationLevelLabel(data.educationLevel),
-                ],
-                ['Alamat', data.address],
-                ['RT/RW', data.rtrw],
-                ['Kelurahan', data.kelurahan],
-                ['Kecamatan', data.kecamatan],
-                ['Kota', data.city],
-                ['Provinsi', data.province],
-                ['Kode pos', data.postalCode],
-                ['Telepon', maskValue(data.phone)],
-                ['Email', data.email],
-              ]}
-            />
-            <InfoCard
-              title='Legal, bank & kontak darurat'
-              rows={[
-                ['NIK', maskValue(data.nationalIdNumber)],
-                ['Kartu keluarga', maskValue(data.familyCardNumber)],
-                ['NPWP', maskValue(data.taxNumber)],
-                ['BPJS Kesehatan', maskValue(data.bpjsHealthNumber)],
-                ['BPJS Ketenagakerjaan', maskValue(data.bpjsEmploymentNumber)],
-                ['Bank', data.bankName],
-                ['Pemilik rekening', data.bankAccountName],
-                ['Rekening', maskValue(data.bankAccountNumber)],
-                ['Nama kontak darurat', data.emergencyContactName],
-                ['Hubungan kontak darurat', data.emergencyContactRelation],
-                ['Kontak darurat', maskValue(data.emergencyContactPhone)],
-              ]}
-            />
-          </div>
-        </TabsContent>
-        <TabsContent value='foto-identitas'>
-          {documents.isPending ? (
-            <RecordSkeleton />
-          ) : documents.isError ? (
-            <Retry onClick={() => documents.refetch()} />
-          ) : (
-            <div className='grid gap-4 lg:grid-cols-3'>
-              <IdentityPhotoCard
-                title='Foto Karyawan'
-                attachment={data.photo}
-                emptyText='Belum ada foto karyawan.'
-                employeeUid={data.uid}
-                returnTo={listReturnTo}
+          <div className='space-y-6'>
+            <div className='grid gap-4 md:grid-cols-2'>
+              <InfoCard
+                title='Identitas, domisili & kontak'
+                rows={[
+                  ['Nama panggilan', data.nickname],
+                  ['Jenis kelamin', genderLabel(data.gender)],
+                  [
+                    'Tempat/tanggal lahir',
+                    `${data.birthPlace ?? '—'} / ${formatDate(data.birthDate)}`,
+                  ],
+                  ['Status perkawinan', maritalStatusLabel(data.maritalStatus)],
+                  ['Agama', data.religion],
+                  [
+                    'Pendidikan terakhir',
+                    educationLevelLabel(data.educationLevel),
+                  ],
+                  ['Alamat', data.address],
+                  ['RT/RW', data.rtrw],
+                  ['Kelurahan', data.kelurahan],
+                  ['Kecamatan', data.kecamatan],
+                  ['Kota', data.city],
+                  ['Provinsi', data.province],
+                  ['Kode pos', data.postalCode],
+                  ['Telepon', maskValue(data.phone)],
+                  ['Email', data.email],
+                ]}
               />
-              <IdentityPhotoCard
-                title='Foto KTP'
-                attachment={findIdentityDocument(documents.data, 'KTP')?.file}
-                emptyText='Belum ada foto KTP.'
-                employeeUid={data.uid}
-                returnTo={listReturnTo}
-              />
-              <IdentityPhotoCard
-                title='Foto KK'
-                attachment={findIdentityDocument(documents.data, 'KK')?.file}
-                emptyText='Belum ada foto KK.'
-                employeeUid={data.uid}
-                returnTo={listReturnTo}
+              <InfoCard
+                title='Legal, bank & kontak darurat'
+                rows={[
+                  ['NIK', maskValue(data.nationalIdNumber)],
+                  ['Kartu keluarga', maskValue(data.familyCardNumber)],
+                  ['NPWP', maskValue(data.taxNumber)],
+                  ['BPJS Kesehatan', maskValue(data.bpjsHealthNumber)],
+                  [
+                    'BPJS Ketenagakerjaan',
+                    maskValue(data.bpjsEmploymentNumber),
+                  ],
+                  ['Bank', data.bankName],
+                  ['Pemilik rekening', data.bankAccountName],
+                  ['Rekening', maskValue(data.bankAccountNumber)],
+                  ['Nama kontak darurat', data.emergencyContactName],
+                  ['Hubungan kontak darurat', data.emergencyContactRelation],
+                  ['Kontak darurat', maskValue(data.emergencyContactPhone)],
+                ]}
               />
             </div>
-          )}
+            <section
+              aria-labelledby='foto-identitas-title'
+              className='space-y-3'
+            >
+              <div>
+                <h2
+                  id='foto-identitas-title'
+                  className='flex items-center gap-2 text-base font-semibold'
+                >
+                  <ImageIcon className='size-5 text-primary' /> Foto Identitas
+                </h2>
+                <p className='mt-1 text-sm text-muted-foreground'>
+                  Foto karyawan dan dokumen identitas utama.
+                </p>
+              </div>
+              {documents.isPending ? (
+                <RecordSkeleton />
+              ) : documents.isError ? (
+                <Retry onClick={() => documents.refetch()} />
+              ) : (
+                <div className='grid gap-4 lg:grid-cols-3'>
+                  <IdentityPhotoCard
+                    title='Foto Karyawan'
+                    attachment={data.photo}
+                    emptyText='Belum ada foto karyawan.'
+                    employeeUid={data.uid}
+                    returnTo={listReturnTo}
+                  />
+                  <IdentityPhotoCard
+                    title='Foto KTP'
+                    attachment={
+                      findIdentityDocument(documents.data, 'KTP')?.file
+                    }
+                    emptyText='Belum ada foto KTP.'
+                    employeeUid={data.uid}
+                    returnTo={listReturnTo}
+                  />
+                  <IdentityPhotoCard
+                    title='Foto KK'
+                    attachment={
+                      findIdentityDocument(documents.data, 'KK')?.file
+                    }
+                    emptyText='Belum ada foto KK.'
+                    employeeUid={data.uid}
+                    returnTo={listReturnTo}
+                  />
+                </div>
+              )}
+            </section>
+          </div>
         </TabsContent>
         <TabsContent value='mutasi'>
           <div className='space-y-4'>
@@ -483,29 +500,52 @@ export function EmployeeDetail({
               }))}
           />
         </TabsContent>
+        {canViewShiftAssignments && (
+          <TabsContent value='shift'>
+            <EmployeeShiftAssignments employee={data} />
+          </TabsContent>
+        )}
+        {canViewProductionAssignments && (
+          <TabsContent value='pekerjaan'>
+            <EmployeeProductionAssignments employee={data} />
+          </TabsContent>
+        )}
         <TabsContent value='dokumen'>
-          <Records
-            title='Dokumen karyawan'
-            empty='Belum ada dokumen.'
-            pending={documents.isPending}
-            error={documents.isError}
-            retry={() => documents.refetch()}
-            returnTo={detailReturnTo}
-            add={{
-              to: '/karyawan/dokumen/tambah',
-              employeeUid: data.uid,
-              label: 'Tambah dokumen',
-            }}
-            items={documents.data?.map((item) => ({
-              actionLabel: item.documentNumber ?? item.name,
-              label: `${item.name} · ${statusLabel(item.status)} · ${item.file.originalName}`,
-              edit: `/karyawan/dokumen/${item.uid}/ubah`,
-              file: item.file.url,
-            }))}
-          />
-        </TabsContent>
-        <TabsContent value='id-card'>
-          <EmployeeIdCard employee={data} />
+          <div className='grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,420px)]'>
+            <Records
+              title='Dokumen karyawan'
+              empty='Belum ada dokumen.'
+              pending={documents.isPending}
+              error={documents.isError}
+              retry={() => documents.refetch()}
+              returnTo={detailReturnTo}
+              add={{
+                to: '/karyawan/dokumen/tambah',
+                employeeUid: data.uid,
+                label: 'Tambah dokumen',
+              }}
+              items={documents.data?.map((item) => ({
+                actionLabel: item.documentNumber ?? item.name,
+                label: `${item.name} · ${statusLabel(item.status)} · ${item.file.originalName}`,
+                edit: `/karyawan/dokumen/${item.uid}/ubah`,
+                file: item.file.url,
+              }))}
+            />
+            <Card>
+              <CardHeader>
+                <div className='flex items-center gap-2'>
+                  <IdCard className='size-5 text-primary' />
+                  <CardTitle>ID Card</CardTitle>
+                </div>
+                <p className='text-sm text-muted-foreground'>
+                  Pratinjau kartu identitas siap cetak untuk karyawan ini.
+                </p>
+              </CardHeader>
+              <CardContent className='flex justify-center overflow-x-auto'>
+                <EmployeeIdCard employee={data} />
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
       <MutationDialog
@@ -589,43 +629,6 @@ function EmployeeStatusBadge({ status }: { status: string }) {
   )
 }
 
-function employmentStatusSummary(
-  employee: Employee,
-  contracts?: EmployeeContract[]
-) {
-  if (contracts === undefined) return 'Memuat dasar kontrak...'
-
-  if (employee.employeeStatus === 'RESIGNED') {
-    return `Mengundurkan diri${employee.resignDate ? ` pada ${formatDate(employee.resignDate)}` : ''}.`
-  }
-
-  const active = contracts.find((contract) => contract.status === 'ACTIVE')
-  if (active) {
-    return `Aktif melalui kontrak ${active.contractNumber}${active.endDate ? ` hingga ${formatDate(active.endDate)}` : ''}.`
-  }
-
-  const expired = contracts.find((contract) => contract.status === 'EXPIRED')
-  if (employee.employeeStatus === 'ACTIVE' && expired) {
-    return `Aktif, tetapi kontrak ${expired.contractNumber} sudah berakhir${expired.endDate ? ` pada ${formatDate(expired.endDate)}` : ''}. HR perlu membuat kontrak pengganti.`
-  }
-
-  if (employee.employeeStatus === 'INACTIVE') {
-    const terminated = contracts.find(
-      (contract) => contract.status === 'TERMINATED'
-    )
-    if (terminated) {
-      return `Nonaktif — kontrak ${terminated.contractNumber} dihentikan${terminated.terminatedAt ? ` pada ${formatDate(terminated.terminatedAt)}` : ''}.`
-    }
-
-    if (expired) {
-      return `Nonaktif — kontrak ${expired.contractNumber} berakhir${expired.endDate ? ` pada ${formatDate(expired.endDate)}` : ''}.`
-    }
-
-    return 'Nonaktif — tidak ada kontrak aktif.'
-  }
-
-  return 'Status mengikuti lifecycle kontrak.'
-}
 function Records({
   title,
   empty,

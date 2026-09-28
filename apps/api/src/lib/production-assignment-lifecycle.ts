@@ -227,7 +227,8 @@ export async function continuePrimaryProductionAssignmentAfterRenewal(
       `SELECT assignment.id,assignment.site_id siteId,
               assignment.production_job_id jobId,assignment.status,
               assignment.is_primary isPrimary,
-              DATE_FORMAT(assignment.effective_from,'%Y-%m-%d') effectiveFrom
+              DATE_FORMAT(assignment.effective_from,'%Y-%m-%d') effectiveFrom,
+              DATE_FORMAT(assignment.effective_to,'%Y-%m-%d') effectiveTo
          FROM employee_job_assignments assignment
         WHERE assignment.employee_id=?
         ORDER BY assignment.effective_from,assignment.id
@@ -239,9 +240,11 @@ export async function continuePrimaryProductionAssignmentAfterRenewal(
         (assignment) =>
           String(assignment.status) !== 'ACTIVE' ||
           Number(assignment.isPrimary) !== 1 ||
-          Number(assignment.siteId) !== siteId ||
-          Number(assignment.jobId) !== defaultJobId ||
-          String(assignment.effectiveFrom) <= input.contractStartDate
+          (Number(assignment.siteId) === siteId
+            ? Number(assignment.jobId) !== defaultJobId ||
+              String(assignment.effectiveFrom) <= input.contractStartDate
+            : !assignment.effectiveTo ||
+              String(assignment.effectiveTo) >= input.contractStartDate)
       ) ||
       assignmentHistories.length > 1
     ) {

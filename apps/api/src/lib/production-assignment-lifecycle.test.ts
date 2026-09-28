@@ -236,4 +236,56 @@ describe('production assignment lifecycle', () => {
       '2026-08-01',
     ])
   })
+
+  it('memakai pekerjaan default site baru ketika assignment site lama sudah ditutup oleh transfer', async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([
+        [
+          {
+            siteId: 1,
+            employeeType: 'BORONGAN',
+            productionSectionCode: 'LINTING',
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[{ jobId: 24 }]])
+      .mockResolvedValueOnce([
+        [
+          {
+            id: 90,
+            siteId: 2,
+            jobId: 17,
+            status: 'ACTIVE',
+            isPrimary: 1,
+            effectiveFrom: '2026-08-01',
+            effectiveTo: '2026-09-18',
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+    const execute = vi.fn().mockResolvedValueOnce([{ insertId: 91 }])
+
+    const continued = await continuePrimaryProductionAssignmentAfterRenewal(
+      { query, execute } as never,
+      {
+        contractId: 31,
+        employeeId: 520,
+        contractStartDate: '2026-09-20',
+        previousCoverageEnd: '2026-09-19',
+        actorUserId: 7,
+      }
+    )
+
+    expect(continued).toMatchObject({
+      mode: 'CREATED',
+      source: 'SECTION_DEFAULT',
+      siteId: 1,
+      jobId: 24,
+      effectiveFrom: '2026-09-20',
+    })
+  })
 })

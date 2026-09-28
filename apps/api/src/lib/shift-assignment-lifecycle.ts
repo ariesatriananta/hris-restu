@@ -97,14 +97,28 @@ export async function continueShiftAssignmentAfterRenewal(
   let source: ContinuedShiftAssignment['source'] = 'PREVIOUS_ASSIGNMENT'
   if (!previousAssignment) {
     const [assignmentHistories] = await conn.query<RowDataPacket[]>(
-      `SELECT assignment.id
+      `SELECT assignment.id,shift.site_id siteId,
+              DATE_FORMAT(assignment.effective_to,'%Y-%m-%d') effectiveTo
          FROM employee_shift_assignments assignment
+         JOIN shifts shift ON shift.id=assignment.shift_id
         WHERE assignment.employee_id=?
         ORDER BY assignment.id
         FOR UPDATE`,
       [input.employeeId]
     )
-    if (assignmentHistories.length > 0 || employeeType !== 'BORONGAN') {
+    const onlyClosedAssignmentsFromOtherSites =
+      assignmentHistories.length > 0 &&
+      assignmentHistories.every(
+        (assignment) =>
+          Number(assignment.siteId) !== siteId &&
+          Boolean(assignment.effectiveTo) &&
+          String(assignment.effectiveTo) < input.contractStartDate
+      )
+    if (
+      (assignmentHistories.length > 0 &&
+        !onlyClosedAssignmentsFromOtherSites) ||
+      employeeType !== 'BORONGAN'
+    ) {
       return undefined
     }
     const [siteDefaults] = await conn.query<RowDataPacket[]>(

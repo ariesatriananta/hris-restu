@@ -149,6 +149,39 @@ describe('shift assignment renewal lifecycle', () => {
     ])
   })
 
+  it('memakai shift default site baru ketika histori site lama sudah ditutup oleh transfer', async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([[{ siteId: 1, employeeType: 'BORONGAN' }]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([
+        [{ id: 99, siteId: 2, effectiveTo: '2026-09-18' }],
+      ])
+      .mockResolvedValueOnce([[{ shiftId: 4 }]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+    const execute = vi.fn().mockResolvedValueOnce([{ insertId: 46 }])
+
+    const continued = await continueShiftAssignmentAfterRenewal(
+      { query, execute } as never,
+      {
+        employeeId: 520,
+        contractStartDate: '2026-09-20',
+        previousCoverageEnd: '2026-09-19',
+        actorUserId: 7,
+      }
+    )
+
+    expect(continued).toMatchObject({
+      mode: 'CREATED',
+      source: 'SITE_DEFAULT',
+      siteId: 1,
+      shiftId: 4,
+      effectiveFrom: '2026-09-20',
+    })
+  })
+
   it('tidak memakai shift default bila karyawan sudah memiliki histori ambigu', async () => {
     const query = vi
       .fn()

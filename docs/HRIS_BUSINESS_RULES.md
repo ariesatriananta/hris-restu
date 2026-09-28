@@ -100,11 +100,14 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   meninggalkan kontrak berstatus `ACTIVE` secara parsial. Untuk aktivasi
   terlambat, kesiapan tersebut wajib terpenuhi pada awal kontrak dan hari
   aktivasi. Khusus karyawan `BORONGAN` yang sama sekali belum memiliki histori
-  Shift, sistem memakai tepat satu Shift aktif berkode `BORONGAN_DEFAULT` pada
-  site penempatan dengan pola kerja Senin-Jumat. Bila pekerjaan utama sumber
-  tidak tersedia, sistem hanya boleh memakai pekerjaan aktif berkode
+  Shift, atau hanya memiliki histori Shift site lama yang sudah ditutup sebelum
+  awal kontrak karena Mutasi Site, sistem memakai tepat satu Shift aktif berkode
+  `BORONGAN_DEFAULT` pada site penempatan dengan pola kerja Senin-Jumat. Bila
+  pekerjaan utama sumber tidak tersedia, sistem hanya boleh memakai pekerjaan aktif berkode
   `BORONGAN-{KODE_BAGIAN}` yang sesuai Bagian Produksi dan memiliki tepat satu
-  tarif aktif; assignment lanjutan yang identik boleh diselaraskan ke awal
+  tarif aktif. Default site baru juga boleh dipakai bila seluruh assignment
+  pekerjaan sebelumnya berasal dari site lama dan sudah ditutup sebelum awal
+  kontrak oleh Mutasi Site; assignment lanjutan yang identik boleh diselaraskan ke awal
   kontrak. Default tidak boleh dipakai untuk menutupi histori yang ambigu.
 - Penugasan Shift pertama boleh dimundurkan paling awal ke tanggal terbesar antara go-live Attendance dan awal histori employment `ACTIVE` yang eligible pada site Shift. Karyawan yang pernah memiliki assignment hanya dapat memakai form penugasan biasa mulai hari ini atau masa depan.
 - Kesalahan assignment Shift yang sudah berlaku diperbaiki melalui Koreksi Penugasan Shift historis, bukan dengan menimpa atau menghapus histori. Koreksi diterapkan langsung oleh pengguna berizin `attendance.manage_shift`, wajib memiliki alasan dan preview dampak, menyusun ulang timeline tanpa overlap, merekonsiliasi snapshot Attendance tanpa mengubah scan mentah, serta menginvalidasi finalisasi terdampak. Koreksi diblokir untuk setoran produksi `POSTED`, payroll yang sudah dihitung/disetujui/ditutup, atau finalisasi yang sedang berjalan.

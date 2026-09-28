@@ -111,7 +111,7 @@ import {
 const sites: ProductionSite[] = ['JEPARA', 'SEMARANG', 'KLATEN']
 type PageProps = { search: Record<string, unknown>; navigate: NavigateFn }
 type PositionOption = { uid: string; code: string; name: string }
-type AssignmentPreset = {
+export type AssignmentPreset = {
   employeeUid: string
   employeeNumber: string
   fullName: string
@@ -842,7 +842,7 @@ function JobDialog({
   )
 }
 
-function AssignmentDialog({
+export function AssignmentDialog({
   jobs,
   open,
   onOpenChange,
@@ -1051,7 +1051,7 @@ function AssignmentDialog({
   )
 }
 
-function CloseAssignmentDialog({
+export function CloseAssignmentDialog({
   assignment,
 }: {
   assignment: { uid: string; effectiveFrom: string; employeeName: string }
@@ -1128,7 +1128,7 @@ function CloseAssignmentDialog({
   )
 }
 
-function AssignmentCorrectionDialog({
+export function AssignmentCorrectionDialog({
   assignment,
   jobs,
 }: {
@@ -1347,7 +1347,11 @@ function AssignmentCorrectionDialog({
   )
 }
 
-function DeleteAssignmentDialog({ assignment }: { assignment: ProductionAssignment }) {
+export function DeleteAssignmentDialog({
+  assignment,
+}: {
+  assignment: ProductionAssignment
+}) {
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [confirmation, setConfirmation] = useState('')

@@ -8,6 +8,7 @@ import {
   UserRoundX,
   XCircle,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 import { Button } from '@/components/ui/button'
 import {
@@ -25,6 +26,7 @@ import { DatePicker } from '@/components/date-picker'
 import { useScheduleStatusChange, useTransitionContract } from '../data/queries'
 import type { ContractLifecycleAction, EmployeeContract } from '../domain'
 import { formatDate } from '../utils'
+import { contractLifecycleErrorMessage } from './contract-lifecycle-error'
 
 type Action = Exclude<ContractLifecycleAction, 'schedule'> | 'schedule'
 
@@ -285,7 +287,11 @@ export function ContractLifecycleActionButtons({
                   ? { reason: reason.trim(), effectiveDate }
                   : {},
               },
-              { onSuccess: close }
+              {
+                onSuccess: close,
+                onError: (error) =>
+                  toast.error(contractLifecycleErrorMessage(error)),
+              }
             )
           }
         }}

@@ -37,6 +37,7 @@ import {
   statusLabel,
 } from '../utils'
 import { ContractLifecycleActionButtons } from './contract-lifecycle-action-buttons'
+import { contractLifecycleErrorMessage } from './contract-lifecycle-error'
 import { ContractDeleteAction } from './contract-delete-action'
 
 type ContractDetailDrawerProps = {
@@ -592,6 +593,8 @@ export function ContractDetailDrawer({
                   setReason('')
                   setEffectiveDate(today)
                 },
+                onError: (error) =>
+                  toast.error(contractLifecycleErrorMessage(error)),
               }
             )
           }
