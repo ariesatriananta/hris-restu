@@ -102,6 +102,12 @@ export const employeeKeys = {
     [...employeeKeys.all, 'scheduled-status-change-list', params] as const,
   onboardingReadiness: () =>
     [...employeeKeys.all, 'onboarding-readiness'] as const,
+  contractBatchActivationPreview: (contractUids: string[]) =>
+    [
+      ...employeeKeys.all,
+      'contract-batch-activation-preview',
+      contractUids,
+    ] as const,
 }
 export type EmployeeLookups = {
   sites: LookupOption[]
@@ -409,11 +415,19 @@ export function useRenewContractsBatch() {
     onSuccess: () => invalidate(queryClient),
   })
 }
-export function usePreviewContractsBatchActivation() {
-  return useMutation({
-    mutationFn: (contractUids: string[]) =>
-      previewContractsBatchActivation(contractUids),
-  })
+export function useContractsBatchActivationPreview(
+  contractUids: string[],
+  enabled = true
+) {
+  return useQuery(
+    queryOptions({
+      queryKey: employeeKeys.contractBatchActivationPreview(contractUids),
+      queryFn: () => previewContractsBatchActivation(contractUids),
+      enabled: enabled && contractUids.length > 0,
+      retry: 1,
+      staleTime: 0,
+    })
+  )
 }
 export function useActivateContractsBatch() {
   const queryClient = useQueryClient()

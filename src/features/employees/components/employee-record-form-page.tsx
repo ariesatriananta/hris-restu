@@ -259,6 +259,7 @@ function ContractForm({
         sequenceNumber: record?.sequenceNumber ?? 0,
         endDate: value.endDate || undefined,
         notes: value.notes || undefined,
+        renewalSourceContractUid: renewalSource?.uid,
         issuedFile: attachment,
       },
     })

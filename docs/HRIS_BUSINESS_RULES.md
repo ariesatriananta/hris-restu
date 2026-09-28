@@ -1,5 +1,7 @@
 ## Konteks produk
+
 Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site operasional: Jepara, Semarang, dan Klaten. Fokus utama sesuai PRD:
+
 - master dan histori karyawan;
 - PKWT, ID card, dan dokumen karyawan;
 - attendance masuk/pulang melalui scan barcode di browser HP;
@@ -8,9 +10,10 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
 - payroll borongan, simulasi, approval, closing, snapshot, slip gaji, dan histori;
 - fondasi shift dan payroll bulanan untuk staff/non-produksi;
 - role-based access, site-based access, dan audit trail.
-Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasional harus cepat, jelas, tahan terhadap input berulang, dan nyaman digunakan pada jam kerja.
+  Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasional harus cepat, jelas, tahan terhadap input berulang, dan nyaman digunakan pada jam kerja.
 
 ## Aturan bisnis penting
+
 - Jenis karyawan operasional: `BORONGAN`, `HARIAN`, `BULANAN`, dan `TRAINING`.
 - Skema upah memisahkan basis kalkulasi dan frekuensi pembayaran:
   `BORONGAN = PIECE_RATE/WEEKLY`, `HARIAN = TIME_BASED/WEEKLY`,
@@ -82,6 +85,27 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
 - Cetak template kontrak produksi tahap pertama hanya untuk kombinasi karyawan `BORONGAN` dengan kontrak `PKWT`.
 - Kontrak `ACTIVE` tidak dapat dikoreksi periodenya. Salah aktivasi hanya dapat dibatalkan menjadi `CANCELLED` bila belum memiliki tanda tangan/lampiran dan belum digunakan oleh attendance, produksi, payroll, histori lanjutan, atau status kerja terjadwal; selain itu gunakan Terminasi lalu buat kontrak baru.
 - Aktivasi kontrak membuat status karyawan `ACTIVE` efektif sejak tanggal mulai kontrak, termasuk ketika HR terlambat menjalankan aktivasi. Aktivasi ditolak bila penyelarasan mundur akan melewati histori employment yang lebih baru.
+- Aktivasi kontrak hasil perpanjangan merupakan satu transaksi kesiapan kerja.
+  Pembuatan perpanjangan individual maupun massal wajib menyimpan UID kontrak
+  sumber pada audit agar lifecycle aktivasi memakai sumber yang sama. Untuk
+  data individual lama tanpa metadata tersebut, sistem hanya boleh mengenali
+  renewal secara otomatis bila kontrak `EXPIRED` berakhir tepat H-1 dari awal
+  kontrak baru; kontrak baru setelah jeda tidak boleh dianggap renewal.
+  Sistem wajib mengaktifkan status dan histori kerja, mempertahankan atau
+  melanjutkan tepat satu penugasan Shift bagi karyawan eligible Attendance,
+  serta mempertahankan atau melanjutkan tepat satu pekerjaan utama beserta
+  tarif aktif bagi karyawan `PIECE_RATE` yang eligible Produksi. Bila salah satu
+  komponen tidak tersedia, ambigu, nonaktif, bertumpang-tindih, atau pernah
+  dikoreksi manual, seluruh aktivasi yang dipilih dibatalkan dan tidak boleh
+  meninggalkan kontrak berstatus `ACTIVE` secara parsial. Untuk aktivasi
+  terlambat, kesiapan tersebut wajib terpenuhi pada awal kontrak dan hari
+  aktivasi. Khusus karyawan `BORONGAN` yang sama sekali belum memiliki histori
+  Shift, sistem memakai tepat satu Shift aktif berkode `BORONGAN_DEFAULT` pada
+  site penempatan dengan pola kerja Senin-Jumat. Bila pekerjaan utama sumber
+  tidak tersedia, sistem hanya boleh memakai pekerjaan aktif berkode
+  `BORONGAN-{KODE_BAGIAN}` yang sesuai Bagian Produksi dan memiliki tepat satu
+  tarif aktif; assignment lanjutan yang identik boleh diselaraskan ke awal
+  kontrak. Default tidak boleh dipakai untuk menutupi histori yang ambigu.
 - Penugasan Shift pertama boleh dimundurkan paling awal ke tanggal terbesar antara go-live Attendance dan awal histori employment `ACTIVE` yang eligible pada site Shift. Karyawan yang pernah memiliki assignment hanya dapat memakai form penugasan biasa mulai hari ini atau masa depan.
 - Kesalahan assignment Shift yang sudah berlaku diperbaiki melalui Koreksi Penugasan Shift historis, bukan dengan menimpa atau menghapus histori. Koreksi diterapkan langsung oleh pengguna berizin `attendance.manage_shift`, wajib memiliki alasan dan preview dampak, menyusun ulang timeline tanpa overlap, merekonsiliasi snapshot Attendance tanpa mengubah scan mentah, serta menginvalidasi finalisasi terdampak. Koreksi diblokir untuk setoran produksi `POSTED`, payroll yang sudah dihitung/disetujui/ditutup, atau finalisasi yang sedang berjalan.
 - Koreksi Penugasan Shift dapat dibuat berlaku seterusnya hanya untuk assignment paling akhir. Karyawan wajib masih `ACTIVE`, eligible Attendance, dan tetap berada pada site Shift; tidak boleh ada assignment, mutasi, atau perubahan status terjadwal setelahnya. Rentang terbuka disimpan dengan `effective_to=NULL`, sedangkan rekonsiliasi Attendance dan invalidasi finalisasi hanya diproses sampai tanggal hari ini.
@@ -159,8 +183,9 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   tanpa tanggal akhir. Eligibility dari histori kerja tetap memblokir setoran
   ketika karyawan tidak aktif. Penugasan hanya ditutup otomatis ketika mutasi
   membuat karyawan berpindah site atau tidak lagi eligible Produksi. Saat
-  aktivasi perpanjangan, assignment utama lama yang telanjur ditutup otomatis
-  oleh perilaku lifecycle sebelumnya dilanjutkan sejak awal kontrak baru. Jika
+  aktivasi perpanjangan, assignment utama terakhir yang berakhir tepat pada
+  akhir kontrak sumber dilanjutkan sejak awal kontrak baru, termasuk histori
+  hasil backfill yang sejak awal telah memiliki tanggal akhir. Jika
   assignment lanjutan dengan pekerjaan dan site yang sama sudah dibuat pada
   tanggal yang lebih akhir, tanggal mulainya diselaraskan ke awal kontrak baru;
   assignment yang pernah ditutup atau dikoreksi manual tidak dilanjutkan.
@@ -169,8 +194,10 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   Produksi wajib memiliki tepat satu pekerjaan utama aktif serta tarif aktif
   untuk kombinasi site dan pekerjaan tersebut. Penugasan awal dari onboarding
   dibuat sekaligus per site dan otomatis mengikuti Bagian Produksi melalui kode
-  pekerjaan `BORONGAN-{KODE_BAGIAN}`. Penugasan berlaku mulai hari berjalan,
-  dan seluruh batch dibatalkan bila satu karyawan gagal validasi.
+  pekerjaan `BORONGAN-{KODE_BAGIAN}`. Tanggal mulai penugasan wajib sama dengan
+  tanggal mulai kontrak aktif dan harus memiliki histori kerja eligible serta
+  tarif aktif pada tanggal tersebut. Seluruh batch dibatalkan bila satu
+  karyawan gagal validasi.
 - Transaksi produksi menyimpan tarif dasar, rincian tingkat yang dipakai, dan
   bruto sebagai snapshot agar histori tidak berubah saat master diperbarui.
 - Koreksi transaksi Produksi bersifat append-only dan dapat diterapkan langsung
@@ -265,7 +292,7 @@ Jumlah pekerja borongan diperkirakan sekitar 400 orang per site. Halaman operasi
   hari kalender eligible.
 - Alpha dan Izin karyawan BULANAN dicatat sebagai potongan eksplisit dengan
   rumus default `gaji pokok / jumlah hari kerja terjadwal dalam periode x
-  jumlah hari Alpha/Izin`. Kalkulasi dibulatkan `HALF_UP` ke Rp1 per komponen
+jumlah hari Alpha/Izin`. Kalkulasi dibulatkan `HALF_UP` ke Rp1 per komponen
   karyawan.
 - Pembagi potongan BULANAN memakai seluruh hari kerja terjadwal dalam periode,
   bukan hanya hari setelah join atau sebelum resign. Jadwal mengikuti histori

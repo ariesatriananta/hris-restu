@@ -474,6 +474,12 @@ describe('Production foundation API', () => {
       ])
       .mockResolvedValueOnce([
         [
+          { employeeId: 10, startDate: todayJakarta() },
+          { employeeId: 11, startDate: todayJakarta() },
+        ],
+      ])
+      .mockResolvedValueOnce([
+        [
           { employeeId: 10, historyCount: 1 },
           { employeeId: 11, historyCount: 1 },
         ],
@@ -564,6 +570,9 @@ describe('Production foundation API', () => {
       ]])
       .mockResolvedValueOnce([[{ jobId: 20, rateCount: 1 }]])
       .mockResolvedValueOnce([[{ employeeId: 10, uid: employeeUid }]])
+      .mockResolvedValueOnce([
+        [{ employeeId: 10, startDate: '2026-08-15' }],
+      ])
       .mockResolvedValueOnce([[{ employeeId: 10, historyCount: 1 }]])
       .mockResolvedValueOnce([[]])
 
@@ -585,6 +594,50 @@ describe('Production foundation API', () => {
       expect.stringContaining('INSERT INTO employee_job_assignments'),
       expect.arrayContaining(['2026-08-15'])
     )
+  })
+
+  it('menolak tanggal mulai pekerjaan yang berbeda dari kontrak aktif', async () => {
+    const employeeUid = '33333333-3333-4333-8333-333333333331'
+    const jobUid = '11111111-1111-4111-8111-111111111111'
+    mocks.query
+      .mockResolvedValueOnce([
+        [
+          {
+            jobId: 20,
+            jobUid,
+            jobCode: 'BORONGAN-LINTING',
+            jobName: 'Linting',
+            siteId: 1,
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([[{ jobId: 20, rateCount: 1 }]])
+      .mockResolvedValueOnce([
+        [{ employeeId: 10, uid: employeeUid, employeeNumber: 'PKDS-2607-17001' }],
+      ])
+      .mockResolvedValueOnce([
+        [{ employeeId: 10, startDate: '2026-09-01' }],
+      ])
+
+    const response = await request('/assignments/batch', {
+      method: 'POST',
+      auth: auth({
+        permissions: ['production.manage_master'],
+        sites: ['JEPARA'],
+      }),
+      body: {
+        items: [{ employeeUid, jobUid }],
+        site: 'JEPARA',
+        effectiveFrom: '2026-09-26',
+      },
+    })
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toMatchObject({
+      message: expect.stringContaining('2026-09-01'),
+    })
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.rollback).toHaveBeenCalledOnce()
   })
 
   it('menolak tanggal mulai onboarding di masa depan', async () => {

@@ -199,6 +199,7 @@ export interface EmployeeContract {
   productionSection?: string
   salaryOrRateNotes?: string
   notes?: string
+  renewalSourceContractUid?: string
   issuedFile?: MockFileAttachment
   employeeName?: string
   site?: SiteCode

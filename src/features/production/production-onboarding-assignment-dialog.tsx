@@ -242,6 +242,7 @@ export function ProductionOnboardingAssignmentDialog({
                             disabledDates={(date) => {
                               const value = dateOnlyToInput(date)
                               return (
+                                value !== eligibility.defaultDate ||
                                 value < eligibility.eligibleFrom ||
                                 value > eligibility.eligibleTo
                               )
@@ -304,7 +305,7 @@ function productionAssignmentEligibility(
     today,
     employee.productionAssignmentEligibleTo
   )
-  const preferredDate = dayAfterPreviousContract ?? eligibleFrom
+  const preferredDate = employee.contractStartDate ?? eligibleFrom
 
   return {
     eligibleFrom,

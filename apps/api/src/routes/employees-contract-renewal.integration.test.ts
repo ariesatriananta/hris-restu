@@ -229,6 +229,74 @@ describe('perpanjangan kontrak massal', () => {
     expect(mocks.query).not.toHaveBeenCalled()
   })
 
+  it('menyimpan sumber renewal ketika kontrak dibuat dari alur individual', async () => {
+    const employeeUid = '00000000-0000-4000-8000-000000000011'
+    const sourceUid = '00000000-0000-4000-8000-000000000101'
+    mocks.query
+      .mockResolvedValueOnce([[{ acquired: 1 }]])
+      .mockResolvedValueOnce([
+        [
+          {
+            id: 11,
+            uid: employeeUid,
+            employeeNumber: 'PKDS-2308-03004',
+            joinDate: '2023-07-29',
+            employeeType: 'BORONGAN',
+            siteId: 1,
+            site: 'JEPARA',
+            position: 'Operator',
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([
+        [
+          {
+            sourceContractUid: sourceUid,
+            sourceContractNumber: 'PKWT/RSIAKDS-HR/003/VII/2025',
+            sourceStatus: 'EXPIRED',
+            sourceEndDate: '2026-07-28',
+            contractType: 'PKWT',
+            contractTypeActive: 1,
+            employeeId: 11,
+            employeeStatus: 'ACTIVE',
+            employeeType: 'BORONGAN',
+            newerContracts: 0,
+            openContracts: 0,
+            overlappingContracts: 0,
+            openStatusSchedules: 0,
+            openMutationSchedules: 0,
+            laterHistories: 0,
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[{ id: 2, code: 'PKWT' }]])
+      .mockResolvedValueOnce([[{ nextSequence: 2 }]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[{ released: 1 }]])
+
+    const response = await request(`/${employeeUid}/contracts`, {
+      contractType: 'PKWT',
+      startDate: '2026-07-29',
+      endDate: '2027-07-28',
+      renewalSourceContractUid: sourceUid,
+    })
+
+    expect(response.status).toBe(201)
+    expect(mocks.commit).toHaveBeenCalledOnce()
+    const auditCall = mocks.execute.mock.calls.find((call) =>
+      String(call[0]).includes('INSERT INTO audit_logs')
+    )
+    expect(auditCall).toBeDefined()
+    expect(auditCall?.[1]).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Membuat draft perpanjangan'),
+        expect.stringContaining(sourceUid),
+      ])
+    )
+  })
+
   it('menggagalkan seluruh create ketika sumber berubah saat revalidasi', async () => {
     const sourceUid = '00000000-0000-4000-8000-000000000101'
     mocks.query

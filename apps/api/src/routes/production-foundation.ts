@@ -1769,10 +1769,47 @@ productionFoundationRouter.post(
         throw new ApiError(422, 'Ada karyawan yang tidak ditemukan.')
       }
 
+      const employeeIds = employeeUids.map((uid) =>
+        Number(employeesByUid.get(uid)!.employeeId)
+      )
+      const today = businessDate()
+      const [activeContracts] = await connection.query<RowDataPacket[]>(
+        `SELECT contract.employee_id employeeId,
+                DATE_FORMAT(contract.start_date,'%Y-%m-%d') startDate
+           FROM employee_contracts contract
+          WHERE contract.employee_id IN (${employeeIds.map(() => '?').join(',')})
+            AND contract.status='ACTIVE' AND contract.start_date<=?
+            AND (contract.end_date IS NULL OR contract.end_date>=?)
+          ORDER BY contract.employee_id,contract.start_date DESC,contract.id DESC
+          FOR UPDATE`,
+        [...employeeIds, today, today]
+      )
+      const contractStartsByEmployee = new Map<number, string[]>()
+      for (const contract of activeContracts) {
+        const employeeId = Number(contract.employeeId)
+        const starts = contractStartsByEmployee.get(employeeId) ?? []
+        starts.push(String(contract.startDate))
+        contractStartsByEmployee.set(employeeId, starts)
+      }
+      for (const item of items) {
+        const employee = employeesByUid.get(item.employeeUid)!
+        const contractStarts =
+          contractStartsByEmployee.get(Number(employee.employeeId)) ?? []
+        if (contractStarts.length !== 1) {
+          throw new ApiError(
+            409,
+            `Kontrak aktif ${employee.employeeNumber} tidak ditemukan atau bertumpang tindih.`
+          )
+        }
+        if (item.effectiveFrom !== contractStarts[0]) {
+          throw new ApiError(
+            422,
+            `Tanggal mulai pekerjaan ${employee.employeeNumber} harus sama dengan tanggal mulai kontrak aktif, yaitu ${contractStarts[0]}.`
+          )
+        }
+      }
+
       if (effectiveDates.size === 1) {
-        const employeeIds = employeeUids.map((uid) =>
-          Number(employeesByUid.get(uid)!.employeeId)
-        )
         const [eligibleHistories] = await connection.query<RowDataPacket[]>(
           `SELECT history.employee_id employeeId,COUNT(*) historyCount
              FROM employee_employment_histories history
@@ -1825,9 +1862,6 @@ productionFoundationRouter.post(
       }
 
       if (effectiveDates.size === 1) {
-        const employeeIds = employeeUids.map((uid) =>
-          Number(employeesByUid.get(uid)!.employeeId)
-        )
         const [primaryAssignments] = await connection.query<RowDataPacket[]>(
           `SELECT employee_id employeeId
              FROM employee_job_assignments

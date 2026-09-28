@@ -117,6 +117,7 @@ describe('kesiapan onboarding karyawan', () => {
           shiftAssignmentCount: 1,
           primaryAssignmentCount: 0,
           primaryActiveRateCount: 0,
+          activeContractStartDate: '2026-09-19',
           previousContractEndDate: '2026-09-18',
           productionAssignmentEligibleFrom: '2026-09-19',
           productionAssignmentEligibleTo: '2027-09-18',
@@ -150,6 +151,7 @@ describe('kesiapan onboarding karyawan', () => {
       items: Array<{
         stage: string
         canContinue: boolean
+        contractStartDate?: string
         previousContractEndDate?: string
         productionAssignmentEligibleFrom?: string
         productionAssignmentEligibleTo?: string
@@ -176,6 +178,7 @@ describe('kesiapan onboarding karyawan', () => {
       true,
     ])
     expect(body.items[4]).toMatchObject({
+      contractStartDate: '2026-09-19',
       previousContractEndDate: '2026-09-18',
       productionAssignmentEligibleFrom: '2026-09-19',
       productionAssignmentEligibleTo: '2027-09-18',

@@ -165,6 +165,7 @@ export const httpEmployeeRepository: EmployeeRepository = {
       signedDate: input.signedDate,
       issuedFileUid: input.issuedFile?.uid,
       notes: input.notes,
+      renewalSourceContractUid: input.renewalSourceContractUid,
     }
     if (uid) {
       await apiClient.patch(`/employees/contracts/${uid}`, body)

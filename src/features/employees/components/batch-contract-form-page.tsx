@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
 import { useNavigate } from '@tanstack/react-router'
 import {
@@ -35,7 +35,7 @@ import {
 } from '../data/http-employee-repository'
 import {
   useActivateContractsBatch,
-  usePreviewContractsBatchActivation,
+  useContractsBatchActivationPreview,
   useRenewContractsBatch,
   useSaveContractsBatch,
 } from '../data/queries'
@@ -151,11 +151,11 @@ function StandardBatchContractFormPage({
   const [step, setStep] = useState<2 | 3>(resumedContractUids.length ? 3 : 2)
   const [createdContractUids, setCreatedContractUids] =
     useState<string[]>(resumedContractUids)
-  const [activationPreview, setActivationPreview] =
-    useState<ContractBatchActivationPreview>()
   const saveBatch = useSaveContractsBatch()
-  const activationPreviewMutation = usePreviewContractsBatchActivation()
-  const loadedActivationCheckpoint = useRef('')
+  const activationPreviewQuery = useContractsBatchActivationPreview(
+    createdContractUids,
+    step === 3
+  )
   const activateBatch = useActivateContractsBatch()
   const [sharedInput, setSharedInput] = useState<BatchContractInput>({
     contractType: 'PKWT',
@@ -249,18 +249,6 @@ function StandardBatchContractFormPage({
     }
   }, [employeeUids])
 
-  useEffect(() => {
-    const checkpoint = resumedContractUids.join(',')
-    if (!checkpoint || loadedActivationCheckpoint.current === checkpoint) return
-    loadedActivationCheckpoint.current = checkpoint
-    setCreatedContractUids(resumedContractUids)
-    setStep(3)
-    activationPreviewMutation.mutate(resumedContractUids, {
-      onSuccess: setActivationPreview,
-      onError: () => toast.error('Preview aktivasi kontrak gagal dimuat.'),
-    })
-  }, [activationPreviewMutation, resumedContractUids])
-
   const updateRow = (
     index: number,
     patch: Partial<BatchContractRow['input']>
@@ -328,11 +316,6 @@ function StandardBatchContractFormPage({
               ignoreBlocker: true,
             })
           }
-          activationPreviewMutation.mutate(contractUids, {
-            onSuccess: setActivationPreview,
-            onError: () =>
-              toast.error('Preview aktivasi kontrak gagal dimuat.'),
-          })
         },
         onError: (error) =>
           toast.error(
@@ -371,8 +354,10 @@ function StandardBatchContractFormPage({
 
       {step === 3 ? (
         <ActivationReview
-          preview={activationPreview}
-          isLoading={activationPreviewMutation.isPending}
+          preview={activationPreviewQuery.data}
+          isLoading={activationPreviewQuery.isPending}
+          isError={activationPreviewQuery.isError}
+          onRetry={() => activationPreviewQuery.refetch()}
           isActivating={activateBatch.isPending}
           onActivate={() => {
             activateBatch.mutate(createdContractUids, {
@@ -575,15 +560,14 @@ function ContractRenewalBatchFormPage({
   const [rows, setRows] = useState<BatchContractRow[]>([])
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [createdContractUids, setCreatedContractUids] = useState<string[]>([])
-  const [activationPreview, setActivationPreview] =
-    useState<ContractBatchActivationPreview>()
   const [renewalPreview, setRenewalPreview] =
     useState<ContractBatchRenewalPreview>()
   const [isRenewalPreviewPending, setRenewalPreviewPending] = useState(false)
   const [isRenewalPreviewError, setRenewalPreviewError] = useState(false)
   const [renewalPreviewAttempt, setRenewalPreviewAttempt] = useState(0)
   const renewBatch = useRenewContractsBatch()
-  const activationPreviewMutation = usePreviewContractsBatchActivation()
+  const activationPreviewQuery =
+    useContractsBatchActivationPreview(createdContractUids)
   const activateBatch = useActivateContractsBatch()
   const { confirmation } = useUnsavedChanges(rows.length > 0)
   const rowErrors = useMemo(() => validateRows(rows), [rows])
@@ -649,11 +633,6 @@ function ContractRenewalBatchFormPage({
           setConfirmOpen(false)
           const contractUids = result.created.map((item) => item.uid)
           setCreatedContractUids(contractUids)
-          activationPreviewMutation.mutate(contractUids, {
-            onSuccess: setActivationPreview,
-            onError: () =>
-              toast.error('Preview aktivasi kontrak gagal dimuat.'),
-          })
         },
         onError: (error) =>
           toast.error(
@@ -690,8 +669,10 @@ function ContractRenewalBatchFormPage({
 
       {createdContractUids.length ? (
         <ActivationReview
-          preview={activationPreview}
-          isLoading={activationPreviewMutation.isPending}
+          preview={activationPreviewQuery.data}
+          isLoading={activationPreviewQuery.isPending}
+          isError={activationPreviewQuery.isError}
+          onRetry={() => activationPreviewQuery.refetch()}
           isActivating={activateBatch.isPending}
           onActivate={() =>
             activateBatch.mutate(createdContractUids, {
@@ -1008,14 +989,18 @@ function SharedContractForm({
 function ActivationReview({
   preview,
   isLoading,
+  isError,
   isActivating,
   onActivate,
+  onRetry,
   onBack,
 }: {
   preview?: ContractBatchActivationPreview
   isLoading: boolean
+  isError: boolean
   isActivating: boolean
   onActivate: () => void
+  onRetry: () => void
   onBack?: () => void
 }) {
   return (
@@ -1037,6 +1022,19 @@ function ActivationReview({
         <div className='flex items-center gap-2 rounded-lg border p-5 text-sm text-muted-foreground'>
           <LoaderCircle className='size-4 animate-spin' /> Memeriksa kesiapan
           aktivasi...
+        </div>
+      ) : isError ? (
+        <div className='rounded-lg border border-destructive/30 bg-destructive/5 p-5 text-sm'>
+          <p className='font-medium text-destructive'>
+            Kesiapan aktivasi gagal diperiksa.
+          </p>
+          <p className='mt-1 text-muted-foreground'>
+            Draft tetap tersimpan. Muat ulang pemeriksaan sebelum mengaktifkan
+            kontrak.
+          </p>
+          <Button className='mt-3' variant='outline' onClick={onRetry}>
+            Muat ulang pemeriksaan
+          </Button>
         </div>
       ) : preview ? (
         <>

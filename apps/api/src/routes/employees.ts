@@ -224,7 +224,10 @@ const contractFields = {
   notes: optional,
 }
 const contractCreateInput = z
-  .object(contractFields)
+  .object({
+    ...contractFields,
+    renewalSourceContractUid: z.string().uuid().optional(),
+  })
   .refine((value) => !value.endDate || value.endDate >= value.startDate, {
     message: 'Tanggal kontrak tidak valid.',
     path: ['endDate'],
@@ -1091,6 +1094,13 @@ employeesRouter.get(
                     ps.name productionSectionName,
                     pending.uid contractUid,pending.contract_number contractNumber,
                     DATE_FORMAT(pending.start_date,'%Y-%m-%d') contractStartDate,
+                    (SELECT DATE_FORMAT(active_contract.start_date,'%Y-%m-%d')
+                       FROM employee_contracts active_contract
+                      WHERE active_contract.employee_id=e.id
+                        AND active_contract.status='ACTIVE'
+                      ORDER BY active_contract.start_date DESC,
+                               active_contract.id DESC
+                      LIMIT 1) activeContractStartDate,
                     (SELECT DATE_FORMAT(previous_contract.end_date,'%Y-%m-%d')
                        FROM employee_contracts previous_contract
                       WHERE previous_contract.employee_id=e.id
@@ -1250,7 +1260,9 @@ employeesRouter.get(
         const employeeStatus = String(row.employeeStatus)
         const contractStartDate = row.contractStartDate
           ? String(row.contractStartDate)
-          : undefined
+          : row.activeContractStartDate
+            ? String(row.activeContractStartDate)
+            : undefined
         const primaryAssignmentCount = Number(row.primaryAssignmentCount ?? 0)
         const primaryActiveRateCount = Number(row.primaryActiveRateCount ?? 0)
         const stage =
@@ -3539,7 +3551,7 @@ async function createDraftContract(
   request: Request,
   employeeUid: string,
   input: z.infer<typeof contractCreateInput>,
-  renewalSource?: { uid: string; contractNumber: string }
+  knownRenewalSource?: { uid: string; contractNumber: string }
 ) {
   const uid = randomUUID()
   const [employees] = await conn.query<RowDataPacket[]>(
@@ -3549,6 +3561,40 @@ async function createDraftContract(
   const employee = employees[0]
   if (!employee) throw new ApiError(404, 'Karyawan tidak ditemukan.')
   enforceSite(auth, employee.site)
+  let renewalSource = knownRenewalSource
+  if (!renewalSource && input.renewalSourceContractUid) {
+    const [sourceRows] = await conn.query<RowDataPacket[]>(
+      renewalSourceSelect([input.renewalSourceContractUid]),
+      [input.renewalSourceContractUid]
+    )
+    const source = sourceRows[0]
+    if (!source || Number(source.employeeId) !== Number(employee.id)) {
+      throw new ApiError(
+        422,
+        'Kontrak sumber perpanjangan tidak ditemukan untuk karyawan ini.'
+      )
+    }
+    const issues = renewalSourceIssues(source, businessDate())
+    if (issues.length) {
+      throw new ApiError(
+        409,
+        `Kontrak sumber tidak dapat diperpanjang. ${issues[0]}`
+      )
+    }
+    if (
+      !source.sourceEndDate ||
+      input.startDate <= String(source.sourceEndDate)
+    ) {
+      throw new ApiError(
+        422,
+        'Tanggal mulai perpanjangan harus setelah tanggal akhir kontrak sumber.'
+      )
+    }
+    renewalSource = {
+      uid: String(source.sourceContractUid),
+      contractNumber: String(source.sourceContractNumber),
+    }
+  }
   await assertNoOpenScheduledStatusChange(conn, employee.id)
   const contractTypeCode = input.contractType
   const [contractTypes] = await conn.query<RowDataPacket[]>(

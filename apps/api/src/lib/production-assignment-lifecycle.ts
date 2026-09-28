@@ -4,12 +4,13 @@ import { randomUUID } from 'node:crypto'
 
 export type ContinuedProductionAssignment = {
   mode: 'CREATED' | 'REALIGNED'
+  source: 'PREVIOUS_ASSIGNMENT' | 'SECTION_DEFAULT'
   id: number
   uid: string
   employeeId: number
   siteId: number
   jobId: number
-  sourceAssignmentUid: string
+  sourceAssignmentUid?: string
   effectiveFrom: string
   previousEffectiveFrom?: string
   effectiveTo?: string
@@ -102,11 +103,13 @@ export async function continuePrimaryProductionAssignmentAfterRenewal(
     contractId: number
     employeeId: number
     contractStartDate: string
+    previousCoverageEnd?: string
     actorUserId: number | null
   }
 ): Promise<ContinuedProductionAssignment | undefined> {
   const [eligibleHistories] = await conn.query<RowDataPacket[]>(
-    `SELECT history.site_id siteId
+    `SELECT history.site_id siteId,employee_type.code employeeType,
+            production_section.code productionSectionCode
        FROM employee_employment_histories history
        JOIN employee_statuses employee_status
          ON employee_status.id=history.employee_status_id
@@ -114,6 +117,12 @@ export async function continuePrimaryProductionAssignmentAfterRenewal(
        JOIN employee_types employee_type
          ON employee_type.id=history.employee_type_id
         AND employee_type.payroll_basis='PIECE_RATE'
+       LEFT JOIN production_module_sections module_section
+         ON module_section.id=history.production_module_section_id
+        AND module_section.is_active=1
+       LEFT JOIN production_sections production_section
+         ON production_section.id=module_section.production_section_id
+        AND production_section.is_active=1
       WHERE history.employee_id=?
         AND history.effective_from<=?
         AND (history.effective_to IS NULL OR history.effective_to>=?)
@@ -123,31 +132,35 @@ export async function continuePrimaryProductionAssignmentAfterRenewal(
   )
   if (eligibleHistories.length !== 1) return undefined
 
-  const siteId = Number(eligibleHistories[0].siteId)
-  const [previousContracts] = await conn.query<RowDataPacket[]>(
-    `SELECT contract.id,
-            DATE_FORMAT(COALESCE(
-              CASE WHEN contract.status='TERMINATED'
-                THEN contract.terminated_at ELSE contract.end_date END,
-              contract.end_date
-            ),'%Y-%m-%d') coverageEnd
-       FROM employee_contracts contract
-      WHERE contract.employee_id=? AND contract.id<>?
-        AND contract.status IN ('EXPIRED','TERMINATED')
-        AND COALESCE(
+  const eligibleHistory = eligibleHistories[0]
+  const siteId = Number(eligibleHistory.siteId)
+  let previousCoverageEnd = input.previousCoverageEnd
+  if (!previousCoverageEnd) {
+    const [previousContracts] = await conn.query<RowDataPacket[]>(
+      `SELECT contract.id,
+              DATE_FORMAT(COALESCE(
+                CASE WHEN contract.status='TERMINATED'
+                  THEN contract.terminated_at ELSE contract.end_date END,
+                contract.end_date
+              ),'%Y-%m-%d') coverageEnd
+         FROM employee_contracts contract
+        WHERE contract.employee_id=? AND contract.id<>?
+          AND contract.status IN ('EXPIRED','TERMINATED')
+          AND COALESCE(
+            CASE WHEN contract.status='TERMINATED'
+              THEN contract.terminated_at ELSE contract.end_date END,
+            contract.end_date
+          )<?
+        ORDER BY COALESCE(
           CASE WHEN contract.status='TERMINATED'
             THEN contract.terminated_at ELSE contract.end_date END,
           contract.end_date
-        )<?
-      ORDER BY COALESCE(
-        CASE WHEN contract.status='TERMINATED'
-          THEN contract.terminated_at ELSE contract.end_date END,
-        contract.end_date
-      ) DESC,contract.id DESC
-      LIMIT 1 FOR UPDATE`,
-    [input.employeeId, input.contractId, input.contractStartDate]
-  )
-  const previousCoverageEnd = previousContracts[0]?.coverageEnd
+        ) DESC,contract.id DESC
+        LIMIT 1 FOR UPDATE`,
+      [input.employeeId, input.contractId, input.contractStartDate]
+    )
+    previousCoverageEnd = previousContracts[0]?.coverageEnd
+  }
   if (!previousCoverageEnd) return undefined
 
   const [previousAssignments] = await conn.query<RowDataPacket[]>(
@@ -159,7 +172,6 @@ export async function continuePrimaryProductionAssignmentAfterRenewal(
       WHERE assignment.employee_id=? AND assignment.site_id=?
         AND assignment.status='ACTIVE' AND assignment.is_primary=1
         AND assignment.effective_to=?
-        AND assignment.updated_at>assignment.created_at
         AND NOT EXISTS (
           SELECT 1 FROM audit_logs audit
            WHERE audit.table_name='employee_job_assignments'
@@ -174,8 +186,70 @@ export async function continuePrimaryProductionAssignmentAfterRenewal(
       LIMIT 1 FOR UPDATE`,
     [input.employeeId, siteId, previousCoverageEnd]
   )
-  const previousAssignment = previousAssignments[0]
-  if (!previousAssignment) return undefined
+  const previousAssignmentRow = previousAssignments[0]
+  let previousAssignment: { uid?: string; jobId: number } | undefined =
+    previousAssignmentRow
+      ? {
+          uid: String(previousAssignmentRow.uid),
+          jobId: Number(previousAssignmentRow.jobId),
+        }
+      : undefined
+  let source: ContinuedProductionAssignment['source'] = 'PREVIOUS_ASSIGNMENT'
+  if (!previousAssignment) {
+    const sectionCode = String(eligibleHistory.productionSectionCode ?? '')
+      .trim()
+      .toUpperCase()
+    if (String(eligibleHistory.employeeType) !== 'BORONGAN' || !sectionCode) {
+      return undefined
+    }
+    const [sectionDefaults] = await conn.query<RowDataPacket[]>(
+      `SELECT job.id jobId
+         FROM production_jobs job
+         JOIN work_units unit
+           ON unit.id=job.default_unit_id AND unit.is_active=1
+         JOIN production_job_rates rate
+           ON rate.production_job_id=job.id AND rate.site_id=?
+          AND rate.status='ACTIVE' AND rate.effective_from<=?
+          AND (rate.effective_to IS NULL OR rate.effective_to>=?)
+        WHERE UPPER(job.code)=? AND job.is_active=1
+        ORDER BY job.id,rate.id
+        FOR UPDATE`,
+      [
+        siteId,
+        input.contractStartDate,
+        input.contractStartDate,
+        `BORONGAN-${sectionCode}`,
+      ]
+    )
+    if (sectionDefaults.length !== 1) return undefined
+    const defaultJobId = Number(sectionDefaults[0].jobId)
+    const [assignmentHistories] = await conn.query<RowDataPacket[]>(
+      `SELECT assignment.id,assignment.site_id siteId,
+              assignment.production_job_id jobId,assignment.status,
+              assignment.is_primary isPrimary,
+              DATE_FORMAT(assignment.effective_from,'%Y-%m-%d') effectiveFrom
+         FROM employee_job_assignments assignment
+        WHERE assignment.employee_id=?
+        ORDER BY assignment.effective_from,assignment.id
+        FOR UPDATE`,
+      [input.employeeId]
+    )
+    if (
+      assignmentHistories.some(
+        (assignment) =>
+          String(assignment.status) !== 'ACTIVE' ||
+          Number(assignment.isPrimary) !== 1 ||
+          Number(assignment.siteId) !== siteId ||
+          Number(assignment.jobId) !== defaultJobId ||
+          String(assignment.effectiveFrom) <= input.contractStartDate
+      ) ||
+      assignmentHistories.length > 1
+    ) {
+      return undefined
+    }
+    previousAssignment = { jobId: defaultJobId }
+    source = 'SECTION_DEFAULT'
+  }
 
   const [coveringAssignments] = await conn.query<RowDataPacket[]>(
     `SELECT assignment.id
@@ -219,12 +293,15 @@ export async function continuePrimaryProductionAssignmentAfterRenewal(
     )
     return {
       mode: 'REALIGNED',
+      source,
       id: Number(futureAssignment.id),
       uid: String(futureAssignment.uid),
       employeeId: input.employeeId,
       siteId,
       jobId: Number(previousAssignment.jobId),
-      sourceAssignmentUid: String(previousAssignment.uid),
+      sourceAssignmentUid: previousAssignment.uid
+        ? String(previousAssignment.uid)
+        : undefined,
       effectiveFrom: input.contractStartDate,
       previousEffectiveFrom: String(futureAssignment.effectiveFrom),
     }
@@ -273,12 +350,15 @@ export async function continuePrimaryProductionAssignmentAfterRenewal(
 
   return {
     mode: 'CREATED',
+    source,
     id: Number(created.insertId),
     uid,
     employeeId: input.employeeId,
     siteId,
     jobId: Number(previousAssignment.jobId),
-    sourceAssignmentUid: String(previousAssignment.uid),
+    sourceAssignmentUid: previousAssignment.uid
+      ? String(previousAssignment.uid)
+      : undefined,
     effectiveFrom: input.contractStartDate,
     effectiveTo,
   }
