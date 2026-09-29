@@ -8,6 +8,8 @@ export const productionImportHeaders = [
   'KUANTITAS',
 ] as const
 
+export const productionImportMaxRows = 3_000
+
 export async function parseProductionWorkbook(
   file: File
 ): Promise<ProductionImportRow[]> {
@@ -53,8 +55,10 @@ export async function parseProductionWorkbook(
   if (!rows.length) {
     throw new Error('Isi minimal satu tanggal dan kuantitas pada template.')
   }
-  if (rows.length > 2000) {
-    throw new Error('Maksimal 2.000 baris berisi data dalam satu file.')
+  if (rows.length > productionImportMaxRows) {
+    throw new Error(
+      `Maksimal ${productionImportMaxRows.toLocaleString('id-ID')} baris berisi data dalam satu file.`
+    )
   }
   return rows
 }

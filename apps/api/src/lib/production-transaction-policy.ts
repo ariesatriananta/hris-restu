@@ -48,8 +48,12 @@ const productionImportRowInput = z
   })
   .strict()
 
+export const PRODUCTION_IMPORT_MAX_ROWS = 3_000
+
 export const productionImportPreviewInput = z
-  .object({ rows: z.array(productionImportRowInput).min(1).max(2_000) })
+  .object({
+    rows: z.array(productionImportRowInput).min(1).max(PRODUCTION_IMPORT_MAX_ROWS),
+  })
   .strict()
 
 export const productionImportPostInput = productionImportPreviewInput

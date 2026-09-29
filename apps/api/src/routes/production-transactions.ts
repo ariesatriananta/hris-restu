@@ -26,6 +26,7 @@ import {
   productionHistoricalPreviewInput,
   productionImportPostInput,
   productionImportPreviewInput,
+  PRODUCTION_IMPORT_MAX_ROWS,
   productionTerminalLookupInput,
   productionTerminalPostInput,
   productionVoidInput,
@@ -1112,6 +1113,52 @@ function productionImportRowDto(row: ProductionImportValidationRow) {
   }
 }
 
+type ProductionImportAuditEntry = {
+  siteId: number
+  recordId: number
+  recordUid: string
+  description: string
+  afterData: Record<string, unknown>
+}
+
+export async function writeProductionImportAudits(
+  conn: PoolConnection,
+  auth: AuthContext,
+  request: Request,
+  reason: string,
+  entries: ProductionImportAuditEntry[]
+) {
+  for (let offset = 0; offset < entries.length; offset += 250) {
+    const chunk = entries.slice(offset, offset + 250)
+    await conn.execute(
+      `INSERT INTO audit_logs(
+         uid,user_id,site_id,module,action,table_name,record_id,record_uid,
+         description,reason,before_data,after_data,request_id,ip_address,
+         user_agent,created_by,updated_by
+       ) VALUES ${chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',')}`,
+      chunk.flatMap((entry) => [
+        randomUUID(),
+        auth.id,
+        entry.siteId,
+        'PRODUCTION',
+        'CREATE',
+        'production_transactions',
+        entry.recordId,
+        entry.recordUid,
+        entry.description,
+        reason,
+        null,
+        JSON.stringify(entry.afterData),
+        null,
+        request.ip ?? null,
+        request.get('user-agent') ?? null,
+        auth.id,
+        auth.id,
+      ])
+    )
+  }
+}
+
 async function transactionResponse(conn: PoolConnection | Pool, transactionId: number) {
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT pt.id,pt.uid,pt.transaction_number transactionNumber,
@@ -1241,6 +1288,11 @@ type DailyProductionKey = {
   businessDate: string
 }
 
+type RepricingContext = {
+  lockedEmployees: Set<number>
+  tiersByRate: Map<number, ProductionRateTier[]>
+}
+
 async function rateTiers(conn: SqlExecutor, rateId: number): Promise<ProductionRateTier[]> {
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT id, min_quantity minQuantity, rate_amount rateAmount
@@ -1355,10 +1407,24 @@ async function previewDailyRepricing(
   return {before,after}
 }
 
-async function repriceProductionDay(conn: PoolConnection, key: DailyProductionKey, auth: AuthContext, request: Request) {
+async function repriceProductionDay(
+  conn: PoolConnection,
+  key: DailyProductionKey,
+  auth: AuthContext,
+  request: Request,
+  context?: RepricingContext
+) {
   // The employee row serializes inserts even when the employee has no earlier deposits.
-  await conn.query('SELECT id FROM employees WHERE id=? FOR UPDATE', [key.employeeId])
-  const dateLock = await payrollDateLockContext(conn, key.siteId, key.businessDate, true)
+  if (!context?.lockedEmployees.has(key.employeeId)) {
+    await conn.query('SELECT id FROM employees WHERE id=? FOR UPDATE', [key.employeeId])
+    context?.lockedEmployees.add(key.employeeId)
+  }
+  const dateLock = await payrollDateLockContext(
+    conn,
+    key.siteId,
+    key.businessDate,
+    true
+  )
   if (dateLock.locked) throw new ApiError(409, dateLock.reasons[0])
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT pt.id,pt.uid,pt.job_rate_id rateId,pt.quantity,pt.rate_snapshot rateSnapshot,
@@ -1377,7 +1443,33 @@ async function repriceProductionDay(conn: PoolConnection, key: DailyProductionKe
     throw new ApiError(409, 'Setoran harian sudah masuk atau dikunci Payroll; tarif tidak boleh dihitung ulang.')
   }
   let cumulative = 0n
-  const tierCache = new Map<number, ProductionRateTier[]>()
+  const tierCache = context?.tiersByRate ?? new Map<number, ProductionRateTier[]>()
+  const detailsByTransaction = new Map<number, RowDataPacket[]>()
+  for (let offset = 0; offset < rows.length; offset += 1_000) {
+    const transactionIds = rows
+      .slice(offset, offset + 1_000)
+      .map((row) => Number(row.id))
+    if (!transactionIds.length) continue
+    const [detailRows] = await conn.query<RowDataPacket[]>(
+      `SELECT production_transaction_id transactionId,
+              job_rate_tier_id tierId,min_quantity_snapshot minQuantitySnapshot,
+              quantity,rate_snapshot rateSnapshot,amount
+         FROM production_transaction_rate_details
+        WHERE production_transaction_id IN (${transactionIds.map(() => '?').join(',')})
+        ORDER BY production_transaction_id,id`,
+      transactionIds
+    )
+    for (const detail of detailRows) {
+      const transactionId = Number(detail.transactionId)
+      const existing = detailsByTransaction.get(transactionId) ?? []
+      existing.push(detail)
+      detailsByTransaction.set(transactionId, existing)
+    }
+  }
+  const changedDetails: Array<{
+    transactionId: number
+    slices: ReturnType<typeof priceProductionTiers>['slices']
+  }> = []
   for (const row of rows) {
     const rateId = Number(row.rateId)
     let tiers = tierCache.get(rateId)
@@ -1388,13 +1480,7 @@ async function repriceProductionDay(conn: PoolConnection, key: DailyProductionKe
     const startingQuantity = `${cumulative / 10000n}.${String(cumulative % 10000n).padStart(4, '0')}`
     const priced = priceProductionTiers(startingQuantity, normalizeStoredDecimal(row.quantity), tiers)
     cumulative += BigInt(normalizeStoredDecimal(row.quantity).replace('.', ''))
-    const [oldDetails] = await conn.query<RowDataPacket[]>(
-      `SELECT job_rate_tier_id tierId,min_quantity_snapshot minQuantitySnapshot,
-              quantity,rate_snapshot rateSnapshot,amount
-         FROM production_transaction_rate_details
-        WHERE production_transaction_id=? ORDER BY id`,
-      [row.id]
-    )
+    const oldDetails = detailsByTransaction.get(Number(row.id)) ?? []
     const desired = JSON.stringify(priced.slices.map((slice) => [slice.tierId,slice.minQuantitySnapshot,slice.quantity,slice.rateSnapshot,slice.amount]))
     const previous = JSON.stringify(oldDetails.map((detail) => [
       detail.tierId === null ? null : Number(detail.tierId),
@@ -1404,17 +1490,7 @@ async function repriceProductionDay(conn: PoolConnection, key: DailyProductionKe
       normalizeStoredDecimal(detail.amount,2),
     ]))
     if (desired !== previous) {
-      await conn.execute('DELETE FROM production_transaction_rate_details WHERE production_transaction_id=?', [row.id])
-      for (const slice of priced.slices) {
-        await conn.execute(
-          `INSERT INTO production_transaction_rate_details
-             (uid,production_transaction_id,job_rate_tier_id,min_quantity_snapshot,
-              quantity,rate_snapshot,amount,created_by,updated_by)
-           VALUES(?,?,?,?,?,?,?,?,?)`,
-          [randomUUID(),row.id,slice.tierId,slice.minQuantitySnapshot,
-            slice.quantity,slice.rateSnapshot,slice.amount,auth.id,auth.id]
-        )
-      }
+      changedDetails.push({ transactionId: Number(row.id), slices: priced.slices })
     }
     if (normalizeStoredDecimal(row.grossAmount,2) !== priced.grossAmount) {
       await conn.execute(
@@ -1429,6 +1505,39 @@ async function repriceProductionDay(conn: PoolConnection, key: DailyProductionKe
         afterData: { grossAmount: priced.grossAmount, rateDetails: priced.slices },
       }, conn)
     }
+  }
+  for (let offset = 0; offset < changedDetails.length; offset += 1_000) {
+    const transactionIds = changedDetails
+      .slice(offset, offset + 1_000)
+      .map((item) => item.transactionId)
+    await conn.execute(
+      `DELETE FROM production_transaction_rate_details
+        WHERE production_transaction_id IN (${transactionIds.map(() => '?').join(',')})`,
+      transactionIds
+    )
+  }
+  const desiredDetails = changedDetails.flatMap((item) =>
+    item.slices.map((slice) => ({ transactionId: item.transactionId, slice }))
+  )
+  for (let offset = 0; offset < desiredDetails.length; offset += 250) {
+    const chunk = desiredDetails.slice(offset, offset + 250)
+    await conn.execute(
+      `INSERT INTO production_transaction_rate_details
+         (uid,production_transaction_id,job_rate_tier_id,min_quantity_snapshot,
+          quantity,rate_snapshot,amount,created_by,updated_by)
+       VALUES ${chunk.map(() => '(?,?,?,?,?,?,?,?,?)').join(',')}`,
+      chunk.flatMap(({ transactionId, slice }) => [
+        randomUUID(),
+        transactionId,
+        slice.tierId,
+        slice.minQuantitySnapshot,
+        slice.quantity,
+        slice.rateSnapshot,
+        slice.amount,
+        auth.id,
+        auth.id,
+      ])
+    )
   }
 }
 
@@ -2584,7 +2693,7 @@ productionTransactionsRouter.get(
            JOIN sites site ON site.id=history.site_id AND site.is_active=1
           WHERE ${scope.sql}
           ORDER BY employee.full_name,employee.employee_number
-          LIMIT 2000`,
+          LIMIT ${PRODUCTION_IMPORT_MAX_ROWS}`,
         [referenceDate, referenceDate, ...scope.params]
       )
       res.json({
@@ -2594,7 +2703,7 @@ productionTransactionsRouter.get(
         })),
         meta: {
           total: Number(counts[0]?.total ?? 0),
-          limit: 2000,
+          limit: PRODUCTION_IMPORT_MAX_ROWS,
           referenceDate,
         },
       })
@@ -2787,8 +2896,12 @@ productionTransactionsRouter.post(
         )
       }
 
+      const repricingContext: RepricingContext = {
+        lockedEmployees: new Set(),
+        tiersByRate: new Map(),
+      }
       for (const dailyKey of dailyGroups.values()) {
-        await repriceProductionDay(conn, dailyKey, auth, req)
+        await repriceProductionDay(conn, dailyKey, auth, req, repricingContext)
       }
       const [auditRows] = await conn.query<RowDataPacket[]>(
         `SELECT id,uid,transaction_number transactionNumber,
@@ -2801,36 +2914,29 @@ productionTransactionsRouter.post(
       const auditByKey = new Map(
         auditRows.map((row) => [String(row.rowKey), row])
       )
+      const auditEntries: ProductionImportAuditEntry[] = []
       for (const item of inserted) {
         const transaction = auditByKey.get(item.rowKey)
         if (!transaction) {
           throw new ApiError(500, 'Transaksi hasil import tidak dapat dimuat untuk audit.')
         }
-        await writeAudit(
-          {
-            auth,
-            request: req,
-            module: 'PRODUCTION',
-            siteId: Number(item.row.proposal.site.id),
-            action: 'CREATE',
-            table: 'production_transactions',
-            recordId: item.id,
-            recordUid: item.uid,
-            description: `Mengimpor setoran Produksi ${transaction.transactionNumber}.`,
-            reason: input.reason,
-            afterData: {
-              batchKey: input.idempotencyKey,
-              rowNumber: item.row.input.rowNumber,
-              businessDate: item.row.input.businessDate,
-              employeeNumber: item.row.input.employeeNumber,
-              quantity: item.row.proposal.proposed.quantity,
-              job: item.row.proposal.proposed.job,
-              grossAmount: transaction.grossAmount,
-            },
+        auditEntries.push({
+          siteId: Number(item.row.proposal.site.id),
+          recordId: item.id,
+          recordUid: item.uid,
+          description: `Mengimpor setoran Produksi ${transaction.transactionNumber}.`,
+          afterData: {
+            batchKey: input.idempotencyKey,
+            rowNumber: item.row.input.rowNumber,
+            businessDate: item.row.input.businessDate,
+            employeeNumber: item.row.input.employeeNumber,
+            quantity: item.row.proposal.proposed.quantity,
+            job: item.row.proposal.proposed.job,
+            grossAmount: transaction.grossAmount,
           },
-          conn
-        )
+        })
       }
+      await writeProductionImportAudits(conn, auth, req, input.reason, auditEntries)
       await conn.commit()
       res.status(201).json({
         data: {

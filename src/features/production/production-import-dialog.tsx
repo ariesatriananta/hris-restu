@@ -1,5 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
+import {
+  getCoreRowModel,
+  getPaginationRowModel,
+  useReactTable,
+  type ColumnDef,
+  type PaginationState,
+} from '@tanstack/react-table'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -39,6 +46,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import { DataTablePagination } from '@/components/data-table'
 import { DatePicker } from '@/components/date-picker'
 import {
   dateOnlyFromInput,
@@ -49,12 +57,20 @@ import {
   useImportProductionTransactions,
   usePreviewProductionImport,
 } from './data/queries'
-import type { ProductionImportPreview, ProductionImportRow } from './domain'
+import type {
+  ProductionImportPreview,
+  ProductionImportPreviewRow,
+  ProductionImportRow,
+} from './domain'
 import {
   buildProductionValidationWorkbook,
   parseProductionWorkbook,
   productionImportHeaders,
+  productionImportMaxRows,
 } from './production-import-workbook'
+
+const productionImportPreviewColumns: ColumnDef<ProductionImportPreviewRow>[] =
+  [{ accessorKey: 'rowNumber' }]
 
 export function ProductionImportDialog({
   open,
@@ -132,7 +148,9 @@ export function ProductionImportDialog({
         [
           '5. Site dan pekerjaan utama ditentukan otomatis sesuai histori pada tanggal tersebut.',
         ],
-        ['6. Maksimal 2.000 baris berisi data dalam satu file.'],
+        [
+          `6. Maksimal ${productionImportMaxRows.toLocaleString('id-ID')} baris berisi data dalam satu file.`,
+        ],
         ['7. Seluruh baris harus valid sebelum import dapat dijalankan.'],
       ])
       guide['!cols'] = [{ wch: 100 }]
@@ -302,7 +320,8 @@ export function ProductionImportDialog({
             <p className='rounded-md border bg-muted/25 px-3 py-2 text-xs leading-5 text-muted-foreground'>
               Format tanggal:{' '}
               <strong className='text-foreground'>DD/MM/YYYY</strong>. Maksimal
-              2.000 baris; baris tanpa tanggal dan kuantitas diabaikan.
+              {productionImportMaxRows.toLocaleString('id-ID')} baris; baris
+              tanpa tanggal dan kuantitas diabaikan.
             </p>
           </div>
 
@@ -366,6 +385,10 @@ function ProductionImportPreviewTable({
   const [validationStatus, setValidationStatus] = useState<
     'ALL' | 'VALID' | 'WARNING' | 'INVALID'
   >('ALL')
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 50,
+  })
   const summary = useMemo(
     () =>
       `${preview.valid} valid · ${preview.invalid} perlu diperbaiki${preview.warnings ? ` · ${preview.warnings} peringatan` : ''}`,
@@ -386,6 +409,28 @@ function ProductionImportPreviewTable({
       return matchesQuery && matchesStatus
     })
   }, [preview.rows, query, validationStatus])
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const table = useReactTable({
+    data: filteredRows,
+    columns: productionImportPreviewColumns,
+    state: { pagination },
+    onPaginationChange: setPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  })
+  useEffect(() => {
+    setPagination((current) =>
+      current.pageIndex === 0 ? current : { ...current, pageIndex: 0 }
+    )
+  }, [query, validationStatus])
+  const visibleRows = table.getRowModel().rows
+  const visibleFrom = filteredRows.length
+    ? pagination.pageIndex * pagination.pageSize + 1
+    : 0
+  const visibleTo = Math.min(
+    (pagination.pageIndex + 1) * pagination.pageSize,
+    filteredRows.length
+  )
 
   function downloadValidationResult() {
     const now = new Date()
@@ -461,7 +506,7 @@ function ProductionImportPreviewTable({
           </Select>
         </div>
         <p className='text-xs whitespace-nowrap text-muted-foreground'>
-          Menampilkan {filteredRows.length} dari {preview.total} baris
+          {filteredRows.length} dari {preview.total} baris sesuai filter
         </p>
       </div>
       <div className='max-h-96 overflow-auto rounded-lg border'>
@@ -478,7 +523,7 @@ function ProductionImportPreviewTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredRows.map((row) => (
+            {visibleRows.map(({ original: row }) => (
               <TableRow
                 key={`${row.rowNumber}-${row.employeeNumber}-${row.businessDate}`}
                 className={row.valid ? undefined : 'bg-destructive/5'}
@@ -556,6 +601,13 @@ function ProductionImportPreviewTable({
           </TableBody>
         </Table>
       </div>
+      {filteredRows.length ? (
+        <DataTablePagination
+          table={table}
+          pageSizeOptions={[50, 100, 200, 500]}
+          summary={`Menampilkan ${visibleFrom}–${visibleTo} dari ${filteredRows.length} baris`}
+        />
+      ) : null}
     </section>
   )
 }

@@ -2,8 +2,15 @@ import express from 'express'
 import type { AddressInfo } from 'node:net'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { errorHandler } from '../lib/errors.js'
+import {
+  productionImportPostInput,
+  productionImportPreviewInput,
+} from '../lib/production-transaction-policy.js'
 import type { AuthContext } from '../middleware/authenticate.js'
-import { productionTransactionsRouter } from './production-transactions.js'
+import {
+  productionTransactionsRouter,
+  writeProductionImportAudits,
+} from './production-transactions.js'
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
@@ -202,6 +209,69 @@ describe('Production transactions API', () => {
     mocks.rollback.mockResolvedValue(undefined)
     mocks.release.mockReturnValue(undefined)
     mocks.execute.mockResolvedValue([{ affectedRows: 1, insertId: 21 }])
+  })
+
+  it('menerima tepat 3.000 baris import dan menolak baris ke-3.001', () => {
+    const rows = Array.from({ length: 3_001 }, (_, index) => ({
+      rowNumber: index + 2,
+      businessDate: '2026-09-21',
+      employeeNumber: `J${String(index + 1).padStart(6, '0')}`,
+      employeeName: `Karyawan ${index + 1}`,
+      quantity: '10',
+    }))
+
+    expect(
+      productionImportPreviewInput.safeParse({ rows: rows.slice(0, 3_000) })
+        .success
+    ).toBe(true)
+    expect(
+      productionImportPostInput.safeParse({
+        rows: rows.slice(0, 3_000),
+        reason: 'Import operasional tiga ribu baris.',
+        idempotencyKey: '79777777-7777-4777-8777-777777777777',
+      }).success
+    ).toBe(true)
+    expect(productionImportPreviewInput.safeParse({ rows }).success).toBe(false)
+  })
+
+  it('menulis 3.000 audit dalam chunk tanpa keluar dari koneksi transaksi', async () => {
+    const auditEntries = Array.from({ length: 3_000 }, (_, index) => ({
+      siteId: 1,
+      recordId: index + 1,
+      recordUid: `audit-record-${index + 1}`,
+      description: `Import transaksi ${index + 1}.`,
+      afterData: { rowNumber: index + 2 },
+    }))
+    const auditRequest = {
+      ip: '127.0.0.1',
+      get: () => 'Production Import Test',
+    } as unknown as express.Request
+
+    await writeProductionImportAudits(
+      connection as never,
+      auth({ permissions: ['production.correct'] }),
+      auditRequest,
+      'Import operasional.',
+      auditEntries
+    )
+
+    const auditCalls = mocks.execute.mock.calls.filter((call) =>
+      String(call[0]).includes('INSERT INTO audit_logs')
+    )
+    expect(auditCalls).toHaveLength(12)
+    expect(
+      auditCalls.map((call) => (call[1] as unknown[]).length / 17)
+    ).toEqual(Array.from({ length: 12 }, () => 250))
+    const auditedRecordIds = auditCalls.flatMap((call) => {
+      const params = call[1] as unknown[]
+      return Array.from(
+        { length: params.length / 17 },
+        (_, index) => params[index * 17 + 6]
+      )
+    })
+    expect(auditedRecordIds).toEqual(
+      Array.from({ length: 3_000 }, (_, index) => index + 1)
+    )
   })
 
   it('menolak Terminal tanpa production.scan sebelum membuka transaksi', async () => {
@@ -720,7 +790,12 @@ describe('Production transactions API', () => {
         String(call[0]).includes('INSERT INTO production_transactions')
       )
     ).toBe(true)
-    expect(mocks.audit).toHaveBeenCalledTimes(1)
+    const auditInsert = mocks.execute.mock.calls.find((call) =>
+      String(call[0]).includes('INSERT INTO audit_logs')
+    )
+    expect(auditInsert).toBeDefined()
+    expect((auditInsert?.[1] as unknown[]).length).toBe(17)
+    expect(mocks.audit).not.toHaveBeenCalled()
     expect(mocks.commit).toHaveBeenCalledTimes(1)
   })
 

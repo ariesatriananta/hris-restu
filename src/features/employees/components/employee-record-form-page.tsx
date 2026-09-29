@@ -5,6 +5,7 @@ import {
   type SelectHTMLAttributes,
 } from 'react'
 import { z } from 'zod'
+import { isAxiosError } from 'axios'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useNavigate } from '@tanstack/react-router'
@@ -218,6 +219,7 @@ function ContractForm({
     }
   }, [attachment?.temporaryUrl])
   const submit = async (value: ContractValues) => {
+    form.clearErrors('root')
     if (!isSelectableContractType(value.contractType)) {
       form.setError('contractType', {
         message: 'Pilih jenis kontrak Training, PKWT, atau PKWTT.',
@@ -246,32 +248,42 @@ function ContractForm({
       })
       return
     }
-    const attachment = file
-      ? await uploadEmployeeFile(file, value.employeeUid)
-      : record?.issuedFile
-    await save.mutateAsync({
-      uid: record?.uid,
-      input: {
-        ...value,
-        contractType: value.contractType,
-        status: record?.status ?? 'DRAFT',
-        contractNumber: record?.contractNumber ?? '',
-        sequenceNumber: record?.sequenceNumber ?? 0,
-        endDate: value.endDate || undefined,
-        notes: value.notes || undefined,
-        renewalSourceContractUid: renewalSource?.uid,
-        issuedFile: attachment,
-      },
-    })
-    toast.success(
-      record
-        ? 'Kontrak diperbarui.'
-        : renewalSource
-          ? 'Kontrak perpanjangan ditambahkan.'
-          : 'Kontrak ditambahkan.'
-    )
-    form.reset(value)
-    onSaved()
+    try {
+      const attachment = file
+        ? await uploadEmployeeFile(file, value.employeeUid)
+        : record?.issuedFile
+      await save.mutateAsync({
+        uid: record?.uid,
+        input: {
+          ...value,
+          contractType: value.contractType,
+          status: record?.status ?? 'DRAFT',
+          contractNumber: record?.contractNumber ?? '',
+          sequenceNumber: record?.sequenceNumber ?? 0,
+          endDate: value.endDate || undefined,
+          notes: value.notes || undefined,
+          renewalSourceContractUid: renewalSource?.uid,
+          issuedFile: attachment,
+        },
+      })
+      toast.success(
+        record
+          ? 'Kontrak diperbarui.'
+          : renewalSource
+            ? 'Kontrak perpanjangan ditambahkan.'
+            : 'Kontrak ditambahkan.'
+      )
+      form.reset(value)
+      onSaved()
+    } catch (error) {
+      form.setError('root', {
+        type: 'server',
+        message: apiMessage(
+          error,
+          'Kontrak belum dapat disimpan. Periksa kembali data yang diisi.'
+        ),
+      })
+    }
   }
   return (
     <RecordLayout
@@ -451,6 +463,14 @@ function ContractForm({
             <Textarea {...form.register('notes')} />
           </Field>
         </div>
+        {form.formState.errors.root?.message ? (
+          <Alert variant='destructive' className='sm:col-span-2'>
+            <AlertTriangle className='size-4' />
+            <AlertDescription>
+              {form.formState.errors.root.message}
+            </AlertDescription>
+          </Alert>
+        ) : null}
       </form>
     </RecordLayout>
   )
@@ -736,6 +756,12 @@ function isDateCoveredByAnotherContract(
 
 function formatInputDate(value?: string) {
   return value?.slice(0, 10) || 'tanpa tanggal akhir'
+}
+
+function apiMessage(error: unknown, fallback: string) {
+  return isAxiosError<{ message?: string }>(error)
+    ? (error.response?.data?.message ?? fallback)
+    : fallback
 }
 
 function Field({

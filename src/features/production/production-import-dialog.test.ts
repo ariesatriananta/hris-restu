@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx'
 import {
   buildProductionValidationWorkbook,
   parseProductionWorkbook,
+  productionImportMaxRows,
 } from './production-import-workbook'
 
 function workbookFile(rows: unknown[][]) {
@@ -66,6 +67,28 @@ describe('parser import hasil Produksi', () => {
         ])
       )
     ).rejects.toThrow('Header wajib berurutan')
+  })
+
+  it('menerima maksimal 3.000 baris dan menolak baris berikutnya', async () => {
+    const headers = ['TANGGAL', 'NOMOR_KARYAWAN', 'NAMA_KARYAWAN', 'KUANTITAS']
+    const dataRows = Array.from(
+      { length: productionImportMaxRows + 1 },
+      (_, index) => [
+        '21/09/2026',
+        `PKDS-${String(index + 1).padStart(5, '0')}`,
+        `Karyawan ${index + 1}`,
+        '10',
+      ]
+    )
+
+    const accepted = await parseProductionWorkbook(
+      workbookFile([headers, ...dataRows.slice(0, productionImportMaxRows)])
+    )
+    expect(accepted).toHaveLength(productionImportMaxRows)
+
+    await expect(
+      parseProductionWorkbook(workbookFile([headers, ...dataRows]))
+    ).rejects.toThrow('Maksimal 3.000 baris')
   })
 
   it('membuat hasil validasi yang lengkap dan dapat diunggah ulang', () => {
