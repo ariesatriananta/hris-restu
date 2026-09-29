@@ -11,10 +11,19 @@ import {
   historicalShiftAssignmentApplyInput,
   historicalShiftAssignmentPreviewInput,
   jakartaBusinessDate,
+  nextDate,
   planHistoricalShiftTimeline,
   type ShiftAssignmentTimelineItem,
   type ShiftAssignmentTimelineSegment,
 } from '../lib/attendance-shift-policy.js'
+import {
+  recommendShiftAssignment,
+  shiftAssignmentPlanApplyInput,
+  shiftAssignmentPlanPreviewInput,
+  type ShiftAssignmentPlanItemInput,
+  type ShiftPlanHistory,
+  type ShiftPlanShift,
+} from '../lib/shift-assignment-plan.js'
 import { writeAudit } from '../lib/audit.js'
 import { ApiError } from '../lib/errors.js'
 import {
@@ -112,11 +121,31 @@ function overlaps(a: ShiftAssignmentTimelineSegment, b: ShiftAssignmentTimelineS
   return (a.effectiveTo ?? '9999-12-31') >= b.effectiveFrom
 }
 
+function isSafeOneDayShiftRealign(
+  existing: ShiftAssignmentTimelineItem[],
+  input: HistoryInput
+) {
+  if (input.effectiveTo !== null) return false
+  const future = existing.filter(
+    (item) => item.effectiveFrom > input.effectiveFrom
+  )
+  if (future.length !== 1) return false
+  const candidate = future[0]
+  return (
+    candidate.effectiveFrom === nextDate(input.effectiveFrom) &&
+    candidate.effectiveTo === null &&
+    candidate.shiftUid === input.shiftUid &&
+    candidate.workDays.length === input.workDays.length &&
+    candidate.workDays.every((day, index) => day === input.workDays[index])
+  )
+}
+
 async function loadHistoryContext(
   executor: Executor,
   input: HistoryInput,
   auth: AuthContext,
-  lock: boolean
+  lock: boolean,
+  allowFuture = false
 ): Promise<HistoryContext> {
   const lockSql = lock ? ' FOR UPDATE' : ''
   const [employeeRows] = await executor.query<RowDataPacket[]>(
@@ -144,11 +173,17 @@ async function loadHistoryContext(
   const blockers: string[] = []
   const warnings: string[] = []
   const today = jakartaBusinessDate()
-  const reconciliationTo = input.effectiveTo ?? today
+  const reconciliationTo =
+    input.effectiveTo ??
+    (allowFuture && input.effectiveFrom > today ? input.effectiveFrom : today)
   if (input.effectiveFrom < env.ATTENDANCE_GO_LIVE_DATE) {
     blockers.push(`Tanggal mulai paling awal ${env.ATTENDANCE_GO_LIVE_DATE}.`)
   }
-  if (input.effectiveFrom > today || (input.effectiveTo && input.effectiveTo > today)) {
+  if (
+    !allowFuture &&
+    (input.effectiveFrom > today ||
+      (input.effectiveTo && input.effectiveTo > today))
+  ) {
     blockers.push('Koreksi historis tidak boleh melewati hari ini.')
   }
   if (Number(shift.isActive) !== 1) blockers.push('Shift tujuan sudah nonaktif.')
@@ -222,7 +257,8 @@ async function loadHistoryContext(
   }))
   if (
     input.effectiveTo === null &&
-    existing.some((item) => item.effectiveFrom > input.effectiveFrom)
+    existing.some((item) => item.effectiveFrom > input.effectiveFrom) &&
+    !isSafeOneDayShiftRealign(existing, input)
   ) {
     blockers.push(
       'Penugasan hanya dapat dibuat seterusnya pada periode paling akhir. Masih ada penugasan Shift setelah tanggal mulai koreksi.'
@@ -550,7 +586,523 @@ async function reconcileAttendance(
   return { reconciled, removedSynthetic }
 }
 
+type ShiftPlanEmployeeRow = RowDataPacket & {
+  id: number
+  uid: string
+  employeeNumber: string
+  fullName: string
+  employeeType: string
+  employeeStatus: string
+  allowsAttendance: number
+  siteId: number
+  site: string
+  historyEffectiveFrom: string
+  historyChangeType: string
+  activeContractStart?: string
+  isRenewal: number
+  productionModule?: string
+  productionSection?: string
+}
+
+type ShiftPlanBase = {
+  employees: ShiftPlanEmployeeRow[]
+  shifts: Array<
+    ShiftPlanShift & {
+      site: string
+      startTime: string
+      endTime: string
+    }
+  >
+  historyByEmployee: Map<number, ShiftPlanHistory[]>
+}
+
+async function loadShiftPlanBase(
+  executor: Executor,
+  employeeUids: string[],
+  auth: AuthContext,
+  lock: boolean
+): Promise<ShiftPlanBase> {
+  const placeholders = employeeUids.map(() => '?').join(',')
+  const lockSql = lock ? ' FOR UPDATE' : ''
+  const today = jakartaBusinessDate()
+  const [employees] = await executor.query<ShiftPlanEmployeeRow[]>(
+    `SELECT e.id,e.uid,e.employee_number employeeNumber,e.full_name fullName,
+            et.code employeeType,es.code employeeStatus,
+            es.allows_attendance allowsAttendance,s.id siteId,s.code site,
+            pm.name productionModule,ps.name productionSection,
+            DATE_FORMAT(history.effective_from,'%Y-%m-%d') historyEffectiveFrom,
+            history.change_type historyChangeType,
+            DATE_FORMAT(active_contract.start_date,'%Y-%m-%d') activeContractStart,
+            EXISTS(
+              SELECT 1 FROM audit_logs renewal_audit
+               WHERE renewal_audit.table_name='employee_contracts'
+                 AND renewal_audit.record_id=active_contract.id
+                 AND renewal_audit.action='CREATE'
+                 AND JSON_EXTRACT(
+                   renewal_audit.after_data,'$.renewalSourceContractUid'
+                 ) IS NOT NULL
+            ) isRenewal
+       FROM employees e
+       JOIN employee_types et ON et.id=e.employee_type_id
+       JOIN employee_statuses es ON es.id=e.employee_status_id
+       JOIN sites s ON s.id=e.current_site_id
+       JOIN employee_employment_histories history
+         ON history.id=(
+           SELECT current_history.id
+             FROM employee_employment_histories current_history
+            WHERE current_history.employee_id=e.id
+              AND current_history.effective_to IS NULL
+            ORDER BY current_history.effective_from DESC,current_history.id DESC
+            LIMIT 1
+         )
+       LEFT JOIN production_module_sections pms
+         ON pms.id=e.current_production_module_section_id
+       LEFT JOIN production_modules pm ON pm.id=pms.production_module_id
+       LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
+       LEFT JOIN employee_contracts active_contract
+         ON active_contract.id=(
+           SELECT current_contract.id
+             FROM employee_contracts current_contract
+            WHERE current_contract.employee_id=e.id
+              AND current_contract.status='ACTIVE'
+              AND current_contract.start_date<=?
+              AND (
+                current_contract.end_date IS NULL
+                OR current_contract.end_date>=?
+              )
+            ORDER BY current_contract.start_date DESC,current_contract.id DESC
+            LIMIT 1
+         )
+      WHERE e.uid IN (${placeholders})
+      ORDER BY e.id${lockSql}`,
+    [today, today, ...employeeUids]
+  )
+  if (employees.length !== employeeUids.length) {
+    throw new ApiError(
+      422,
+      'Satu atau lebih karyawan tidak ditemukan atau tidak memiliki histori kerja aktif.'
+    )
+  }
+  for (const employee of employees) enforceSite(auth, String(employee.site))
+
+  const siteIds = [...new Set(employees.map((employee) => Number(employee.siteId)))]
+  const [shiftRows] = await executor.query<RowDataPacket[]>(
+    `SELECT shift.id,shift.uid,shift.site_id siteId,shift.code,shift.name,
+            TIME_FORMAT(shift.start_time,'%H:%i') startTime,
+            TIME_FORMAT(shift.end_time,'%H:%i') endTime,site.code site
+       FROM shifts shift
+       JOIN sites site ON site.id=shift.site_id
+      WHERE shift.is_active=1
+        AND shift.site_id IN (${siteIds.map(() => '?').join(',')})
+      ORDER BY site.code,shift.name,shift.id${lockSql}`,
+    siteIds
+  )
+  const shifts = shiftRows.map((row) => ({
+    id: Number(row.id),
+    uid: String(row.uid),
+    siteId: Number(row.siteId),
+    site: String(row.site),
+    code: String(row.code),
+    name: String(row.name),
+    startTime: String(row.startTime),
+    endTime: String(row.endTime),
+  }))
+  const employeeIds = employees.map((employee) => Number(employee.id))
+  const [assignmentRows] = await executor.query<RowDataPacket[]>(
+    `SELECT assignment.employee_id employeeId,assignment.shift_id shiftId,
+            shift.code shiftCode,shift.site_id siteId,
+            DATE_FORMAT(assignment.effective_from,'%Y-%m-%d') effectiveFrom,
+            DATE_FORMAT(assignment.effective_to,'%Y-%m-%d') effectiveTo,
+            assignment.work_days_json workDays
+       FROM employee_shift_assignments assignment
+       JOIN shifts shift ON shift.id=assignment.shift_id
+      WHERE assignment.employee_id IN (${employeeIds.map(() => '?').join(',')})
+      ORDER BY assignment.employee_id,assignment.effective_from,assignment.id${lockSql}`,
+    employeeIds
+  )
+  const historyByEmployee = new Map<number, ShiftPlanHistory[]>()
+  for (const row of assignmentRows) {
+    const employeeId = Number(row.employeeId)
+    const history = historyByEmployee.get(employeeId) ?? []
+    history.push({
+      shiftId: Number(row.shiftId),
+      shiftCode: String(row.shiftCode),
+      siteId: Number(row.siteId),
+      effectiveFrom: String(row.effectiveFrom),
+      effectiveTo: row.effectiveTo ? String(row.effectiveTo) : undefined,
+      workDays: parseWorkDays(row.workDays),
+    })
+    historyByEmployee.set(employeeId, history)
+  }
+  return { employees, shifts, historyByEmployee }
+}
+
+function plannerIssue(error: unknown) {
+  if (error instanceof ApiError || error instanceof ZodError) {
+    return error.message
+  }
+  return 'Data penugasan gagal divalidasi.'
+}
+
+async function previewShiftPlan(
+  employeeUids: string[],
+  overrides: ShiftAssignmentPlanItemInput[] | undefined,
+  auth: AuthContext
+) {
+  const base = await loadShiftPlanBase(pool, employeeUids, auth, false)
+  const overrideByEmployee = new Map(
+    (overrides ?? []).map((item) => [item.employeeUid, item])
+  )
+  const today = jakartaBusinessDate()
+  const items = await Promise.all(
+    base.employees.map(async (employee) => {
+      const recommendation = recommendShiftAssignment({
+        candidate: {
+          employeeType: String(employee.employeeType),
+          historyEffectiveFrom: String(employee.historyEffectiveFrom),
+          historyChangeType: String(employee.historyChangeType),
+          activeContractStart: employee.activeContractStart
+            ? String(employee.activeContractStart)
+            : undefined,
+          isRenewal: Number(employee.isRenewal) === 1,
+          siteId: Number(employee.siteId),
+        },
+        shifts: base.shifts,
+        history: base.historyByEmployee.get(Number(employee.id)) ?? [],
+        today,
+        goLiveDate: env.ATTENDANCE_GO_LIVE_DATE,
+      })
+      const override = overrideByEmployee.get(String(employee.uid))
+      const shiftUid =
+        override?.shiftUid ?? recommendation.recommendedShift?.uid
+      const effectiveFrom =
+        override?.effectiveFrom ?? recommendation.recommendedEffectiveFrom
+      const effectiveTo = override?.effectiveTo
+      const workDays =
+        override?.workDays ?? recommendation.recommendedWorkDays
+      const shift = base.shifts.find((item) => item.uid === shiftUid)
+      const issues: string[] = []
+      if (
+        employee.employeeStatus !== 'ACTIVE' ||
+        Number(employee.allowsAttendance) !== 1
+      ) {
+        issues.push('Karyawan belum aktif atau tidak eligible Attendance.')
+      }
+      if (!shiftUid || !shift) {
+        issues.push('Shift belum dipilih atau sudah tidak aktif.')
+      } else if (Number(shift.siteId) !== Number(employee.siteId)) {
+        issues.push('Shift tidak berasal dari site karyawan saat ini.')
+      } else {
+        try {
+          const context = await loadHistoryContext(
+            pool,
+            {
+              employeeUid: String(employee.uid),
+              shiftUid,
+              effectiveFrom,
+              effectiveTo: effectiveTo ?? null,
+              workDays,
+            },
+            auth,
+            false,
+            true
+          )
+          issues.push(...context.blockers)
+        } catch (error) {
+          issues.push(plannerIssue(error))
+        }
+      }
+      return {
+        employeeUid: String(employee.uid),
+        employeeNumber: String(employee.employeeNumber),
+        fullName: String(employee.fullName),
+        employeeType: String(employee.employeeType),
+        site: String(employee.site),
+        productionModule: employee.productionModule
+          ? String(employee.productionModule)
+          : undefined,
+        productionSection: employee.productionSection
+          ? String(employee.productionSection)
+          : undefined,
+        source: recommendation.source,
+        recommendedShiftUid: recommendation.recommendedShift?.uid,
+        recommendedShiftCode: recommendation.recommendedShift?.code,
+        recommendedShiftName: recommendation.recommendedShift?.name,
+        recommendedEffectiveFrom: recommendation.recommendedEffectiveFrom,
+        recommendedWorkDays: recommendation.recommendedWorkDays,
+        recommendationReason: recommendation.recommendationReason,
+        shiftUid,
+        shiftCode: shift?.code,
+        shiftName: shift?.name,
+        effectiveFrom,
+        effectiveTo,
+        workDays,
+        valid: issues.length === 0,
+        issues: [...new Set(issues)],
+      }
+    })
+  )
+  return {
+    items,
+    shifts: base.shifts.map(({ id: _id, siteId: _siteId, ...shift }) => shift),
+    validCount: items.filter((item) => item.valid).length,
+    invalidCount: items.filter((item) => !item.valid).length,
+  }
+}
+
+async function applyPlannedAssignment(
+  conn: PoolConnection,
+  input: HistoryInput,
+  context: HistoryContext,
+  auth: AuthContext,
+  request: Request,
+  requestId: string
+) {
+  const affected = new Set(context.affectedIds)
+  const insertedSegments: Array<{
+    id: number
+    uid: string
+    segment: ShiftAssignmentTimelineSegment
+  }> = []
+  for (const segment of context.timeline) {
+    if (segment.change === 'UNCHANGED') continue
+    const uid = randomUUID()
+    const [created] = await conn.execute<ResultSetHeader>(
+      `INSERT INTO employee_shift_assignments
+        (uid,employee_id,shift_id,effective_from,effective_to,work_days_json,
+         created_by,updated_by)
+       VALUES(?,?,?,?,?,?,?,?)`,
+      [
+        uid,
+        context.employee.id,
+        segment.shiftId,
+        segment.effectiveFrom,
+        segment.effectiveTo,
+        JSON.stringify(segment.workDays),
+        auth.id,
+        auth.id,
+      ]
+    )
+    insertedSegments.push({ id: created.insertId, uid, segment })
+  }
+  for (const created of insertedSegments) {
+    await conn.execute(
+      `UPDATE attendance_classification_details
+          SET shift_assignment_id=?,updated_by=?
+        WHERE employee_id=? AND business_date>=?
+          AND (business_date<=? OR ? IS NULL)`,
+      [
+        created.id,
+        auth.id,
+        context.employee.id,
+        created.segment.effectiveFrom,
+        created.segment.effectiveTo,
+        created.segment.effectiveTo,
+      ]
+    )
+  }
+  if (affected.size) {
+    await conn.execute(
+      `DELETE FROM employee_shift_assignments
+        WHERE id IN (${[...affected].map(() => '?').join(',')})`,
+      [...affected]
+    )
+  }
+  const replacement = insertedSegments.find(
+    (item) => item.segment.change === 'REPLACEMENT'
+  )
+  if (!replacement) throw new Error('Assignment pengganti gagal dibuat.')
+  const attendance = await reconcileAttendance(
+    conn,
+    input,
+    context,
+    replacement.id,
+    auth.id
+  )
+  const reason = 'Penugasan Shift massal dari alur kesiapan karyawan.'
+  const [invalidated] = await conn.execute<ResultSetHeader>(
+    `INSERT INTO attendance_daily_finalization_runs
+      (uid,site_id,business_date,trigger_type,status,grace_minutes,reason,
+       summary,warnings,requested_by,started_at,finished_at,created_by,updated_by)
+     SELECT UUID(),latest.site_id,latest.business_date,'MANUAL','SKIPPED',60,?,
+            JSON_OBJECT('invalidatedByBulkShiftPlan',TRUE),JSON_ARRAY(?),?,
+            CURRENT_TIMESTAMP(3),CURRENT_TIMESTAMP(3),?,?
+       FROM attendance_daily_finalization_runs latest
+       WHERE latest.site_id IN (${context.affectedSiteIds.map(() => '?').join(',')})
+         AND latest.business_date BETWEEN ? AND ?
+         AND latest.id=(SELECT MAX(previous.id)
+           FROM attendance_daily_finalization_runs previous
+          WHERE previous.site_id=latest.site_id
+            AND previous.business_date=latest.business_date)
+         AND latest.status<>'RUNNING'`,
+    [
+      reason,
+      'Finalisasi perlu dijalankan ulang setelah penugasan Shift massal.',
+      auth.id,
+      auth.id,
+      auth.id,
+      ...context.affectedSiteIds,
+      input.effectiveFrom,
+      context.reconciliationTo,
+    ]
+  )
+  await writeAudit(
+    {
+      auth,
+      request,
+      module: 'ATTENDANCE',
+      siteId: Number(context.shift.siteId),
+      action: context.existing.length ? 'UPDATE' : 'CREATE',
+      table: 'employee_shift_assignments',
+      recordId: replacement.id,
+      recordUid: replacement.uid,
+      description: `Menetapkan Shift massal ${context.shift.name} untuk ${context.employee.fullName}.`,
+      reason,
+      beforeData: { assignments: context.existing },
+      afterData: {
+        replacement: responseForContext(context, input).replacement,
+        timeline: responseForContext(context, input).timeline,
+        attendance,
+        invalidatedFinalizationCount: invalidated.affectedRows,
+      },
+      requestId,
+    },
+    conn
+  )
+  return {
+    employeeUid: String(context.employee.uid),
+    affectedCount: affected.size,
+    backdated: input.effectiveFrom < jakartaBusinessDate() ? 1 : 0,
+    invalidatedFinalizationCount: invalidated.affectedRows,
+  }
+}
+
 export const attendanceShiftHistoryRouter = Router()
+
+attendanceShiftHistoryRouter.post(
+  '/shift-assignment-plans/preview',
+  requirePermission('attendance.manage_shift'),
+  async (req, res, next) => {
+    try {
+      const input = shiftAssignmentPlanPreviewInput.parse(req.body)
+      res.json(
+        await previewShiftPlan(
+          input.employeeUids,
+          input.items,
+          res.locals.auth as AuthContext
+        )
+      )
+    } catch (error) {
+      next(error)
+    }
+  }
+)
+
+attendanceShiftHistoryRouter.post(
+  '/shift-assignment-plans/apply',
+  requirePermission('attendance.manage_shift'),
+  async (req, res, next) => {
+    let conn: PoolConnection | null = null
+    let stage: ApplyStage = 'memeriksa data terbaru'
+    try {
+      const input = shiftAssignmentPlanApplyInput.parse(req.body)
+      const auth = res.locals.auth as AuthContext
+      const ordered = input.items
+        .slice()
+        .sort((left, right) => left.employeeUid.localeCompare(right.employeeUid))
+      conn = await pool.getConnection()
+      await conn.beginTransaction()
+      await loadShiftPlanBase(
+        conn,
+        ordered.map((item) => item.employeeUid),
+        auth,
+        true
+      )
+      const contexts: Array<{
+        input: HistoryInput
+        context: HistoryContext
+      }> = []
+      for (const item of ordered) {
+        const historyInput: HistoryInput = {
+          employeeUid: item.employeeUid,
+          shiftUid: item.shiftUid,
+          effectiveFrom: item.effectiveFrom,
+          effectiveTo: item.effectiveTo ?? null,
+          workDays: item.workDays,
+        }
+        const context = await loadHistoryContext(
+          conn,
+          historyInput,
+          auth,
+          true,
+          true
+        )
+        if (context.blockers.length) {
+          throw new ApiError(
+            409,
+            `${context.employee.employeeNumber}: ${context.blockers[0]}`
+          )
+        }
+        contexts.push({ input: historyInput, context })
+      }
+
+      stage = 'menyusun ulang periode penugasan'
+      const requestId = `SHIFT-PLAN-${randomUUID()}`
+      const results = []
+      for (const item of contexts) {
+        results.push(
+          await applyPlannedAssignment(
+            conn,
+            item.input,
+            item.context,
+            auth,
+            req as Request,
+            requestId
+          )
+        )
+      }
+      stage = 'menyimpan perubahan'
+      await conn.commit()
+      res.status(201).json({
+        createdCount: results.length,
+        closedPreviousCount: results.reduce(
+          (total, result) => total + result.affectedCount,
+          0
+        ),
+        backdatedCount: results.reduce(
+          (total, result) => total + result.backdated,
+          0
+        ),
+        invalidatedFinalizationCount: results.reduce(
+          (total, result) =>
+            total + result.invalidatedFinalizationCount,
+          0
+        ),
+        employeeUids: results.map((result) => result.employeeUid),
+      })
+    } catch (error) {
+      if (conn) {
+        try {
+          await conn.rollback()
+        } catch (rollbackError) {
+          const databaseError = rollbackError as {
+            code?: string
+            errno?: number
+          }
+          process.stderr.write(`${JSON.stringify({
+            scope: 'attendance-shift-plan',
+            message: 'Rollback penugasan massal gagal.',
+            code: databaseError.code ?? 'UNKNOWN',
+            errno: databaseError.errno ?? null,
+          })}\n`)
+        }
+      }
+      next(historicalCorrectionError(error, stage))
+    } finally {
+      conn?.release()
+    }
+  }
+)
 
 attendanceShiftHistoryRouter.post(
   '/shift-assignments/history/preview',

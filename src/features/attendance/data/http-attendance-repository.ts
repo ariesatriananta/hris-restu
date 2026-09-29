@@ -53,6 +53,8 @@ import type {
   AttendanceImportResult,
   AttendanceImportRow,
   AttendanceImportTemplateEmployees,
+  ShiftAssignmentPlanApplyResult,
+  ShiftAssignmentPlanPreview,
 } from '../domain'
 
 const listParams = (
@@ -178,6 +180,22 @@ export const httpAttendanceRepository: AttendanceRepository = {
     return (
       await apiClient.post<ShiftAssignmentBatchResult>(
         '/attendance/shift-assignments/batch',
+        input
+      )
+    ).data
+  },
+  async previewShiftAssignmentPlan(input) {
+    return (
+      await apiClient.post<ShiftAssignmentPlanPreview>(
+        '/attendance/shift-assignment-plans/preview',
+        input
+      )
+    ).data
+  },
+  async applyShiftAssignmentPlan(input) {
+    return (
+      await apiClient.post<ShiftAssignmentPlanApplyResult>(
+        '/attendance/shift-assignment-plans/apply',
         input
       )
     ).data

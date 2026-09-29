@@ -6,6 +6,7 @@ import {
   Download,
   FileSpreadsheet,
   LoaderCircle,
+  Search,
   Upload,
   XCircle,
 } from 'lucide-react'
@@ -13,7 +14,6 @@ import { toast } from 'sonner'
 import * as XLSX from 'xlsx'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { DatePicker } from '@/components/date-picker'
 import {
   Dialog,
   DialogContent,
@@ -24,6 +24,13 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Table,
   TableBody,
   TableCell,
@@ -32,16 +39,17 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import { DatePicker } from '@/components/date-picker'
+import {
+  dateOnlyFromInput,
+  dateOnlyToInput,
+} from '@/features/attendance/date-only'
 import {
   fetchProductionImportTemplateEmployees,
   useImportProductionTransactions,
   usePreviewProductionImport,
 } from './data/queries'
 import type { ProductionImportPreview, ProductionImportRow } from './domain'
-import {
-  dateOnlyFromInput,
-  dateOnlyToInput,
-} from '@/features/attendance/date-only'
 import {
   buildProductionValidationWorkbook,
   parseProductionWorkbook,
@@ -211,59 +219,53 @@ export function ProductionImportDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className='max-h-[calc(100svh-13rem)] space-y-5 overflow-y-auto px-6 py-5'>
-          <section className='flex flex-col gap-3 rounded-lg border bg-muted/25 p-4 sm:flex-row sm:items-center sm:justify-between'>
-            <div className='flex items-start gap-3'>
-              <FileSpreadsheet className='mt-0.5 size-5 text-primary' />
-              <div>
+        <div className='max-h-[calc(100svh-13rem)] space-y-4 overflow-y-auto px-6 py-4'>
+          <section className='grid gap-3 rounded-lg border bg-muted/25 px-3 py-2.5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center'>
+            <div className='flex min-w-0 items-center gap-2.5'>
+              <FileSpreadsheet className='size-4 shrink-0 text-primary' />
+              <div className='min-w-0'>
                 <p className='font-medium'>Mulai dari template karyawan</p>
-                <p className='text-sm text-muted-foreground'>
-                  Pilih tanggal untuk melihat daftar karyawan yang tercatat aktif
-                  sebagai tenaga borongan pada tanggal tersebut. Gandakan baris
-                  untuk mengisi tanggal lain.
+                <p className='text-xs text-muted-foreground'>
+                  Pilih tanggal referensi karyawan aktif. Tanggal setiap baris
+                  tetap dapat diubah di Excel.
                 </p>
               </div>
             </div>
             {templateDatePickerOpen ? (
-              <div className='w-full space-y-2 sm:max-w-sm'>
-                <label className='text-sm font-medium' htmlFor='production-template-date'>
-                  Tanggal referensi daftar karyawan
-                </label>
-                <DatePicker
-                  id='production-template-date'
-                  selected={dateOnlyFromInput(templateDate)}
-                  onSelect={(date) => setTemplateDate(dateOnlyToInput(date))}
-                  disabled={isBusy}
-                  disabledDates={isFutureDate}
-                  placeholder='Pilih tanggal kerja'
-                />
-                <p className='text-xs text-muted-foreground'>
-                  Daftar karyawan dan tanggal awal di template akan mengikuti
-                  pilihan ini. Setelah diunduh, tanggal pada baris boleh diubah
-                  untuk import beberapa tanggal.
-                </p>
-                <div className='flex flex-wrap gap-2'>
-                  <Button
-                    type='button'
-                    disabled={isBusy || !templateDate}
-                    onClick={() => void downloadTemplate()}
-                  >
-                    {templateLoading ? (
-                      <LoaderCircle className='animate-spin' />
-                    ) : (
-                      <Download />
-                    )}
-                    Unduh template
-                  </Button>
-                  <Button
-                    type='button'
-                    variant='ghost'
+              <div className='grid w-full gap-2 sm:grid-cols-[minmax(190px,1fr)_auto_auto] lg:w-auto'>
+                <div className='min-w-0'>
+                  <label className='sr-only' htmlFor='production-template-date'>
+                    Tanggal referensi daftar karyawan
+                  </label>
+                  <DatePicker
+                    id='production-template-date'
+                    selected={dateOnlyFromInput(templateDate)}
+                    onSelect={(date) => setTemplateDate(dateOnlyToInput(date))}
                     disabled={isBusy}
-                    onClick={() => setTemplateDatePickerOpen(false)}
-                  >
-                    Batal
-                  </Button>
+                    disabledDates={isFutureDate}
+                    placeholder='Pilih tanggal kerja'
+                  />
                 </div>
+                <Button
+                  type='button'
+                  disabled={isBusy || !templateDate}
+                  onClick={() => void downloadTemplate()}
+                >
+                  {templateLoading ? (
+                    <LoaderCircle className='animate-spin' />
+                  ) : (
+                    <Download />
+                  )}
+                  Unduh
+                </Button>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  disabled={isBusy}
+                  onClick={() => setTemplateDatePickerOpen(false)}
+                >
+                  Batal
+                </Button>
               </div>
             ) : (
               <Button
@@ -273,31 +275,34 @@ export function ProductionImportDialog({
                 onClick={() => setTemplateDatePickerOpen(true)}
               >
                 <Download />
-                Pilih tanggal & unduh template
+                Pilih tanggal & unduh
               </Button>
             )}
           </section>
 
-          <div className='grid gap-2'>
-            <label
-              className='text-sm font-medium'
-              htmlFor='production-import-file'
-            >
-              File Excel (.xlsx)
-            </label>
-            <Input
-              id='production-import-file'
-              type='file'
-              accept='.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-              disabled={isBusy}
-              onChange={(event) => {
-                void selectFile(event.target.files?.[0])
-                event.target.value = ''
-              }}
-            />
-            <p className='text-xs text-muted-foreground'>
-              Format tanggal: DD/MM/YYYY. Maksimal 2.000 baris berisi data.
-              Baris tanpa tanggal dan kuantitas akan diabaikan.
+          <div className='grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(260px,0.75fr)] md:items-end'>
+            <div className='grid min-w-0 gap-1.5'>
+              <label
+                className='text-sm font-medium'
+                htmlFor='production-import-file'
+              >
+                File Excel (.xlsx)
+              </label>
+              <Input
+                id='production-import-file'
+                type='file'
+                accept='.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                disabled={isBusy}
+                onChange={(event) => {
+                  void selectFile(event.target.files?.[0])
+                  event.target.value = ''
+                }}
+              />
+            </div>
+            <p className='rounded-md border bg-muted/25 px-3 py-2 text-xs leading-5 text-muted-foreground'>
+              Format tanggal:{' '}
+              <strong className='text-foreground'>DD/MM/YYYY</strong>. Maksimal
+              2.000 baris; baris tanpa tanggal dan kuantitas diabaikan.
             </p>
           </div>
 
@@ -307,7 +312,7 @@ export function ProductionImportDialog({
               Attendance, pekerjaan, tarif, site, dan kunci Payroll...
             </div>
           ) : preview ? (
-            <ProductionImportPreviewTable preview={preview} />
+            <ProductionImportPreviewTable key={batchKey} preview={preview} />
           ) : null}
 
           <label className='grid gap-1.5 text-sm'>
@@ -357,11 +362,30 @@ function ProductionImportPreviewTable({
 }: {
   preview: ProductionImportPreview
 }) {
+  const [query, setQuery] = useState('')
+  const [validationStatus, setValidationStatus] = useState<
+    'ALL' | 'VALID' | 'WARNING' | 'INVALID'
+  >('ALL')
   const summary = useMemo(
     () =>
       `${preview.valid} valid · ${preview.invalid} perlu diperbaiki${preview.warnings ? ` · ${preview.warnings} peringatan` : ''}`,
     [preview]
   )
+  const filteredRows = useMemo(() => {
+    const keyword = query.trim().toLocaleLowerCase('id-ID')
+    return preview.rows.filter((row) => {
+      const matchesQuery =
+        !keyword ||
+        row.employeeName?.toLocaleLowerCase('id-ID').includes(keyword) ||
+        row.employeeNumber.toLocaleLowerCase('id-ID').includes(keyword)
+      const matchesStatus =
+        validationStatus === 'ALL' ||
+        (validationStatus === 'VALID' && row.valid && !row.warning) ||
+        (validationStatus === 'WARNING' && row.valid && Boolean(row.warning)) ||
+        (validationStatus === 'INVALID' && !row.valid)
+      return matchesQuery && matchesStatus
+    })
+  }, [preview.rows, query, validationStatus])
 
   function downloadValidationResult() {
     const now = new Date()
@@ -405,6 +429,41 @@ function ProductionImportPreviewTable({
           Download hasil validasi
         </Button>
       </div>
+      <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+        <div className='grid flex-1 gap-2 sm:max-w-xl sm:grid-cols-[minmax(0,1fr)_190px]'>
+          <div className='relative'>
+            <Search className='pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground' />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder='Cari nama atau nomor karyawan...'
+              className='pl-9'
+              aria-label='Cari nama atau nomor karyawan'
+            />
+          </div>
+          <Select
+            value={validationStatus}
+            onValueChange={(value) =>
+              setValidationStatus(
+                value as 'ALL' | 'VALID' | 'WARNING' | 'INVALID'
+              )
+            }
+          >
+            <SelectTrigger aria-label='Filter status validasi'>
+              <SelectValue placeholder='Status validasi' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='ALL'>Semua status</SelectItem>
+              <SelectItem value='VALID'>Valid</SelectItem>
+              <SelectItem value='WARNING'>Peringatan</SelectItem>
+              <SelectItem value='INVALID'>Perlu diperbaiki</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <p className='text-xs whitespace-nowrap text-muted-foreground'>
+          Menampilkan {filteredRows.length} dari {preview.total} baris
+        </p>
+      </div>
       <div className='max-h-96 overflow-auto rounded-lg border'>
         <Table className='text-xs'>
           <TableHeader className='sticky top-0 z-10 bg-background'>
@@ -419,7 +478,7 @@ function ProductionImportPreviewTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {preview.rows.map((row) => (
+            {filteredRows.map((row) => (
               <TableRow
                 key={`${row.rowNumber}-${row.employeeNumber}-${row.businessDate}`}
                 className={row.valid ? undefined : 'bg-destructive/5'}
@@ -484,6 +543,16 @@ function ProductionImportPreviewTable({
                 </TableCell>
               </TableRow>
             ))}
+            {!filteredRows.length ? (
+              <TableRow>
+                <TableCell
+                  colSpan={7}
+                  className='h-24 text-center text-sm text-muted-foreground'
+                >
+                  Tidak ada baris yang sesuai dengan filter.
+                </TableCell>
+              </TableRow>
+            ) : null}
           </TableBody>
         </Table>
       </div>

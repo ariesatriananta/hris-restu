@@ -1817,20 +1817,57 @@ productionFoundationRouter.post(
         starts.push(String(contract.startDate))
         contractStartsByEmployee.set(employeeId, starts)
       }
+      const [currentEligibleHistories] =
+        await connection.query<RowDataPacket[]>(
+          `SELECT history.employee_id employeeId,
+                  DATE_FORMAT(history.effective_from,'%Y-%m-%d') effectiveFrom
+             FROM employee_employment_histories history
+             JOIN employee_statuses status
+               ON status.id=history.employee_status_id
+              AND status.allows_production=1
+             JOIN employee_types employee_type
+               ON employee_type.id=history.employee_type_id
+              AND employee_type.code IN ('BORONGAN','TRAINING')
+            WHERE history.employee_id IN (${employeeIds.map(() => '?').join(',')})
+              AND history.site_id=? AND history.effective_from<=?
+              AND (history.effective_to IS NULL OR history.effective_to>=?)
+            ORDER BY history.employee_id,history.effective_from DESC,history.id DESC
+            FOR UPDATE`,
+          [...employeeIds, siteId, today, today]
+        )
+      const eligibleStartsByEmployee = new Map<number, string[]>()
+      for (const history of currentEligibleHistories) {
+        const employeeId = Number(history.employeeId)
+        const starts = eligibleStartsByEmployee.get(employeeId) ?? []
+        starts.push(String(history.effectiveFrom))
+        eligibleStartsByEmployee.set(employeeId, starts)
+      }
       for (const item of items) {
         const employee = employeesByUid.get(item.employeeUid)!
+        const employeeId = Number(employee.employeeId)
         const contractStarts =
-          contractStartsByEmployee.get(Number(employee.employeeId)) ?? []
+          contractStartsByEmployee.get(employeeId) ?? []
         if (contractStarts.length !== 1) {
           throw new ApiError(
             409,
             `Kontrak aktif ${employee.employeeNumber} tidak ditemukan atau bertumpang tindih.`
           )
         }
-        if (item.effectiveFrom !== contractStarts[0]) {
+        const eligibleStarts = eligibleStartsByEmployee.get(employeeId) ?? []
+        if (eligibleStarts.length !== 1) {
+          throw new ApiError(
+            409,
+            `Histori kerja aktif ${employee.employeeNumber} pada site ${input.site} tidak ditemukan atau bertumpang tindih.`
+          )
+        }
+        const expectedEffectiveFrom =
+          contractStarts[0] > eligibleStarts[0]
+            ? contractStarts[0]
+            : eligibleStarts[0]
+        if (item.effectiveFrom !== expectedEffectiveFrom) {
           throw new ApiError(
             422,
-            `Tanggal mulai pekerjaan ${employee.employeeNumber} harus sama dengan tanggal mulai kontrak aktif, yaitu ${contractStarts[0]}.`
+            `Tanggal mulai pekerjaan ${employee.employeeNumber} harus mengikuti tanggal operasional terakhir antara kontrak dan histori site, yaitu ${expectedEffectiveFrom}.`
           )
         }
       }

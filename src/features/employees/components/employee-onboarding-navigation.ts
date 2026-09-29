@@ -17,6 +17,7 @@ export function continueEmployeeOnboarding(
       to: '/attendance/master-shift',
       search: {
         tab: 'assignment',
+        assignmentView: 'planner',
         setupAttendance: true,
         employeeUids: actionable.map((item) => item.employeeUid).join(','),
       },

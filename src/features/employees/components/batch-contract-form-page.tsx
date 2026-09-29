@@ -380,6 +380,7 @@ function StandardBatchContractFormPage({
                     to: '/attendance/master-shift',
                     search: {
                       tab: 'assignment',
+                      assignmentView: 'planner',
                       setupAttendance: true,
                       employeeUids: activeEmployeeUids.join(','),
                     },

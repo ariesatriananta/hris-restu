@@ -610,6 +610,12 @@ describe('Production foundation API', () => {
       ])
       .mockResolvedValueOnce([
         [
+          { employeeId: 10, effectiveFrom: todayJakarta() },
+          { employeeId: 11, effectiveFrom: todayJakarta() },
+        ],
+      ])
+      .mockResolvedValueOnce([
+        [
           { employeeId: 10, historyCount: 1 },
           { employeeId: 11, historyCount: 1 },
         ],
@@ -703,6 +709,9 @@ describe('Production foundation API', () => {
       .mockResolvedValueOnce([
         [{ employeeId: 10, startDate: '2026-08-15' }],
       ])
+      .mockResolvedValueOnce([
+        [{ employeeId: 10, effectiveFrom: '2026-08-15' }],
+      ])
       .mockResolvedValueOnce([[{ employeeId: 10, historyCount: 1 }]])
       .mockResolvedValueOnce([[]])
 
@@ -748,6 +757,9 @@ describe('Production foundation API', () => {
       .mockResolvedValueOnce([
         [{ employeeId: 10, startDate: '2026-09-01' }],
       ])
+      .mockResolvedValueOnce([
+        [{ employeeId: 10, effectiveFrom: '2026-09-01' }],
+      ])
 
     const response = await request('/assignments/batch', {
       method: 'POST',
@@ -768,6 +780,54 @@ describe('Production foundation API', () => {
     })
     expect(mocks.execute).not.toHaveBeenCalled()
     expect(mocks.rollback).toHaveBeenCalledOnce()
+  })
+
+  it('memulai pekerjaan pascamutasi pada awal histori site baru', async () => {
+    const employeeUid = '33333333-3333-4333-8333-333333333331'
+    const jobUid = '11111111-1111-4111-8111-111111111111'
+    mocks.query
+      .mockResolvedValueOnce([
+        [
+          {
+            jobId: 20,
+            jobUid,
+            jobCode: 'BORONGAN-LINTING',
+            jobName: 'Linting',
+            siteId: 1,
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([[{ jobId: 20, rateCount: 1 }]])
+      .mockResolvedValueOnce([
+        [{ employeeId: 10, uid: employeeUid, employeeNumber: 'PSMG-2008-18002' }],
+      ])
+      .mockResolvedValueOnce([
+        [{ employeeId: 10, startDate: '2026-08-18' }],
+      ])
+      .mockResolvedValueOnce([
+        [{ employeeId: 10, effectiveFrom: '2026-09-19' }],
+      ])
+      .mockResolvedValueOnce([[{ employeeId: 10, historyCount: 1 }]])
+      .mockResolvedValueOnce([[]])
+
+    const response = await request('/assignments/batch', {
+      method: 'POST',
+      auth: auth({
+        permissions: ['production.manage_master'],
+        sites: ['JEPARA'],
+      }),
+      body: {
+        items: [{ employeeUid, jobUid, effectiveFrom: '2026-09-19' }],
+        site: 'JEPARA',
+      },
+    })
+
+    expect(response.status).toBe(201)
+    expect(mocks.execute).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO employee_job_assignments'),
+      expect.arrayContaining(['2026-09-19'])
+    )
+    expect(mocks.commit).toHaveBeenCalledOnce()
   })
 
   it('menolak tanggal mulai onboarding di masa depan', async () => {

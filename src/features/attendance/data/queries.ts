@@ -43,6 +43,8 @@ import type {
   AttendanceBatchDeletePreviewInput,
   AttendanceBatchDeleteInput,
   AttendanceImportRow,
+  ShiftAssignmentPlanApplyInput,
+  ShiftAssignmentPlanPreviewInput,
 } from '../domain'
 import { httpAttendanceRepository } from './http-attendance-repository'
 
@@ -183,6 +185,15 @@ export const useCreateShiftAssignments = () =>
   useAttendanceMutation((input: ShiftAssignmentBatchInput) =>
     httpAttendanceRepository.createShiftAssignments(input)
   )
+export const usePreviewShiftAssignmentPlan = () =>
+  useMutation({
+    mutationFn: (input: ShiftAssignmentPlanPreviewInput) =>
+      httpAttendanceRepository.previewShiftAssignmentPlan(input),
+  })
+export const useApplyShiftAssignmentPlan = () =>
+  useAttendanceMutation((input: ShiftAssignmentPlanApplyInput) =>
+    httpAttendanceRepository.applyShiftAssignmentPlan(input)
+  )
 export const usePreviewHistoricalShiftAssignment = () =>
   useMutation({
     mutationFn: (input: HistoricalShiftAssignmentInput) =>
@@ -194,11 +205,7 @@ export const useApplyHistoricalShiftAssignment = () =>
   )
 export const useDeleteShiftAssignment = () =>
   useAttendanceMutation(
-    (request: {
-      uid: string
-      reason: string
-      confirmation: 'HAPUS'
-    }) =>
+    (request: { uid: string; reason: string; confirmation: 'HAPUS' }) =>
       httpAttendanceRepository.deleteShiftAssignment(request.uid, {
         reason: request.reason,
         confirmation: request.confirmation,

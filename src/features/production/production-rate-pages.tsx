@@ -102,7 +102,7 @@ import type {
   WorkUnit,
 } from './domain'
 import { ProductionEmployeePicker } from './production-employee-picker'
-import { ProductionOnboardingAssignmentDialog } from './production-onboarding-assignment-dialog'
+import { ProductionOnboardingAssignmentPlanner } from './production-onboarding-assignment-dialog'
 import {
   formatProductionDecimalInput,
   normalizeProductionDecimalInput,
@@ -2052,8 +2052,6 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
       ),
     [currentOnboardingSite, pendingOnboardingItems]
   )
-  const [productionOnboardingOpen, setProductionOnboardingOpen] =
-    useState(setupProduction)
   const [assignmentPreset, setAssignmentPreset] =
     useState<AssignmentPreset | null>(null)
   const refs = useReferenceOptions()
@@ -2111,32 +2109,119 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
     )
     setAssignmentDialogOpen(true)
   }
+
+  const completeOnboardingAssignments = (assignedEmployeeUids: string[]) => {
+    const assigned = new Set(assignedEmployeeUids)
+    const remaining = pendingOnboardingEmployeeUids.filter(
+      (uid) => !assigned.has(uid)
+    )
+    setPendingOnboardingEmployeeUids(remaining)
+    void queryClient.invalidateQueries({
+      queryKey: employeeKeys.onboardingReadiness(),
+    })
+    if (remaining.length) {
+      navigate({
+        search: (previous) => ({
+          ...previous,
+          employeeUids: remaining.join(','),
+        }),
+        replace: true,
+      })
+      toast.info(
+        `${remaining.length} karyawan lainnya akan diperiksa pada langkah berikutnya.`
+      )
+      return
+    }
+    navigate({
+      search: (previous) => ({
+        ...previous,
+        setupProduction: undefined,
+        employeeUids: undefined,
+      }),
+      replace: true,
+    })
+    toast.success(
+      'Onboarding selesai. Seluruh karyawan Produksi sudah memiliki pekerjaan utama.'
+    )
+    void routerNavigate({ to: '/karyawan/data-karyawan' })
+  }
+
+  if (setupProduction) {
+    return (
+      <Main className='space-y-5'>
+        <OnboardingSteps activeStep={5} />
+        <section className='rounded-lg border border-primary/20 bg-primary/5 px-4 py-3'>
+          <p className='font-medium'>Langkah terakhir onboarding</p>
+          <p className='text-sm text-muted-foreground'>
+            Atur pekerjaan utama sampai seluruh karyawan Produksi siap menerima
+            setoran. Setiap site diproses atomik secara bergiliran.
+          </p>
+        </section>
+        {onboardingReadiness.isPending || refs.jobs.isPending ? (
+          <div className='grid min-h-72 place-items-center rounded-xl border border-dashed'>
+            <div className='flex items-center gap-2 text-sm text-muted-foreground'>
+              <LoaderCircle className='size-4 animate-spin' /> Menyiapkan
+              rencana pekerjaan...
+            </div>
+          </div>
+        ) : onboardingReadiness.isError || refs.jobs.isError ? (
+          <div className='grid min-h-72 place-items-center rounded-xl border border-dashed p-6 text-center'>
+            <div className='space-y-3'>
+              <AlertTriangle className='mx-auto size-7 text-destructive' />
+              <div>
+                <p className='font-medium'>
+                  Data onboarding belum dapat dimuat
+                </p>
+                <p className='text-sm text-muted-foreground'>
+                  Data tidak berubah. Coba muat ulang setelah koneksi siap.
+                </p>
+              </div>
+              <Button
+                onClick={() => {
+                  void onboardingReadiness.refetch()
+                  void refs.jobs.refetch()
+                }}
+              >
+                Muat ulang
+              </Button>
+            </div>
+          </div>
+        ) : !canManage ? (
+          <div className='grid min-h-72 place-items-center rounded-xl border border-dashed p-6 text-center'>
+            <div className='space-y-3'>
+              <AlertTriangle className='mx-auto size-7 text-amber-600' />
+              <div>
+                <p className='font-medium'>Akses penugasan belum tersedia</p>
+                <p className='text-sm text-muted-foreground'>
+                  Akun Anda tidak memiliki izin mengelola pekerjaan Produksi.
+                </p>
+              </div>
+              <Button
+                variant='outline'
+                onClick={() =>
+                  void routerNavigate({ to: '/karyawan/data-karyawan' })
+                }
+              >
+                Kembali ke Data Karyawan
+              </Button>
+            </div>
+          </div>
+        ) : currentOnboardingEmployees.length ? (
+          <ProductionOnboardingAssignmentPlanner
+            key={`${currentOnboardingSite}-${currentOnboardingEmployees.map((item) => item.employeeUid).join(',')}`}
+            employees={currentOnboardingEmployees}
+            jobs={refs.jobs.data?.items ?? []}
+            onAssigned={completeOnboardingAssignments}
+            onCancel={() =>
+              void routerNavigate({ to: '/karyawan/data-karyawan' })
+            }
+          />
+        ) : null}
+      </Main>
+    )
+  }
   return (
     <Main className='space-y-5'>
-      {setupProduction && (
-        <>
-          <OnboardingSteps activeStep={5} />
-          <section className='flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between'>
-            <div>
-              <p className='font-medium'>Langkah terakhir onboarding</p>
-              <p className='text-sm text-muted-foreground'>
-                Atur satu pekerjaan utama agar karyawan Produksi siap menerima
-                setoran. Karyawan nonproduksi tidak memerlukan langkah ini.
-              </p>
-            </div>
-            {currentOnboardingEmployees.length > 0 && canManage && (
-              <Button
-                type='button'
-                size='sm'
-                onClick={() => setProductionOnboardingOpen(true)}
-              >
-                <BriefcaseBusiness /> Lanjutkan{' '}
-                {currentOnboardingEmployees.length} karyawan
-              </Button>
-            )}
-          </section>
-        </>
-      )}
       <PageHeader
         title='Master Pekerjaan Produksi'
         description='Kelola pekerjaan, satuan, penugasan pekerja, dan kesiapan operasional per site.'
@@ -2479,52 +2564,6 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
           open={assignmentDialogOpen}
           onOpenChange={setAssignmentDialogOpen}
           preset={assignmentPreset}
-        />
-      )}
-      {setupProduction && currentOnboardingEmployees.length > 0 && (
-        <ProductionOnboardingAssignmentDialog
-          key={`${currentOnboardingSite}-${currentOnboardingEmployees.map((item) => item.employeeUid).join(',')}`}
-          open={productionOnboardingOpen}
-          onOpenChange={setProductionOnboardingOpen}
-          employees={currentOnboardingEmployees}
-          jobs={refs.jobs.data?.items ?? []}
-          onAssigned={(assignedEmployeeUids) => {
-            const assigned = new Set(assignedEmployeeUids)
-            const remaining = pendingOnboardingEmployeeUids.filter(
-              (uid) => !assigned.has(uid)
-            )
-            setPendingOnboardingEmployeeUids(remaining)
-            setProductionOnboardingOpen(false)
-            void queryClient.invalidateQueries({
-              queryKey: employeeKeys.onboardingReadiness(),
-            })
-            if (remaining.length) {
-              navigate({
-                search: (previous) => ({
-                  ...previous,
-                  employeeUids: remaining.join(','),
-                }),
-                replace: true,
-              })
-              toast.info(
-                `${remaining.length} karyawan lainnya akan diperiksa pada langkah berikutnya.`
-              )
-              setTimeout(() => setProductionOnboardingOpen(true), 0)
-              return
-            }
-            navigate({
-              search: (previous) => ({
-                ...previous,
-                setupProduction: undefined,
-                employeeUids: undefined,
-              }),
-              replace: true,
-            })
-            toast.success(
-              'Onboarding selesai. Seluruh karyawan Produksi sudah memiliki pekerjaan utama.'
-            )
-            void routerNavigate({ to: '/karyawan/data-karyawan' })
-          }}
         />
       )}
     </Main>

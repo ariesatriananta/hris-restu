@@ -38,6 +38,7 @@ import type {
   ShiftListParams,
 } from './domain'
 import { ShiftAssignmentHistoryDialog } from './shift-assignment-history-dialog'
+import { ShiftAssignmentPlanner } from './shift-assignment-planner'
 import { ShiftAssignmentDialog, ShiftDialog } from './shift-dialogs'
 import { ShiftAssignmentTable, ShiftTable } from './shift-tables'
 
@@ -62,11 +63,13 @@ export function MasterShiftPage({
   )
   const setupAttendance =
     search.setupAttendance === true && onboardingEmployeeUids.length > 0
+  const plannerMode = setupAttendance && search.assignmentView === 'planner'
   const [pendingOnboardingEmployeeUids, setPendingOnboardingEmployeeUids] =
     useState(onboardingEmployeeUids)
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false)
-  const [assignmentDialogOpen, setAssignmentDialogOpen] =
-    useState(setupAttendance)
+  const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(
+    setupAttendance && !plannerMode
+  )
   const [editingShift, setEditingShift] = useState<Shift>()
   const [deleteShiftTarget, setDeleteShiftTarget] = useState<Shift>()
   const [deleteAssignmentTarget, setDeleteAssignmentTarget] =
@@ -108,14 +111,11 @@ export function MasterShiftPage({
     (shift: Shift) => setDeleteShiftTarget(shift),
     []
   )
-  const requestDeleteAssignment = useCallback(
-    (assignment: ShiftAssignment) => {
-      setDeleteAssignmentTarget(assignment)
-      setDeleteAssignmentReason('')
-      setDeleteAssignmentConfirmation('')
-    },
-    []
-  )
+  const requestDeleteAssignment = useCallback((assignment: ShiftAssignment) => {
+    setDeleteAssignmentTarget(assignment)
+    setDeleteAssignmentReason('')
+    setDeleteAssignmentConfirmation('')
+  }, [])
   const allShifts = assignmentShifts.data?.items ?? []
   const siteOptions =
     foundation.data?.sites.map((site) => ({
@@ -152,6 +152,106 @@ export function MasterShiftPage({
         label: `${section.code} · ${section.name}`,
       }))
   )
+
+  const completeOnboardingShift = async (assignedEmployeeUids: string[]) => {
+    if (!setupAttendance) return
+    const assigned = new Set(assignedEmployeeUids)
+    const remaining = pendingOnboardingEmployeeUids.filter(
+      (uid) => !assigned.has(uid)
+    )
+    setPendingOnboardingEmployeeUids(remaining)
+    if (remaining.length) {
+      navigate({
+        search: (previous) => ({
+          ...previous,
+          employeeUids: remaining.join(','),
+        }),
+        replace: true,
+      })
+      toast.info(
+        `${remaining.length} karyawan masih perlu disiapkan penugasan Shift.`
+      )
+      return
+    }
+    toast.success('Penugasan Shift selesai. Memeriksa kesiapan Produksi.')
+    let readiness
+    try {
+      await queryClient.invalidateQueries({
+        queryKey: employeeKeys.onboardingReadiness(),
+      })
+      readiness = await queryClient.fetchQuery({
+        queryKey: employeeKeys.onboardingReadiness(),
+        queryFn: getEmployeeOnboardingReadiness,
+      })
+    } catch {
+      toast.warning(
+        'Shift sudah tersimpan, tetapi langkah berikutnya belum dapat diperiksa. Lanjutkan kembali dari Data Karyawan.'
+      )
+      void routerNavigate({ to: '/karyawan/data-karyawan' })
+      return
+    }
+    const onboardingSet = new Set(onboardingEmployeeUids)
+    const productionEmployeeUids = readiness.items
+      .filter(
+        (item) =>
+          onboardingSet.has(item.employeeUid) &&
+          item.stage === 'NEEDS_PRODUCTION_ASSIGNMENT'
+      )
+      .map((item) => item.employeeUid)
+    if (!productionEmployeeUids.length) {
+      toast.success(
+        'Onboarding selesai. Karyawan sudah siap digunakan sesuai perannya.'
+      )
+      void routerNavigate({ to: '/karyawan/data-karyawan' })
+      return
+    }
+    const canManageProduction =
+      hasPermission(session, 'production.view') &&
+      hasPermission(session, 'production.manage_master')
+    if (!canManageProduction) {
+      toast.warning(
+        'Penugasan pekerjaan Produksi perlu dilanjutkan oleh pengguna yang memiliki akses Master Produksi.'
+      )
+      void routerNavigate({ to: '/karyawan/data-karyawan' })
+      return
+    }
+    void routerNavigate({
+      to: '/produksi/master-pekerjaan',
+      search: {
+        tab: 'assignments',
+        assignmentView: 'readiness',
+        setupProduction: true,
+        employeeUids: productionEmployeeUids.join(','),
+      },
+    })
+  }
+
+  if (plannerMode) {
+    return (
+      <Main>
+        <div className='mb-5 max-w-4xl'>
+          <OnboardingSteps activeStep={4} />
+        </div>
+        <div className='mb-6'>
+          <p className='text-sm font-medium text-primary'>Attendance</p>
+          <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
+            Siapkan Shift Karyawan
+          </h1>
+          <p className='text-muted-foreground'>
+            Atur rekomendasi Shift dan tanggal mulai per karyawan dalam satu
+            proses yang aman.
+          </p>
+        </div>
+        <ShiftAssignmentPlanner
+          employeeUids={pendingOnboardingEmployeeUids}
+          onApplied={completeOnboardingShift}
+          onCancel={() =>
+            void routerNavigate({ to: '/karyawan/data-karyawan' })
+          }
+        />
+      </Main>
+    )
+  }
   return (
     <Main>
       {setupAttendance && (
@@ -388,12 +488,16 @@ export function MasterShiftPage({
             <label className='text-sm font-medium'>Alasan penghapusan</label>
             <Textarea
               value={deleteAssignmentReason}
-              onChange={(event) => setDeleteAssignmentReason(event.target.value)}
+              onChange={(event) =>
+                setDeleteAssignmentReason(event.target.value)
+              }
               placeholder='Jelaskan alasan penugasan ini dihapus.'
             />
           </div>
           <div className='space-y-2'>
-            <label className='text-sm font-medium'>Ketik HAPUS untuk konfirmasi</label>
+            <label className='text-sm font-medium'>
+              Ketik HAPUS untuk konfirmasi
+            </label>
             <Input
               value={deleteAssignmentConfirmation}
               onChange={(event) =>

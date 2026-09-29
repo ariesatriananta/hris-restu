@@ -125,6 +125,12 @@ export interface AttendanceRepository {
   createShiftAssignments(
     input: ShiftAssignmentBatchInput
   ): Promise<ShiftAssignmentBatchResult>
+  previewShiftAssignmentPlan(
+    input: ShiftAssignmentPlanPreviewInput
+  ): Promise<ShiftAssignmentPlanPreview>
+  applyShiftAssignmentPlan(
+    input: ShiftAssignmentPlanApplyInput
+  ): Promise<ShiftAssignmentPlanApplyResult>
   previewHistoricalShiftAssignment(
     input: HistoricalShiftAssignmentInput
   ): Promise<HistoricalShiftAssignmentPreview>
@@ -357,6 +363,77 @@ export interface ShiftAssignmentBatchResult {
   closedPreviousCount: number
   backdatedFirstAssignmentCount: number
   invalidatedFinalizationCount: number
+}
+
+export type ShiftAssignmentPlanSource =
+  | 'NEW_HIRE'
+  | 'TRANSFER'
+  | 'RENEWAL'
+  | 'MANUAL'
+
+export interface ShiftAssignmentPlanEdit {
+  employeeUid: string
+  shiftUid: string
+  effectiveFrom: string
+  effectiveTo?: string
+  workDays: number[]
+}
+
+export interface ShiftAssignmentPlanItem extends Omit<
+  ShiftAssignmentPlanEdit,
+  'shiftUid'
+> {
+  shiftUid?: string
+  employeeNumber: string
+  fullName: string
+  employeeType: AttendanceEmployeeType
+  site: AttendanceSiteCode
+  productionModule?: string
+  productionSection?: string
+  source: ShiftAssignmentPlanSource
+  recommendedShiftUid?: string
+  recommendedShiftCode?: string
+  recommendedShiftName?: string
+  recommendedEffectiveFrom: string
+  recommendedWorkDays: number[]
+  recommendationReason: string
+  shiftCode?: string
+  shiftName?: string
+  valid: boolean
+  issues: string[]
+}
+
+export interface ShiftAssignmentPlanShift {
+  uid: string
+  code: string
+  name: string
+  site: AttendanceSiteCode
+  startTime: string
+  endTime: string
+}
+
+export interface ShiftAssignmentPlanPreviewInput {
+  employeeUids: string[]
+  items?: ShiftAssignmentPlanEdit[]
+}
+
+export interface ShiftAssignmentPlanPreview {
+  items: ShiftAssignmentPlanItem[]
+  shifts: ShiftAssignmentPlanShift[]
+  validCount: number
+  invalidCount: number
+}
+
+export interface ShiftAssignmentPlanApplyInput {
+  items: ShiftAssignmentPlanEdit[]
+}
+
+export interface ShiftAssignmentPlanApplyResult {
+  createdCount: number
+  closedPreviousCount: number
+  backdatedCount: number
+  invalidatedFinalizationCount: number
+  employeeUids: string[]
 }
 
 export interface HistoricalShiftAssignmentInput {

@@ -67,6 +67,46 @@ function auth(
 
 function queryResult(sqlValue: unknown) {
   const sql = String(sqlValue)
+  if (sql.includes('history.change_type historyChangeType')) {
+    return [
+      [
+        {
+          id: 11,
+          uid: body.employeeUid,
+          employeeNumber: 'EMP-001',
+          fullName: 'Budi',
+          employeeType: 'BORONGAN',
+          employeeStatus: 'ACTIVE',
+          allowsAttendance: 1,
+          siteId: 1,
+          site: 'JEPARA',
+          productionModule: 'Modul A',
+          productionSection: 'Linting',
+          historyEffectiveFrom: '2026-08-01',
+          historyChangeType: 'INITIAL',
+          activeContractStart: '2026-08-01',
+          isRenewal: 0,
+        },
+      ],
+    ]
+  }
+  if (sql.includes('FROM shifts shift') && sql.includes('shift.is_active=1')) {
+    return [
+      [
+        {
+          id: 22,
+          uid: body.shiftUid,
+          siteId: 1,
+          code: 'BORONGAN_DEFAULT',
+          name: 'Shift Pagi',
+          startTime: '06:00',
+          endTime: '15:00',
+          site: 'JEPARA',
+        },
+      ],
+    ]
+  }
+  if (sql.includes('assignment.employee_id employeeId')) return [[]]
   if (sql.includes('FROM employees e WHERE e.uid=')) {
     return [
       [
@@ -206,6 +246,57 @@ describe('Attendance historical shift API', () => {
     ])
   })
 
+  it('menyiapkan rencana Shift massal dengan rekomendasi per karyawan', async () => {
+    const response = await post('/shift-assignment-plans/preview', {
+      employeeUids: [body.employeeUid],
+    })
+    const result = (await response.json()) as {
+      validCount: number
+      invalidCount: number
+      items: Array<Record<string, unknown>>
+    }
+
+    expect(response.status).toBe(200)
+    expect(result.validCount).toBe(1)
+    expect(result.invalidCount).toBe(0)
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        employeeUid: body.employeeUid,
+        source: 'NEW_HIRE',
+        shiftUid: body.shiftUid,
+        shiftCode: 'BORONGAN_DEFAULT',
+        effectiveFrom: '2026-08-01',
+        valid: true,
+        issues: [],
+      }),
+    ])
+  })
+
+  it('planner menerima tanggal mulai berbeda di masa depan tanpa melonggarkan koreksi histori', async () => {
+    const response = await post('/shift-assignment-plans/preview', {
+      employeeUids: [body.employeeUid],
+      items: [
+        {
+          ...body,
+          effectiveFrom: '2099-01-01',
+          effectiveTo: null,
+        },
+      ],
+    })
+    const result = (await response.json()) as {
+      validCount: number
+      items: Array<{ effectiveFrom: string; valid: boolean; issues: string[] }>
+    }
+
+    expect(response.status).toBe(200)
+    expect(result.validCount).toBe(1)
+    expect(result.items[0]).toMatchObject({
+      effectiveFrom: '2099-01-01',
+      valid: true,
+      issues: [],
+    })
+  })
+
   it('preview seterusnya membatasi dampak sampai hari ini', async () => {
     const response = await post('/shift-assignments/history/preview', {
       ...body,
@@ -265,6 +356,58 @@ describe('Attendance historical shift API', () => {
     expect(result.blockers).toContainEqual(
       expect.stringContaining('periode paling akhir')
     )
+  })
+
+  it('mengizinkan realign satu hari untuk Shift sama tanpa membuat overlap', async () => {
+    mocks.query.mockImplementation((sqlValue: unknown) => {
+      const sql = String(sqlValue)
+      if (sql.includes('FROM employee_shift_assignments esa')) {
+        return [
+          [
+            {
+              id: 41,
+              uid: '33333333-3333-4333-8333-333333333333',
+              shiftId: 22,
+              shiftUid: body.shiftUid,
+              shiftName: 'Shift Pagi',
+              effectiveFrom: '2026-08-04',
+              effectiveTo: null,
+              workDays: [1, 2, 3, 4, 5],
+            },
+          ],
+        ]
+      }
+      return queryResult(sqlValue)
+    })
+
+    const response = await post('/shift-assignments/history/preview', {
+      ...body,
+      effectiveTo: null,
+    })
+    const result = (await response.json()) as {
+      blockers: string[]
+      canApply: boolean
+      impact: { affectedAssignmentCount: number }
+      timeline: Array<{
+        shiftUid: string
+        effectiveFrom: string
+        effectiveTo: string | null
+        change: string
+      }>
+    }
+
+    expect(response.status).toBe(200)
+    expect(result.canApply).toBe(true)
+    expect(result.blockers).toEqual([])
+    expect(result.impact.affectedAssignmentCount).toBe(1)
+    expect(result.timeline).toEqual([
+      expect.objectContaining({
+        shiftUid: body.shiftUid,
+        effectiveFrom: body.effectiveFrom,
+        effectiveTo: null,
+        change: 'REPLACEMENT',
+      }),
+    ])
   })
 
   it('menolak seterusnya bila mutasi atau status kerja terjadwal masih terbuka', async () => {
@@ -420,6 +563,47 @@ describe('Attendance historical shift API', () => {
       invalidatedFinalizationCount: 0,
     })
     expect(conn.commit).toHaveBeenCalledOnce()
+    expect(mocks.writeAudit).toHaveBeenCalledOnce()
+  })
+
+  it('menerapkan rencana Shift massal secara atomik', async () => {
+    const conn = {
+      beginTransaction: vi.fn().mockResolvedValue(undefined),
+      query: vi.fn().mockImplementation(queryResult),
+      execute: vi.fn().mockImplementation(async (sqlValue: unknown) => {
+        const sql = String(sqlValue)
+        if (sql.includes('INSERT INTO employee_shift_assignments')) {
+          return [{ insertId: 100, affectedRows: 1 }]
+        }
+        if (sql.includes('INSERT INTO attendance_daily_finalization_runs')) {
+          return [{ insertId: 0, affectedRows: 0 }]
+        }
+        if (sql.includes('UPDATE attendance_classification_details')) {
+          return [{ affectedRows: 0 }]
+        }
+        throw new Error(`Execute test belum dimock: ${sql.slice(0, 120)}`)
+      }),
+      commit: vi.fn().mockResolvedValue(undefined),
+      rollback: vi.fn().mockResolvedValue(undefined),
+      release: vi.fn(),
+    }
+    mocks.getConnection.mockResolvedValue(conn)
+
+    const response = await post('/shift-assignment-plans/apply', {
+      items: [body],
+    })
+    const result = (await response.json()) as Record<string, unknown>
+
+    expect(response.status).toBe(201)
+    expect(result).toMatchObject({
+      createdCount: 1,
+      closedPreviousCount: 0,
+      backdatedCount: 1,
+      invalidatedFinalizationCount: 0,
+      employeeUids: [body.employeeUid],
+    })
+    expect(conn.commit).toHaveBeenCalledOnce()
+    expect(conn.rollback).not.toHaveBeenCalled()
     expect(mocks.writeAudit).toHaveBeenCalledOnce()
   })
 

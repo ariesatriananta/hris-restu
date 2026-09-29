@@ -21,6 +21,7 @@ export const Route = createFileRoute('/_authenticated/attendance/master-shift')(
       shiftUid: z.array(z.string()).optional(),
       status: z.array(z.enum(['CURRENT', 'UPCOMING', 'ENDED'])).optional(),
       setupAttendance: z.boolean().optional(),
+      assignmentView: z.enum(['planner']).optional(),
       employeeUids: z.string().optional(),
     }),
     component: RouteComponent,
