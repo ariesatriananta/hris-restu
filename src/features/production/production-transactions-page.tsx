@@ -96,6 +96,7 @@ import {
 import { hasPermission } from '@/features/auth/permissions'
 import {
   useCreateHistoricalProduction,
+  useProductionQcOptions,
   useCorrectProductionTransaction,
   usePreviewHistoricalProduction,
   usePreviewProductionCorrection,
@@ -119,6 +120,14 @@ import {
 import { ProductionBatchDeleteDialog } from './production-batch-delete-dialog'
 import { ProductionEmployeePicker } from './production-employee-picker'
 import { ProductionImportDialog } from './production-import-dialog'
+import { ProductionQcDetail } from './production-qc-detail'
+import { ProductionQcFields } from './production-qc-fields'
+import {
+  emptyProductionQc,
+  isLintingJob,
+  productionQcPayload,
+  validateProductionQc,
+} from './production-qc-form-policy'
 import {
   formatProductionQuantityInput,
   normalizeProductionQuantity,
@@ -304,6 +313,7 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
   const [employee, setEmployee] = useState<ProductionEligibleEmployee>()
   const [jobUid, setJobUid] = useState('')
   const [quantity, setQuantity] = useState('')
+  const [qc, setQc] = useState(emptyProductionQc)
   const [reason, setReason] = useState('')
   const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey)
   const preview = usePreviewHistoricalProduction()
@@ -311,6 +321,9 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
   const selectedAssignment = employee?.assignments.find(
     (assignment) => assignment.jobUid === jobUid
   )
+  const linting = isLintingJob(selectedAssignment?.jobCode)
+  const qcOptions = useProductionQcOptions(employee?.site, open && linting)
+  const qcError = linting ? validateProductionQc(qc, qcOptions.data) : undefined
   const quantityError = selectedAssignment
     ? validateProductionQuantity(
         quantity,
@@ -320,7 +333,16 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
   const canPreview = Boolean(
     employee && jobUid && businessDate && quantity && !quantityError
   )
-  const canSubmit = preview.data?.canApply === true && reason.trim().length >= 5
+  const canSubmit =
+    preview.data?.canApply === true &&
+    reason.trim().length >= 5 &&
+    !qcError &&
+    preview.data.employee.uid === employee?.uid &&
+    preview.data.site === site &&
+    preview.data.businessDate === businessDate &&
+    preview.data.proposed.job.uid === jobUid &&
+    Number(preview.data.proposed.quantity) ===
+      Number(normalizeProductionQuantity(quantity))
 
   const resetProposal = () => {
     preview.reset()
@@ -329,6 +351,7 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
   const resetEmployee = () => {
     setEmployee(undefined)
     setJobUid('')
+    setQc(emptyProductionQc())
     resetProposal()
   }
   const handleOpen = (next: boolean) => {
@@ -339,6 +362,7 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
     setEmployee(undefined)
     setJobUid('')
     setQuantity('')
+    setQc(emptyProductionQc())
     setReason('')
     setIdempotencyKey(createIdempotencyKey())
     preview.reset()
@@ -351,10 +375,13 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
     quantity: normalizeProductionQuantity(quantity),
   }
   const submit = async () => {
-    if (!canSubmit) return
+    if (!canSubmit || create.isPending) return
     try {
       const output = await create.mutateAsync({
         ...proposal,
+        ...(linting && qcOptions.data
+          ? { qc: productionQcPayload(qc, qcOptions.data) }
+          : {}),
         reason: reason.trim(),
         idempotencyKey,
       })
@@ -426,6 +453,7 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
               selected={employee}
               onChange={(item) => {
                 setEmployee(item)
+                setQc(emptyProductionQc())
                 const primary = item.assignments.find(
                   (assignment) => assignment.isPrimary
                 )
@@ -440,6 +468,7 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
               value={jobUid}
               onValueChange={(value) => {
                 setJobUid(value)
+                setQc(emptyProductionQc())
                 resetProposal()
               }}
               disabled={!employee}
@@ -474,6 +503,21 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
             )}
           </label>
         </div>
+        {linting && (
+          <ProductionQcFields
+            quantity={quantity}
+            value={qc}
+            options={qcOptions.data}
+            loading={qcOptions.isPending}
+            error={qcOptions.isError}
+            onRetry={() => void qcOptions.refetch()}
+            disabled={create.isPending}
+            onChange={(value) => {
+              setQc(value)
+              setIdempotencyKey(createIdempotencyKey())
+            }}
+          />
+        )}
         <Button
           type='button'
           variant='secondary'
@@ -542,7 +586,10 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
           <span className='font-medium'>Alasan setoran susulan</span>
           <Textarea
             value={reason}
-            onChange={(event) => setReason(event.target.value)}
+            onChange={(event) => {
+              setReason(event.target.value)
+              setIdempotencyKey(createIdempotencyKey())
+            }}
             placeholder='Jelaskan mengapa setoran tidak tercatat melalui terminal.'
             maxLength={500}
             disabled={!preview.data?.canApply}
@@ -700,37 +747,36 @@ function TransactionTable({
       },
       {
         id: 'result',
-        header: 'Hasil & Tarif Dasar',
+        header: 'Hasil Setoran',
+        cell: ({ row }) => (
+          <p className='font-medium whitespace-nowrap tabular-nums'>
+            {formatNumber(
+              row.original.quantity,
+              row.original.unit.decimalPrecision
+            )}{' '}
+            {row.original.unit.code}
+          </p>
+        ),
+        size: 125,
+      },
+      {
+        id: 'payableResult',
+        header: 'Hasil Dibayar & Tarif Dasar',
         cell: ({ row }) => (
           <div className='min-w-0'>
-            <p className='font-medium'>
+            <p className='font-medium whitespace-nowrap tabular-nums'>
               {formatNumber(
-                row.original.quantity,
+                row.original.payableQuantity ?? row.original.quantity,
                 row.original.unit.decimalPrecision
               )}{' '}
               {row.original.unit.code}
             </p>
-            {Number(row.original.deductionQuantity ?? 0) > 0 && (
-              <p className='truncate text-xs text-amber-700 dark:text-amber-300'>
-                Dibayar{' '}
-                {formatNumber(
-                  row.original.payableQuantity ?? row.original.quantity,
-                  row.original.unit.decimalPrecision
-                )}{' '}
-                {row.original.unit.code} · potongan{' '}
-                {Number(row.original.deductionPercentage ?? 0).toLocaleString(
-                  'id-ID'
-                )}
-                %
-              </p>
-            )}
             <p className='truncate text-xs text-muted-foreground'>
-              Tarif dasar {formatCurrency(row.original.rateSnapshot)} /{' '}
-              {row.original.unit.code}
+              Tarif dasar {formatCurrency(row.original.rateSnapshot)}
             </p>
           </div>
         ),
-        size: 155,
+        size: 185,
       },
       {
         id: 'amount',
@@ -946,10 +992,25 @@ function MobileTransaction({
           <p className='truncate'>{item.job.name}</p>
         </div>
         <div>
-          <p className='text-xs text-muted-foreground'>Hasil</p>
-          <p>
+          <p className='text-xs text-muted-foreground'>Hasil Setoran</p>
+          <p className='tabular-nums'>
             {formatNumber(item.quantity, item.unit.decimalPrecision)}{' '}
             {item.unit.code}
+          </p>
+        </div>
+        <div className='min-w-0'>
+          <p className='text-xs text-muted-foreground'>
+            Hasil Dibayar & Tarif Dasar
+          </p>
+          <p className='tabular-nums'>
+            {formatNumber(
+              item.payableQuantity ?? item.quantity,
+              item.unit.decimalPrecision
+            )}{' '}
+            {item.unit.code}
+          </p>
+          <p className='text-xs text-muted-foreground'>
+            Tarif dasar {formatCurrency(item.rateSnapshot)}
           </p>
         </div>
         <div>
@@ -1122,6 +1183,17 @@ function TransactionDetailSheet({
                   </div>
                 </div>
               )}
+              {item.qc ? (
+                <ProductionQcDetail qc={item.qc} />
+              ) : isLintingJob(item.job.code) ? (
+                <div className='rounded-lg border p-3 text-sm'>
+                  <p className='font-semibold'>QC Hasil Linting</p>
+                  <p className='mt-1 text-xs text-muted-foreground'>
+                    QC belum dicatat pada setoran ini. Hasil setor dan upah
+                    tetap mengikuti transaksi asli.
+                  </p>
+                </div>
+              ) : null}
               <DetailGroup
                 title='Pencatatan'
                 rows={[
@@ -1483,6 +1555,13 @@ function CorrectionDialog({
               Preview perubahan
             </Button>
             {preview.data && <CorrectionPreviewPanel preview={preview.data} />}
+            {context.data.transaction.qc && (
+              <p className='rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground'>
+                QC asli dipertahankan jika pekerjaan pengganti tetap Linting.
+                Pekerjaan lain tidak membawa QC Linting. Koreksi ini tidak
+                mengubah data QC.
+              </p>
+            )}
             <label className='grid gap-1.5 text-sm'>
               <span className='font-medium'>Alasan koreksi</span>
               <Textarea

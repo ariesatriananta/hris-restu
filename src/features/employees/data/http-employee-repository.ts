@@ -32,6 +32,8 @@ import type {
 
 const params = (input: EmployeeListParams) => ({
   ...input,
+  productionModule: input.productionModule?.join(','),
+  productionSection: input.productionSection?.join(','),
   site: Array.isArray(input.site)
     ? input.site.join(',')
     : input.site === 'ALL'

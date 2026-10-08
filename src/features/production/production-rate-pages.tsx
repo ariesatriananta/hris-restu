@@ -14,6 +14,8 @@ import {
   Plus,
   Ruler,
   Trash2,
+  Tags,
+  ClipboardCheck,
   UsersRound,
   X,
 } from 'lucide-react'
@@ -105,6 +107,7 @@ import type {
 import { ProductionEmployeePicker } from './production-employee-picker'
 import { ProductionOnboardingAssignmentPlanner } from './production-onboarding-assignment-dialog'
 import { ProductionQuantityDeductionPolicyPanel } from './production-quantity-deduction-policy'
+import { ProductionQcMasterPanel } from './production-qc-master'
 import {
   formatProductionDecimalInput,
   normalizeProductionDecimalInput,
@@ -2274,7 +2277,19 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
           <TabsTrigger value='assignments' className='h-10 flex-none px-4'>
             <UsersRound /> Penugasan
           </TabsTrigger>
+          <TabsTrigger value='brands' className='h-10 flex-none px-4'>
+            <Tags /> Brand
+          </TabsTrigger>
+          <TabsTrigger value='defects' className='h-10 flex-none px-4'>
+            <ClipboardCheck /> Defect
+          </TabsTrigger>
         </TabsList>
+        <TabsContent value='brands'>
+          <ProductionQcMasterPanel kind='brands' search={search} navigate={navigate} canManage={canManage} />
+        </TabsContent>
+        <TabsContent value='defects'>
+          <ProductionQcMasterPanel kind='defects' search={search} navigate={navigate} canManage={canManage} />
+        </TabsContent>
         <TabsContent value='jobs' className='space-y-3'>
           <div className='flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between'>
             <FilterBar

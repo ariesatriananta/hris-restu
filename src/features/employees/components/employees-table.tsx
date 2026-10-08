@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import {
   flexRender,
@@ -6,6 +6,7 @@ import {
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
+  type ColumnFiltersState,
   type SortingState,
 } from '@tanstack/react-table'
 import {
@@ -15,6 +16,7 @@ import {
   Pencil,
   Users,
 } from 'lucide-react'
+import { useSiteScopeFilter } from '@/hooks/use-site-scope-filter'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -28,6 +30,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { DataTablePagination, DataTableToolbar } from '@/components/data-table'
+import type { EmployeeLookups } from '../data/queries'
 import type {
   Employee,
   EmployeeOnboardingReadinessItem,
@@ -77,6 +80,7 @@ export function EmployeesTable({
   isFetching,
   onboardingByEmployeeUid,
   onContinueOnboarding,
+  lookups,
 }: {
   data: PaginatedResult<Employee>
   columns: ColumnDef<Employee>[]
@@ -87,14 +91,75 @@ export function EmployeesTable({
   isFetching?: boolean
   onboardingByEmployeeUid?: Map<string, EmployeeOnboardingReadinessItem>
   onContinueOnboarding?: (item: EmployeeOnboardingReadinessItem) => void
+  lookups?: EmployeeLookups
 }) {
   const [sorting, setSorting] = useState<SortingState>([])
+  const { effectiveSites } = useSiteScopeFilter(
+    Array.isArray(search.site) ? search.site : undefined
+  )
+  const modules = (lookups?.productionModules ?? []).filter(
+    (module) =>
+      !effectiveSites?.length || effectiveSites.includes(module.siteCode)
+  )
+  const sections = new Map(
+    (lookups?.productionModuleSections ?? []).map((mapping) => [
+      mapping.sectionUid,
+      { value: mapping.sectionUid, label: mapping.sectionName },
+    ])
+  )
+  const productionFilters = [
+    ...filters,
+    {
+      columnId: 'productionSection',
+      title: 'Bagian Produksi',
+      options: [...sections.values()].sort((a, b) =>
+        a.label.localeCompare(b.label, 'id')
+      ),
+    },
+    {
+      columnId: 'productionModule',
+      title: 'Modul Produksi',
+      options: modules.map((module) => ({
+        value: module.uid,
+        label:
+          effectiveSites?.length === 1
+            ? module.name
+            : `${module.name} (${statusLabel(module.siteCode)})`,
+      })),
+    },
+  ]
+  const tableColumns = useMemo<ColumnDef<Employee>[]>(
+    () => [
+      ...columns,
+      {
+        id: 'productionModule',
+        accessorKey: 'productionModuleUid',
+        enableHiding: false,
+      },
+      {
+        id: 'productionSection',
+        accessorKey: 'productionSectionUid',
+        enableHiding: false,
+      },
+    ],
+    [columns]
+  )
   const tableState = useTableUrlState({
     search,
     navigate,
     globalFilter: { key: 'filter' },
     columnFilters: [
       { columnId: 'site', searchKey: 'site', type: 'array' },
+      {
+        columnId: 'productionModule',
+        searchKey: 'productionModule',
+        type: 'array',
+      },
+      {
+        columnId: 'productionSection',
+        searchKey: 'productionSection',
+        type: 'array',
+      },
       { columnId: 'employeeType', searchKey: 'employeeType', type: 'array' },
       {
         columnId: 'employeeStatus',
@@ -103,15 +168,29 @@ export function EmployeesTable({
       },
     ],
   })
+  const columnFilters: ColumnFiltersState = [
+    'site',
+    'employeeType',
+    'employeeStatus',
+    'productionModule',
+    'productionSection',
+  ].flatMap((id) =>
+    Array.isArray(search[id]) && search[id].length
+      ? [{ id, value: search[id] }]
+      : []
+  )
   // TanStack Table sengaja mengembalikan fungsi stateful; ini pola resmi starter.
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: data.items,
-    columns,
+    columns: tableColumns,
+    initialState: {
+      columnVisibility: { productionModule: false, productionSection: false },
+    },
     state: {
       sorting,
       globalFilter: tableState.globalFilter,
-      columnFilters: tableState.columnFilters,
+      columnFilters,
       pagination: tableState.pagination,
     },
     pageCount: Math.max(1, Math.ceil(data.total / data.pageSize)),
@@ -119,7 +198,41 @@ export function EmployeesTable({
     manualFiltering: true,
     onSortingChange: setSorting,
     onGlobalFilterChange: tableState.onGlobalFilterChange,
-    onColumnFiltersChange: tableState.onColumnFiltersChange,
+    onColumnFiltersChange: (updater) => {
+      let next =
+        typeof updater === 'function' ? updater(columnFilters) : updater
+      const previousSites = columnFilters.find((filter) => filter.id === 'site')
+        ?.value as string[] | undefined
+      const nextSites = next.find((filter) => filter.id === 'site')?.value as
+        | string[]
+        | undefined
+      if (
+        lookups &&
+        JSON.stringify(previousSites ?? []) !== JSON.stringify(nextSites ?? [])
+      ) {
+        const allowedModules = new Set(
+          lookups.productionModules
+            .filter(
+              (module) =>
+                !nextSites?.length || nextSites.includes(module.siteCode)
+            )
+            .map((module) => module.uid)
+        )
+        next = next
+          .map((filter) =>
+            filter.id === 'productionModule'
+              ? {
+                  ...filter,
+                  value: (filter.value as string[]).filter((uid) =>
+                    allowedModules.has(uid)
+                  ),
+                }
+              : filter
+          )
+          .filter((filter) => (filter.value as string[]).length > 0)
+      }
+      tableState.onColumnFiltersChange(next)
+    },
     onPaginationChange: tableState.onPaginationChange,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -131,7 +244,7 @@ export function EmployeesTable({
         table={table}
         searchPlaceholder='Cari nama, nomor, atau barcode...'
         searchDebounceMs={600}
-        filters={filters}
+        filters={productionFilters}
       />
       {isFetching && (
         <div

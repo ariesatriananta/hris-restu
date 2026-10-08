@@ -657,14 +657,36 @@ describe('Production transactions API', () => {
     ).toBe(false)
   })
 
+  it('template QC hanya mengembalikan brand pada site akses user dan defect global', async () => {
+    mocks.query.mockResolvedValueOnce([[{total:1}]])
+      .mockResolvedValueOnce([[{employeeNumber:'TEST-1',employeeName:'Karyawan'}]])
+      .mockResolvedValueOnce([[{uid:'brand-uid',code:'BR-TEST',name:'Brand',sortOrder:1,siteCode:'JEPARA',siteName:'Site Jepara'}]])
+      .mockResolvedValueOnce([[{uid:'defect-uid',code:'DF-TEST',name:'Cowong',sortOrder:2}]])
+    const response = await request('/transactions/import/template-employees?businessDate=2026-09-19', {
+      auth:auth({permissions:['production.correct'],sites:['JEPARA']}),
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({qcOptions:{brands:[{code:'BR-TEST',site:{code:'JEPARA'}}],defects:[{code:'DF-TEST',sortOrder:2}]}})
+    expect(String(mocks.query.mock.calls[2][0])).toContain('site.code IN (?)')
+    expect(mocks.query.mock.calls[2][1]).toEqual(['JEPARA'])
+    expect(mocks.query.mock.calls).toHaveLength(4)
+  })
+
   it.each([
-    {percentage:'0.0000',quantity:'100.0000',payable:'100.0000',deduction:'0.0000',gross:'4500.00',oldSnapshot:false},
-    {percentage:'3.0000',quantity:'100.0000',payable:'97.0000',deduction:'3.0000',gross:'4365.00',oldSnapshot:false},
-    {percentage:'90.0000',quantity:'1.0000',payable:'0.0000',deduction:'1.0000',gross:'0.00',oldSnapshot:false},
-    {percentage:'3.0000',quantity:'100.0000',payable:'100.0000',deduction:'0.0000',gross:'4500.00',oldSnapshot:true},
-  ])('import disimpan sesuai preview, policy $percentage dan snapshot lama $oldSnapshot', async ({percentage,quantity,payable,deduction,gross,oldSnapshot}) => {
+    {percentage:'0.0000',quantity:'100.0000',payable:'100.0000',deduction:'0.0000',gross:'4500.00',oldSnapshot:false,qcCase:'none'},
+    {percentage:'3.0000',quantity:'100.0000',payable:'97.0000',deduction:'3.0000',gross:'4365.00',oldSnapshot:false,qcCase:'none'},
+    {percentage:'90.0000',quantity:'1.0000',payable:'0.0000',deduction:'1.0000',gross:'0.00',oldSnapshot:false,qcCase:'none'},
+    {percentage:'3.0000',quantity:'100.0000',payable:'100.0000',deduction:'0.0000',gross:'4500.00',oldSnapshot:true,qcCase:'none'},
+    {percentage:'0.0000',quantity:'100.0000',payable:'100.0000',deduction:'0.0000',gross:'4500.00',oldSnapshot:false,qcCase:'valid'},
+    {percentage:'3.0000',quantity:'100.0000',payable:'97.0000',deduction:'3.0000',gross:'4365.00',oldSnapshot:false,qcCase:'valid'},
+    {percentage:'3.0000',quantity:'100.0000',payable:'97.0000',deduction:'3.0000',gross:'4365.00',oldSnapshot:false,qcCase:'wrong-site'},
+    {percentage:'3.0000',quantity:'100.0000',payable:'97.0000',deduction:'3.0000',gross:'4365.00',oldSnapshot:false,qcCase:'write-failure'},
+  ])('import disimpan sesuai preview, policy $percentage dan snapshot lama $oldSnapshot QC $qcCase', async ({percentage,quantity,payable,deduction,gross,oldSnapshot,qcCase}) => {
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement = String(sql)
+      if (statement.includes('FROM production_brands')) return [[{id:51,uid:'11111111-1111-4111-8111-111111111111',code:'BR-TEST',name:'Brand',siteId:qcCase==='wrong-site'?2:1}]]
+      if (statement.includes('FROM production_defects')) return [[{id:52,uid:'22222222-2222-4222-8222-222222222222',code:'DF-TEST',name:'Cowong',sortOrder:0}]]
+      if (statement.includes('FROM production_transaction_qc')) return [[{id:61,transactionId:21}]]
       if (statement.includes('FROM production_transactions transaction')) {
         return [[]]
       }
@@ -809,6 +831,10 @@ describe('Production transactions API', () => {
       }
       return [[]]
     })
+    if (qcCase==='write-failure') mocks.execute.mockImplementation(async (sql: unknown) => {
+      if (String(sql).includes('INSERT INTO production_transaction_qc')) throw new Error('QC write failure')
+      return [{affectedRows:1,insertId:21}]
+    })
     const response = await request('/transactions/import', {
       method: 'POST',
       auth: auth({ permissions: ['production.correct'], sites: ['JEPARA'] }),
@@ -820,12 +846,20 @@ describe('Production transactions API', () => {
             employeeNumber: 'J2608-001',
             employeeName: 'Ariel Peterpan',
             quantity:quantity.split('.')[0],
+            ...(qcCase==='none'?{}:{qc:{brandCode:'BR-TEST',weight1Grams:'71,29',weight2Grams:'70.05',defects:[{defectCode:'DF-TEST',quantity:999}]}}),
           },
         ],
         reason: 'Import hasil Produksi darurat.',
         idempotencyKey: '79777777-7777-4777-8777-777777777777',
       },
     })
+    if (qcCase==='wrong-site' || qcCase==='write-failure') {
+      expect(response.status).toBe(qcCase==='wrong-site'?422:500)
+      expect(mocks.rollback).toHaveBeenCalledTimes(1)
+      expect(mocks.commit).not.toHaveBeenCalled()
+      expect(mocks.execute.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO audit_logs'))).toBe(false)
+      return
+    }
     expect(response.status).toBe(201)
     expect(await response.json()).toMatchObject({
       data: { total: 1, imported: 1, replayed: 0 },
@@ -1020,9 +1054,17 @@ describe('Production transactions API', () => {
     )
   })
 
-  it('mencatat setoran atomik dengan snapshot dan gate scan Masuk sukses', async () => {
+  it.each(['legacy','qc','invalid-brand','invalid-defect','qc-write-failure'])('setoran atomik dan QC tidak mengubah PCS/upah: %s', async (variant) => {
+    const brandUid = '11111111-1111-4111-8111-111111111111'
+    const defectUid = '22222222-2222-4222-8222-222222222222'
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement = String(sql)
+      if (statement.includes('FROM production_brands')) {
+        return [variant==='invalid-brand' ? [] : [{id:81,uid:brandUid,code:'BR-A',name:'Brand A'}]]
+      }
+      if (statement.includes('FROM production_defects')) {
+        return [variant==='invalid-defect' ? [] : [{id:82,uid:defectUid,code:'DF-A',name:'Cowong',sortOrder:1}]]
+      }
       if (statement.includes('SELECT pt.id,pt.uid') && statement.includes('WHERE pt.id=?')) {
         return [[transactionRow()]]
       }
@@ -1058,11 +1100,15 @@ describe('Production transactions API', () => {
         { rateId: 16, rateUid: 'rate', rateAmount: '1175.0000', currency: 'IDR', unitId: 17, unitUid: 'unit', unitCode: 'PCS', unitName: 'Pcs', decimalPrecision: 0 },
       ]])
       .mockResolvedValueOnce([[]])
-    mocks.execute.mockImplementation(async (sql: unknown) =>
-      String(sql).includes('INSERT INTO production_transactions')
+    mocks.execute.mockImplementation(async (sql: unknown) => {
+      if (String(sql).includes('INSERT INTO production_transaction_qc(')) {
+        if (variant==='qc-write-failure') throw new Error('QC write failed')
+        return [{affectedRows:1,insertId:91}]
+      }
+      return String(sql).includes('INSERT INTO production_transactions')
         ? [{ affectedRows: 1, insertId: 21 }]
         : [{ affectedRows: 1 }]
-    )
+    })
 
     const response = await request('/terminal/post', {
       method: 'POST',
@@ -1071,8 +1117,16 @@ describe('Production transactions API', () => {
         jobUid,
         quantity: '3',
         idempotencyKey: '66666666-6666-4666-8666-666666666666',
+        ...(variant!=='legacy' ? {qc:{brandUid,weight1Grams:'71,29',weight2Grams:'70.05',defects:[{defectUid,quantity:10}]}} : {}),
       },
     })
+    if (variant==='invalid-brand' || variant==='invalid-defect' || variant==='qc-write-failure') {
+      expect(response.status).toBe(variant==='qc-write-failure' ? 500 : 422)
+      expect(mocks.commit).not.toHaveBeenCalled()
+      expect(mocks.rollback).toHaveBeenCalledOnce()
+      expect(mocks.audit).not.toHaveBeenCalled()
+      return
+    }
     expect(response.status).toBe(201)
     expect(
       ((await response.json()) as { transaction: { grossAmount: string } })
@@ -1084,6 +1138,11 @@ describe('Production transactions API', () => {
     expect(insert?.[1]).toEqual(expect.arrayContaining(['3.0000', '1175.0000', '3525.00']))
     expect(mocks.audit).toHaveBeenCalledTimes(1)
     expect(mocks.commit).toHaveBeenCalledTimes(1)
+    const qcHeader = mocks.execute.mock.calls.find(call=>String(call[0]).includes('INSERT INTO production_transaction_qc('))
+    if (variant==='qc') {
+      expect(qcHeader?.[1]).toEqual(expect.arrayContaining([21,81,'BR-A','Brand A','71.29','70.05']))
+      expect(mocks.execute.mock.calls.some(call=>String(call[0]).includes('INSERT INTO production_transaction_qc_defects'))).toBe(true)
+    } else expect(qcHeader).toBeUndefined()
   })
 
   it('membatasi list ke site user dan menghitung KPI hanya dari POSTED', async () => {
@@ -1182,6 +1241,7 @@ describe('Production transactions API', () => {
       roles: ['SUPER_ADMIN'],
       siteAccess: [],
     }
+    mocks.query.mockResolvedValueOnce([[]]) // optional legacy QC header
     const allowed = await request(`/transactions/${transactionUid}/void-preview`, {
       method: 'POST',
       body: {},
@@ -1307,7 +1367,7 @@ describe('Production transactions API', () => {
     )
   })
 
-  it('membuat koreksi atomik: original VOID, replacement POSTED, dan revision append-only', async () => {
+  it.each(['legacy', 'qc', 'qc-write-failure'])('membuat koreksi atomik: original VOID, replacement POSTED, revision append-only QC %s', async qcCase => {
     const replacement = {
       ...transactionRow(),
       id: 22,
@@ -1320,6 +1380,8 @@ describe('Production transactions API', () => {
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement = String(sql)
       if (statement.includes('SELECT pt.*')) return [[managedTransactionRow()]]
+      if (statement.includes('FROM production_transaction_qc qc')) return qcCase==='legacy' ? [[]] : [[{id:61,brandUid:'brand-uid',brandCode:'BR-OLD',brandName:'Old snapshot',weight1Grams:'71.29',weight2Grams:'70.05'}]]
+      if (statement.includes('FROM production_transaction_qc_defects detail')) return [[{uid:'defect-uid',code:'DF-OLD',name:'Old defect',sortOrder:9,quantity:10}]]
       if (statement.includes('SELECT production_section_id productionSectionId')) return [[{productionSectionId:3,deductionPercentage:'0.0000',deductionPolicyId:null}]]
       if (statement.includes('WHERE pr.idempotency_key')) return [[]]
       if (statement.includes('FROM payroll_production_details')) return [[]]
@@ -1364,6 +1426,10 @@ describe('Production transactions API', () => {
       if (statement.includes('INSERT INTO production_transactions')) {
         return [{ affectedRows: 1, insertId: 22 }]
       }
+      if (statement.includes('INSERT INTO production_transaction_qc(')) {
+        if (qcCase==='qc-write-failure') throw new Error('QC clone failed')
+        return [{affectedRows:qcCase==='legacy'?0:1,insertId:61}]
+      }
       return [{ affectedRows: 1 }]
     })
 
@@ -1377,6 +1443,13 @@ describe('Production transactions API', () => {
       },
       auth: auth({ permissions: ['production.correct'] }),
     })
+    if (qcCase==='qc-write-failure') {
+      expect(response.status).toBe(500)
+      expect(mocks.rollback).toHaveBeenCalledTimes(1)
+      expect(mocks.commit).not.toHaveBeenCalled()
+      expect(mocks.execute.mock.calls.some(([sql]) => String(sql).includes("SET status='VOID'"))).toBe(false)
+      return
+    }
     expect(response.status).toBe(201)
     const body = (await response.json()) as {
       sourceTransaction: { status: string }
@@ -1384,6 +1457,9 @@ describe('Production transactions API', () => {
     }
     expect(body.sourceTransaction.status).toBe('VOID')
     expect(body.transaction).toMatchObject({ status: 'POSTED', quantity: '4.0000' })
+    if (qcCase==='qc') expect(body.transaction).toMatchObject({qc:{brand:{name:'Old snapshot'},defects:[{name:'Old defect',sortOrder:9}]}})
+    else expect(body.transaction).toMatchObject({qc:null})
+    expect(mocks.execute.mock.calls.some(([sql]) => String(sql).includes('detail.sort_order_snapshot'))).toBe(qcCase==='qc')
     expect(
       mocks.execute.mock.calls.some((call) =>
         String(call[0]).includes('INSERT INTO production_transaction_revisions')
@@ -1424,6 +1500,7 @@ describe('Production transactions API', () => {
       ]])
       .mockResolvedValueOnce([[{ ...transactionRow(), status: 'VOID' }]])
       .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]]) // optional legacy QC header
 
     const response = await request(`/transactions/${transactionUid}/void`, {
       method: 'POST',
@@ -1543,7 +1620,7 @@ describe('Production transactions API', () => {
     expect(mocks.query).not.toHaveBeenCalled()
   })
 
-  it('menampilkan ringkasan per tanggal beserta blocker reset', async () => {
+  it('mengizinkan ringkasan reset transaksi dengan histori koreksi atau void', async () => {
     mocks.query.mockResolvedValueOnce([[
       {
         businessDate: '2026-08-22',
@@ -1581,9 +1658,9 @@ describe('Production transactions API', () => {
     }
     expect(body.data.rows[0]).toMatchObject({
       businessDate: '2026-08-22',
-      canDelete: false,
+      canDelete: true,
+      blockers: [],
     })
-    expect(body.data.rows[0].blockers[0]).toContain('koreksi atau void')
     expect(body.data.rows[1]).toMatchObject({
       businessDate: '2026-08-21',
       canDelete: true,
@@ -1596,7 +1673,7 @@ describe('Production transactions API', () => {
     ])
   })
 
-  it('menghapus seluruh transaksi pada beberapa tanggal secara atomik dan menulis audit', async () => {
+  it.each(['success', 'without-revisions', 'revision-delete-failure', 'qc-delete-failure', 'outside-source', 'outside-replacement'])('menghapus transaksi beserta rantai koreksi/void secara atomik dan menulis audit: %s', async variant => {
     mocks.query
       .mockResolvedValueOnce([[{ id: 1 }, { id: 2 }, { id: 3 }]])
       .mockResolvedValueOnce([[]])
@@ -1629,9 +1706,25 @@ describe('Production transactions API', () => {
           hasProcessingPayrollRun: 0,
         },
       ]])
+      .mockResolvedValueOnce([variant === 'without-revisions' ? [] : [
+        { id: 11, sourceId: variant === 'outside-source' ? 99 : 1, replacementId: 2 },
+        { id: 12, sourceId: 2, replacementId: variant === 'outside-replacement' ? 99 : 3 },
+        { id: 13, sourceId: 3, replacementId: null },
+      ]])
     mocks.execute
       .mockResolvedValueOnce([{ affectedRows: 3 }])
       .mockResolvedValueOnce([{ affectedRows: 3 }])
+      .mockResolvedValueOnce([{ affectedRows: 3 }])
+      .mockResolvedValueOnce([{ affectedRows: 3 }])
+      .mockResolvedValueOnce([{ affectedRows: 3 }])
+    if (variant === 'qc-delete-failure') {
+      mocks.execute.mockReset()
+        .mockResolvedValueOnce([{ affectedRows: 3 }])
+        .mockRejectedValueOnce(new Error('QC delete failure'))
+    }
+    if (variant === 'revision-delete-failure') {
+      mocks.execute.mockReset().mockRejectedValueOnce(new Error('Revision delete failure'))
+    }
 
     const response = await request('/transactions/batch-delete', {
       method: 'POST',
@@ -1643,6 +1736,18 @@ describe('Production transactions API', () => {
       },
       auth: { ...auth({ permissions: [] }), roles: ['SUPER_ADMIN'], siteAccess: [] },
     })
+    if (variant !== 'success' && variant !== 'without-revisions') {
+      const outsideBatch = variant.startsWith('outside-')
+      expect(response.status).toBe(outsideBatch ? 409 : 500)
+      if (outsideBatch) {
+        expect(((await response.json()) as { message: string }).message).toContain('di luar')
+      }
+      expect(mocks.rollback).toHaveBeenCalledTimes(1)
+      expect(mocks.commit).not.toHaveBeenCalled()
+      expect(mocks.audit).not.toHaveBeenCalled()
+      expect(mocks.execute).toHaveBeenCalledTimes(outsideBatch ? 0 : variant === 'qc-delete-failure' ? 2 : 1)
+      return
+    }
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
       data: { deletedDates: 2, deletedTransactions: 3 },
@@ -1661,6 +1766,15 @@ describe('Production transactions API', () => {
       String(call[0]).includes('DELETE transaction')
     )
     expect(String(deleteCall?.[0])).toContain('site.code=?')
+    const deletionStatements = mocks.execute.mock.calls.map(call => String(call[0]))
+    expect(deletionStatements[0]).toContain('DELETE revision FROM production_transaction_revisions')
+    expect(deletionStatements[0]).toContain('transaction.id=revision.replacement_transaction_id')
+    expect(deletionStatements[0]).toContain('site.code=?')
+    expect(mocks.execute.mock.calls[0]?.[1]).toEqual(['2026-08-21', '2026-08-22', 'JEPARA'])
+    expect(deletionStatements[1]).toContain('production_transaction_qc_defects')
+    expect(deletionStatements[2]).toContain('DELETE header FROM production_transaction_qc')
+    expect(deletionStatements[3]).toContain('production_transaction_rate_details')
+    expect(deletionStatements[4]).toContain('DELETE transaction')
     expect(deleteCall?.[1]).toEqual([
       '2026-08-21',
       '2026-08-22',
@@ -1669,7 +1783,7 @@ describe('Production transactions API', () => {
     expect(mocks.commit).toHaveBeenCalledTimes(1)
   })
 
-  it('membatalkan seluruh reset multi-tanggal jika salah satu tanggal diblokir Payroll', async () => {
+  it.each(['hasPayrollLock', 'hasPayrollSnapshot', 'hasProcessedPayrollPeriod', 'hasProcessingPayrollRun'])('membatalkan seluruh reset multi-tanggal meski memiliki revisi jika diblokir Payroll: %s', async blocker => {
     mocks.query
       .mockResolvedValueOnce([[{ id: 1 }, { id: 2 }]])
       .mockResolvedValueOnce([[]])
@@ -1681,11 +1795,12 @@ describe('Production transactions API', () => {
           transactionCount: 1,
           totalQuantityPcs: '300.0000',
           totalGrossAmount: '15000.00',
-          hasPayrollLock: 1,
-          hasRevision: 0,
-          hasPayrollSnapshot: 1,
-          hasProcessedPayrollPeriod: 1,
+          hasPayrollLock: 0,
+          hasRevision: 1,
+          hasPayrollSnapshot: 0,
+          hasProcessedPayrollPeriod: 0,
           hasProcessingPayrollRun: 0,
+          [blocker]: 1,
         },
         {
           businessDate: '2026-08-21',

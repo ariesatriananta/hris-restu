@@ -8,6 +8,8 @@ export const Route = createFileRoute('/_authenticated/karyawan/data-karyawan')({
     pageSize: z.number().int().min(1).max(500).optional(),
     filter: z.string().optional(),
     site: z.array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])).optional(),
+    productionModule: z.array(z.string().uuid()).optional(),
+    productionSection: z.array(z.string().uuid()).optional(),
     employeeType: z
       .array(z.enum(['BORONGAN', 'HARIAN', 'TRAINING', 'BULANAN']))
       .optional(),

@@ -167,6 +167,42 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   tidak perlu mengetiknya berulang kali.
 - Pekerja borongan dibayar berdasarkan hasil produksi, bukan durasi kerja.
 - Satu karyawan dapat melakukan setoran produksi lebih dari satu kali dalam sehari.
+- QC hasil Linting merupakan informasi terpisah dari kuantitas, tarif,
+  potongan standar, dan Payroll. Defect tidak mengurangi hasil setoran atau
+  upah; satu batang boleh memiliki beberapa defect sehingga total defect
+  dapat melebihi jumlah setoran.
+- Master Brand Produksi berlaku per site; Master Defect berlaku global.
+  Keduanya menggunakan nama, status aktif, dan urutan tanpa tanggal berlaku
+  atau alasan tambahan. Kode stabil dibuat otomatis dan tidak berubah.
+  Nama Brand unik per site dan nama Defect unik global, tidak membedakan
+  kapital sesuai collation database. Master dinonaktifkan, bukan dihapus.
+- Satu setoran Linting memiliki maksimal satu Brand dan dua sampel berat
+  dalam gram positif, masing-masing maksimal dua desimal. UI mewajibkan Brand
+  dan dua berat, sementara API tetap boleh menerima setoran tanpa QC untuk
+  kompatibilitas. Nama/kode Brand, nama/kode/urutan Defect disnapshot pada QC
+  transaksi agar perubahan master tidak mengubah histori. QC lama tidak
+  di-backfill. Ringkasan UI menampilkan Net Batang (PCS mentah dikurangi total
+  defect), Total Reject (jumlah seluruh defect), dan Gendel (PCS mentah / 20,
+  dua desimal) sebagai informasi saja, tidak disimpan atau mengubah upah.
+  Karena defect dapat tumpang tindih, Net Batang dapat bernilai negatif.
+- Import Produksi menerima metadata QC opsional melalui kode Brand/Defect yang
+  stabil. Template memiliki lembar referensi master aktif; file empat kolom
+  lama tetap diterima. Brand divalidasi terhadap site hasil resolusi histori,
+  bukan site yang ditebak dari file. QC disimpan atomik bersama seluruh batch.
+- Detail QC memakai snapshot nama/kode/urutan saat setoran dibuat. Koreksi
+  append-only menyalin snapshot QC asli bila pekerjaan pengganti tetap Linting,
+  termasuk ketika master sudah berubah atau nonaktif; pekerjaan non-Linting
+  tidak membawa QC tersebut. Transaksi lama tanpa QC tetap dapat dikoreksi
+  tanpa kewajiban melengkapi QC. Void mempertahankan metadata QC untuk audit.
+- Reset batch Produksi khusus `SUPER_ADMIN` boleh menghapus transaksi yang
+  memiliki histori koreksi atau void. Seluruh revision sumber/pengganti,
+  detail/header QC, dan detail tarif dibersihkan sebelum transaksi induk dalam
+  satu transaksi. Rantai koreksi harus seluruhnya berada pada tanggal dan site
+  pilihan; relasi ke transaksi di luar pilihan membatalkan batch. Permission,
+  konfirmasi, alasan, audit, serta blokir periode, snapshot, dan kunci Payroll
+  tetap berlaku. Script rollback owner-run
+  lama yang menghapus transaksi dengan QC harus memperhitungkan FK `RESTRICT`;
+  script tersebut tidak dijalankan atau diubah otomatis.
 - Tarif pekerjaan berbeda per site dan memiliki periode berlaku.
 - Tarif PCS dapat mempunyai tingkat progresif berdasarkan akumulasi hasil
   per karyawan, site, pekerjaan, dan tanggal bisnis. Hanya PCS di atas ambang

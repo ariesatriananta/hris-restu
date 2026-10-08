@@ -1,4 +1,20 @@
 export type ProductionSite = 'JEPARA' | 'SEMARANG' | 'KLATEN'
+export type ProductionQcOption = {
+  uid: string
+  code: string
+  name: string
+  sortOrder: number
+}
+export type ProductionQcOptions = {
+  brands: ProductionQcOption[]
+  defects: ProductionQcOption[]
+}
+export type ProductionQcInput = {
+  brandUid: string
+  weight1Grams: string
+  weight2Grams: string
+  defects: Array<{ defectUid: string; quantity: number }>
+}
 export type ProductionRateStatus = 'DRAFT' | 'ACTIVE' | 'INACTIVE'
 export type ProductionAssignmentStatus =
   | 'ACTIVE'
@@ -216,6 +232,8 @@ export type ActivatedProductionDevice = {
 }
 
 export type ProductionTerminalLookup = {
+  qcOptions?: ProductionQcOptions
+  lastBrandUid?: string | null
   businessDate: string
   serverTime: string
   device: ActivatedProductionDevice['device']
@@ -269,6 +287,7 @@ export type ProductionTransaction = {
   productionSection?: { uid: string; code: string; name: string } | null
   rateSnapshot: string
   grossAmount: string
+  qc?: ProductionQcSnapshot | null
   rateDetails?: Array<{
     minQuantity: string
     quantity: string
@@ -420,6 +439,21 @@ export type ProductionImportRow = {
   employeeNumber: string
   employeeName?: string
   quantity: string
+  qc?: ProductionImportQc
+}
+
+export type ProductionImportQc = {
+  brandCode?: string | null
+  weight1Grams?: string | number | null
+  weight2Grams?: string | number | null
+  defects: Array<{ defectCode: string; quantity: number }>
+}
+
+export type ProductionQcSnapshot = {
+  brand: { uid: string; code: string; name: string } | null
+  weight1Grams: string | null
+  weight2Grams: string | null
+  defects: Array<ProductionQcOption & { quantity: number }>
 }
 
 export type ProductionImportPreviewRow = ProductionImportRow & {
@@ -475,6 +509,15 @@ export type ProductionBatchDeleteResult = {
 export type ProductionImportTemplateEmployees = {
   data: Array<{ employeeNumber: string; employeeName: string }>
   meta: { total: number; limit: number; referenceDate: string }
+  qcOptions?: {
+    brands: Array<{
+      uid: string
+      code: string
+      name: string
+      site: { code: string; name: string }
+    }>
+    defects: ProductionQcOption[]
+  }
 }
 
 export type ProductionAssignmentCorrectionPreview = {

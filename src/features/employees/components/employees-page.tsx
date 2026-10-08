@@ -14,6 +14,7 @@ import { Main } from '@/components/layout/main'
 import {
   useEmployeeKpiSummary,
   useEmployeeList,
+  useEmployeeLookups,
   useEmployeeOnboardingReadiness,
 } from '../data/queries'
 import type {
@@ -48,10 +49,17 @@ export function EmployeesPage({
     employeeStatus: Array.isArray(search.employeeStatus)
       ? search.employeeStatus
       : undefined,
+    productionModule: Array.isArray(search.productionModule)
+      ? search.productionModule
+      : undefined,
+    productionSection: Array.isArray(search.productionSection)
+      ? search.productionSection
+      : undefined,
     page: typeof search.page === 'number' ? search.page : 1,
     pageSize: typeof search.pageSize === 'number' ? search.pageSize : 50,
   }
   const query = useEmployeeList(params, { keepPreviousData: true })
+  const lookups = useEmployeeLookups()
   const employeeKpis = useEmployeeKpiSummary({
     site: params.site,
     employeeType: params.employeeType,
@@ -148,6 +156,7 @@ export function EmployeesPage({
       ) : (
         <>
           <EmployeesTable
+            lookups={lookups.data}
             data={query.data}
             columns={columns}
             returnTo={returnTo}

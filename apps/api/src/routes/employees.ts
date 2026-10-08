@@ -1370,9 +1370,10 @@ employeesRouter.get('/', requirePermission('employees.view'), async (req, res, n
     const addList = (field: string, raw: unknown) => { const list = String(raw ?? '').split(',').filter(Boolean); if (list.length) { where.push(`${field} IN (${list.map(() => '?').join(',')})`); values.push(...list) } }
     if (query) { where.push('(e.full_name LIKE ? OR e.employee_number LIKE ? OR e.barcode LIKE ?)'); values.push(`%${query}%`, `%${query}%`, `%${query}%`) }
     addList('s.code', req.query.site); addList('et.code', req.query.employeeType); addList('es.code', req.query.employeeStatus)
+    addList('pm.uid', req.query.productionModule); addList('ps.uid', req.query.productionSection)
     const scoped = scopeWhere(res.locals.auth as AuthContext); where.push(scoped.sql); values.push(...scoped.params)
     const clause = where.join(' AND ')
-    const [count] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) total FROM employees e JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id WHERE ${clause}`, values)
+    const [count] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) total FROM employees e JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id WHERE ${clause}`, values)
     const [rows] = await pool.query<RowDataPacket[]>(`${employeeSelect} WHERE ${clause} ORDER BY e.created_at DESC, e.id DESC LIMIT ? OFFSET ?`, [...values, pageSize, (page - 1) * pageSize])
     res.json({ items: rows.map(mapEmployee), total: Number(count[0].total), page, pageSize })
   } catch (error) { next(error) }

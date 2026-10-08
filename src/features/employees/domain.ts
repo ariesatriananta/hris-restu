@@ -521,6 +521,8 @@ export interface EmployeeListParams {
   site?: SiteCode | SiteCode[] | 'ALL'
   employeeType?: EmployeeTypeCode | EmployeeTypeCode[] | 'ALL'
   employeeStatus?: EmployeeStatusCode | EmployeeStatusCode[] | 'ALL'
+  productionModule?: string[]
+  productionSection?: string[]
   page?: number
   pageSize?: number
 }

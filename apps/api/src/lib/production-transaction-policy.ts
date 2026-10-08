@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ApiError } from './errors.js'
+import { productionQcInput } from './production-qc.js'
 
 const decimalInput = z
   .union([z.string(), z.number()])
@@ -18,6 +19,7 @@ export const productionTerminalPostInput = z
     jobUid: z.string().uuid(),
     quantity: decimalInput,
     idempotencyKey: z.string().uuid(),
+    qc: productionQcInput.optional(),
   })
   .strict()
 
@@ -27,6 +29,7 @@ const historicalBase = z.object({
   businessDate: z.string().date(),
   jobUid: z.string().uuid(),
   quantity: decimalInput,
+  qc: productionQcInput.optional(),
 })
 
 export const productionHistoricalPreviewInput = historicalBase.strict()
@@ -45,6 +48,12 @@ const productionImportRowInput = z
     employeeNumber: z.string().trim().min(1).max(50),
     employeeName: z.string().trim().max(150).optional().default(''),
     quantity: z.string().trim().min(1).max(50),
+    qc: z.object({
+      brandCode: z.string().trim().max(40).nullable().optional(),
+      weight1Grams: z.union([z.string().max(50), z.number()]).nullable().optional(),
+      weight2Grams: z.union([z.string().max(50), z.number()]).nullable().optional(),
+      defects: z.array(z.object({ defectCode: z.string().trim().min(1).max(40), quantity: z.number() }).strict()).max(500).default([]),
+    }).strict().optional(),
   })
   .strict()
 

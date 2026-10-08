@@ -64,8 +64,8 @@ import type {
 } from './domain'
 import {
   buildProductionValidationWorkbook,
+  buildProductionTemplateWorkbook,
   parseProductionWorkbook,
-  productionImportHeaders,
   productionImportMaxRows,
 } from './production-import-workbook'
 
@@ -122,39 +122,7 @@ export function ProductionImportDialog({
         toast.error('Karyawan Produksi aktif tidak ditemukan pada akses Anda.')
         return
       }
-      const workbook = XLSX.utils.book_new()
-      const sheet = XLSX.utils.aoa_to_sheet([
-        [...productionImportHeaders],
-        ...result.data.map((employee) => [
-          displayTemplateDate(templateDate),
-          employee.employeeNumber,
-          employee.employeeName,
-          '',
-        ]),
-      ])
-      sheet['!cols'] = [{ wch: 16 }, { wch: 24 }, { wch: 36 }, { wch: 16 }]
-      sheet['!autofilter'] = { ref: `A1:D${result.data.length + 1}` }
-      XLSX.utils.book_append_sheet(workbook, sheet, 'Hasil Produksi')
-      const guide = XLSX.utils.aoa_to_sheet([
-        ['Panduan Import Hasil Produksi'],
-        [
-          '1. Isi TANGGAL dengan format DD/MM/YYYY (contoh: 21/09/2026). Tanggal Excel dan format YYYY-MM-DD juga didukung.',
-        ],
-        ['2. Isi KUANTITAS hanya pada karyawan yang akan diimpor.'],
-        [
-          '3. Gandakan baris jika satu karyawan memiliki hasil pada beberapa tanggal.',
-        ],
-        ['4. Jangan mengubah NOMOR_KARYAWAN. NAMA_KARYAWAN hanya informasi.'],
-        [
-          '5. Site dan pekerjaan utama ditentukan otomatis sesuai histori pada tanggal tersebut.',
-        ],
-        [
-          `6. Maksimal ${productionImportMaxRows.toLocaleString('id-ID')} baris berisi data dalam satu file.`,
-        ],
-        ['7. Seluruh baris harus valid sebelum import dapat dijalankan.'],
-      ])
-      guide['!cols'] = [{ wch: 100 }]
-      XLSX.utils.book_append_sheet(workbook, guide, 'Panduan')
+      const workbook = buildProductionTemplateWorkbook(result, templateDate)
       XLSX.writeFile(workbook, 'template-import-hasil-produksi.xlsx')
       setTemplateDatePickerOpen(false)
       if (result.meta.total > result.meta.limit) {
@@ -546,6 +514,23 @@ function ProductionImportPreviewTable({
                     <>
                       <p className='font-medium'>{row.job.name}</p>
                       <p className='text-muted-foreground'>{row.job.code}</p>
+                      {row.qc && (
+                        <p
+                          className='mt-1 text-muted-foreground'
+                          title={row.qc.brandCode ?? undefined}
+                        >
+                          QC:{' '}
+                          {row.qc.brandCode ? 'Brand terisi' : 'Tanpa brand'}
+                          {' · '}
+                          {row.qc.weight1Grams ?? '—'} /{' '}
+                          {row.qc.weight2Grams ?? '—'} g{' · '}
+                          {row.qc.defects.reduce(
+                            (total, defect) => total + defect.quantity,
+                            0
+                          )}{' '}
+                          defect
+                        </p>
+                      )}
                     </>
                   ) : (
                     '—'
@@ -644,11 +629,6 @@ function createBatchKey() {
 function getTodayInput() {
   const now = new Date()
   return dateOnlyToInput(now)
-}
-
-function displayTemplateDate(value: string) {
-  const [year, month, day] = value.split('-')
-  return `${day}/${month}/${year}`
 }
 
 function isFutureDate(date: Date) {

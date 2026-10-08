@@ -235,18 +235,18 @@ function CurrentCondition({
 
   return (
     <Card
-      className={
+      className={`gap-0 rounded-lg py-0 ${
         warning
           ? 'border-warning/50 bg-warning/5'
           : healthy
             ? 'border-positive/40 bg-positive/5'
-            : undefined
-      }
+            : ''
+      }`}
     >
-      <CardContent className='flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between'>
-        <div className='flex items-start gap-3'>
+      <CardContent className='flex items-center gap-2 px-3 py-2.5'>
+        <div className='flex min-w-0 flex-1 items-center gap-2'>
           <div
-            className={`flex size-10 shrink-0 items-center justify-center rounded-full ${
+            className={`flex size-7 shrink-0 items-center justify-center rounded-md ${
               warning
                 ? 'bg-warning/15 text-warning-foreground'
                 : healthy
@@ -255,19 +255,23 @@ function CurrentCondition({
             }`}
           >
             {warning ? (
-              <ShieldAlert className='size-5' />
+              <ShieldAlert className='size-4' />
             ) : (
-              <CheckCircle2 className='size-5' />
+              <CheckCircle2 className='size-4' />
             )}
           </div>
-          <div>
-            <p className='text-sm font-semibold'>Kondisi karyawan saat ini</p>
-            <p className='mt-1 text-sm text-muted-foreground'>{message}</p>
+          <div className='min-w-0 sm:flex sm:flex-wrap sm:items-baseline sm:gap-x-2'>
+            <p className='text-xs leading-5 font-semibold'>
+              Kondisi karyawan saat ini
+            </p>
+            <p className='text-xs leading-5 break-words text-muted-foreground'>
+              {message}
+            </p>
           </div>
         </div>
         <Badge
           variant={employeeStatusBadgeVariant(employee.employeeStatus)}
-          className={employeeStatusBadgeClassName(employee.employeeStatus)}
+          className={`shrink-0 ${employeeStatusBadgeClassName(employee.employeeStatus)}`}
         >
           {statusLabel(employee.employeeStatus)}
         </Badge>

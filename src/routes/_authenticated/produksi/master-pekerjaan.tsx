@@ -8,7 +8,14 @@ export const Route = createFileRoute(
 )({
   beforeLoad: () => requirePermission('production.view'),
   validateSearch: z.object({
-    tab: z.enum(['jobs', 'units', 'assignments']).optional(),
+    tab: z
+      .enum(['jobs', 'units', 'assignments', 'brands', 'defects'])
+      .optional(),
+    qcSite: z.enum(['JEPARA', 'SEMARANG', 'KLATEN']).optional(),
+    qcFilter: z.string().optional(),
+    qcStatus: z.array(z.enum(['ACTIVE', 'INACTIVE'])).optional(),
+    qcPage: z.number().int().positive().optional(),
+    qcPageSize: z.number().int().min(1).max(500).optional(),
     filter: z.string().optional(),
     site: z.array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])).optional(),
     status: z

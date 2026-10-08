@@ -37,6 +37,8 @@ import type {
   ProductionReadiness,
   ProductionSite,
   ProductionPostResult,
+  ProductionQcInput,
+  ProductionQcOptions,
   ProductionTerminalLookup,
   ProductionTransactionListParams,
   ProductionTransactionResult,
@@ -329,6 +331,7 @@ export function usePostProductionTransaction() {
         barcode: string
         jobUid: string
         quantity: string
+        qc?: ProductionQcInput
         idempotencyKey: string
       }
       deviceToken: string
@@ -571,6 +574,7 @@ export function useCreateHistoricalProduction() {
       businessDate: string
       jobUid: string
       quantity: string
+      qc?: ProductionQcInput
       reason: string
       idempotencyKey: string
     }) =>
@@ -584,6 +588,19 @@ export function useCreateHistoricalProduction() {
       queryClient.invalidateQueries({
         queryKey: [...keys.all, 'transactions'],
       }),
+  })
+}
+
+export function useProductionQcOptions(site?: ProductionSite, enabled = true) {
+  return useQuery({
+    queryKey: [...keys.all, 'qc-options', site],
+    enabled: enabled && Boolean(site),
+    queryFn: async () =>
+      (
+        await apiClient.get<ProductionQcOptions>(
+          `/production-structure/qc-options?site=${site}`
+        )
+      ).data,
   })
 }
 

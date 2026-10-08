@@ -13,6 +13,7 @@ import {
 import { writeAudit } from '../lib/audit.js'
 import { businessDate } from '../lib/contract-lifecycle.js'
 import { ApiError } from '../lib/errors.js'
+import { assertProductionQcReplay, loadProductionQcOptions, lastProductionDeviceBrand, resolveProductionQc, saveProductionQc, readProductionQc, cloneProductionQc, loadProductionImportQcMasters, resolveProductionImportQc, saveProductionImportQc, assertProductionImportQcReplay, type ProductionImportQc, type ResolvedProductionQc } from '../lib/production-qc-storage.js'
 import { priceProductionTiers, type ProductionRateTier } from '../lib/production-tier-pricing.js'
 import {
   allocateDailyQuantityDeduction,
@@ -470,6 +471,7 @@ type ProductionImportInputRow = {
   employeeNumber: string
   employeeName?: string
   quantity: string
+  qc?: ProductionImportQc
 }
 
 type ValidProductionImportRow = {
@@ -478,6 +480,7 @@ type ValidProductionImportRow = {
   message: string
   warning: string | null
   proposal: Awaited<ReturnType<typeof historicalProposal>>
+  qc?: ResolvedProductionQc | null
 }
 
 type InvalidProductionImportRow = {
@@ -496,6 +499,23 @@ async function validateProductionImportRows(
   rows: ProductionImportInputRow[],
   auth: AuthContext,
   lock = false
+): Promise<ProductionImportValidationRow[]> {
+  const validation = await validateProductionImportBaseRows(conn, rows, auth, lock)
+  const candidates = validation.filter((row): row is ValidProductionImportRow => row.valid && row.input.qc !== undefined)
+  if (!candidates.length) return validation
+  const masters = await loadProductionImportQcMasters(conn, [...new Set(candidates.map(row => Number(row.proposal.site.id)))], lock)
+  return validation.map(row => {
+    if (!row.valid) return row
+    try {
+      return { ...row, qc: resolveProductionImportQc(row.input.qc, Number(row.proposal.site.id), String(row.proposal.proposed.job.code), masters) }
+    } catch (error) {
+      return { input: row.input, valid: false, message: error instanceof ApiError ? error.message : 'Informasi QC tidak valid.', warning: null }
+    }
+  })
+}
+
+async function validateProductionImportBaseRows(
+  conn: PoolConnection, rows: ProductionImportInputRow[], auth: AuthContext, lock = false
 ): Promise<ProductionImportValidationRow[]> {
   if (rows.length > 1) {
     return validateProductionImportRowsBatch(conn, rows, auth, lock)
@@ -1139,6 +1159,7 @@ function productionImportRowDto(row: ProductionImportValidationRow) {
       valid: false,
       message: row.message,
       warning: null,
+      qc: row.input.qc ?? null,
     }
   }
   return {
@@ -1158,6 +1179,7 @@ function productionImportRowDto(row: ProductionImportValidationRow) {
     valid: true,
     message: row.message,
     warning: row.warning,
+    qc: row.input.qc ?? null,
   }
 }
 
@@ -1249,6 +1271,7 @@ async function transactionResponse(conn: PoolConnection | Pool, transactionId: n
   )
   return {
     uid: row.uid,
+    qc: await readProductionQc(conn, transactionId),
     transactionNumber: row.transactionNumber,
     businessDate: row.businessDate,
     transactionAt: row.transactionAt,
@@ -2157,18 +2180,6 @@ async function productionBatchDeleteSummary(
                 THEN transaction.gross_amount ELSE 0 END),0) totalGrossAmount,
             MAX(transaction.payroll_locked_at IS NOT NULL) hasPayrollLock,
             MAX(EXISTS(
-              SELECT 1
-                FROM production_transaction_revisions revision
-                JOIN production_transactions source
-                  ON source.id=revision.production_transaction_id
-                LEFT JOIN production_transactions replacement
-                  ON replacement.id=revision.replacement_transaction_id
-               WHERE (source.business_date=transaction.business_date
-                       AND source.site_id=transaction.site_id)
-                  OR (replacement.business_date=transaction.business_date
-                       AND replacement.site_id=transaction.site_id)
-            )) hasRevision,
-            MAX(EXISTS(
               SELECT 1 FROM payroll_production_details detail
               JOIN production_transactions payroll_transaction
                 ON payroll_transaction.id=detail.production_transaction_id
@@ -2209,9 +2220,6 @@ async function productionBatchDeleteSummary(
 
   return rows.map((row) => {
     const blockers: string[] = []
-    if (Number(row.hasRevision) > 0) {
-      blockers.push('Ada transaksi yang memiliki histori koreksi atau void.')
-    }
     if (Number(row.hasPayrollLock) > 0 || Number(row.hasPayrollSnapshot) > 0) {
       blockers.push('Ada transaksi yang sudah dikunci atau disnapshot Payroll.')
     }
@@ -2349,6 +2357,9 @@ productionTransactionsRouter.post(
         Number(device.siteId),
         String(time.businessDate)
       )
+      const qcOptions = jobs.some(job=>job.code===LINTING_JOB_CODE)
+        ? await loadProductionQcOptions(conn,Number(device.siteId)) : undefined
+      const lastBrandUid = qcOptions ? await lastProductionDeviceBrand(conn, Number(device.id), Number(device.siteId)) : null
       await conn.execute(
         'UPDATE scan_devices SET last_seen_at=NOW(3),updated_by=? WHERE id=?',
         [auth.id, device.id]
@@ -2389,6 +2400,8 @@ productionTransactionsRouter.post(
         attendance: { uid: attendance.uid, clockInAt: attendance.clockInAt },
         jobs,
         defaultJobUid,
+        qcOptions,
+        lastBrandUid,
       })
     } catch (error) {
       await conn.rollback()
@@ -2432,6 +2445,7 @@ productionTransactionsRouter.post(
         ) {
           throw new ApiError(409, 'Idempotency key sudah dipakai untuk setoran lain.')
         }
+        await assertProductionQcReplay(conn,Number(existing.id),input.qc)
         await conn.execute(
           'UPDATE scan_devices SET last_seen_at=NOW(3),updated_by=? WHERE id=?',
           [auth.id, device.id]
@@ -2533,6 +2547,7 @@ productionTransactionsRouter.post(
       if (datePayrollLock.locked) throw new ApiError(409, datePayrollLock.reasons[0])
       const uid = randomUUID()
       const transactionNumber = `PRD-${String(time.businessDate).replaceAll('-', '')}-${device.site}-${randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`
+      const qc = await resolveProductionQc(conn,input.qc,Number(device.siteId),String(assignment.jobCode),true)
       const [insertResult] = await conn.execute(
         `INSERT INTO production_transactions(
            uid,transaction_number,employee_id,site_id,work_group_id,production_section_id,
@@ -2566,6 +2581,7 @@ productionTransactionsRouter.post(
       const transactionId = Number(
         (insertResult as { insertId?: number }).insertId ?? 0
       )
+      await saveProductionQc(conn,transactionId,qc,auth.id)
       await repriceProductionDay(conn, {
         employeeId: Number(employee.id), siteId: Number(device.siteId),
         jobId: Number(assignment.jobId), businessDate: String(time.businessDate),
@@ -2590,6 +2606,7 @@ productionTransactionsRouter.post(
             quantity,
             rateSnapshot,
             grossAmount: pricedTransaction.grossAmount,
+            ...(input.qc ? { qc:input.qc } : {}),
           },
         },
         conn
@@ -2727,6 +2744,50 @@ productionTransactionsRouter.post(
         )
       }
 
+      // Normal corrections retain the source site/date. Reject an incomplete
+      // chain rather than deleting the history of a transaction outside this batch.
+      const [revisions] = await conn.query<RowDataPacket[]>(
+        `SELECT revision.id,revision.production_transaction_id sourceId,
+                revision.replacement_transaction_id replacementId
+           FROM production_transaction_revisions revision
+           JOIN production_transactions transaction
+             ON transaction.id=revision.production_transaction_id
+             OR transaction.id=revision.replacement_transaction_id
+           JOIN sites site ON site.id=transaction.site_id
+          WHERE transaction.business_date IN (${placeholders})${siteFilter}
+          FOR UPDATE`,
+        targetValues
+      )
+      const targetIds = new Set(targets.map((row) => String(row.id)))
+      if (revisions.some((row) =>
+        !targetIds.has(String(row.sourceId)) ||
+        (row.replacementId != null && !targetIds.has(String(row.replacementId)))
+      )) {
+        throw new ApiError(
+          409,
+          'Reset dibatalkan: transaksi koreksi terhubung ke transaksi di luar tanggal atau site yang dipilih.'
+        )
+      }
+      await conn.execute(
+        `DELETE revision FROM production_transaction_revisions revision
+           JOIN production_transactions transaction
+             ON transaction.id=revision.production_transaction_id
+             OR transaction.id=revision.replacement_transaction_id
+           JOIN sites site ON site.id=transaction.site_id
+          WHERE transaction.business_date IN (${placeholders})${siteFilter}`,
+        targetValues
+      )
+      await conn.execute(
+        `DELETE detail FROM production_transaction_qc_defects detail
+          JOIN production_transaction_qc header ON header.id=detail.production_transaction_qc_id
+          JOIN production_transactions transaction ON transaction.id=header.production_transaction_id
+          JOIN sites site ON site.id=transaction.site_id
+          WHERE transaction.business_date IN (${placeholders})${siteFilter}`, targetValues)
+      await conn.execute(
+        `DELETE header FROM production_transaction_qc header
+          JOIN production_transactions transaction ON transaction.id=header.production_transaction_id
+          JOIN sites site ON site.id=transaction.site_id
+          WHERE transaction.business_date IN (${placeholders})${siteFilter}`, targetValues)
       await conn.execute(
         `DELETE detail
            FROM production_transaction_rate_details detail
@@ -2883,6 +2944,7 @@ productionTransactionsRouter.get(
           employeeNumber: String(row.employeeNumber),
           employeeName: String(row.employeeName),
         })),
+        qcOptions: await productionImportTemplateQcOptions(auth),
         meta: {
           total: Number(counts[0]?.total ?? 0),
           limit: PRODUCTION_IMPORT_MAX_ROWS,
@@ -2894,6 +2956,19 @@ productionTransactionsRouter.get(
     }
   }
 )
+
+async function productionImportTemplateQcOptions(auth: AuthContext) {
+  const scope = scopeWhere(auth, 'site.code')
+  const [brands] = await pool.query<RowDataPacket[]>(
+    `SELECT brand.uid,brand.code,brand.name,brand.sort_order sortOrder,site.code siteCode,site.name siteName
+      FROM production_brands brand JOIN sites site ON site.id=brand.site_id
+      WHERE brand.is_active=1 AND site.is_active=1 AND ${scope.sql}
+      ORDER BY site.code,brand.sort_order,brand.id`,scope.params)
+  const [defects] = await pool.query<RowDataPacket[]>(
+    `SELECT uid,code,name,sort_order sortOrder FROM production_defects WHERE is_active=1 ORDER BY sort_order,id`)
+  return {brands:brands.map(row => ({uid:String(row.uid),code:String(row.code),name:String(row.name),sortOrder:Number(row.sortOrder),
+    site:{code:String(row.siteCode),name:String(row.siteName)}})),defects:defects.map(row => ({uid:String(row.uid),code:String(row.code),name:String(row.name),sortOrder:Number(row.sortOrder)}))}
+}
 
 productionTransactionsRouter.post(
   '/transactions/import',
@@ -2908,7 +2983,7 @@ productionTransactionsRouter.post(
       )
       await conn.beginTransaction()
       const [existing] = await conn.query<RowDataPacket[]>(
-        `SELECT transaction.idempotency_key idempotencyKey,
+        `SELECT transaction.id,transaction.idempotency_key idempotencyKey,
                 transaction.entry_source entrySource,
                 DATE_FORMAT(transaction.business_date,'%Y-%m-%d') businessDate,
                 transaction.quantity,transaction.notes,
@@ -2953,6 +3028,7 @@ productionTransactionsRouter.post(
             'Kunci import sudah digunakan untuk isi file atau alasan yang berbeda.'
           )
         }
+        await assertProductionImportQcReplay(conn, input.rows.map((row,index) => ({transactionId: Number(existingByKey.get(rowKeys[index])!.id),qc:row.qc})))
         await conn.commit()
         return res.json({
           data: {
@@ -3061,6 +3137,7 @@ productionTransactionsRouter.post(
         }
       }
 
+      await saveProductionImportQc(conn, inserted.map(item => ({transactionId:item.id,qc:item.row.qc ?? null})), auth.id)
       for (const row of validRows) {
         const proposal = row.proposal
         const dailyKey = {
@@ -3118,6 +3195,7 @@ productionTransactionsRouter.post(
             quantity: item.row.proposal.proposed.quantity,
             job: item.row.proposal.proposed.job,
             grossAmount: transaction.grossAmount,
+            ...(item.row.input.qc ? { qc: item.row.input.qc } : {}),
           },
         })
       }
@@ -3158,6 +3236,7 @@ productionTransactionsRouter.post(
         : { locked: false, reasons: [] }
       if (payrollLock.locked) throw new ApiError(409, payrollLock.reasons[0])
       const proposal = await historicalProposal(conn, input)
+      await resolveProductionQc(conn,input.qc,Number(proposal.site.id),String(proposal.proposed.job.code))
       res.json({
         employee: { uid: proposal.employee.uid, employeeNumber: proposal.employee.employeeNumber, fullName: proposal.employee.fullName },
         site: input.site,
@@ -3205,6 +3284,7 @@ productionTransactionsRouter.post(
             String(existing.notes ?? '') !== `Setoran susulan: ${input.reason}`) {
           throw new ApiError(409, 'Idempotency key sudah dipakai untuk setoran lain.')
         }
+        await assertProductionQcReplay(conn,Number(existing.id),input.qc)
         await conn.commit()
         return res.json({ duplicate: true, message: 'Setoran susulan sebelumnya dikembalikan.', transaction: await transactionResponse(conn, Number(existing.id)) })
       }
@@ -3213,6 +3293,7 @@ productionTransactionsRouter.post(
       if (payrollLock.locked) throw new ApiError(409, payrollLock.reasons[0])
       const uid = randomUUID()
       const transactionNumber = `PRD-MAN-${input.businessDate.replaceAll('-','')}-${input.site}-${randomUUID().replaceAll('-','').slice(0,8).toUpperCase()}`
+      const qc = await resolveProductionQc(conn,input.qc,Number(proposal.site.id),String(proposal.proposed.job.code),true)
       const [insertResult] = await conn.execute(
         `INSERT INTO production_transactions(
            uid,transaction_number,employee_id,site_id,work_group_id,production_section_id,production_job_id,
@@ -3226,6 +3307,7 @@ productionTransactionsRouter.post(
          proposal.proposed.quantity,proposal.proposed.grossAmount,input.idempotencyKey,`Setoran susulan: ${input.reason}`,auth.id,auth.id]
       )
       const transactionId = Number((insertResult as { insertId?: number }).insertId ?? 0)
+      await saveProductionQc(conn,transactionId,qc,auth.id)
       await repriceProductionDay(conn, {
         employeeId: Number(proposal.employee.id), siteId: Number(proposal.site.id),
         jobId: proposal.targetIds.jobId, businessDate: input.businessDate,
@@ -3465,6 +3547,7 @@ productionTransactionsRouter.post(
       const replacementId = Number(
         (insertResult as { insertId?: number }).insertId ?? 0
       )
+      await cloneProductionQc(conn, Number(source.id), replacementId, String(proposed.job.code), auth.id)
       const before = transactionSnapshot(source)
       const after = {
         ...before,

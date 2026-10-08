@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { isAxiosError } from 'axios'
 import {
   CheckCircle2,
@@ -38,6 +38,15 @@ import type {
   ProductionPostResult,
   ProductionTerminalLookup,
 } from './domain'
+import { ProductionQcFields } from './production-qc-fields'
+import {
+  emptyProductionQc,
+  defaultProductionQc,
+  productionQcDraftSignature,
+  isLintingJob,
+  productionQcPayload,
+  validateProductionQc,
+} from './production-qc-form-policy'
 import {
   canUseProductionTerminalSite,
   normalizeProductionQuantity,
@@ -178,6 +187,7 @@ function ProductionTerminal({
   const [lookup, setLookup] = useState<ProductionTerminalLookup>()
   const [jobUid, setJobUid] = useState('')
   const [quantity, setQuantity] = useState('')
+  const [qc, setQc] = useState(emptyProductionQc)
   const [recent, setRecent] = useState<RecentTransaction[]>([])
   const [confirmDeactivate, setConfirmDeactivate] = useState(false)
   const [online, setOnline] = useState(
@@ -189,13 +199,10 @@ function ProductionTerminal({
   const lookupMutation = useProductionTerminalLookup()
   const postMutation = usePostProductionTransaction()
   const selectedJob = lookup?.jobs.find((job) => job.uid === jobUid)
-  const estimatedGross = useMemo(() => {
-    const amount = Number(selectedJob?.rate.amount)
-    const count = Number(normalizeProductionQuantity(quantity))
-    return Number.isFinite(amount) && Number.isFinite(count) && count > 0
-      ? amount * count
-      : 0
-  }, [quantity, selectedJob?.rate.amount])
+  const linting = isLintingJob(selectedJob?.code)
+  const qcError = linting
+    ? validateProductionQc(qc, lookup?.qcOptions)
+    : undefined
 
   useEffect(() => {
     const update = () => setOnline(navigator.onLine)
@@ -217,6 +224,7 @@ function ProductionTerminal({
     setLookup(undefined)
     setJobUid('')
     setQuantity('')
+    setQc(emptyProductionQc())
     setBarcode('')
     idempotencyKey.current = undefined
     lookupMutation.reset()
@@ -242,6 +250,9 @@ function ProductionTerminal({
       setLookup(result)
       setJobUid(result.defaultJobUid)
       setQuantity('')
+      setQc(
+        defaultProductionQc(result.qcOptions, result.lastBrandUid ?? undefined)
+      )
       idempotencyKey.current = undefined
     } catch (error) {
       if (!handleDeviceAuthError(error)) {
@@ -252,7 +263,11 @@ function ProductionTerminal({
   }
 
   const submitTransaction = async () => {
-    if (!lookup || !selectedJob) return
+    if (!lookup || !selectedJob || postMutation.isPending) return
+    if (qcError) {
+      toast.error(qcError)
+      return
+    }
     const validation = validateProductionQuantity(
       quantity,
       selectedJob.unit.decimalPrecision
@@ -270,6 +285,9 @@ function ProductionTerminal({
           barcode: barcode.trim(),
           jobUid: selectedJob.uid,
           quantity: normalizeProductionQuantity(quantity),
+          ...(linting && lookup.qcOptions
+            ? { qc: productionQcPayload(qc, lookup.qcOptions) }
+            : {}),
           idempotencyKey: idempotencyKey.current,
         },
       })
@@ -295,17 +313,19 @@ function ProductionTerminal({
   }
 
   return (
-    <Main className='mx-auto w-full max-w-6xl p-3 sm:p-6'>
-      <header className='mb-4 flex flex-col gap-3 rounded-xl border bg-card p-4 sm:flex-row sm:items-start sm:justify-between'>
+    <Main className='mx-auto w-full max-w-6xl p-2 sm:p-4'>
+      <header className='mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card p-2.5 sm:p-3'>
         <div className='min-w-0'>
           <p className='text-xs font-medium text-primary'>Terminal Produksi</p>
-          <h1 className='truncate text-lg font-bold sm:text-xl'>
+          <h1 className='truncate text-base font-bold sm:text-lg'>
             {session.device.name}
           </h1>
           <div className='mt-1 flex flex-wrap gap-1.5'>
             <Badge>{session.device.siteName}</Badge>
-            <Badge variant='outline'>{session.device.code}</Badge>
-            <Badge variant='secondary'>
+            <Badge variant='outline' className='hidden sm:inline-flex'>
+              {session.device.code}
+            </Badge>
+            <Badge variant='secondary' className='hidden sm:inline-flex'>
               {session.device.deviceType === 'USB_SCANNER'
                 ? 'Scanner USB'
                 : 'Terminal'}
@@ -346,9 +366,9 @@ function ProductionTerminal({
         </div>
       )}
 
-      <div className='grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]'>
-        <Card>
-          <CardContent className='space-y-5 p-4 sm:p-6'>
+      <div className='grid gap-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]'>
+        <Card className='min-w-0 gap-0 py-0'>
+          <CardContent className='space-y-3 p-2.5 sm:p-4'>
             {!lookup ? (
               <form
                 className='space-y-4'
@@ -407,26 +427,26 @@ function ProductionTerminal({
               </form>
             ) : (
               <form
-                className='space-y-5'
+                className='space-y-2.5'
                 onSubmit={(event) => {
                   event.preventDefault()
                   void submitTransaction()
                 }}
               >
-                <div className='flex flex-col gap-3 rounded-xl border bg-muted/30 p-4 sm:flex-row sm:items-start sm:justify-between'>
+                <div className='flex items-start justify-between gap-2 rounded-lg border border-primary/30 bg-gradient-to-br from-primary via-primary/90 to-primary/75 p-2.5 text-primary-foreground shadow-sm'>
                   <div className='min-w-0'>
                     <div className='flex items-center gap-2'>
-                      <ShieldCheck className='size-5 text-emerald-600' />
-                      <p className='font-semibold'>
+                      <ShieldCheck className='size-4 shrink-0 text-primary-foreground' />
+                      <p className='text-sm font-semibold'>
                         {lookup.employee.fullName}
                       </p>
                     </div>
-                    <p className='mt-1 text-sm text-muted-foreground'>
+                    <p className='mt-0.5 text-xs text-primary-foreground/85'>
                       {lookup.employee.employeeNumber} ·{' '}
                       {lookup.employee.productionSection?.name ??
                         'Bagian belum diatur'}
                     </p>
-                    <p className='text-xs text-muted-foreground'>
+                    <p className='text-xs text-primary-foreground/85'>
                       Clock in {formatTime(lookup.attendance.clockInAt)} ·{' '}
                       {lookup.businessDate}
                     </p>
@@ -435,24 +455,38 @@ function ProductionTerminal({
                     type='button'
                     variant='outline'
                     size='sm'
+                    className='h-10 shrink-0 bg-background px-2 text-xs text-foreground'
                     onClick={clearLookup}
+                    disabled={postMutation.isPending}
                   >
-                    <RefreshCcw /> Ganti pekerja
+                    <RefreshCcw />{' '}
+                    <span className='hidden sm:inline'>Ganti pekerja</span>
+                    <span className='sm:hidden'>Ganti</span>
                   </Button>
                 </div>
 
-                <div className='grid gap-4 sm:grid-cols-2'>
-                  <div className='grid gap-2'>
+                <div className='grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] items-start gap-2'>
+                  <div className='grid min-w-0 gap-1'>
                     <Label htmlFor='production-job'>Pekerjaan</Label>
                     <Select
                       value={jobUid}
+                      disabled={postMutation.isPending}
                       onValueChange={(value) => {
                         setJobUid(value)
                         setQuantity('')
+                        setQc(
+                          defaultProductionQc(
+                            lookup.qcOptions,
+                            lookup.lastBrandUid ?? undefined
+                          )
+                        )
                         idempotencyKey.current = undefined
                       }}
                     >
-                      <SelectTrigger id='production-job' className='w-full'>
+                      <SelectTrigger
+                        id='production-job'
+                        className='h-10 w-full min-w-0'
+                      >
                         <SelectValue placeholder='Pilih pekerjaan' />
                       </SelectTrigger>
                       <SelectContent>
@@ -465,13 +499,14 @@ function ProductionTerminal({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className='grid gap-2'>
+                  <div className='grid min-w-0 gap-1'>
                     <Label htmlFor='production-quantity'>
                       Jumlah {selectedJob ? `(${selectedJob.unit.code})` : ''}
                     </Label>
                     <Input
                       ref={quantityRef}
                       id='production-quantity'
+                      className='h-10 min-w-0'
                       type='text'
                       inputMode='decimal'
                       value={quantity}
@@ -483,44 +518,25 @@ function ProductionTerminal({
                       autoComplete='off'
                       disabled={!selectedJob || postMutation.isPending}
                     />
-                    <p className='text-xs text-muted-foreground'>
-                      Maksimal {selectedJob?.unit.decimalPrecision ?? 0} angka
-                      di belakang koma.
-                    </p>
                   </div>
                 </div>
 
-                <div className='grid gap-2 rounded-lg border p-3 text-sm sm:grid-cols-3'>
-                  <div>
-                    <p className='text-xs text-muted-foreground'>
-                      Tarif dasar aktif
-                    </p>
-                    <p className='font-medium'>
-                      {formatCurrency(selectedJob?.rate.amount ?? '0')}
-                    </p>
-                  </div>
-                  <div>
-                    <p className='text-xs text-muted-foreground'>Satuan</p>
-                    <p className='font-medium'>
-                      {selectedJob?.unit.name ?? '-'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className='text-xs text-muted-foreground'>
-                      Estimasi bruto
-                    </p>
-                    {selectedJob?.rate.tiered ? (
-                      <p className='text-xs font-medium text-primary'>
-                        Tarif bertingkat; nilai pasti tampil setelah setoran
-                        disimpan.
-                      </p>
-                    ) : (
-                      <p className='font-semibold text-primary'>
-                        {formatCurrency(estimatedGross)}
-                      </p>
-                    )}
-                  </div>
-                </div>
+                {linting && (
+                  <ProductionQcFields
+                    quantity={quantity}
+                    value={qc}
+                    options={lookup.qcOptions}
+                    disabled={postMutation.isPending}
+                    onChange={(value) => {
+                      setQc(value)
+                      if (
+                        productionQcDraftSignature(value) !==
+                        productionQcDraftSignature(qc)
+                      )
+                        idempotencyKey.current = undefined
+                    }}
+                  />
+                )}
 
                 {postMutation.isError && (
                   <p
@@ -534,9 +550,10 @@ function ProductionTerminal({
                   </p>
                 )}
                 <Button
-                  className='h-12 w-full text-base'
+                  className='h-11 w-full text-base'
                   disabled={
                     !selectedJob ||
+                    Boolean(qcError) ||
                     Boolean(
                       validateProductionQuantity(
                         quantity,
@@ -559,8 +576,8 @@ function ProductionTerminal({
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className='p-4'>
+        <Card className='min-w-0 gap-0 py-0'>
+          <CardContent className='p-3'>
             <div className='mb-3'>
               <h2 className='font-semibold'>5 setoran terakhir</h2>
               <p className='text-xs text-muted-foreground'>
@@ -568,7 +585,7 @@ function ProductionTerminal({
               </p>
             </div>
             {!recent.length ? (
-              <div className='rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground'>
+              <div className='rounded-lg border border-dashed py-4 text-center text-sm text-muted-foreground'>
                 <PackageCheck className='mx-auto mb-2 size-6' />
                 Belum ada setoran pada sesi ini.
               </div>
@@ -587,8 +604,8 @@ function ProductionTerminal({
                       </div>
                       <CheckCircle2 className='size-5 shrink-0 text-emerald-600' />
                     </div>
-                    <div className='mt-2 flex items-end justify-between gap-2'>
-                      <div>
+                    <div className='mt-2 flex items-start justify-between gap-2'>
+                      <div className='shrink-0'>
                         <p className='text-sm font-semibold'>
                           {formatQuantity(
                             item.quantity,
@@ -596,24 +613,13 @@ function ProductionTerminal({
                           )}{' '}
                           {item.unit.code}
                         </p>
-                        {Number(item.deductionQuantity ?? 0) > 0 && (
-                          <p className='text-xs text-amber-700 dark:text-amber-300'>
-                            Dibayar{' '}
-                            {formatQuantity(
-                              item.payableQuantity ?? item.quantity,
-                              item.unit.decimalPrecision
-                            )}{' '}
-                            {item.unit.code} · potongan{' '}
-                            {Number(
-                              item.deductionPercentage ?? 0
-                            ).toLocaleString('id-ID')}
-                            %
-                          </p>
-                        )}
                       </div>
-                      <div className='text-right'>
-                        <p className='text-sm font-semibold'>
-                          {formatCurrency(item.grossAmount)}
+                      <div className='min-w-0 text-right'>
+                        <p
+                          className='truncate text-sm font-semibold'
+                          title={item.qc?.brand?.name}
+                        >
+                          {item.qc?.brand?.name ?? '—'}
                         </p>
                         <p className='text-[11px] text-muted-foreground'>
                           {formatTime(item.transactionAt)}
@@ -649,14 +655,6 @@ function ProductionTerminal({
 function formatQuantity(value: string, precision: number) {
   return new Intl.NumberFormat('id-ID', {
     maximumFractionDigits: precision,
-  }).format(Number(value))
-}
-
-function formatCurrency(value: string | number) {
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency',
-    currency: 'IDR',
-    maximumFractionDigits: 0,
   }).format(Number(value))
 }
 
