@@ -9,6 +9,7 @@ import {
   CircleDollarSign,
   LoaderCircle,
   PencilLine,
+  Percent,
   Ban,
   Plus,
   Ruler,
@@ -103,6 +104,7 @@ import type {
 } from './domain'
 import { ProductionEmployeePicker } from './production-employee-picker'
 import { ProductionOnboardingAssignmentPlanner } from './production-onboarding-assignment-dialog'
+import { ProductionQuantityDeductionPolicyPanel } from './production-quantity-deduction-policy'
 import {
   formatProductionDecimalInput,
   normalizeProductionDecimalInput,
@@ -1880,6 +1882,7 @@ function FilterBar({
   searchPlaceholder = 'Cari data...',
   showSite = true,
   showStatus = true,
+  showSearch = true,
   onChange,
 }: {
   query: string
@@ -1889,22 +1892,27 @@ function FilterBar({
   searchPlaceholder?: string
   showSite?: boolean
   showStatus?: boolean
+  showSearch?: boolean
   onChange: (patch: Record<string, unknown>) => void
 }) {
   const { lockedSite } = useSiteScopeFilter(
     site ? [site as ProductionSite] : undefined
   )
   const hasFilters = Boolean(
-    query || (showSite && site && !lockedSite) || (showStatus && status)
+    (showSearch && query) ||
+    (showSite && site && !lockedSite) ||
+    (showStatus && status)
   )
   return (
     <div className='flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:w-auto'>
-      <Input
-        className='w-full sm:w-64'
-        value={query}
-        onChange={(e) => onChange({ filter: e.target.value, page: 1 })}
-        placeholder={searchPlaceholder}
-      />
+      {showSearch && (
+        <Input
+          className='w-full sm:w-64'
+          value={query}
+          onChange={(e) => onChange({ filter: e.target.value, page: 1 })}
+          placeholder={searchPlaceholder}
+        />
+      )}
       {showSite &&
         (lockedSite ? (
           <SiteScopeFilter
@@ -2573,6 +2581,7 @@ export function ProductionJobMasterPage({ search, navigate }: PageProps) {
 export function ProductionRatePage({ search, navigate }: PageProps) {
   const session = useAuthStore((state) => state.session)
   const canManage = hasPermission(session, 'production.manage_master')
+  const tab = search.tab === 'deductions' ? 'deductions' : 'rates'
   const page = Number(search.page ?? 1)
   const pageSize = Number(search.pageSize ?? 50)
   const filter = String(search.filter ?? '')
@@ -2638,112 +2647,154 @@ export function ProductionRatePage({ search, navigate }: PageProps) {
     <Main className='space-y-5'>
       <PageHeader
         title='Tarif Produksi per Site'
-        description='Tarif baru disimpan sebagai Draft. Aktifkan setelah nilai dan periode selesai diverifikasi.'
+        description={
+          tab === 'rates'
+            ? 'Tarif baru disimpan sebagai Draft. Aktifkan setelah nilai dan periode selesai diverifikasi.'
+            : 'Atur potongan hasil pekerjaan Linting per site, berlaku untuk semua bagian karyawan. Tanpa kebijakan, hasil tetap dihitung penuh.'
+        }
         action={
-          canManage ? <RateDialog jobs={jobs.data?.items ?? []} /> : undefined
+          canManage && tab === 'rates' ? (
+            <RateDialog jobs={jobs.data?.items ?? []} />
+          ) : undefined
         }
       />
-      <div className='flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50/70 p-3 text-sm text-sky-900 dark:bg-sky-950/20 dark:text-sky-200'>
-        <CircleDollarSign className='size-4' /> Tarif aktif menjadi sumber nilai
-        transaksi Produksi sesuai tanggal setoran.
-      </div>
-      <FilterBar
-        query={filter}
-        site={site[0] ?? ''}
-        status={status[0] ?? ''}
-        statuses={['DRAFT', 'ACTIVE', 'INACTIVE']}
-        onChange={setSearch}
-      />
-      {rates.isFetching && (
-        <div className='flex items-center gap-2 text-xs text-muted-foreground'>
-          <LoaderCircle className='size-3 animate-spin' /> Memperbarui tarif...
-        </div>
-      )}
-      <div className='rounded-md border'>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Site & Pekerjaan</TableHead>
-              <TableHead>Satuan</TableHead>
-              <TableHead>Periode</TableHead>
-              <TableHead>Tarif</TableHead>
-              <TableHead>Status</TableHead>
-              {canManage && <TableHead className='text-right'>Aksi</TableHead>}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {visibleRates.map((rate) => (
-              <TableRow key={rate.uid}>
-                <TableCell>
-                  <div className='font-medium'>{rate.jobName}</div>
-                  <div className='text-xs text-muted-foreground'>
-                    {rate.site} · {rate.jobCode}
-                  </div>
-                </TableCell>
-                <TableCell>{rate.unitName}</TableCell>
-                <TableCell>
-                  {rate.effectiveFrom} — {rate.effectiveTo ?? 'seterusnya'}
-                </TableCell>
-                <TableCell className='font-medium'>
-                  <div>
-                    {formatCurrency(rate.rateAmount)} / {rate.unitCode}
-                  </div>
-                  {(rate.tiers ?? []).slice(1).map((tier) => (
-                    <div
-                      key={tier.minQuantity}
-                      className='text-xs font-normal text-muted-foreground'
-                    >
-                      Mulai {formatRateThreshold(tier.minQuantity)}{' '}
-                      {rate.unitCode}: {formatCurrency(tier.rateAmount)}
-                    </div>
-                  ))}
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    variant={rate.status === 'ACTIVE' ? 'default' : 'secondary'}
-                  >
-                    {rate.status}
-                  </Badge>
-                </TableCell>
-                {canManage && (
-                  <TableCell className='text-right'>
-                    {rate.status === 'DRAFT' && (
-                      <Button
-                        size='sm'
-                        variant='outline'
-                        disabled={command.isPending}
-                        onClick={() => activate(rate)}
+      <Tabs
+        value={tab}
+        onValueChange={(value) => setSearch({ tab: value })}
+        className='min-w-0'
+      >
+        <TabsList className='h-auto max-w-full justify-start gap-1 overflow-x-auto p-1'>
+          <TabsTrigger value='rates' className='h-10 flex-none px-4'>
+            <CircleDollarSign className='size-4' /> Tarif Produksi
+          </TabsTrigger>
+          <TabsTrigger value='deductions' className='h-10 flex-none px-4'>
+            <Percent className='size-4' /> Potongan Hasil Produksi
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value='rates' className='min-w-0 space-y-3'>
+          <div className='flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50/70 p-3 text-sm text-sky-900 dark:bg-sky-950/20 dark:text-sky-200'>
+            <CircleDollarSign className='size-4' /> Tarif aktif menjadi sumber
+            nilai transaksi Produksi sesuai tanggal setoran.
+          </div>
+          <FilterBar
+            query={filter}
+            site={site[0] ?? ''}
+            status={status[0] ?? ''}
+            statuses={['DRAFT', 'ACTIVE', 'INACTIVE']}
+            onChange={setSearch}
+          />
+          {rates.isFetching && (
+            <div className='flex items-center gap-2 text-xs text-muted-foreground'>
+              <LoaderCircle className='size-3 animate-spin' /> Memperbarui
+              tarif...
+            </div>
+          )}
+          <div className='rounded-md border'>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Site & Pekerjaan</TableHead>
+                  <TableHead>Satuan</TableHead>
+                  <TableHead>Periode</TableHead>
+                  <TableHead>Tarif</TableHead>
+                  <TableHead>Status</TableHead>
+                  {canManage && (
+                    <TableHead className='text-right'>Aksi</TableHead>
+                  )}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visibleRates.map((rate) => (
+                  <TableRow key={rate.uid}>
+                    <TableCell>
+                      <div className='font-medium'>{rate.jobName}</div>
+                      <div className='text-xs text-muted-foreground'>
+                        {rate.site} · {rate.jobCode}
+                      </div>
+                    </TableCell>
+                    <TableCell>{rate.unitName}</TableCell>
+                    <TableCell>
+                      {rate.effectiveFrom} — {rate.effectiveTo ?? 'seterusnya'}
+                    </TableCell>
+                    <TableCell className='font-medium'>
+                      <div>
+                        {formatCurrency(rate.rateAmount)} / {rate.unitCode}
+                      </div>
+                      {(rate.tiers ?? []).slice(1).map((tier) => (
+                        <div
+                          key={tier.minQuantity}
+                          className='text-xs font-normal text-muted-foreground'
+                        >
+                          Mulai {formatRateThreshold(tier.minQuantity)}{' '}
+                          {rate.unitCode}: {formatCurrency(tier.rateAmount)}
+                        </div>
+                      ))}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          rate.status === 'ACTIVE' ? 'default' : 'secondary'
+                        }
                       >
-                        Aktifkan
-                      </Button>
+                        {rate.status}
+                      </Badge>
+                    </TableCell>
+                    {canManage && (
+                      <TableCell className='text-right'>
+                        {rate.status === 'DRAFT' && (
+                          <Button
+                            size='sm'
+                            variant='outline'
+                            disabled={command.isPending}
+                            onClick={() => activate(rate)}
+                          >
+                            Aktifkan
+                          </Button>
+                        )}
+                        {rate.status === 'ACTIVE' && (
+                          <>
+                            <ActiveRateCorrectionDialog rate={rate} />
+                            <ActiveRateCancellationDialog rate={rate} />
+                          </>
+                        )}
+                      </TableCell>
                     )}
-                    {rate.status === 'ACTIVE' && (
-                      <>
-                        <ActiveRateCorrectionDialog rate={rate} />
-                        <ActiveRateCancellationDialog rate={rate} />
-                      </>
-                    )}
-                  </TableCell>
+                  </TableRow>
+                ))}
+                {!rates.isLoading && !visibleRates.length && (
+                  <EmptyRows
+                    colSpan={canManage ? 6 : 5}
+                    text='Belum ada tarif sesuai filter.'
+                  />
                 )}
-              </TableRow>
-            ))}
-            {!rates.isLoading && !visibleRates.length && (
-              <EmptyRows
-                colSpan={canManage ? 6 : 5}
-                text='Belum ada tarif sesuai filter.'
-              />
-            )}
-          </TableBody>
-        </Table>
-      </div>
-      {rates.data && (
-        <Pagination
-          page={rates.data.page}
-          pageSize={rates.data.pageSize}
-          total={rates.data.total}
-          onPage={(value) => setSearch({ page: value })}
-        />
-      )}
+              </TableBody>
+            </Table>
+          </div>
+          {rates.data && (
+            <Pagination
+              page={rates.data.page}
+              pageSize={rates.data.pageSize}
+              total={rates.data.total}
+              onPage={(value) => setSearch({ page: value })}
+            />
+          )}
+        </TabsContent>
+        <TabsContent value='deductions' className='min-w-0 space-y-3'>
+          <FilterBar
+            query=''
+            site={site[0] ?? ''}
+            status=''
+            statuses={[]}
+            showSearch={false}
+            showStatus={false}
+            onChange={(patch) => setSearch({ site: patch.site, page: 1 })}
+          />
+          <ProductionQuantityDeductionPolicyPanel
+            canManage={canManage}
+            siteFilter={site}
+          />
+        </TabsContent>
+      </Tabs>
     </Main>
   )
 }

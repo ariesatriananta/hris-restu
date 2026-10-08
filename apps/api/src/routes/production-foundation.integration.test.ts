@@ -123,6 +123,110 @@ describe('Production foundation API', () => {
     expect(mocks.query).not.toHaveBeenCalled()
   })
 
+  it('mengembalikan kontrak master Potongan Hasil Linting per site dan pekerjaan', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[{ total: 1 }]])
+      .mockResolvedValueOnce([[
+        {
+          uid: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          site: 'JEPARA', siteName: 'Jepara',
+          sectionUid: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          sectionCode: 'LINTING', sectionName: 'Linting',
+          jobUid: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          jobCode: 'BORONGAN-LINTING', jobName: 'Linting',
+          percentage: '3.0000', effectiveFrom: '2026-10-01',
+          effectiveTo: null, status: 'ACTIVE', notes: null,
+        },
+      ]])
+
+    const response = await request('/quantity-deduction-policies?site=JEPARA')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      items: [{
+        site: 'JEPARA', percentage: '3.0000', status: 'ACTIVE',
+        job: { code: 'BORONGAN-LINTING' },
+      }],
+      total: 1,
+    })
+    expect(mocks.query.mock.calls[1]?.[0]).not.toContain('production_sections')
+  })
+
+  it('opsi kebijakan memuat site tanpa mensyaratkan bagian atau modul', async () => {
+    mocks.query.mockResolvedValueOnce([[{site:'JEPARA',siteName:'Jepara'}]])
+    const response=await request('/quantity-deduction-policies/options',{
+      auth:auth({permissions:['production.view'],sites:['JEPARA']}),
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({items:[{site:'JEPARA',siteName:'Jepara'}],jobCode:'BORONGAN-LINTING'})
+    expect(mocks.query.mock.calls[0]?.[0]).not.toContain('production_module')
+    expect(mocks.query.mock.calls[0]?.[1]).toEqual(['JEPARA'])
+  })
+
+  it('membuat policy hanya untuk job stabil BORONGAN-LINTING', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[
+        { siteId: 1, sectionId: 2, jobId: 3, sectionMapped: 1 },
+      ]])
+      .mockResolvedValueOnce([[]])
+
+    const response = await request('/quantity-deduction-policies', {
+      method: 'POST',
+      auth: auth({ permissions: ['production.manage_master'], sites: ['JEPARA'] }),
+      body: {
+        site: 'JEPARA',
+        percentage: '3',
+        effectiveFrom: '2026-10-01',
+      },
+    })
+    expect(response.status).toBe(201)
+    expect(mocks.query.mock.calls[0]?.[0]).toContain("job.code='BORONGAN-LINTING'")
+    expect(mocks.execute).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO production_quantity_deduction_policies'),
+      expect.arrayContaining(['3.0000'])
+    )
+    expect(mocks.commit).toHaveBeenCalledOnce()
+    expect(mocks.query.mock.calls[1]?.[0]).not.toContain('production_section_id')
+    expect(mocks.query.mock.calls[1]?.[1]).toEqual([1,3,'9999-12-31','2026-10-01'])
+    expect(mocks.execute.mock.calls[0]?.[0]).not.toContain('production_section_id')
+  })
+
+  it('menolak periode policy aktif yang bertumpang-tindih', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[
+        { siteId: 1, sectionId: 2, jobId: 3, sectionMapped: 1 },
+      ]])
+      .mockResolvedValueOnce([[{ id: 9 }]])
+
+    const response = await request('/quantity-deduction-policies', {
+      method: 'POST',
+      auth: auth({ permissions: ['production.manage_master'], sites: ['JEPARA'] }),
+      body: {
+        site: 'JEPARA',
+        percentage: '2',
+        effectiveFrom: '2026-10-15',
+      },
+    })
+    expect(response.status).toBe(422)
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.rollback).toHaveBeenCalledOnce()
+    expect(mocks.query.mock.calls[1]?.[0]).not.toContain('production_section_id')
+  })
+
+  it('menolak pengakhiran policy yang memperpanjang periode hingga menabrak policy lain', async () => {
+    mocks.query.mockResolvedValueOnce([[{id:1}]])
+      .mockResolvedValueOnce([[{id:5,uid:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',siteId:1,site:'JEPARA',sectionId:2,jobId:3,effectiveFrom:'2026-10-01',effectiveTo:'2026-10-14'}]])
+      .mockResolvedValueOnce([[{id:6}]])
+    const response=await request('/quantity-deduction-policies/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/deactivate',{
+      method:'POST',auth:auth({permissions:['production.manage_master'],sites:['JEPARA']}),
+      body:{effectiveTo:'2026-10-20',reason:'Mengakhiri kebijakan produksi.'},
+    })
+    expect(response.status).toBe(422)
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.rollback).toHaveBeenCalledOnce()
+    expect(mocks.query.mock.calls[2]?.[0]).not.toContain('production_section_id')
+    expect(mocks.query.mock.calls[2]?.[1]).toEqual([1,3,5,'2026-10-20','2026-10-01'])
+  })
+
   it('menerima payload preview koreksi tanpa field penerapan final', async () => {
     mocks.query.mockResolvedValueOnce([[]])
 

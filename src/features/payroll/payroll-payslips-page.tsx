@@ -634,6 +634,14 @@ export function Payslip({
                   <b>
                     {number(item.quantity)} {item.unitName}
                   </b>
+                  {Number(item.deductionQuantity) > 0 && (
+                    <>
+                      {' '}
+                      (-{number(item.deductionQuantity ?? '0')}; dibayar{' '}
+                      {number(item.payableQuantity ?? item.quantity)}{' '}
+                      {item.unitName})
+                    </>
+                  )}
                 </span>
               ))}
             </div>

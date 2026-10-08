@@ -362,7 +362,14 @@ describe('Production transactions API', () => {
     })
   })
 
-  it('preview import menerima koreksi Masuk yang disetujui dan diterapkan tanpa scan Masuk', async () => {
+  it.each([
+    {percentage:'0.0000',payable:'100.0000',deduction:'0.0000',gross:'4500.00',existingZero:false,sectionId:3,jobCode:'BORONGAN-LINTING',hasPolicy:true},
+    {percentage:'3.0000',payable:'97.0000',deduction:'3.0000',gross:'4365.00',existingZero:false,sectionId:99,jobCode:'BORONGAN-LINTING',hasPolicy:true},
+    {percentage:'3.0000',payable:'97.0000',deduction:'3.0000',gross:'4365.00',existingZero:false,sectionId:null,jobCode:'BORONGAN-LINTING',hasPolicy:true},
+    {percentage:'3.0000',payable:'100.0000',deduction:'0.0000',gross:'4500.00',existingZero:true,sectionId:3,jobCode:'BORONGAN-LINTING',hasPolicy:true},
+    {percentage:'3.0000',payable:'100.0000',deduction:'0.0000',gross:'4500.00',existingZero:false,sectionId:99,jobCode:'BORONGAN-PACKING',hasPolicy:true},
+    {percentage:'3.0000',payable:'100.0000',deduction:'0.0000',gross:'4500.00',existingZero:false,sectionId:99,jobCode:'BORONGAN-LINTING',hasPolicy:false},
+  ])('preview import: policy $percentage, bagian $sectionId (99=SLOP), job $jobCode, snapshot lama $existingZero', async ({percentage,payable,deduction,gross,existingZero,sectionId,jobCode,hasPolicy}) => {
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement = String(sql)
       if (statement.includes("DATE_FORMAT(CURDATE()")) {
@@ -404,6 +411,12 @@ describe('Production transactions API', () => {
           siteName: 'Site Jepara',
         }]]
       }
+      if(statement.includes('mapping.production_section_id sectionId')) return [[{sectionId}]]
+      if(statement.includes('SELECT production_section_id productionSectionId')) return [existingZero ? [{productionSectionId:3,deductionPolicyId:null,deductionPercentage:'0.0000'}] : []]
+      if(statement.includes('FROM production_quantity_deduction_policies')) {
+        expect(statement).not.toContain('production_section_id')
+        return [hasPolicy ? [{id:5,percentage}] : []]
+      }
       if (statement.includes('FROM attendance_records ar')) {
         return [[{
           id: 13,
@@ -424,7 +437,7 @@ describe('Production transactions API', () => {
           isPrimary: 1,
           jobId: 15,
           jobUid,
-          jobCode: 'BORONGAN-LINTING',
+          jobCode,
           jobName: 'Linting',
           rateId: 16,
           rateUid: '66666666-6666-4666-8666-666666666666',
@@ -481,8 +494,11 @@ describe('Production transactions API', () => {
             employeeNumber: 'J2608-001',
             employeeName: 'Ariel Peterpan',
             site: 'JEPARA',
-            job: { code: 'BORONGAN-LINTING', name: 'Linting' },
+            job: { code: jobCode, name: 'Linting' },
             quantity: '100.0000',
+            deductionQuantity:deduction,
+            payableQuantity:payable,
+            estimatedGrossAmount:gross,
             valid: true,
           },
         ],
@@ -500,7 +516,11 @@ describe('Production transactions API', () => {
     expect(correctionSql).toContain('ac.new_clock_in_at=ar.clock_in_at')
   })
 
-  it('preview import multi-baris memakai validasi batch dan mengembalikan semua baris', async () => {
+  it.each([
+    {sameEmployee:false,percentage:'0.0000',existingZero:false,secondPayable:'1.0000',secondGross:'45.00'},
+    {sameEmployee:true,percentage:'3.0000',existingZero:false,secondPayable:'0.0000',secondGross:'0.00'},
+    {sameEmployee:true,percentage:'3.0000',existingZero:true,secondPayable:'1.0000',secondGross:'45.00'},
+  ])('preview batch policy $percentage, karyawan sama $sameEmployee, snapshot lama $existingZero', async ({sameEmployee,percentage,existingZero,secondPayable,secondGross}) => {
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement = String(sql)
       if (statement.includes('DATE_FORMAT(CURDATE()')) {
@@ -513,7 +533,7 @@ describe('Production transactions API', () => {
         return [[
           ...[2, 3].map((rowNumber) => ({
             rowNumber,
-            employeeId: rowNumber === 2 ? 11 : 12,
+            employeeId: rowNumber === 2 || sameEmployee ? 11 : 12,
             employeeUid: rowNumber === 2 ? employeeUid : '11111111-1111-4111-8111-111111111112',
             employeeNumber: rowNumber === 2 ? 'J2608-001' : 'J2608-002',
             fullName: rowNumber === 2 ? 'Ariel Peterpan' : 'Siti',
@@ -561,7 +581,12 @@ describe('Production transactions API', () => {
         ]]
       }
       if (statement.includes('SELECT input.import_row_number rowNumber') && statement.includes('period.status')) return [[]]
-      if (statement.includes('SELECT input.import_row_number rowNumber') && statement.includes('transaction.production_job_id')) return [[]]
+      if (statement.includes('SELECT input.import_row_number rowNumber') && statement.includes('transaction.production_job_id')) return [existingZero ? [2,3].map(rowNumber=>({rowNumber,jobId:15,quantity:'100.0000',payableQuantity:'100.0000',deductionPercentage:'0.0000'})) : []]
+      if(statement.includes('FROM production_quantity_deduction_policies') || statement.includes('JOIN production_quantity_deduction_policies')) {
+        expect(statement).not.toContain('production_section_id')
+        expect(statement).not.toContain('JOIN production_module_sections')
+        return [[... [2,3].map(rowNumber=>({rowNumber,jobId:15,policyId:5,percentage}))]]
+      }
       if (statement.includes('SELECT rate.id rateId')) {
         return [[{ rateId: 16, tierId: null, minQuantity: null, rateAmount: '45.0000' }]]
       }
@@ -573,14 +598,14 @@ describe('Production transactions API', () => {
       auth: auth({ permissions: ['production.correct'], sites: ['JEPARA'] }),
       body: {
         rows: [
-          { rowNumber: 2, businessDate: '2026-09-21', employeeNumber: 'J2608-001', employeeName: 'Ariel', quantity: '10' },
-          { rowNumber: 3, businessDate: '2026-09-21', employeeNumber: 'J2608-002', employeeName: 'Siti', quantity: '12' },
+          { rowNumber: 2, businessDate: '2026-09-21', employeeNumber: 'J2608-001', employeeName: 'Ariel', quantity: '16' },
+          { rowNumber: 3, businessDate: '2026-09-21', employeeNumber: sameEmployee ? 'J2608-001' : 'J2608-002', employeeName: 'Siti', quantity: '1' },
         ],
       },
     })
     expect(response.status).toBe(200)
     expect((await response.json()) as object).toMatchObject({
-      data: { total: 2, valid: 2, invalid: 0, rows: [{ rowNumber: 2 }, { rowNumber: 3 }] },
+      data: { total: 2, valid: 2, invalid: 0, rows: [{ rowNumber: 2,payableQuantity:'16.0000',estimatedGrossAmount:'720.00' }, { rowNumber: 3,payableQuantity:secondPayable,estimatedGrossAmount:secondGross }] },
     })
     const temporaryTableSql = String(
       mocks.query.mock.calls.find((call) =>
@@ -632,7 +657,12 @@ describe('Production transactions API', () => {
     ).toBe(false)
   })
 
-  it('mengimpor batch valid sebagai transaksi POSTED dan menulis audit', async () => {
+  it.each([
+    {percentage:'0.0000',quantity:'100.0000',payable:'100.0000',deduction:'0.0000',gross:'4500.00',oldSnapshot:false},
+    {percentage:'3.0000',quantity:'100.0000',payable:'97.0000',deduction:'3.0000',gross:'4365.00',oldSnapshot:false},
+    {percentage:'90.0000',quantity:'1.0000',payable:'0.0000',deduction:'1.0000',gross:'0.00',oldSnapshot:false},
+    {percentage:'3.0000',quantity:'100.0000',payable:'100.0000',deduction:'0.0000',gross:'4500.00',oldSnapshot:true},
+  ])('import disimpan sesuai preview, policy $percentage dan snapshot lama $oldSnapshot', async ({percentage,quantity,payable,deduction,gross,oldSnapshot}) => {
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement = String(sql)
       if (statement.includes('FROM production_transactions transaction')) {
@@ -724,17 +754,32 @@ describe('Production transactions API', () => {
         return [[{ id: 11 }]]
       }
       if (statement.includes('ORDER BY pt.transaction_at,pt.id FOR UPDATE')) {
-        return [[{
+        const newRow={
           id: 21,
           uid: transactionUid,
           rateId: 16,
-          quantity: '100.0000',
+          quantity,
           rateSnapshot: '45.0000',
           grossAmount: '4500.00',
           payrollLockedAt: null,
           payrollSnapshot: 0,
           trainingSnapshot: 0,
-        }]]
+          jobCode: 'BORONGAN-LINTING',
+          decimalPrecision: 0,
+          deductedQuantity: '0.0000',
+          payableQuantity: '100.0000',
+          deductionPercentage: '0.0000',
+          productionSectionId: 3,
+          deductionPolicyId: null,
+        }
+        return [oldSnapshot ? [{...newRow,id:20,uid:'old-transaction',deductionPercentage:'0.0000'},newRow] : [newRow]]
+      }
+      if (statement.includes('SELECT production_section_id productionSectionId')) return [oldSnapshot ? [{productionSectionId:3,deductionPolicyId:null,deductionPercentage:'0.0000'}] : []]
+      if (statement.includes('mapping.production_section_id sectionId')) {
+        return [[{ sectionId: 3 }]]
+      }
+      if (statement.includes('FROM production_quantity_deduction_policies')) {
+        return percentage==='0.0000' ? [[]] : [[{id:5,percentage}]]
       }
       if (statement.includes('FROM production_transaction_rate_details')) {
         return [[]]
@@ -745,7 +790,7 @@ describe('Production transactions API', () => {
           uid: transactionUid,
           rowKey: 'PRD-IMPORT-79777777-7777-4777-8777-777777777777-2',
           transactionNumber: 'PRD-IMP-20260920-JEPARA-ABC',
-          grossAmount: '4500.00',
+          grossAmount: gross,
         }]]
       }
       if (statement.includes('SELECT pt.id,pt.uid')) {
@@ -755,9 +800,9 @@ describe('Production transactions API', () => {
           transactionNumber: 'PRD-IMP-20260920-JEPARA-ABC',
           businessDate: '2026-09-20',
           transactionAt: '2026-09-21T08:00:00+07:00',
-          quantity: '100.0000',
+          quantity,
           rateSnapshot: '45.0000',
-          grossAmount: '4500.00',
+          grossAmount: gross,
           entrySource: 'HISTORICAL',
           notes: 'Import Excel: Import hasil Produksi darurat.',
         }]]
@@ -774,7 +819,7 @@ describe('Production transactions API', () => {
             businessDate: '2026-09-20',
             employeeNumber: 'J2608-001',
             employeeName: 'Ariel Peterpan',
-            quantity: '100',
+            quantity:quantity.split('.')[0],
           },
         ],
         reason: 'Import hasil Produksi darurat.',
@@ -795,8 +840,15 @@ describe('Production transactions API', () => {
     )
     expect(auditInsert).toBeDefined()
     expect((auditInsert?.[1] as unknown[]).length).toBe(17)
-    expect(mocks.audit).not.toHaveBeenCalled()
+    expect(mocks.audit.mock.calls.every(call=>(call[0] as {action:string}).action==='UPDATE')).toBe(true)
     expect(mocks.commit).toHaveBeenCalledTimes(1)
+    const repriced=mocks.execute.mock.calls.filter(call=>String(call[0]).includes('payable_quantity=?,gross_amount=?'))
+    if(Number(deduction)>0) expect(repriced.some(call=>{
+      const values=call[1] as unknown[]
+      return values[3]===deduction && values[4]===payable && values[5]===gross
+    })).toBe(true)
+    else expect(repriced).toHaveLength(0)
+    if(oldSnapshot) expect(mocks.query.mock.calls.some(call=>String(call[0]).includes('FROM production_quantity_deduction_policies'))).toBe(false)
   })
 
   it('mengaktifkan Terminal hanya dengan kode Produksi atau kode legacy', async () => {
@@ -1138,7 +1190,10 @@ describe('Production transactions API', () => {
     expect(allowed.status).toBe(200)
   })
 
-  it('preview void menghitung dampak seluruh setoran harian yang bergeser tier', async () => {
+  it.each([
+    {percentage:'0.0000',firstGross:'48400.00',secondGross:'27900.00',delta:'-52100.00'},
+    {percentage:'3.0000',firstGross:'46948.00',secondGross:'26508.00',delta:'-49982.00'},
+  ])('preview void menghitung ulang tier dan potongan harian $percentage', async ({percentage,firstGross,secondGross,delta}) => {
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement=String(sql)
       if (statement.includes('SELECT pt.*')) {
@@ -1146,8 +1201,8 @@ describe('Production transactions API', () => {
       }
       if (statement.includes('SELECT id,job_rate_id rateId,quantity')) {
         return [[
-          {id:21,rateId:16,quantity:'400.0000',transactionAt:'2026-08-21 09:00:00.000000',grossAmount:'48400.00'},
-          {id:22,rateId:16,quantity:'200.0000',transactionAt:'2026-08-21 10:00:00.000000',grossAmount:'27900.00'},
+          {id:21,rateId:16,quantity:'400.0000',transactionAt:'2026-08-21 09:00:00.000000',grossAmount:firstGross,deductionPercentage:percentage,decimalPrecision:0},
+          {id:22,rateId:16,quantity:'200.0000',transactionAt:'2026-08-21 10:00:00.000000',grossAmount:secondGross,deductionPercentage:percentage,decimalPrecision:0},
         ]]
       }
       if (statement.includes('FROM production_job_rate_tiers')) {
@@ -1164,8 +1219,29 @@ describe('Production transactions API', () => {
     })
     expect(response.status).toBe(200)
     expect((await response.json()) as object).toMatchObject({
-      impact:{grossAmount:'-52100.00'},
+      impact:{grossAmount:delta},
     })
+    expect(mocks.query.mock.calls.some(call=>String(call[0]).includes('FROM production_quantity_deduction_policies'))).toBe(false)
+  })
+
+  it('preview koreksi memakai snapshot 3% dan nominal setelah potongan', async () => {
+    mocks.query.mockImplementation(async (sql:unknown)=>{
+      const statement=String(sql)
+      if(statement.includes('SELECT pt.*')) return [[managedTransactionRow({quantity:'500.0000',gross_amount:'48500.00',rate_snapshot:'100.0000',quantity_deduction_percentage:'3.0000'})]]
+      if(statement.includes('SELECT production_section_id productionSectionId')) return [[{productionSectionId:3,deductionPolicyId:5,deductionPercentage:'3.0000'}]]
+      if(statement.includes('precedingQuantity')) return [[{precedingQuantity:'500.0000'}]]
+      if(statement.includes('SELECT id,job_rate_id rateId,quantity')) return [[
+        {id:21,rateId:16,quantity:'500.0000',transactionAt:'2026-08-21 09:00:00.000000',grossAmount:'48500.00',deductionPercentage:'3.0000',decimalPrecision:0},
+        {id:22,rateId:16,quantity:'500.0000',transactionAt:'2026-08-21 09:00:00.000000',grossAmount:'48500.00',deductionPercentage:'3.0000',decimalPrecision:0},
+      ]]
+      if(statement.includes('FROM production_job_rate_tiers')) return [[{id:1,minQuantity:'1.0000',rateAmount:'100.0000'}]]
+      if(statement.includes('WHERE pt.id=?')) return [[{...transactionRow(),quantity:'500.0000',grossAmount:'48500.00'}]]
+      return [[]]
+    })
+    const response=await request(`/transactions/${transactionUid}/correction-preview`,{method:'POST',auth:auth({permissions:['production.correct']}),body:{jobUid,quantity:'1000'}})
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({proposed:{deductionPercentage:'3.0000',deductionQuantity:'30.0000',payableQuantity:'970.0000',grossAmount:'97000.00'},delta:{grossAmount:'48500.00'}})
+    expect(mocks.query.mock.calls.some(call=>String(call[0]).includes('FROM production_quantity_deduction_policies'))).toBe(false)
   })
 
   it('memblokir revisi ketika payroll_locked_at sudah terisi', async () => {
@@ -1244,6 +1320,7 @@ describe('Production transactions API', () => {
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement = String(sql)
       if (statement.includes('SELECT pt.*')) return [[managedTransactionRow()]]
+      if (statement.includes('SELECT production_section_id productionSectionId')) return [[{productionSectionId:3,deductionPercentage:'0.0000',deductionPolicyId:null}]]
       if (statement.includes('WHERE pr.idempotency_key')) return [[]]
       if (statement.includes('FROM payroll_production_details')) return [[]]
       if (statement.includes('FROM payroll_periods pp')) return [[]]

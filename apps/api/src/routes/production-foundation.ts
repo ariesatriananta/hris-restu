@@ -11,6 +11,7 @@ import {
   assignmentStatusSql,
   booleanFilter,
   closeProductionAssignmentInput,
+  deactivateProductionQuantityDeductionPolicyInput,
   deleteProductionAssignmentInput,
   csvValues,
   pageParams,
@@ -24,6 +25,7 @@ import {
   productionAssignmentReadinessIssue,
   productionEligibleEmployeeType,
   productionJobInput,
+  productionQuantityDeductionPolicyInput,
   productionRateInput,
   productionSiteCode,
   rateActivationInput,
@@ -630,6 +632,156 @@ productionFoundationRouter.patch(
     } finally {
       connection.release()
     }
+  }
+)
+
+productionFoundationRouter.get(
+  '/quantity-deduction-policies/options',
+  requirePermission('production.view'),
+  async (_req, res, next) => {
+    try {
+      const auth = res.locals.auth as AuthContext
+      const scope = scopeWhere(auth)
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT s.code site,s.name siteName
+           FROM sites s
+          WHERE s.is_active=1 AND ${scope.sql}
+          ORDER BY s.code`,
+        scope.params
+      )
+      res.json({
+        items: rows.map((row) => ({
+          site: String(row.site),
+          siteName: String(row.siteName),
+        })),
+        jobCode: 'BORONGAN-LINTING',
+      })
+    } catch (error) { next(error) }
+  }
+)
+
+productionFoundationRouter.get(
+  '/quantity-deduction-policies',
+  requirePermission('production.view'),
+  async (req, res, next) => {
+    try {
+      const auth = res.locals.auth as AuthContext
+      const { page, pageSize } = pageParams(req.query.page, req.query.pageSize)
+      const where = ["policy.status='ACTIVE'"]
+      const values: unknown[] = []
+      const scope = scopeWhere(auth)
+      where.push(scope.sql); values.push(...scope.params)
+      const sites = csvValues(req.query.site).filter((value) => productionSiteCode.options.includes(value as never))
+      if (sites.length) { where.push(`s.code IN (${sites.map(() => '?').join(',')})`); values.push(...sites) }
+      const status = String(req.query.status ?? '')
+      if (status === 'ACTIVE') where.push('(policy.effective_to IS NULL OR policy.effective_to>=CURDATE())')
+      if (status === 'INACTIVE') where.push('policy.effective_to<CURDATE()')
+      const clause = where.join(' AND ')
+      const from = `FROM production_quantity_deduction_policies policy
+        JOIN sites s ON s.id=policy.site_id
+        JOIN production_jobs job ON job.id=policy.production_job_id`
+      const [count] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) total ${from} WHERE ${clause}`, values)
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT policy.uid,s.code site,s.name siteName,
+                job.uid jobUid,job.code jobCode,job.name jobName,
+                CAST(policy.percentage AS CHAR) percentage,
+                DATE_FORMAT(policy.effective_from,'%Y-%m-%d') effectiveFrom,
+                DATE_FORMAT(policy.effective_to,'%Y-%m-%d') effectiveTo,
+                CASE WHEN policy.effective_to IS NOT NULL AND policy.effective_to<CURDATE()
+                     THEN 'INACTIVE' ELSE 'ACTIVE' END status,policy.notes
+           ${from} WHERE ${clause}
+          ORDER BY s.code,policy.effective_from DESC,policy.id DESC
+          LIMIT ? OFFSET ?`, [...values,pageSize,(page-1)*pageSize]
+      )
+      res.json({ items: rows.map((row) => ({
+        uid: row.uid, site: row.site, siteName: row.siteName,
+        job: { uid: row.jobUid, code: row.jobCode, name: row.jobName },
+        percentage: String(row.percentage), effectiveFrom: row.effectiveFrom,
+        effectiveTo: row.effectiveTo, status: row.status, notes: row.notes,
+      })), total:Number(count[0]?.total??0),page,pageSize })
+    } catch (error) { next(error) }
+  }
+)
+
+productionFoundationRouter.post(
+  '/quantity-deduction-policies',
+  requirePermission('production.manage_master'),
+  async (req,res,next) => {
+    const connection=await pool.getConnection()
+    try {
+      const input=productionQuantityDeductionPolicyInput.parse(req.body)
+      const auth=res.locals.auth as AuthContext
+      enforceSite(auth,input.site)
+      await connection.beginTransaction()
+      const [refs]=await connection.query<RowDataPacket[]>(
+        `SELECT s.id siteId,job.id jobId
+           FROM sites s CROSS JOIN production_jobs job
+          WHERE s.code=? AND s.is_active=1
+            AND job.code='BORONGAN-LINTING' AND job.is_active=1 FOR UPDATE`,
+        [input.site]
+      )
+      const ref=refs[0]
+      if (!ref) throw new ApiError(422,'Site atau pekerjaan Linting tidak valid.')
+      const [overlaps]=await connection.query<RowDataPacket[]>(
+        `SELECT id FROM production_quantity_deduction_policies
+          WHERE site_id=? AND production_job_id=? AND status='ACTIVE'
+            AND effective_from<=? AND (effective_to IS NULL OR effective_to>=?) LIMIT 1 FOR UPDATE`,
+        [ref.siteId,ref.jobId,input.effectiveTo??'9999-12-31',input.effectiveFrom]
+      )
+      if (overlaps[0]) throw new ApiError(422,'Periode Potongan Hasil Linting untuk site ini bertumpang-tindih.')
+      const uid=randomUUID()
+      const percentage=Number(input.percentage).toFixed(4)
+      await connection.execute(
+        `INSERT INTO production_quantity_deduction_policies(
+           uid,site_id,production_job_id,percentage,
+           effective_from,effective_to,status,notes,created_by,updated_by
+         ) VALUES(?,?,?,?,?,?,'ACTIVE',?,?,?)`,
+        [uid,ref.siteId,ref.jobId,percentage,input.effectiveFrom,input.effectiveTo??null,input.notes??null,auth.id,auth.id]
+      )
+      await writeAudit({auth,request:req,module:'PRODUCTION',siteId:Number(ref.siteId),action:'CREATE',table:'production_quantity_deduction_policies',recordUid:uid,description:'Menambah kebijakan Potongan Hasil Linting.',afterData:{...input,percentage,jobCode:'BORONGAN-LINTING'}},connection)
+      await connection.commit(); res.status(201).json({uid})
+    } catch(error){await connection.rollback();next(error)} finally {connection.release()}
+  }
+)
+
+productionFoundationRouter.post(
+  '/quantity-deduction-policies/:uid/deactivate',
+  requirePermission('production.manage_master'),
+  async (req,res,next) => {
+    const connection=await pool.getConnection()
+    try {
+      const input=deactivateProductionQuantityDeductionPolicyInput.parse(req.body)
+      const auth=res.locals.auth as AuthContext
+      await connection.beginTransaction()
+      // Match creation's site-first lock order before locking the policy period.
+      await connection.query(
+        'SELECT id FROM sites WHERE id=(SELECT site_id FROM production_quantity_deduction_policies WHERE uid=?) FOR UPDATE',
+        [routeParam(req.params.uid)]
+      )
+      const [rows]=await connection.query<RowDataPacket[]>(
+        `SELECT policy.id,policy.uid,s.id siteId,s.code site,
+                policy.production_job_id jobId,
+                DATE_FORMAT(policy.effective_from,'%Y-%m-%d') effectiveFrom,
+                DATE_FORMAT(policy.effective_to,'%Y-%m-%d') effectiveTo
+           FROM production_quantity_deduction_policies policy JOIN sites s ON s.id=policy.site_id
+          WHERE policy.uid=? AND policy.status='ACTIVE' FOR UPDATE`,[routeParam(req.params.uid)]
+      )
+      const row=rows[0]
+      if(!row) throw new ApiError(404,'Kebijakan Potongan Hasil Linting tidak ditemukan.')
+      enforceSite(auth,String(row.site))
+      if(input.effectiveTo<String(row.effectiveFrom)) throw new ApiError(422,'Tanggal selesai tidak boleh mendahului tanggal mulai.')
+      const [overlaps]=await connection.query<RowDataPacket[]>(
+        `SELECT id FROM production_quantity_deduction_policies
+          WHERE site_id=? AND production_job_id=?
+            AND id<>? AND status='ACTIVE' AND effective_from<=?
+            AND (effective_to IS NULL OR effective_to>=?) LIMIT 1 FOR UPDATE`,
+        [row.siteId,row.jobId,row.id,input.effectiveTo,row.effectiveFrom]
+      )
+      if(overlaps[0]) throw new ApiError(422,'Tanggal terakhir berlaku bertumpang-tindih dengan kebijakan potongan lain.')
+      await connection.execute('UPDATE production_quantity_deduction_policies SET effective_to=?,updated_by=? WHERE id=?',[input.effectiveTo,auth.id,row.id])
+      await writeAudit({auth,request:req,module:'PRODUCTION',siteId:Number(row.siteId),action:'UPDATE',table:'production_quantity_deduction_policies',recordId:Number(row.id),recordUid:String(row.uid),description:'Mengakhiri kebijakan Potongan Hasil Linting.',reason:input.reason,beforeData:{effectiveTo:row.effectiveTo},afterData:{effectiveTo:input.effectiveTo}},connection)
+      await connection.commit();res.status(204).end()
+    }catch(error){await connection.rollback();next(error)}finally{connection.release()}
   }
 )
 

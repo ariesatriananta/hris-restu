@@ -130,7 +130,9 @@ async function payslipPayload(row:RowDataPacket, ids?:string[]) {
       component_name_snapshot name,component_category category,amount,notes FROM payroll_employee_component_details
       WHERE payroll_employee_result_id IN (${placeholders}) ORDER BY component_category,component_name_snapshot,id`,resultIds)
     const [productionRows]=await pool.query<RowDataPacket[]>(`SELECT payroll_employee_result_id resultId,job_name_snapshot jobName,
-      unit_name_snapshot unitName,SUM(quantity_snapshot) quantity,SUM(amount_snapshot) amount FROM payroll_production_details
+      unit_name_snapshot unitName,SUM(quantity_snapshot) quantity,
+      SUM(deducted_quantity_snapshot) deductedQuantity,
+      SUM(payable_quantity_snapshot) payableQuantity,SUM(amount_snapshot) amount FROM payroll_production_details
       WHERE payroll_employee_result_id IN (${placeholders}) GROUP BY payroll_employee_result_id,job_name_snapshot,unit_name_snapshot
       ORDER BY job_name_snapshot,unit_name_snapshot`,resultIds)
     const [attendanceRows]=await pool.query<RowDataPacket[]>(`SELECT payroll_employee_result_id resultId,scheduled_days scheduledDays,present_days presentDays,
@@ -200,7 +202,7 @@ async function payslipPayload(row:RowDataPacket, ids?:string[]) {
         employee:{health:money(bpjs.get(Number(result.id))?.healthEmployee),jht:money(bpjs.get(Number(result.id))?.jhtEmployee),jp:money(bpjs.get(Number(result.id))?.jpEmployee),total:money(bpjs.get(Number(result.id))?.totalEmployeeDeduction)},
         employer:{health:money(bpjs.get(Number(result.id))?.healthEmployer),jht:money(bpjs.get(Number(result.id))?.jhtEmployer),jkk:money(bpjs.get(Number(result.id))?.jkkEmployer),jkm:money(bpjs.get(Number(result.id))?.jkmEmployer),jp:money(bpjs.get(Number(result.id))?.jpEmployer),total:money(bpjs.get(Number(result.id))?.totalEmployerContribution)}
       }:null,
-      productionSummary:(production.get(Number(result.id))??[]).map(item=>({jobName:item.jobName,unitName:item.unitName,quantity:String(item.quantity),amount:money(item.amount)}))})) }
+      productionSummary:(production.get(Number(result.id))??[]).map(item=>({jobName:item.jobName,unitName:item.unitName,quantity:String(item.quantity),deductionQuantity:String(item.deductedQuantity),payableQuantity:String(item.payableQuantity),amount:money(item.amount)}))})) }
 }
 
 async function insertOutputAudit(conn:PoolConnection,input:{auth:AuthContext;request:Parameters<typeof writeAudit>[0]['request'];row:RowDataPacket;type:'SUMMARY_EXPORT'|'PAYMENT_EXPORT'|'SLIP_PRINT';key:string;count:number;selection?:unknown;checksum?:string}){
@@ -313,18 +315,23 @@ payrollHistoryRouter.get('/runs/:runUid/production-daily-summary',requirePermiss
     ${employmentJoin}
     WHERE result.payroll_run_id=?${sectionFilter}`
   const [dailyRows]=await pool.query<RowDataPacket[]>(`SELECT DATE_FORMAT(detail.business_date,'%Y-%m-%d') businessDate,
-    SUM(detail.quantity_snapshot) totalQuantity,SUM(detail.amount_snapshot) totalAmount,
+    SUM(detail.quantity_snapshot) totalQuantity,
+    SUM(detail.deducted_quantity_snapshot) deductionQuantity,
+    SUM(detail.payable_quantity_snapshot) payableQuantity,
+    SUM(detail.amount_snapshot) totalAmount,
     COUNT(DISTINCT result.employee_id) employeeCount ${from}
     GROUP BY detail.business_date ORDER BY detail.business_date`,values)
   const [totalRows]=await pool.query<RowDataPacket[]>(`SELECT SUM(detail.quantity_snapshot) totalQuantity,
+    SUM(detail.deducted_quantity_snapshot) deductionQuantity,
+    SUM(detail.payable_quantity_snapshot) payableQuantity,
     SUM(detail.amount_snapshot) totalAmount,
     COUNT(DISTINCT result.employee_id,detail.business_date) employeeCount ${from}`,values)
   const total=totalRows[0]??{}
   res.json({data:{run:{uid:row.runUid,runNumber:Number(row.runNumber),isCurrent:Number(row.currentRunId)===Number(row.runId),periodCode:row.periodCode,
     periodName:row.periodName,periodStart:row.periodStart,periodEnd:row.periodEnd,siteName:row.siteName},
     sections:sectionRows.map(section=>({uid:section.uid,name:section.name})),selectedSectionUid:input.sectionUid??null,
-    rows:dailyRows.map(item=>({businessDate:item.businessDate,totalQuantity:String(item.totalQuantity??'0'),totalAmount:money(item.totalAmount),employeeCount:Number(item.employeeCount??0)})),
-    total:{totalQuantity:String(total.totalQuantity??'0'),totalAmount:money(total.totalAmount),employeeCount:Number(total.employeeCount??0)}}})
+    rows:dailyRows.map(item=>({businessDate:item.businessDate,totalQuantity:String(item.totalQuantity??'0'),deductionQuantity:String(item.deductionQuantity??'0'),payableQuantity:String(item.payableQuantity??'0'),totalAmount:money(item.totalAmount),employeeCount:Number(item.employeeCount??0)})),
+    total:{totalQuantity:String(total.totalQuantity??'0'),deductionQuantity:String(total.deductionQuantity??'0'),payableQuantity:String(total.payableQuantity??'0'),totalAmount:money(total.totalAmount),employeeCount:Number(total.employeeCount??0)}}})
 }catch(error){next(error)}})
 
 payrollHistoryRouter.post('/runs/:runUid/export',async(req,res,next)=>{try{

@@ -505,14 +505,26 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
                 {preview.data.canApply ? 'Siap dicatat' : 'Tidak dapat dicatat'}
               </Badge>
             </div>
-            <div className='grid gap-2 sm:grid-cols-3'>
+            <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-4'>
               <PreviewMetric
                 label='Pekerjaan'
                 value={preview.data.proposed.job.name}
               />
               <PreviewMetric
-                label='Kuantitas'
+                label='Hasil setor'
                 value={`${formatNumber(preview.data.proposed.quantity, preview.data.proposed.unit.decimalPrecision)} ${preview.data.proposed.unit.code}`}
+              />
+              <PreviewMetric
+                label='Potongan standar'
+                value={
+                  Number(preview.data.proposed.deductionQuantity ?? 0) > 0
+                    ? `${Number(preview.data.proposed.deductionPercentage ?? 0).toLocaleString('id-ID')}% / ${formatNumber(preview.data.proposed.deductionQuantity ?? '0', preview.data.proposed.unit.decimalPrecision)} ${preview.data.proposed.unit.code}`
+                    : 'Tidak diterapkan'
+                }
+              />
+              <PreviewMetric
+                label='Kuantitas dibayar'
+                value={`${formatNumber(preview.data.proposed.payableQuantity ?? preview.data.proposed.quantity, preview.data.proposed.unit.decimalPrecision)} ${preview.data.proposed.unit.code}`}
               />
               <PreviewMetric
                 label='Estimasi bruto'
@@ -698,6 +710,20 @@ function TransactionTable({
               )}{' '}
               {row.original.unit.code}
             </p>
+            {Number(row.original.deductionQuantity ?? 0) > 0 && (
+              <p className='truncate text-xs text-amber-700 dark:text-amber-300'>
+                Dibayar{' '}
+                {formatNumber(
+                  row.original.payableQuantity ?? row.original.quantity,
+                  row.original.unit.decimalPrecision
+                )}{' '}
+                {row.original.unit.code} · potongan{' '}
+                {Number(row.original.deductionPercentage ?? 0).toLocaleString(
+                  'id-ID'
+                )}
+                %
+              </p>
+            )}
             <p className='truncate text-xs text-muted-foreground'>
               Tarif dasar {formatCurrency(row.original.rateSnapshot)} /{' '}
               {row.original.unit.code}
@@ -1053,8 +1079,18 @@ function TransactionDetailSheet({
                 rows={[
                   ['Pekerjaan', `${item.job.name} (${item.job.code})`],
                   [
-                    'Kuantitas',
+                    'Hasil setor',
                     `${formatNumber(item.quantity, item.unit.decimalPrecision)} ${item.unit.code}`,
+                  ],
+                  [
+                    'Potongan standar',
+                    Number(item.deductionQuantity ?? 0) > 0
+                      ? `${Number(item.deductionPercentage ?? 0).toLocaleString('id-ID')}% / ${formatNumber(item.deductionQuantity ?? '0', item.unit.decimalPrecision)} ${item.unit.code}`
+                      : 'Tidak diterapkan',
+                  ],
+                  [
+                    'Kuantitas dibayar',
+                    `${formatNumber(item.payableQuantity ?? item.quantity, item.unit.decimalPrecision)} ${item.unit.code}`,
                   ],
                   ['Tarif dasar snapshot', formatCurrency(item.rateSnapshot)],
                   ['Nilai bruto', formatCurrency(item.grossAmount)],

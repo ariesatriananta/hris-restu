@@ -210,7 +210,7 @@ const projectionFrom = `FROM production_transactions pt
   LEFT JOIN departments dept ON dept.id=eh.department_id
   LEFT JOIN work_groups wg ON wg.id=pt.work_group_id
   LEFT JOIN production_module_sections pms ON pms.id=eh.production_module_section_id
-  LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
+  LEFT JOIN production_sections ps ON ps.id=COALESCE(pt.production_section_id,pms.production_section_id)
   LEFT JOIN production_transaction_revisions incoming_revision
     ON incoming_revision.replacement_transaction_id=pt.id
   LEFT JOIN production_transactions source_transaction
@@ -226,7 +226,9 @@ async function loadTransactions(
     `SELECT pt.id,pt.uid,pt.transaction_number transactionNumber,
             DATE_FORMAT(pt.business_date,'%Y-%m-%d') businessDate,
             DATE_FORMAT(pt.transaction_at,'%Y-%m-%dT%H:%i:%s+07:00') transactionAt,
-            pt.quantity,pt.rate_snapshot rateSnapshot,pt.gross_amount grossAmount,
+            pt.quantity,pt.quantity_deduction_percentage deductionPercentage,
+            pt.deducted_quantity deductionQuantity,pt.payable_quantity payableQuantity,
+            pt.rate_snapshot rateSnapshot,pt.gross_amount grossAmount,
             EXISTS(
               SELECT 1 FROM payroll_production_details ppd
               WHERE ppd.production_transaction_id=pt.id
@@ -258,6 +260,9 @@ async function loadTransactions(
       businessDate: String(row.businessDate),
       transactionAt: String(row.transactionAt),
       quantity: normalizeStoredDecimal(row.quantity),
+      deductionPercentage: normalizeStoredDecimal(row.deductionPercentage),
+      deductionQuantity: normalizeStoredDecimal(row.deductionQuantity),
+      payableQuantity: normalizeStoredDecimal(row.payableQuantity),
       rateSnapshot: normalizeStoredDecimal(row.rateSnapshot),
       grossAmount: normalizeStoredDecimal(row.grossAmount, 2),
       payrollSnapshotted: Boolean(row.payrollSnapshotted),

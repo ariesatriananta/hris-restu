@@ -588,13 +588,29 @@ function ProductionTerminal({
                       <CheckCircle2 className='size-5 shrink-0 text-emerald-600' />
                     </div>
                     <div className='mt-2 flex items-end justify-between gap-2'>
-                      <p className='text-sm font-semibold'>
-                        {formatQuantity(
-                          item.quantity,
-                          item.unit.decimalPrecision
-                        )}{' '}
-                        {item.unit.code}
-                      </p>
+                      <div>
+                        <p className='text-sm font-semibold'>
+                          {formatQuantity(
+                            item.quantity,
+                            item.unit.decimalPrecision
+                          )}{' '}
+                          {item.unit.code}
+                        </p>
+                        {Number(item.deductionQuantity ?? 0) > 0 && (
+                          <p className='text-xs text-amber-700 dark:text-amber-300'>
+                            Dibayar{' '}
+                            {formatQuantity(
+                              item.payableQuantity ?? item.quantity,
+                              item.unit.decimalPrecision
+                            )}{' '}
+                            {item.unit.code} · potongan{' '}
+                            {Number(
+                              item.deductionPercentage ?? 0
+                            ).toLocaleString('id-ID')}
+                            %
+                          </p>
+                        )}
+                      </div>
                       <div className='text-right'>
                         <p className='text-sm font-semibold'>
                           {formatCurrency(item.grossAmount)}

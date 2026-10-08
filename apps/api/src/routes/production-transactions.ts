@@ -15,6 +15,11 @@ import { businessDate } from '../lib/contract-lifecycle.js'
 import { ApiError } from '../lib/errors.js'
 import { priceProductionTiers, type ProductionRateTier } from '../lib/production-tier-pricing.js'
 import {
+  allocateDailyQuantityDeduction,
+  cumulativeDeductionQuantity,
+  LINTING_JOB_CODE,
+} from '../lib/production-quantity-deduction.js'
+import {
   calculateGrossAmount,
   normalizeQuantity,
   normalizeStoredDecimal,
@@ -173,6 +178,7 @@ async function employeeContext(
 
   const [histories] = await conn.query<RowDataPacket[]>(
     `SELECT eh.id,eh.site_id siteId,eh.work_group_id workGroupId,
+            pms.production_section_id productionSectionId,
             es.allows_production allowsProduction,es.code employeeStatus,
             et.code employeeType,et.name employeeTypeName,et.payroll_basis payrollBasis,
             s.code site,s.name siteName,
@@ -418,10 +424,26 @@ async function historicalProposal(
     [selectedJobUid,input.businessDate,input.businessDate,employee.id,site.id,input.businessDate,input.businessDate]
   )
   if (targets.length !== 1) throw new ApiError(422, 'Penugasan atau tarif historis tidak lagi tunggal.')
-  const priced = await proposedTierAmount(conn, {
-    employeeId: Number(employee.id), siteId: Number(site.id),
-    jobId: Number(targets[0].jobId), businessDate: input.businessDate,
-  }, Number(targets[0].rateId), quantity)
+  const snapshot=await dailyDeductionSnapshot(conn,{
+    employeeId:Number(employee.id),siteId:Number(site.id),jobId:Number(targets[0].jobId),businessDate:input.businessDate,
+  },String(job.code),lock)
+  const deductionPercentage=snapshot.percentage
+  const [dailyRows]=await conn.query<RowDataPacket[]>(
+    `SELECT COALESCE(SUM(quantity),0) rawQuantity,
+            COALESCE(SUM(payable_quantity),0) payableQuantity
+       FROM production_transactions WHERE employee_id=? AND site_id=?
+        AND production_job_id=? AND business_date=? AND status='POSTED'`,
+    [employee.id,site.id,targets[0].jobId,input.businessDate]
+  )
+  const precedingRaw=BigInt(normalizeStoredDecimal(dailyRows[0]?.rawQuantity??0).replace('.',''))
+  const precedingPayable=normalizeStoredDecimal(dailyRows[0]?.payableQuantity??0)
+  const quantityValue=BigInt(quantity.replace('.',''))
+  const rawText=(value:bigint)=>`${value/10000n}.${String(value%10000n).padStart(4,'0')}`
+  const beforeDeduction=BigInt(normalizeStoredDecimal(cumulativeDeductionQuantity(rawText(precedingRaw),deductionPercentage,unit.decimalPrecision)).replace('.',''))
+  const afterDeduction=BigInt(normalizeStoredDecimal(cumulativeDeductionQuantity(rawText(precedingRaw+quantityValue),deductionPercentage,unit.decimalPrecision)).replace('.',''))
+  const deductionQuantity=afterDeduction-beforeDeduction
+  const payableQuantity=rawText(quantityValue-deductionQuantity)
+  const priced=pricePayableQuantity(precedingPayable,payableQuantity,await rateTiers(conn,Number(targets[0].rateId)))
   return {
     employee, history, attendance, site,
     jobs, defaultJobUid,
@@ -429,6 +451,9 @@ async function historicalProposal(
     proposed: {
       job: { uid: job.uid, code: job.code, name: job.name },
       unit, rate, quantity,
+      deductionPercentage,
+      deductionQuantity:rawText(deductionQuantity),
+      payableQuantity,
       rateSnapshot: rate.amount,
       grossAmount: priced.grossAmount,
       rateDetails: priced.slices.map((slice) => ({
@@ -476,7 +501,6 @@ async function validateProductionImportRows(
     return validateProductionImportRowsBatch(conn, rows, auth, lock)
   }
   const serverTime = await currentServerTime(conn)
-  const batchQuantities = new Map<string, string>()
   const output: ProductionImportValidationRow[] = []
 
   for (const input of rows) {
@@ -534,36 +558,6 @@ async function validateProductionImportRows(
         jobId: proposal.targetIds.jobId,
         businessDate: input.businessDate,
       }
-      const groupKey = [
-        dailyKey.employeeId,
-        dailyKey.siteId,
-        dailyKey.jobId,
-        dailyKey.businessDate,
-      ].join('|')
-      const additionalQuantity = batchQuantities.get(groupKey) ?? '0.0000'
-      const priced = await proposedTierAmount(
-        conn,
-        dailyKey,
-        proposal.targetIds.rateId,
-        proposal.proposed.quantity,
-        undefined,
-        undefined,
-        additionalQuantity
-      )
-      proposal.proposed.grossAmount = priced.grossAmount
-      proposal.proposed.rateDetails = priced.slices.map((slice) => ({
-        minQuantity: slice.minQuantitySnapshot,
-        quantity: slice.quantity,
-        rateAmount: slice.rateSnapshot,
-        amount: slice.amount,
-      }))
-      const current = BigInt(additionalQuantity.replace('.', ''))
-      const added = BigInt(proposal.proposed.quantity.replace('.', ''))
-      const next = current + added
-      batchQuantities.set(
-        groupKey,
-        `${next / 10000n}.${String(next % 10000n).padStart(4, '0')}`
-      )
       const [existingRows] = await conn.query<RowDataPacket[]>(
         `SELECT COUNT(*) transactionCount,COALESCE(SUM(quantity),0) totalQuantity
            FROM production_transactions
@@ -670,7 +664,7 @@ async function validateProductionImportRowsBatch(
               site.code site,site.name siteName,site.is_active siteActive,
               work_group.uid workGroupUid,work_group.code workGroupCode,
               work_group.name workGroupName,
-              section.uid productionSectionUid,
+              section.id productionSectionId,section.uid productionSectionUid,
               section.code productionSectionCode,
               section.name productionSectionName,
               attendance.id attendanceId,attendance.uid attendanceUid,
@@ -768,7 +762,10 @@ async function validateProductionImportRowsBatch(
     )
     const [productionRows] = await conn.query<RowDataPacket[]>(
       `SELECT input.import_row_number rowNumber,transaction.production_job_id jobId,
-              transaction.quantity
+              transaction.quantity,transaction.payable_quantity payableQuantity,
+              transaction.quantity_deduction_percentage deductionPercentage,
+              transaction.quantity_deduction_policy_id deductionPolicyId,
+              transaction.production_section_id productionSectionId
          FROM tmp_production_import_rows input
          JOIN employees employee ON employee.employee_number=input.employee_number
          JOIN employee_employment_histories history
@@ -781,6 +778,30 @@ async function validateProductionImportRowsBatch(
           AND transaction.business_date=input.business_date
           AND transaction.status='POSTED'
          ORDER BY input.import_row_number,transaction.id ${lockClause}`
+    )
+
+    const [policyRows] = await conn.query<RowDataPacket[]>(
+      `SELECT input.import_row_number rowNumber,job.id jobId,
+              policy.id policyId,policy.percentage
+         FROM tmp_production_import_rows input
+         JOIN employees employee ON employee.employee_number=input.employee_number
+         JOIN employee_employment_histories history
+           ON history.employee_id=employee.id
+          AND history.effective_from<=input.business_date
+          AND (history.effective_to IS NULL OR history.effective_to>=input.business_date)
+         JOIN employee_job_assignments assignment
+           ON assignment.employee_id=employee.id AND assignment.site_id=history.site_id
+          AND assignment.status='ACTIVE' AND assignment.is_primary=1
+          AND assignment.effective_from<=input.business_date
+          AND (assignment.effective_to IS NULL OR assignment.effective_to>=input.business_date)
+         JOIN production_jobs job ON job.id=assignment.production_job_id
+          AND job.code='BORONGAN-LINTING'
+         JOIN production_quantity_deduction_policies policy
+           ON policy.site_id=history.site_id
+          AND policy.production_job_id=job.id AND policy.status='ACTIVE'
+          AND policy.effective_from<=input.business_date
+          AND (policy.effective_to IS NULL OR policy.effective_to>=input.business_date)
+        ORDER BY input.import_row_number,policy.id ${lockClause}`
     )
 
     const rateIds = [
@@ -827,7 +848,9 @@ async function validateProductionImportRowsBatch(
     const assignments = byRow(assignmentRows)
     const periods = byRow(periodRows)
     const productions = byRow(productionRows)
-    const batchQuantities = new Map<string, string>()
+    const policies = byRow(policyRows)
+    const batchRawQuantities = new Map<string, string>()
+    const batchPayableQuantities = new Map<string, string>()
 
     return rows.map((input): ProductionImportValidationRow => {
       try {
@@ -979,9 +1002,13 @@ async function validateProductionImportRowsBatch(
         const existing = (productions.get(input.rowNumber) ?? []).filter(
           (row) => Number(row.jobId) === jobId
         )
-        const preceding = existing.reduce(
+        const precedingRaw = existing.reduce(
           (sum, row) =>
             sum + BigInt(normalizeStoredDecimal(row.quantity).replace('.', '')),
+          0n
+        )
+        const precedingPayable = existing.reduce(
+          (sum,row)=>sum+BigInt(normalizeStoredDecimal(row.payableQuantity??row.quantity).replace('.','')),
           0n
         )
         const groupKey = [
@@ -990,21 +1017,35 @@ async function validateProductionImportRowsBatch(
           jobId,
           input.businessDate,
         ].join('|')
-        const additional = BigInt(
-          (batchQuantities.get(groupKey) ?? '0.0000').replace('.', '')
+        const additionalRaw = BigInt(
+          (batchRawQuantities.get(groupKey) ?? '0.0000').replace('.', '')
         )
-        const starting = preceding + additional
+        const additionalPayable = BigInt(
+          (batchPayableQuantities.get(groupKey) ?? '0.0000').replace('.','')
+        )
+        const rowPolicies=(policies.get(input.rowNumber)??[]).filter((row)=>Number(row.jobId)===jobId)
+        if(!existing.length && rowPolicies.length>1) throw new ApiError(422,'Kebijakan Potongan Hasil Linting aktif bertumpang-tindih.')
+        const deductionPercentage=normalizeStoredDecimal(existing.length ? existing[0].deductionPercentage??0 : rowPolicies[0]?.percentage??0)
+        const rawBefore=precedingRaw+additionalRaw
+        const rawAfter=rawBefore+BigInt(quantity.replace('.',''))
+        const rawText=(value:bigint)=>`${value/10000n}.${String(value%10000n).padStart(4,'0')}`
+        const deductionBefore=BigInt(normalizeStoredDecimal(cumulativeDeductionQuantity(rawText(rawBefore),deductionPercentage,unit.decimalPrecision)).replace('.',''))
+        const deductionAfter=BigInt(normalizeStoredDecimal(cumulativeDeductionQuantity(rawText(rawAfter),deductionPercentage,unit.decimalPrecision)).replace('.',''))
+        const deductionQuantity=deductionAfter-deductionBefore
+        const payableQuantityValue=BigInt(quantity.replace('.',''))-deductionQuantity
+        const payableQuantity=rawText(payableQuantityValue)
+        const starting = precedingPayable + additionalPayable
         const tiers = tiersByRate.get(rateId) ?? []
-        const priced = priceProductionTiers(
+        const priced = pricePayableQuantity(
           `${starting / 10000n}.${String(starting % 10000n).padStart(4, '0')}`,
-          quantity,
+          payableQuantity,
           tiers
         )
-        const next = additional + BigInt(quantity.replace('.', ''))
-        batchQuantities.set(
+        batchRawQuantities.set(
           groupKey,
-          `${next / 10000n}.${String(next % 10000n).padStart(4, '0')}`
+          rawText(additionalRaw+BigInt(quantity.replace('.','')))
         )
+        batchPayableQuantities.set(groupKey,rawText(additionalPayable+payableQuantityValue))
         const proposal = {
           employee: {
             id: context.employeeId,
@@ -1028,6 +1069,7 @@ async function validateProductionImportRowsBatch(
             workGroupCode: context.workGroupCode,
             workGroupName: context.workGroupName,
             productionSectionUid: context.productionSectionUid,
+            productionSectionId: context.productionSectionId,
             productionSectionCode: context.productionSectionCode,
             productionSectionName: context.productionSectionName,
           },
@@ -1046,6 +1088,9 @@ async function validateProductionImportRowsBatch(
             unit,
             rate,
             quantity,
+            deductionPercentage: normalizeStoredDecimal(deductionPercentage),
+            deductionQuantity: rawText(deductionQuantity),
+            payableQuantity,
             rateSnapshot: rate.amount,
             grossAmount: priced.grossAmount,
             rateDetails: priced.slices.map((slice) => ({
@@ -1061,7 +1106,7 @@ async function validateProductionImportRowsBatch(
           valid: true,
           message: 'Siap diimpor.',
           warning: existing.length
-            ? `Sudah ada ${existing.length} setoran tercatat (${normalizeStoredDecimal(`${preceding / 10000n}.${String(preceding % 10000n).padStart(4, '0')}`)} ${unit.code}); baris ini akan ditambahkan sebagai setoran baru.`
+            ? `Sudah ada ${existing.length} setoran tercatat (${normalizeStoredDecimal(`${precedingRaw / 10000n}.${String(precedingRaw % 10000n).padStart(4, '0')}`)} ${unit.code}); baris ini akan ditambahkan sebagai setoran baru.`
             : null,
           proposal,
         }
@@ -1106,6 +1151,9 @@ function productionImportRowDto(row: ProductionImportValidationRow) {
     job: row.proposal.proposed.job,
     unit: row.proposal.proposed.unit,
     quantity: row.proposal.proposed.quantity,
+    deductionPercentage: row.proposal.proposed.deductionPercentage ?? '0.0000',
+    deductionQuantity: row.proposal.proposed.deductionQuantity ?? '0.0000',
+    payableQuantity: row.proposal.proposed.payableQuantity ?? row.proposal.proposed.quantity,
     estimatedGrossAmount: row.proposal.proposed.grossAmount,
     valid: true,
     message: row.message,
@@ -1164,13 +1212,17 @@ async function transactionResponse(conn: PoolConnection | Pool, transactionId: n
     `SELECT pt.id,pt.uid,pt.transaction_number transactionNumber,
             DATE_FORMAT(pt.business_date,'%Y-%m-%d') businessDate,
             DATE_FORMAT(pt.transaction_at,'%Y-%m-%dT%H:%i:%s+07:00') transactionAt,
-            pt.quantity,pt.rate_snapshot rateSnapshot,pt.gross_amount grossAmount,
+            pt.quantity,pt.quantity_deduction_percentage quantityDeductionPercentage,
+            pt.deducted_quantity deductedQuantity,pt.payable_quantity payableQuantity,
+            pt.rate_snapshot rateSnapshot,pt.gross_amount grossAmount,
             pt.status,pt.entry_source entrySource,pt.notes,
             DATE_FORMAT(pt.payroll_locked_at,'%Y-%m-%dT%H:%i:%s+07:00') payrollLockedAt,
             DATE_FORMAT(pt.voided_at,'%Y-%m-%dT%H:%i:%s+07:00') voidedAt,
             pt.void_reason voidReason,vu.uid voidedByUid,vu.full_name voidedByName,
             e.uid employeeUid,e.employee_number employeeNumber,e.full_name fullName,
             s.code site,s.name siteName,
+            section.uid productionSectionUid,section.code productionSectionCode,
+            section.name productionSectionName,
             j.uid jobUid,j.code jobCode,j.name jobName,
             u.uid unitUid,u.code unitCode,u.name unitName,
             u.decimal_precision decimalPrecision,
@@ -1180,6 +1232,7 @@ async function transactionResponse(conn: PoolConnection | Pool, transactionId: n
        JOIN sites s ON s.id=pt.site_id
        JOIN production_jobs j ON j.id=pt.production_job_id
        JOIN work_units u ON u.id=pt.unit_id
+       LEFT JOIN production_sections section ON section.id=pt.production_section_id
        LEFT JOIN scan_devices d ON d.id=pt.scan_device_id
        LEFT JOIN users vu ON vu.id=pt.voided_by
       WHERE pt.id=?`,
@@ -1202,8 +1255,16 @@ async function transactionResponse(conn: PoolConnection | Pool, transactionId: n
     status: row.status,
     entrySource: row.entrySource,
     quantity: normalizeStoredDecimal(row.quantity),
+    deductionPercentage: normalizeStoredDecimal(row.quantityDeductionPercentage),
+    deductionQuantity: normalizeStoredDecimal(row.deductedQuantity),
+    payableQuantity: normalizeStoredDecimal(row.payableQuantity),
     rateSnapshot: normalizeStoredDecimal(row.rateSnapshot),
     grossAmount: normalizeStoredDecimal(row.grossAmount, 2),
+    productionSection: row.productionSectionUid ? {
+      uid: row.productionSectionUid,
+      code: row.productionSectionCode,
+      name: row.productionSectionName,
+    } : null,
     rateDetails: detailRows.map((detail) => ({
       minQuantity: normalizeStoredDecimal(detail.minQuantity),
       quantity: normalizeStoredDecimal(detail.quantity),
@@ -1291,6 +1352,59 @@ type DailyProductionKey = {
 type RepricingContext = {
   lockedEmployees: Set<number>
   tiersByRate: Map<number, ProductionRateTier[]>
+  newTransactionIds?: Set<number>
+  deductionSnapshot?: DeductionSnapshot
+}
+
+type DeductionSnapshot = { sectionId: number | null; policyId: number | null; percentage: string }
+
+function storedDeduction(row: RowDataPacket): DeductionSnapshot {
+  return {
+    sectionId: row.productionSectionId == null ? null : Number(row.productionSectionId),
+    policyId: row.deductionPolicyId == null ? null : Number(row.deductionPolicyId),
+    percentage: normalizeStoredDecimal(row.deductionPercentage ?? 0),
+  }
+}
+
+// A daily group retains its first recorded policy, including an explicit 0% snapshot.
+async function dailyDeductionSnapshot(conn: SqlExecutor, key: DailyProductionKey, jobCode: string, lock = false, excludedIds: number[] = []): Promise<DeductionSnapshot> {
+  const [existing] = await conn.query<RowDataPacket[]>(
+    `SELECT production_section_id productionSectionId,
+            quantity_deduction_policy_id deductionPolicyId,
+            quantity_deduction_percentage deductionPercentage
+       FROM production_transactions
+      WHERE employee_id=? AND site_id=? AND production_job_id=?
+        AND business_date=? AND status='POSTED'
+        ${excludedIds.length ? `AND id NOT IN (${excludedIds.map(()=>'?').join(',')})` : ''}
+      ORDER BY id LIMIT 1 ${lock ? 'FOR UPDATE' : ''}`,
+    [key.employeeId,key.siteId,key.jobId,key.businessDate,...excludedIds]
+  )
+  if (existing[0]) return storedDeduction(existing[0])
+  const [histories] = await conn.query<RowDataPacket[]>(
+    `SELECT mapping.production_section_id sectionId
+       FROM employee_employment_histories history
+       LEFT JOIN production_module_sections mapping ON mapping.id=history.production_module_section_id
+      WHERE history.employee_id=? AND history.site_id=? AND history.effective_from<=?
+        AND (history.effective_to IS NULL OR history.effective_to>=?) ${lock ? 'FOR UPDATE' : ''}`,
+    [key.employeeId,key.siteId,key.businessDate,key.businessDate]
+  )
+  if (histories.length !== 1) throw new ApiError(422,'Histori kerja pada tanggal setoran tidak tunggal.')
+  const sectionId=histories[0].sectionId == null ? null : Number(histories[0].sectionId)
+  if (jobCode !== LINTING_JOB_CODE) return {sectionId,policyId:null,percentage:'0.0000'}
+  const [policies]=await conn.query<RowDataPacket[]>(
+    `SELECT id,percentage FROM production_quantity_deduction_policies
+      WHERE site_id=? AND production_job_id=? AND status='ACTIVE'
+        AND effective_from<=? AND (effective_to IS NULL OR effective_to>=?) ${lock ? 'FOR UPDATE' : ''}`,
+    [key.siteId,key.jobId,key.businessDate,key.businessDate]
+  )
+  if(policies.length>1) throw new ApiError(422,'Kebijakan Potongan Hasil Linting aktif bertumpang-tindih.')
+  return {sectionId,policyId:policies[0] ? Number(policies[0].id) : null,percentage:normalizeStoredDecimal(policies[0]?.percentage??0)}
+}
+
+function pricePayableQuantity(start: string, quantity: string, tiers: ProductionRateTier[]) {
+  return BigInt(normalizeStoredDecimal(quantity).replace('.','')) === 0n
+    ? {grossAmount:'0.00',slices:[] as ReturnType<typeof priceProductionTiers>['slices']}
+    : priceProductionTiers(start,quantity,tiers)
 }
 
 async function rateTiers(conn: SqlExecutor, rateId: number): Promise<ProductionRateTier[]> {
@@ -1319,8 +1433,11 @@ async function proposedTierAmount(
   quantity: string,
   beforeOrAt?: string,
   excludedTransactionId?: number,
-  additionalStartingQuantity = '0.0000'
+  additionalStartingQuantity = '0.0000',
+  jobCode = '',
+  unitPrecision = 0
 ) {
+  const snapshot=await dailyDeductionSnapshot(conn,key,jobCode)
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT COALESCE(SUM(quantity),0) precedingQuantity
        FROM production_transactions
@@ -1339,11 +1456,14 @@ async function proposedTierAmount(
     normalizeStoredDecimal(additionalStartingQuantity).replace('.', '')
   )
   const starting = preceding + additional
-  return priceProductionTiers(
-    `${starting / 10000n}.${String(starting % 10000n).padStart(4, '0')}`,
-    quantity,
-    await rateTiers(conn, rateId)
-  )
+  const allocations=allocateDailyQuantityDeduction([
+    `${starting / 10000n}.${String(starting % 10000n).padStart(4,'0')}`,quantity,
+  ],snapshot.percentage,unitPrecision)
+  const allocation=allocations[1]
+  return {
+    ...pricePayableQuantity(allocations[0].payableQuantity,allocation.payableQuantity,await rateTiers(conn,rateId)),
+    deductionPercentage:snapshot.percentage,deductionQuantity:allocation.deductionQuantity,payableQuantity:allocation.payableQuantity,
+  }
 }
 
 type PreviewProductionEntry = {
@@ -1352,6 +1472,8 @@ type PreviewProductionEntry = {
   quantity: string
   transactionAt: string
   grossAmount: string
+  jobCode?: string
+  decimalPrecision?: number
 }
 
 function amountCents(value: unknown): bigint {
@@ -1372,6 +1494,11 @@ async function previewDailyRepricing(
 ) {
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT id,job_rate_id rateId,quantity,
+            quantity_deduction_percentage deductionPercentage,
+            quantity_deduction_policy_id deductionPolicyId,
+            production_section_id productionSectionId,
+            (SELECT decimal_precision FROM work_units WHERE id=production_transactions.unit_id) decimalPrecision,
+            (SELECT code FROM production_jobs WHERE id=production_transactions.production_job_id) jobCode,
             DATE_FORMAT(transaction_at,'%Y-%m-%d %H:%i:%s.%f') transactionAt,
             gross_amount grossAmount
        FROM production_transactions
@@ -1389,19 +1516,24 @@ async function previewDailyRepricing(
   const before = existing.reduce((sum,row)=>sum+amountCents(row.grossAmount),0n)
   const proposed = existing.filter((row)=>row.id!==excludedTransactionId)
   if (replacement) proposed.push({...replacement,grossAmount:'0.00'})
+  if (!proposed.length) return {before,after:0n}
   proposed.sort((a,b)=>a.transactionAt.localeCompare(b.transactionAt)||a.id-b.id)
   let cumulative=0n
   let after=0n
+  const first=rows.slice().sort((a,b)=>Number(a.id)-Number(b.id))[0]
+  const snapshot=first ? storedDeduction(first) : await dailyDeductionSnapshot(conn,key,replacement?.jobCode??'')
+  const allocations=allocateDailyQuantityDeduction(proposed.map(row=>row.quantity),snapshot.percentage,Number(first?.decimalPrecision??replacement?.decimalPrecision??0))
   const cache=new Map<number,ProductionRateTier[]>()
-  for (const row of proposed) {
+  for (const [index,row] of proposed.entries()) {
     let tiers=cache.get(row.rateId)
     if (!tiers) {
       tiers=await rateTiers(conn,row.rateId)
       cache.set(row.rateId,tiers)
     }
     const startingQuantity=`${cumulative/10000n}.${String(cumulative%10000n).padStart(4,'0')}`
-    const priced=priceProductionTiers(startingQuantity,row.quantity,tiers)
-    cumulative+=BigInt(row.quantity.replace('.',''))
+    const payableQuantity=allocations[index].payableQuantity
+    const priced=pricePayableQuantity(startingQuantity,payableQuantity,tiers)
+    cumulative+=BigInt(payableQuantity.replace('.',''))
     after+=amountCents(priced.grossAmount)
   }
   return {before,after}
@@ -1429,11 +1561,18 @@ async function repriceProductionDay(
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT pt.id,pt.uid,pt.job_rate_id rateId,pt.quantity,pt.rate_snapshot rateSnapshot,
             pt.gross_amount grossAmount,pt.payroll_locked_at payrollLockedAt,
+            pt.production_section_id productionSectionId,
+            pt.quantity_deduction_policy_id deductionPolicyId,
+            pt.quantity_deduction_percentage deductionPercentage,
+            pt.deducted_quantity deductedQuantity,pt.payable_quantity payableQuantity,
+            job.code jobCode,unit.decimal_precision decimalPrecision,
             EXISTS(SELECT 1 FROM payroll_production_details pd
                     WHERE pd.production_transaction_id=pt.id) payrollSnapshot,
             EXISTS(SELECT 1 FROM payroll_training_production_details td
                     WHERE td.production_transaction_id=pt.id) trainingSnapshot
        FROM production_transactions pt
+       JOIN production_jobs job ON job.id=pt.production_job_id
+       JOIN work_units unit ON unit.id=pt.unit_id
       WHERE pt.employee_id=? AND pt.site_id=? AND pt.production_job_id=?
         AND pt.business_date=? AND pt.status='POSTED'
       ORDER BY pt.transaction_at,pt.id FOR UPDATE`,
@@ -1442,6 +1581,18 @@ async function repriceProductionDay(
   if (rows.some((row) => row.payrollLockedAt || Number(row.payrollSnapshot) || Number(row.trainingSnapshot))) {
     throw new ApiError(409, 'Setoran harian sudah masuk atau dikunci Payroll; tarif tidak boleh dihitung ulang.')
   }
+  if (!rows.length) return
+  const existing=rows.filter(row=>!context?.newTransactionIds?.has(Number(row.id)))
+    .sort((a,b)=>Number(a.id)-Number(b.id))[0]
+  const snapshot=existing ? storedDeduction(existing) : context?.deductionSnapshot
+    ?? await dailyDeductionSnapshot(conn,key,String(rows[0].jobCode),true,rows.map(row=>Number(row.id)))
+  const {sectionId,policyId,percentage:deductionPercentage}=snapshot
+  const decimalPrecision=Number(rows[0]?.decimalPrecision??0)
+  const allocations=allocateDailyQuantityDeduction(
+    rows.map((row)=>normalizeStoredDecimal(row.quantity)),
+    deductionPercentage,
+    decimalPrecision
+  )
   let cumulative = 0n
   const tierCache = context?.tiersByRate ?? new Map<number, ProductionRateTier[]>()
   const detailsByTransaction = new Map<number, RowDataPacket[]>()
@@ -1470,7 +1621,7 @@ async function repriceProductionDay(
     transactionId: number
     slices: ReturnType<typeof priceProductionTiers>['slices']
   }> = []
-  for (const row of rows) {
+  for (const [rowIndex,row] of rows.entries()) {
     const rateId = Number(row.rateId)
     let tiers = tierCache.get(rateId)
     if (!tiers) {
@@ -1478,8 +1629,9 @@ async function repriceProductionDay(
       tierCache.set(rateId, tiers)
     }
     const startingQuantity = `${cumulative / 10000n}.${String(cumulative % 10000n).padStart(4, '0')}`
-    const priced = priceProductionTiers(startingQuantity, normalizeStoredDecimal(row.quantity), tiers)
-    cumulative += BigInt(normalizeStoredDecimal(row.quantity).replace('.', ''))
+    const allocation=allocations[rowIndex]
+    const priced = pricePayableQuantity(startingQuantity, allocation.payableQuantity, tiers)
+    cumulative += BigInt(allocation.payableQuantity.replace('.', ''))
     const oldDetails = detailsByTransaction.get(Number(row.id)) ?? []
     const desired = JSON.stringify(priced.slices.map((slice) => [slice.tierId,slice.minQuantitySnapshot,slice.quantity,slice.rateSnapshot,slice.amount]))
     const previous = JSON.stringify(oldDetails.map((detail) => [
@@ -1492,17 +1644,35 @@ async function repriceProductionDay(
     if (desired !== previous) {
       changedDetails.push({ transactionId: Number(row.id), slices: priced.slices })
     }
-    if (normalizeStoredDecimal(row.grossAmount,2) !== priced.grossAmount) {
+    const snapshotChanged=
+      normalizeStoredDecimal(row.grossAmount,2)!==priced.grossAmount ||
+      normalizeStoredDecimal(row.deductedQuantity??0)!==allocation.deductionQuantity ||
+      normalizeStoredDecimal(row.payableQuantity??row.quantity)!==allocation.payableQuantity ||
+      normalizeStoredDecimal(row.deductionPercentage??0)!==deductionPercentage ||
+      Number(row.productionSectionId??0)!==Number(sectionId??0) ||
+      Number(row.deductionPolicyId??0)!==Number(policyId??0)
+    if (snapshotChanged) {
       await conn.execute(
-        'UPDATE production_transactions SET gross_amount=?,updated_by=? WHERE id=?',
-        [priced.grossAmount,auth.id,row.id]
+        `UPDATE production_transactions
+            SET production_section_id=?,quantity_deduction_policy_id=?,
+                quantity_deduction_percentage=?,deducted_quantity=?,
+                payable_quantity=?,gross_amount=?,updated_by=? WHERE id=?`,
+        [sectionId,policyId,deductionPercentage,
+         allocation.deductionQuantity,allocation.payableQuantity,
+         priced.grossAmount,auth.id,row.id]
       )
       await writeAudit({
         auth, request, module: 'PRODUCTION', siteId: key.siteId, action: 'UPDATE',
         table: 'production_transactions', recordId: Number(row.id), recordUid: String(row.uid),
         description: 'Menghitung ulang tarif progresif setoran harian.',
-        beforeData: { grossAmount: normalizeStoredDecimal(row.grossAmount,2) },
-        afterData: { grossAmount: priced.grossAmount, rateDetails: priced.slices },
+        beforeData: { grossAmount: normalizeStoredDecimal(row.grossAmount,2),
+          deductionPercentage:normalizeStoredDecimal(row.deductionPercentage??0),
+          deductionQuantity:normalizeStoredDecimal(row.deductedQuantity??0),
+          payableQuantity:normalizeStoredDecimal(row.payableQuantity??row.quantity) },
+        afterData: { grossAmount: priced.grossAmount,quantity:allocation.rawQuantity,
+          quantityDeductionPercentage:deductionPercentage,
+          deductedQuantity:allocation.deductionQuantity,
+          payableQuantity:allocation.payableQuantity,rateDetails:priced.slices },
       }, conn)
     }
   }
@@ -1633,7 +1803,7 @@ async function correctionProposal(
     const priced = await proposedTierAmount(conn, {
       employeeId: Number(transaction.employee_id), siteId: Number(transaction.site_id),
       jobId: Number(transaction.production_job_id), businessDate: String(transaction.businessDateKey),
-    }, Number(transaction.job_rate_id), quantity, String(transaction.transactionTimestamp), Number(transaction.id))
+    }, Number(transaction.job_rate_id), quantity, String(transaction.transactionTimestamp), Number(transaction.id),'0.0000',String(transaction.jobCode),Number(transaction.decimalPrecision))
     return {
       jobs: [sourceJobOption(transaction)],
       targetIds: {
@@ -1659,6 +1829,9 @@ async function correctionProposal(
           currency: transaction.rateCurrency,
         },
         quantity,
+        deductionPercentage:priced.deductionPercentage,
+        deductionQuantity:priced.deductionQuantity,
+        payableQuantity:priced.payableQuantity,
         rateSnapshot,
         grossAmount: priced.grossAmount,
         rateDetails: priced.slices.map((slice) => ({
@@ -1720,7 +1893,7 @@ async function correctionProposal(
   const priced = await proposedTierAmount(conn, {
     employeeId: Number(transaction.employee_id), siteId: Number(transaction.site_id),
     jobId: Number(targets[0].jobId), businessDate: String(transaction.businessDateKey),
-  }, Number(targets[0].rateId), quantity, String(transaction.transactionTimestamp), Number(transaction.id))
+  }, Number(targets[0].rateId), quantity, String(transaction.transactionTimestamp), Number(transaction.id),'0.0000',String(job.code),unit.decimalPrecision)
   return {
     jobs,
     targetIds: {
@@ -1733,6 +1906,9 @@ async function correctionProposal(
       unit,
       rate,
       quantity,
+      deductionPercentage:priced.deductionPercentage,
+      deductionQuantity:priced.deductionQuantity,
+      payableQuantity:priced.payableQuantity,
       rateSnapshot: rate.amount,
       grossAmount: priced.grossAmount,
       rateDetails: priced.slices.map((slice) => ({
@@ -1767,6 +1943,7 @@ async function correctionTarget(
       employeeNumber: employee.employeeNumber,
       fullName: employee.fullName,
       work_group_id: history.workGroupId ?? null,
+      production_section_id: history.productionSectionId ?? null,
       attendance_record_id: attendance.id,
     } as RowDataPacket,
   }
@@ -1838,6 +2015,9 @@ function transactionSnapshot(row: RowDataPacket) {
       name: String(row.unitName),
     },
     quantity: normalizeStoredDecimal(row.quantity),
+    deductionPercentage:normalizeStoredDecimal(row.quantity_deduction_percentage??0),
+    deductionQuantity:normalizeStoredDecimal(row.deducted_quantity??0),
+    payableQuantity:normalizeStoredDecimal(row.payable_quantity??row.quantity),
     rateSnapshot: normalizeStoredDecimal(row.rate_snapshot),
     grossAmount: normalizeStoredDecimal(row.gross_amount, 2),
     status: String(row.status),
@@ -2355,17 +2535,18 @@ productionTransactionsRouter.post(
       const transactionNumber = `PRD-${String(time.businessDate).replaceAll('-', '')}-${device.site}-${randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`
       const [insertResult] = await conn.execute(
         `INSERT INTO production_transactions(
-           uid,transaction_number,employee_id,site_id,work_group_id,
+           uid,transaction_number,employee_id,site_id,work_group_id,production_section_id,
            production_job_id,unit_id,job_rate_id,attendance_record_id,
            scan_device_id,business_date,transaction_at,quantity,rate_snapshot,
-           gross_amount,status,idempotency_key,created_by,updated_by
-         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'POSTED',?,?,?)`,
+           payable_quantity,gross_amount,status,idempotency_key,created_by,updated_by
+         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'POSTED',?,?,?)`,
         [
           uid,
           transactionNumber,
           employee.id,
           device.siteId,
           history.workGroupId ?? null,
+          history.productionSectionId ?? null,
           assignment.jobId,
           rate.unitId,
           rate.rateId,
@@ -2375,6 +2556,7 @@ productionTransactionsRouter.post(
           time.transactionTimestamp,
           quantity,
           rateSnapshot,
+          quantity,
           grossAmount,
           input.idempotencyKey,
           auth.id,
@@ -2387,7 +2569,7 @@ productionTransactionsRouter.post(
       await repriceProductionDay(conn, {
         employeeId: Number(employee.id), siteId: Number(device.siteId),
         jobId: Number(assignment.jobId), businessDate: String(time.businessDate),
-      }, auth, req)
+      }, auth, req,{lockedEmployees:new Set(),tiersByRate:new Map(),newTransactionIds:new Set([transactionId])})
       const pricedTransaction = await transactionResponse(conn, transactionId)
       await writeAudit(
         {
@@ -2819,7 +3001,7 @@ productionTransactionsRouter.post(
       for (let offset = 0; offset < pendingRows.length; offset += 250) {
         const chunk = pendingRows.slice(offset, offset + 250)
         const placeholders = chunk.map(() =>
-          `(?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,'POSTED','HISTORICAL',?,?,?,?)`
+          `(?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,'POSTED','HISTORICAL',?,?,?,?)`
         ).join(',')
         const params = chunk.flatMap(({ row, rowKey, uid, transactionNumber }) => {
           const proposal = row.proposal
@@ -2829,6 +3011,7 @@ productionTransactionsRouter.post(
             proposal.employee.id,
             proposal.site.id,
             proposal.history.workGroupId ?? null,
+            proposal.history.productionSectionId ?? null,
             proposal.targetIds.jobId,
             proposal.targetIds.unitId,
             proposal.targetIds.rateId,
@@ -2837,6 +3020,7 @@ productionTransactionsRouter.post(
             time.transactionTimestamp,
             proposal.proposed.quantity,
             proposal.proposed.rateSnapshot,
+            proposal.proposed.quantity,
             proposal.proposed.grossAmount,
             rowKey,
             `Import Excel: ${input.reason}`,
@@ -2846,10 +3030,10 @@ productionTransactionsRouter.post(
         })
         await conn.execute(
           `INSERT INTO production_transactions(
-             uid,transaction_number,employee_id,site_id,work_group_id,
+             uid,transaction_number,employee_id,site_id,work_group_id,production_section_id,
              production_job_id,unit_id,job_rate_id,attendance_record_id,
              scan_device_id,business_date,transaction_at,quantity,rate_snapshot,
-             gross_amount,status,entry_source,idempotency_key,notes,created_by,updated_by
+             payable_quantity,gross_amount,status,entry_source,idempotency_key,notes,created_by,updated_by
            ) VALUES ${placeholders}`,
           params
         )
@@ -2899,6 +3083,7 @@ productionTransactionsRouter.post(
       const repricingContext: RepricingContext = {
         lockedEmployees: new Set(),
         tiersByRate: new Map(),
+        newTransactionIds:new Set(inserted.map(row=>row.id)),
       }
       for (const dailyKey of dailyGroups.values()) {
         await repriceProductionDay(conn, dailyKey, auth, req, repricingContext)
@@ -3030,21 +3215,21 @@ productionTransactionsRouter.post(
       const transactionNumber = `PRD-MAN-${input.businessDate.replaceAll('-','')}-${input.site}-${randomUUID().replaceAll('-','').slice(0,8).toUpperCase()}`
       const [insertResult] = await conn.execute(
         `INSERT INTO production_transactions(
-           uid,transaction_number,employee_id,site_id,work_group_id,production_job_id,
+           uid,transaction_number,employee_id,site_id,work_group_id,production_section_id,production_job_id,
            unit_id,job_rate_id,attendance_record_id,scan_device_id,business_date,
-           transaction_at,quantity,rate_snapshot,gross_amount,status,entry_source,
+           transaction_at,quantity,rate_snapshot,payable_quantity,gross_amount,status,entry_source,
            idempotency_key,notes,created_by,updated_by
-         ) VALUES(?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,'POSTED','HISTORICAL',?,?,?,?)`,
+         ) VALUES(?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,'POSTED','HISTORICAL',?,?,?,?)`,
         [uid,transactionNumber,proposal.employee.id,proposal.site.id,proposal.history.workGroupId ?? null,
-         proposal.targetIds.jobId,proposal.targetIds.unitId,proposal.targetIds.rateId,proposal.attendance.id,
+         proposal.history.productionSectionId??null,proposal.targetIds.jobId,proposal.targetIds.unitId,proposal.targetIds.rateId,proposal.attendance.id,
          input.businessDate,time.transactionTimestamp,proposal.proposed.quantity,proposal.proposed.rateSnapshot,
-         proposal.proposed.grossAmount,input.idempotencyKey,`Setoran susulan: ${input.reason}`,auth.id,auth.id]
+         proposal.proposed.quantity,proposal.proposed.grossAmount,input.idempotencyKey,`Setoran susulan: ${input.reason}`,auth.id,auth.id]
       )
       const transactionId = Number((insertResult as { insertId?: number }).insertId ?? 0)
       await repriceProductionDay(conn, {
         employeeId: Number(proposal.employee.id), siteId: Number(proposal.site.id),
         jobId: proposal.targetIds.jobId, businessDate: input.businessDate,
-      }, auth, req)
+      }, auth, req,{lockedEmployees:new Set(),tiersByRate:new Map(),newTransactionIds:new Set([transactionId])})
       const pricedTransaction = await transactionResponse(conn, transactionId)
       await writeAudit({ auth,request:req,module:'PRODUCTION',siteId:Number(proposal.site.id),action:'CREATE',table:'production_transactions',recordId:transactionId,recordUid:uid,description:`Mencatat setoran susulan ${transactionNumber}.`,reason:input.reason,afterData:{...input,quantity:proposal.proposed.quantity,rateSnapshot:proposal.proposed.rateSnapshot,grossAmount:pricedTransaction.grossAmount} },conn)
       await conn.commit()
@@ -3117,6 +3302,7 @@ productionTransactionsRouter.post(
       const replacement = {
         id:Number.MAX_SAFE_INTEGER,rateId:targetIds.rateId,
         quantity:proposed.quantity,transactionAt:String(source.transactionTimestamp),
+        jobCode:String(proposed.job.code),decimalPrecision:proposed.unit.decimalPrecision,
       }
       const sameGroup = sourceKey.employeeId===targetKey.employeeId
         && sourceKey.jobId===targetKey.jobId
@@ -3248,17 +3434,18 @@ productionTransactionsRouter.post(
       const replacementNumber = `PRD-COR-${String(source.businessDateKey).replaceAll('-', '')}-${String(source.site)}-${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`
       const [insertResult] = await conn.execute(
         `INSERT INTO production_transactions(
-           uid,transaction_number,employee_id,site_id,work_group_id,
+           uid,transaction_number,employee_id,site_id,work_group_id,production_section_id,
            production_job_id,unit_id,job_rate_id,attendance_record_id,
            scan_device_id,business_date,transaction_at,quantity,rate_snapshot,
-           gross_amount,status,entry_source,notes,created_by,updated_by
-         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'POSTED','CORRECTION',?,?,?)`,
+           payable_quantity,gross_amount,status,entry_source,notes,created_by,updated_by
+         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'POSTED','CORRECTION',?,?,?)`,
         [
           replacementUid,
           replacementNumber,
           target.transaction.employee_id,
           source.site_id,
           target.transaction.work_group_id ?? null,
+          target.transaction.production_section_id ?? null,
           targetIds.jobId,
           targetIds.unitId,
           targetIds.rateId,
@@ -3268,6 +3455,7 @@ productionTransactionsRouter.post(
           source.transactionTimestamp,
           proposed.quantity,
           proposed.rateSnapshot,
+          proposed.quantity,
           proposed.grossAmount,
           `Koreksi dari ${source.transaction_number}: ${input.reason}`,
           auth.id,
@@ -3347,12 +3535,18 @@ productionTransactionsRouter.post(
         employeeId: Number(target.transaction.employee_id), siteId: Number(source.site_id),
         jobId: targetIds.jobId, businessDate: String(source.businessDateKey),
       }
-      await repriceProductionDay(conn, sourceKey, auth, req)
+      const sameGroup=sourceKey.employeeId===targetKey.employeeId && sourceKey.jobId===targetKey.jobId
+      const repricingContext:RepricingContext={lockedEmployees:new Set(),tiersByRate:new Map(),newTransactionIds:new Set([replacementId]),
+        deductionSnapshot:sameGroup ? storedDeduction({productionSectionId:source.production_section_id,deductionPolicyId:source.quantity_deduction_policy_id,deductionPercentage:source.quantity_deduction_percentage} as RowDataPacket) : undefined}
+      await repriceProductionDay(conn, sourceKey, auth, req,repricingContext)
       if (sourceKey.employeeId !== targetKey.employeeId || sourceKey.jobId !== targetKey.jobId) {
-        await repriceProductionDay(conn, targetKey, auth, req)
+        await repriceProductionDay(conn, targetKey, auth, req,repricingContext)
       }
       const pricedReplacement = await transactionResponse(conn, replacementId)
       after.grossAmount = pricedReplacement.grossAmount
+      after.deductionPercentage=pricedReplacement.deductionPercentage
+      after.deductionQuantity=pricedReplacement.deductionQuantity
+      after.payableQuantity=pricedReplacement.payableQuantity
       await conn.execute(
         'UPDATE production_transaction_revisions SET after_data=? WHERE uid=?',
         [JSON.stringify(after),revisionUid]
@@ -3585,7 +3779,9 @@ productionTransactionsRouter.get(
       const summary = summaryRows[0] ?? {}
       const [quantityRows] = await pool.query<RowDataPacket[]>(
         `SELECT u.uid,u.code,u.name,u.decimal_precision decimalPrecision,
-                COALESCE(SUM(pt.quantity),0) quantity
+                COALESCE(SUM(pt.quantity),0) quantity,
+                COALESCE(SUM(pt.deducted_quantity),0) deductionQuantity,
+                COALESCE(SUM(pt.payable_quantity),0) payableQuantity
            ${from} WHERE ${clause} AND pt.status='POSTED'
           GROUP BY u.id,u.uid,u.code,u.name,u.decimal_precision
           ORDER BY u.code`,
@@ -3599,12 +3795,17 @@ productionTransactionsRouter.get(
           decimalPrecision: Number(row.decimalPrecision),
         },
         quantity: normalizeStoredDecimal(row.quantity),
+        deductionQuantity: normalizeStoredDecimal(row.deductionQuantity),
+        payableQuantity: normalizeStoredDecimal(row.payableQuantity),
       }))
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT pt.uid,pt.transaction_number transactionNumber,
                 DATE_FORMAT(pt.business_date,'%Y-%m-%d') businessDate,
                 DATE_FORMAT(pt.transaction_at,'%Y-%m-%dT%H:%i:%s+07:00') transactionAt,
-                pt.quantity,pt.rate_snapshot rateSnapshot,pt.gross_amount grossAmount,
+                pt.quantity,pt.quantity_deduction_percentage deductionPercentage,
+                pt.deducted_quantity deductionQuantity,
+                pt.payable_quantity payableQuantity,
+                pt.rate_snapshot rateSnapshot,pt.gross_amount grossAmount,
                 pt.status,e.uid employeeUid,e.employee_number employeeNumber,
                 e.full_name fullName,s.code site,s.name siteName,
                 j.uid jobUid,j.code jobCode,j.name jobName,
@@ -3623,6 +3824,9 @@ productionTransactionsRouter.get(
           transactionAt: row.transactionAt,
           status: row.status,
           quantity: normalizeStoredDecimal(row.quantity),
+          deductionPercentage: normalizeStoredDecimal(row.deductionPercentage),
+          deductionQuantity: normalizeStoredDecimal(row.deductionQuantity),
+          payableQuantity: normalizeStoredDecimal(row.payableQuantity),
           rateSnapshot: normalizeStoredDecimal(row.rateSnapshot),
           grossAmount: normalizeStoredDecimal(row.grossAmount, 2),
           employee: {

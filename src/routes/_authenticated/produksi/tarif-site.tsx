@@ -1,11 +1,12 @@
 import { z } from 'zod'
 import { createFileRoute } from '@tanstack/react-router'
-import { ProductionRatePage } from '@/features/production/production-rate-pages'
 import { requirePermission } from '@/features/auth/permissions'
+import { ProductionRatePage } from '@/features/production/production-rate-pages'
 
 export const Route = createFileRoute('/_authenticated/produksi/tarif-site')({
   beforeLoad: () => requirePermission('production.view'),
   validateSearch: z.object({
+    tab: z.enum(['rates', 'deductions']).optional(),
     filter: z.string().optional(),
     site: z.array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])).optional(),
     status: z.array(z.enum(['DRAFT', 'ACTIVE', 'INACTIVE'])).optional(),
@@ -17,5 +18,10 @@ export const Route = createFileRoute('/_authenticated/produksi/tarif-site')({
 
 // eslint-disable-next-line react-refresh/only-export-components
 function RouteComponent() {
-  return <ProductionRatePage search={Route.useSearch()} navigate={Route.useNavigate()} />
+  return (
+    <ProductionRatePage
+      search={Route.useSearch()}
+      navigate={Route.useNavigate()}
+    />
+  )
 }

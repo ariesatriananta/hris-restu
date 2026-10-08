@@ -64,6 +64,27 @@ export type ProductionRate = {
   notes?: string | null
 }
 
+export type ProductionQuantityDeductionPolicy = {
+  uid: string
+  site: ProductionSite
+  siteName: string
+  job: {
+    uid: string
+    code: string
+    name: string
+  }
+  percentage: string
+  effectiveFrom: string
+  effectiveTo?: string | null
+  status: 'ACTIVE' | 'INACTIVE'
+  notes?: string | null
+}
+
+export type ProductionQuantityDeductionOption = {
+  site: ProductionSite
+  siteName: string
+}
+
 export type ProductionAssignment = {
   uid: string
   employee: { uid: string; employeeNumber: string; fullName: string }
@@ -242,6 +263,10 @@ export type ProductionTransaction = {
   status: ProductionTransactionStatus
   entrySource?: 'TERMINAL' | 'HISTORICAL' | 'CORRECTION'
   quantity: string
+  deductionPercentage?: string
+  deductionQuantity?: string
+  payableQuantity?: string
+  productionSection?: { uid: string; code: string; name: string } | null
   rateSnapshot: string
   grossAmount: string
   rateDetails?: Array<{
@@ -364,6 +389,9 @@ export type ProductionCorrectionPreview = {
     unit: ProductionCorrectionJob['unit']
     rate: ProductionCorrectionJob['rate']
     quantity: string
+    deductionPercentage?: string
+    deductionQuantity?: string
+    payableQuantity?: string
     rateSnapshot: string
     grossAmount: string
   }
@@ -400,6 +428,9 @@ export type ProductionImportPreviewRow = ProductionImportRow & {
   job?: { uid: string; code: string; name: string }
   unit?: ProductionCorrectionJob['unit']
   estimatedGrossAmount?: string
+  deductionPercentage?: string
+  deductionQuantity?: string
+  payableQuantity?: string
   valid: boolean
   message: string
   warning: string | null

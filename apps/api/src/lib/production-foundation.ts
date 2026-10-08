@@ -76,6 +76,29 @@ export const productionRateInput = z
     validateRateTiers(value.tiers, value.rateAmount, context)
   })
 
+export const productionQuantityDeductionPolicyInput = z
+  .object({
+    site: productionSiteCode,
+    percentage: z.union([z.string(), z.number()]).transform(String),
+    effectiveFrom: z.string().date(),
+    effectiveTo: z.string().date().optional().nullable(),
+    notes: nullableText(500),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (!/^\d+(\.\d{1,4})?$/.test(value.percentage) || Number(value.percentage) >= 100) {
+      context.addIssue({ code: 'custom', path: ['percentage'], message: 'Persentase harus 0 sampai kurang dari 100 dengan maksimal empat desimal.' })
+    }
+    if (value.effectiveTo && value.effectiveTo < value.effectiveFrom) {
+      context.addIssue({ code: 'custom', path: ['effectiveTo'], message: 'Tanggal selesai tidak boleh mendahului tanggal mulai.' })
+    }
+  })
+
+export const deactivateProductionQuantityDeductionPolicyInput = z.object({
+  effectiveTo: z.string().date(),
+  reason: z.string().trim().min(10).max(500),
+}).strict()
+
 function validateRateTiers(
   tiers: { minQuantity: string; rateAmount: string }[] | undefined,
   baseRate: string,

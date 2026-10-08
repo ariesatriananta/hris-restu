@@ -361,11 +361,15 @@ export interface PayrollProductionDailySummary {
   rows: Array<{
     businessDate: string
     totalQuantity: string
+    deductionQuantity: string
+    payableQuantity: string
     totalAmount: string
     employeeCount: number
   }>
   total: {
     totalQuantity: string
+    deductionQuantity: string
+    payableQuantity: string
     totalAmount: string
     employeeCount: number
   }
@@ -477,6 +481,8 @@ export interface PayrollPayslipBundle {
       jobName: string
       unitName: string
       quantity: string
+      deductionQuantity?: string
+      payableQuantity?: string
       amount: string
     }>
     weeklyTime?: {
@@ -529,6 +535,9 @@ export interface PayrollProductionSnapshot {
   jobName: string
   unitName: string
   quantity: string
+  deductionPercentage: string
+  deductionQuantity: string
+  payableQuantity: string
   rate: string
   amount: string
   rateDetails?: Array<{

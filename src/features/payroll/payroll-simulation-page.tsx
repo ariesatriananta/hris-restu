@@ -1347,6 +1347,19 @@ function EmployeeResultSheet({
                         {item.quantity} {item.unitName} · tarif dasar{' '}
                         {amount(item.rate)}
                       </p>
+                      {Number(item.deductionQuantity) > 0 && (
+                        <p className='mt-1 text-xs text-emerald-700 dark:text-emerald-300'>
+                          Potongan hasil{' '}
+                          {Number(item.deductionPercentage).toLocaleString(
+                            'id-ID'
+                          )}
+                          %: {item.deductionQuantity} {item.unitName} · dihitung
+                          upah{' '}
+                          <b>
+                            {item.payableQuantity} {item.unitName}
+                          </b>
+                        </p>
+                      )}
                       {!!item.rateDetails?.length && (
                         <div className='mt-2 space-y-1 border-t pt-2 text-xs text-muted-foreground'>
                           {item.rateDetails.map((tier) => (

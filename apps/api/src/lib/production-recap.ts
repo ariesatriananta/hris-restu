@@ -10,6 +10,9 @@ export type ProductionRecapTransaction = {
   businessDate: string
   transactionAt: string
   quantity: string
+  deductionPercentage?: string
+  deductionQuantity?: string
+  payableQuantity?: string
   rateSnapshot: string
   grossAmount: string
   payrollSnapshotted: boolean
@@ -44,6 +47,8 @@ export type ProductionRecapTransaction = {
 export type ProductionQuantityTotal = {
   unit: ProductionRecapTransaction['unit']
   quantity: string
+  deductionQuantity: string
+  payableQuantity: string
 }
 
 export type ProductionJobBreakdown = {
@@ -162,13 +167,15 @@ function payrollStatus(total: number, snapshotted: number): ProductionPayrollSta
 function quantityTotals(rows: ProductionRecapTransaction[]) {
   const totals = new Map<
     string,
-    { unit: ProductionRecapTransaction['unit']; quantity: string }
+    { unit: ProductionRecapTransaction['unit']; quantity: string; deductionQuantity: string; payableQuantity: string }
   >()
   for (const row of rows) {
     const current = totals.get(row.unit.uid)
     totals.set(row.unit.uid, {
       unit: row.unit,
       quantity: addDecimal(current?.quantity ?? '0', row.quantity, 4, true),
+      deductionQuantity: addDecimal(current?.deductionQuantity ?? '0', row.deductionQuantity ?? '0', 4, true),
+      payableQuantity: addDecimal(current?.payableQuantity ?? '0', row.payableQuantity ?? row.quantity, 4, true),
     })
   }
   return [...totals.values()].sort((left, right) =>

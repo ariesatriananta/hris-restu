@@ -119,7 +119,9 @@ export function PayrollProductionDailySummaryDialog({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Tanggal</TableHead>
-                    <TableHead className='text-right'>Total PCS</TableHead>
+                    <TableHead className='text-right'>Hasil</TableHead>
+                    <TableHead className='text-right'>Potongan</TableHead>
+                    <TableHead className='text-right'>Dibayar</TableHead>
                     <TableHead className='text-right'>Total Upah</TableHead>
                     <TableHead className='text-right'>Total Karyawan</TableHead>
                   </TableRow>
@@ -136,6 +138,12 @@ export function PayrollProductionDailySummaryDialog({
                         {quantity(row.totalQuantity)}
                       </TableCell>
                       <TableCell className='py-2 text-right tabular-nums'>
+                        {quantity(row.deductionQuantity)}
+                      </TableCell>
+                      <TableCell className='py-2 text-right font-medium tabular-nums'>
+                        {quantity(row.payableQuantity)}
+                      </TableCell>
+                      <TableCell className='py-2 text-right tabular-nums'>
                         {money(row.totalAmount)}
                       </TableCell>
                       <TableCell className='py-2 text-right tabular-nums'>
@@ -149,6 +157,12 @@ export function PayrollProductionDailySummaryDialog({
                     <TableCell className='font-semibold'>Grand Total</TableCell>
                     <TableCell className='text-right font-semibold tabular-nums'>
                       {quantity(summary.data.total.totalQuantity)}
+                    </TableCell>
+                    <TableCell className='text-right font-semibold tabular-nums'>
+                      {quantity(summary.data.total.deductionQuantity)}
+                    </TableCell>
+                    <TableCell className='text-right font-semibold tabular-nums'>
+                      {quantity(summary.data.total.payableQuantity)}
                     </TableCell>
                     <TableCell className='text-right font-semibold tabular-nums'>
                       {money(summary.data.total.totalAmount)}

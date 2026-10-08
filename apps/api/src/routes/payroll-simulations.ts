@@ -990,7 +990,15 @@ payrollSimulationsRouter.get(
       if (!result)
         throw new ApiError(404, 'Hasil Payroll karyawan tidak ditemukan.')
       const [production] = await pool.query<RowDataPacket[]>(
-        `SELECT id,transaction_number_snapshot transactionNumber,DATE_FORMAT(business_date,'%Y-%m-%d') businessDate,job_name_snapshot jobName,unit_name_snapshot unitName,quantity_snapshot quantity,rate_snapshot rate,amount_snapshot amount FROM payroll_production_details WHERE payroll_employee_result_id=? ORDER BY business_date,transaction_number_snapshot`,
+        `SELECT id,transaction_number_snapshot transactionNumber,DATE_FORMAT(business_date,'%Y-%m-%d') businessDate,
+                job_name_snapshot jobName,unit_name_snapshot unitName,
+                quantity_snapshot quantity,
+                quantity_deduction_percentage_snapshot quantityDeductionPercentage,
+                deducted_quantity_snapshot deductedQuantity,
+                payable_quantity_snapshot payableQuantity,
+                rate_snapshot rate,amount_snapshot amount
+           FROM payroll_production_details WHERE payroll_employee_result_id=?
+          ORDER BY business_date,transaction_number_snapshot`,
         [result.id]
       )
       const productionIds = production.map((row) => Number(row.id))
@@ -1132,6 +1140,9 @@ payrollSimulationsRouter.get(
             jobName: row.jobName,
             unitName: row.unitName,
             quantity: String(row.quantity),
+            deductionPercentage: String(row.quantityDeductionPercentage),
+            deductionQuantity: String(row.deductedQuantity),
+            payableQuantity: String(row.payableQuantity),
             rate: String(row.rate),
             amount: amount(row.amount),
             rateDetails: productionRates

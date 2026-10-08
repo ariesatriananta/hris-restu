@@ -557,6 +557,17 @@ function ProductionImportPreviewTable({
                       <p>
                         {formatQuantity(row.quantity)} {row.unit.code}
                       </p>
+                      {Number(row.deductionQuantity ?? 0) > 0 && (
+                        <p className='text-muted-foreground'>
+                          Dibayar{' '}
+                          {formatQuantity(row.payableQuantity ?? row.quantity)}{' '}
+                          {row.unit.code} · potongan{' '}
+                          {Number(row.deductionPercentage ?? 0).toLocaleString(
+                            'id-ID'
+                          )}
+                          %
+                        </p>
+                      )}
                       <p className='font-medium'>
                         {formatCurrency(row.estimatedGrossAmount ?? '0')}
                       </p>

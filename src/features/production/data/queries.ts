@@ -25,6 +25,8 @@ import type {
   ProductionJob,
   ProductionListParams,
   ProductionRate,
+  ProductionQuantityDeductionOption,
+  ProductionQuantityDeductionPolicy,
   ProductionRateCancellationPreview,
   ProductionRateCorrectionPreview,
   ProductionRecapParams,
@@ -51,6 +53,10 @@ const keys = {
     [...keys.all, 'jobs', params] as const,
   rates: (params?: ProductionListParams) =>
     [...keys.all, 'rates', params] as const,
+  quantityDeductionPolicies: (params?: ProductionListParams) =>
+    [...keys.all, 'quantity-deduction-policies', params] as const,
+  quantityDeductionOptions: () =>
+    [...keys.all, 'quantity-deduction-policy-options'] as const,
   assignments: (params?: ProductionListParams) =>
     [...keys.all, 'assignments', params] as const,
   assignmentReadiness: (params?: ProductionAssignmentReadinessParams) =>
@@ -143,6 +149,33 @@ export function useProductionRates(input: ProductionListParams) {
         )
       ).data,
     placeholderData: keepPreviousData,
+  })
+}
+
+export function useProductionQuantityDeductionPolicies(
+  input: ProductionListParams = { page: 1, pageSize: 500 }
+) {
+  return useQuery({
+    queryKey: keys.quantityDeductionPolicies(input),
+    queryFn: async () =>
+      (
+        await apiClient.get<
+          PaginatedProductionResult<ProductionQuantityDeductionPolicy>
+        >(`/production-structure/quantity-deduction-policies?${params(input)}`)
+      ).data,
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useProductionQuantityDeductionOptions() {
+  return useQuery({
+    queryKey: keys.quantityDeductionOptions(),
+    queryFn: async () =>
+      (
+        await apiClient.get<{ items: ProductionQuantityDeductionOption[] }>(
+          '/production-structure/quantity-deduction-policies/options'
+        )
+      ).data.items,
   })
 }
 

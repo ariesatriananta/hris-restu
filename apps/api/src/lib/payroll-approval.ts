@@ -409,6 +409,11 @@ export async function inspectPayrollRunIntegrity(
           source.business_date NOT BETWEEN ? AND ? OR
           NOT (source.gross_amount<=>detail.amount_snapshot) OR
           NOT (source.quantity<=>detail.quantity_snapshot) OR
+          NOT (source.production_section_id<=>detail.production_section_id_snapshot) OR
+          NOT (source.quantity_deduction_policy_id<=>detail.quantity_deduction_policy_id_snapshot) OR
+          NOT (source.quantity_deduction_percentage<=>detail.quantity_deduction_percentage_snapshot) OR
+          NOT (source.deducted_quantity<=>detail.deducted_quantity_snapshot) OR
+          NOT (source.payable_quantity<=>detail.payable_quantity_snapshot) OR
           NOT (source.rate_snapshot<=>detail.rate_snapshot)
         )) productionValueDrift,
        (SELECT COUNT(*) FROM payroll_employee_component_details detail

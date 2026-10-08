@@ -1300,11 +1300,15 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
     await conn.execute(
       `INSERT INTO payroll_production_details(
          uid,payroll_employee_result_id,production_transaction_id,production_job_id,
+         production_section_id_snapshot,
          business_date,transaction_number_snapshot,job_name_snapshot,unit_name_snapshot,
-         quantity_snapshot,rate_snapshot,amount_snapshot,created_by,updated_by
+         quantity_snapshot,quantity_deduction_policy_id_snapshot,
+         quantity_deduction_percentage_snapshot,deducted_quantity_snapshot,
+         payable_quantity_snapshot,rate_snapshot,amount_snapshot,created_by,updated_by
        )
-       SELECT UUID(),result.id,pt.id,pt.production_job_id,pt.business_date,
-              pt.transaction_number,j.name,u.name,pt.quantity,pt.rate_snapshot,
+       SELECT UUID(),result.id,pt.id,pt.production_job_id,pt.production_section_id,pt.business_date,
+              pt.transaction_number,j.name,u.name,pt.quantity,pt.quantity_deduction_policy_id,
+              pt.quantity_deduction_percentage,pt.deducted_quantity,pt.payable_quantity,pt.rate_snapshot,
               pt.gross_amount,?,?
          FROM production_transactions pt
          JOIN payroll_employee_results result ON result.payroll_run_id=? AND result.employee_id=pt.employee_id
@@ -1348,12 +1352,13 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
          uid,payroll_production_detail_id,min_quantity_snapshot,
          quantity_snapshot,rate_snapshot,amount_snapshot,created_by,updated_by
        )
-       SELECT UUID(),payroll_detail.id,1,payroll_detail.quantity_snapshot,
+       SELECT UUID(),payroll_detail.id,1,payroll_detail.payable_quantity_snapshot,
               payroll_detail.rate_snapshot,payroll_detail.amount_snapshot,?,?
          FROM payroll_production_details payroll_detail
          JOIN payroll_employee_results result
            ON result.id=payroll_detail.payroll_employee_result_id
         WHERE result.payroll_run_id=?
+          AND payroll_detail.payable_quantity_snapshot>0
           AND NOT EXISTS (
             SELECT 1 FROM payroll_production_rate_details source
             WHERE source.payroll_production_detail_id=payroll_detail.id
@@ -1374,9 +1379,8 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
             GROUP BY payroll_production_detail_id
          ) tiers ON tiers.payroll_production_detail_id=production.id
         WHERE result.payroll_run_id=?
-          AND (tiers.totalQuantity IS NULL
-            OR tiers.totalQuantity<>production.quantity_snapshot
-            OR tiers.totalAmount<>production.amount_snapshot)`,
+          AND (COALESCE(tiers.totalQuantity,0)<>production.payable_quantity_snapshot
+            OR COALESCE(tiers.totalAmount,0)<>production.amount_snapshot)`,
       [run.id]
     )
     if (Number(tierIntegrity[0]?.invalidCount ?? 0)>0) {

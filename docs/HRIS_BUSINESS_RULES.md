@@ -243,6 +243,27 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
 - Nilai produksi Payroll merupakan penjumlahan snapshot
   `production_transactions.gross_amount` berstatus `POSTED`; Payroll tidak
   menghitung ulang kuantitas menggunakan tarif master terbaru.
+- Potongan Kuantitas Standar hanya berlaku untuk pekerjaan dengan kode stabil
+  `BORONGAN-LINTING`. Kebijakan bersifat opsional dan dicari berdasarkan site,
+  pekerjaan, serta tanggal setoran, tanpa mensyaratkan Bagian Produksi karyawan.
+  Karyawan bagian SLOP atau bagian lain yang menyetor Linting tetap dikenai
+  kebijakan Linting site tersebut. Jika tidak
+  ada kebijakan, transaksi tetap berjalan dengan snapshot 0%, kuantitas
+  dipotong 0, dan kuantitas dibayar sama dengan hasil setor.
+- Potongan Linting dihitung `HALF_UP` satu kali atas kuantitas kumulatif harian
+  sesuai presisi satuan, lalu dialokasikan deterministik mengikuti urutan
+  transaksi. Tarif progresif dan `gross_amount` menggunakan kuantitas dibayar;
+  `quantity` tetap menyimpan hasil setor asli. Policy aktif yang overlap adalah
+  kesalahan konfigurasi dan wajib ditolak.
+- Produksi dan Payroll menyimpan snapshot Bagian Produksi, policy, persentase,
+  kuantitas dipotong, dan kuantitas dibayar. Perubahan policy tidak menghitung
+  ulang transaksi lama atau Payroll yang sudah disnapshot/dikunci.
+  Dalam grup harian karyawan, site, dan pekerjaan yang sama, setoran berikutnya
+  serta koreksi memakai kebijakan yang tersimpan pada setoran pertama, termasuk
+  snapshot 0%. Koreksi dan void tetap menyusun ulang alokasi pembulatan dan tarif
+  berdasarkan kuantitas yang tersisa, tanpa mengganti kebijakan harian tersebut.
+  Baris yang kuantitas dibayarnya menjadi 0 karena pembulatan tetap dicatat
+  dengan upah 0; jumlah hasil setor dan total harian tetap direkonsiliasi.
 - Populasi Payroll mengikuti fakta historis dalam periode. Karyawan yang sudah
   resign tetap dibayar bila memiliki transaksi Produksi eligible, sedangkan
   karyawan tanpa transaksi hanya disertakan bila mempunyai bonus atau
