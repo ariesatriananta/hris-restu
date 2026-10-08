@@ -17,13 +17,14 @@ let refreshPromise: Promise<void> | undefined
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: {
-    response?: { status?: number }
+    response?: { status?: number; data?: { code?: string } }
     config?: InternalAxiosRequestConfig
   }) => {
     const config = error.config
     const isAuthEndpoint = config?.url?.startsWith('/auth/')
     if (
       error.response?.status !== 401 ||
+      error.response?.data?.code === 'DEVICE_SESSION_INVALID' ||
       !config ||
       config._retriedAfterRefresh ||
       config.skipSessionRefresh ||

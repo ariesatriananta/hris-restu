@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
+import { isDeviceSessionInvalid } from '@/lib/device-session'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -79,12 +80,21 @@ export function ProductionTerminalPage() {
   )
   const activeSession = sessionAllowed ? session : null
 
-  useEffect(() => {
-    if (session && !sessionAllowed) {
-      localStorage.removeItem(storageKey)
-      toast.error('Terminal tersimpan tidak sesuai dengan akses site pengguna.')
-    }
-  }, [session, sessionAllowed])
+  if (session && !sessionAllowed)
+    return (
+      <Main className='p-4'>
+        <Card>
+          <CardContent className='space-y-2 p-4'>
+            <p className='font-semibold'>Akses terminal belum tersedia.</p>
+            <p className='text-sm text-muted-foreground'>
+              Login dengan akun yang memiliki akses site{' '}
+              {session.device.siteName}. Aktivasi perangkat tetap tersimpan;
+              tidak perlu kode aktivasi baru.
+            </p>
+          </CardContent>
+        </Card>
+      </Main>
+    )
 
   if (!activeSession)
     return (
@@ -243,9 +253,8 @@ function ProductionTerminal({
   }
 
   const handleDeviceAuthError = (error: unknown) => {
-    const status = isAxiosError(error) ? error.response?.status : undefined
-    if (status !== 401 && status !== 403) return false
-    toast.error('Sesi terminal tidak valid atau tidak memiliki akses site.')
+    if (!isDeviceSessionInvalid(error)) return false
+    toast.error('Aktivasi perangkat tidak valid. Hubungkan kembali perangkat.')
     onDeactivate()
     return true
   }
@@ -731,6 +740,7 @@ function ProductionTerminal({
         <ProductionTerminalSummary
           deviceUid={session.device.uid}
           deviceToken={session.deviceToken}
+          onDialogClosed={() => barcodeRef.current?.focus()}
         />
       )}
 
@@ -776,6 +786,12 @@ function formatTime(value: string) {
 }
 
 function apiMessage(error: unknown, fallback: string) {
+  if (
+    isAxiosError(error) &&
+    error.response?.status === 401 &&
+    !isDeviceSessionInvalid(error)
+  )
+    return 'Sesi login tidak valid. Silakan login ulang; aktivasi perangkat tetap tersimpan.'
   return isAxiosError<{ message?: string }>(error)
     ? (error.response?.data?.message ?? fallback)
     : fallback

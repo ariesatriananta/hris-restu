@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -105,6 +105,7 @@ import {
   useProductionJobs,
   useProductionTransaction,
   useProductionTransactions,
+  useProductionTransactionModuleOptions,
   useVoidProductionTransaction,
 } from './data/queries'
 import {
@@ -152,11 +153,29 @@ export function ProductionTransactionsPage({
     query: stringValue(search.filter),
     site: arrayValue(search.site),
     jobUid: arrayValue(search.jobUid),
+    moduleUid: arrayValue(search.moduleUid),
+    employeeType: arrayValue(search.employeeType),
     status: arrayValue(search.status),
     page: numberValue(search.page, 1),
     pageSize: numberValue(search.pageSize, 50),
   })
   const jobs = useProductionJobs()
+  const modules = useProductionTransactionModuleOptions(arrayValue(search.site))
+  useEffect(() => {
+    if (!modules.data) return
+    const selected = arrayValue<string>(search.moduleUid) ?? []
+    const allowed = new Set(modules.data.items.map((module) => module.uid))
+    const retained = selected.filter((uid) => allowed.has(uid))
+    if (retained.length === selected.length) return
+    navigate({
+      replace: true,
+      search: (previous) => ({
+        ...previous,
+        moduleUid: retained.length ? retained : undefined,
+        page: undefined,
+      }),
+    })
+  }, [modules.data, search.moduleUid, navigate])
   const [detailUid, setDetailUid] = useState<string>()
   const canCorrect = hasPermission(session, 'production.correct')
   const canDeleteBatch =
@@ -230,6 +249,10 @@ export function ProductionTransactionsPage({
           search={search}
           navigate={navigate}
           siteOptions={siteOptions}
+          moduleOptions={(modules.data?.items ?? []).map((module) => ({
+            value: module.uid,
+            label: `${module.name} · ${module.siteName}`,
+          }))}
           jobOptions={(jobs.data?.items ?? []).map((job) => ({
             value: job.uid,
             label: job.name,
@@ -692,6 +715,7 @@ function TransactionTable({
   search,
   navigate,
   siteOptions,
+  moduleOptions,
   jobOptions,
   isPending,
   isFetching,
@@ -703,6 +727,7 @@ function TransactionTable({
   search: Record<string, unknown>
   navigate: NavigateFn
   siteOptions: Array<{ value: string; label: string }>
+  moduleOptions: Array<{ value: string; label: string }>
   jobOptions: Array<{ value: string; label: string }>
   isPending: boolean
   isFetching: boolean
@@ -737,6 +762,8 @@ function TransactionTable({
         header: 'Site',
         enableHiding: false,
       },
+      { id: 'moduleUid', header: 'Modul Produksi', enableHiding: false },
+      { id: 'employeeType', header: 'Jenis Karyawan', enableHiding: false },
       {
         id: 'jobUid',
         accessorFn: (row) => row.job.uid,
@@ -845,6 +872,8 @@ function TransactionTable({
     globalFilter: { key: 'filter' },
     columnFilters: [
       { columnId: 'site', searchKey: 'site', type: 'array' },
+      { columnId: 'moduleUid', searchKey: 'moduleUid', type: 'array' },
+      { columnId: 'employeeType', searchKey: 'employeeType', type: 'array' },
       { columnId: 'jobUid', searchKey: 'jobUid', type: 'array' },
       { columnId: 'status', searchKey: 'status', type: 'array' },
     ],
@@ -858,7 +887,9 @@ function TransactionTable({
       columnFilters: url.columnFilters,
       pagination: url.pagination,
     },
-    initialState: { columnVisibility: { site: false } },
+    initialState: {
+      columnVisibility: { site: false, moduleUid: false, employeeType: false },
+    },
     pageCount: Math.max(
       1,
       Math.ceil((data?.total ?? 0) / (data?.pageSize ?? 50))
@@ -879,6 +910,21 @@ function TransactionTable({
         searchDebounceMs={400}
         filters={[
           { columnId: 'site', title: 'Site', options: siteOptions },
+          {
+            columnId: 'employeeType',
+            title: 'Jenis Karyawan',
+            options: [
+              { value: 'BORONGAN', label: 'Borongan' },
+              { value: 'HARIAN', label: 'Harian' },
+              { value: 'BULANAN', label: 'Bulanan' },
+              { value: 'TRAINING', label: 'Training' },
+            ],
+          },
+          {
+            columnId: 'moduleUid',
+            title: 'Modul Produksi',
+            options: moduleOptions,
+          },
           { columnId: 'jobUid', title: 'Pekerjaan', options: jobOptions },
           {
             columnId: 'status',

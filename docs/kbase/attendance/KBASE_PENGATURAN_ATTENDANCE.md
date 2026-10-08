@@ -230,7 +230,7 @@ Master Perangkat mendaftarkan browser/terminal yang berhak mengirim scan untuk s
 
 1. Pengelola membuat perangkat dari Master Perangkat.
 2. Sistem menampilkan kode aktivasi satu kali.
-3. Kode berlaku selama 15 menit.
+3. Kode tidak kedaluwarsa, tetapi hanya dapat digunakan sekali atau sampai diganti pengelola.
 4. Operator membuka halaman Scan Attendance pada browser terminal.
 5. Operator memasukkan kode aktivasi.
 6. Server menukar kode dengan token perangkat dan browser menyimpannya secara lokal.
@@ -247,7 +247,7 @@ Pada Master Perangkat, pilih tujuan kode secara eksplisit: **Attendance** atau
 - hanya membatalkan token lama untuk tujuan yang dipilih;
 - tidak memutus token Attendance ketika membuat kode Produksi, atau sebaliknya;
 - mengganti kode aktivasi lain yang masih menunggu digunakan;
-- menghasilkan kode baru yang berlaku 15 menit.
+- menghasilkan kode baru tanpa batas waktu, tetap sekali pakai.
 
 Gunakan tindakan ini jika browser diganti, local storage terhapus, perangkat dipindahkan secara fisik dalam site yang sama, atau token diduga bocor.
 
@@ -265,6 +265,8 @@ Setoran**, bukan pada halaman Scan Attendance.
 
 - Terminal membutuhkan koneksi internet; mode offline tidak tersedia.
 - Sesi perangkat tersimpan pada browser yang diaktivasi. Membersihkan local storage memutus sesi lokal.
+- Login habis, kehilangan izin, dan gangguan jaringan tidak menghapus aktivasi perangkat. Login ulang memakai akun berizin untuk melanjutkan tanpa kode baru.
+- Gunakan profil browser tetap, bukan Incognito. Putuskan manual atau token perangkat yang dicabut memerlukan aktivasi ulang.
 - Dukungan scan kamera bergantung pada kemampuan browser/perangkat. Scanner USB atau input barcode manual tetap tersedia.
 - Master perangkat tidak mengubah barcode karyawan. Barcode berasal dari data karyawan.
 
@@ -294,7 +296,7 @@ Setoran**, bukan pada halaman Scan Attendance.
 | Shift tidak dapat dinonaktifkan | Masih ada assignment aktif atau masa depan. Siapkan pengganti dan tutup periodenya lebih dahulu. |
 | Aturan kalender tidak dapat diubah | Tanggal historis, sudah dipakai Attendance/klasifikasi, atau menyentuh Payroll `CLOSED`. |
 | Cuti bersama tidak berlaku di site | Pastikan site dipilih pada katalog cuti bersama. Item katalog saja belum cukup. |
-| Kode aktivasi gagal | Pastikan belum lewat 15 menit, perangkat aktif, akun memiliki `attendance.scan`, dan site termasuk scope akun. |
+| Kode aktivasi gagal | Pastikan kode belum digunakan/diganti, perangkat aktif, akun memiliki `attendance.scan`, dan site termasuk scope akun. Kode tidak kedaluwarsa. |
 | Terminal tiba-tiba kembali ke aktivasi | Token mungkin dibatalkan melalui regenerate, perangkat dinonaktifkan, local storage dibersihkan, atau akun kehilangan akses site. |
 | Perangkat tidak dapat dihapus | Nonaktifkan perangkat; perangkat yang pernah dipakai memang dipertahankan untuk histori. |
 

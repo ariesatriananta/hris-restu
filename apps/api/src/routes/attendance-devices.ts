@@ -67,7 +67,7 @@ async function getDeviceForUpdate(conn: PoolConnection, uid: string) {
     `SELECT d.id,d.uid,d.site_id siteId,d.code,d.name,d.device_type deviceType,
             d.location_description locationDescription,d.is_active isActive,
             d.device_token_hash deviceTokenHash,d.activation_code_hash activationCodeHash,
-            d.activation_code_expires_at activationCodeExpiresAt,d.activated_at activatedAt,
+            NULL activationCodeExpiresAt,d.activated_at activatedAt,
             d.production_token_hash productionTokenHash,
             d.production_activated_at productionActivatedAt,
             s.code site,s.name siteName
@@ -133,13 +133,13 @@ attendanceDevicesRouter.get(
                 (d.device_token_hash IS NOT NULL) attendanceActivated,
                 (d.device_type IN ('USB_SCANNER','TERMINAL')) productionSupported,
                 (d.production_token_hash IS NOT NULL AND d.production_activated_at IS NOT NULL) productionActivated,
-                (d.activation_code_hash IS NOT NULL AND d.activation_code_expires_at>NOW(3)) activationPending,
+                (d.activation_code_hash IS NOT NULL) activationPending,
                 CASE
                   WHEN d.activation_code_hash LIKE 'ATTENDANCE:%' THEN 'ATTENDANCE'
                   WHEN d.activation_code_hash LIKE 'PRODUCTION:%' THEN 'PRODUCTION'
                   ELSE NULL
                 END activationPurpose,
-                DATE_FORMAT(d.activation_code_expires_at,'%Y-%m-%dT%H:%i:%s+07:00') activationCodeExpiresAt,
+                NULL activationCodeExpiresAt,
                 (SELECT COUNT(*) FROM attendance_scan_events ase WHERE ase.device_id=d.id) scanCount
            ${from}
           WHERE ${clause}
@@ -189,7 +189,7 @@ attendanceDevicesRouter.post(
         `INSERT INTO scan_devices
           (uid,site_id,code,name,device_type,location_description,is_active,
            activation_code_hash,activation_code_expires_at,created_by,updated_by)
-         VALUES(?,?,?,?,?,?,?, ?,DATE_ADD(NOW(3),INTERVAL 15 MINUTE),?,?)`,
+         VALUES(?,?,?,?,?,?,?, ?,NULL,?,?)`,
         [
           uid,
           sites[0].id,
@@ -225,7 +225,7 @@ attendanceDevicesRouter.post(
         conn
       )
       const [expiryRows] = await conn.query<RowDataPacket[]>(
-        `SELECT DATE_FORMAT(activation_code_expires_at,'%Y-%m-%dT%H:%i:%s+07:00') activationCodeExpiresAt
+        `SELECT NULL activationCodeExpiresAt
            FROM scan_devices WHERE uid=?`,
         [uid]
       )
@@ -260,7 +260,6 @@ attendanceDevicesRouter.post(
            FROM scan_devices d
            JOIN sites s ON s.id=d.site_id
           WHERE d.activation_code_hash IN (?,?)
-            AND d.activation_code_expires_at>NOW(3)
           FOR UPDATE`,
         [
           hashDeviceActivationCode(input.activationCode, 'ATTENDANCE'),
@@ -268,7 +267,7 @@ attendanceDevicesRouter.post(
         ]
       )
       const device = rows[0]
-      if (!device) throw new ApiError(422, 'Kode aktivasi tidak valid atau kedaluwarsa.')
+      if (!device) throw new ApiError(422, 'Kode aktivasi tidak valid, sudah digunakan, atau sudah diganti.')
       enforceSite(auth, device.site)
       if (Number(device.isActive) !== 1) {
         throw new ApiError(409, 'Perangkat Attendance sedang nonaktif.')
@@ -418,7 +417,7 @@ attendanceDevicesRouter.post(
         await conn.execute(
           `UPDATE scan_devices
               SET production_token_hash=NULL,activation_code_hash=?,
-                  activation_code_expires_at=DATE_ADD(NOW(3),INTERVAL 15 MINUTE),
+                  activation_code_expires_at=NULL,
                   production_activated_at=NULL,production_activated_by=NULL,
                   updated_by=?
             WHERE id=?`,
@@ -428,7 +427,7 @@ attendanceDevicesRouter.post(
         await conn.execute(
           `UPDATE scan_devices
               SET device_token_hash=NULL,activation_code_hash=?,
-                  activation_code_expires_at=DATE_ADD(NOW(3),INTERVAL 15 MINUTE),
+                  activation_code_expires_at=NULL,
                   activated_at=NULL,activated_by=NULL,updated_by=?
             WHERE id=?`,
           [activationCodeHash, auth.id, device.id]
@@ -457,7 +456,7 @@ attendanceDevicesRouter.post(
         conn
       )
       const [expiryRows] = await conn.query<RowDataPacket[]>(
-        `SELECT DATE_FORMAT(activation_code_expires_at,'%Y-%m-%dT%H:%i:%s+07:00') activationCodeExpiresAt
+        `SELECT NULL activationCodeExpiresAt
            FROM scan_devices WHERE id=?`,
         [device.id]
       )

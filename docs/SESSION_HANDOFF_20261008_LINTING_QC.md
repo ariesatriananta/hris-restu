@@ -307,6 +307,20 @@
   lokal browser, default terbuka; kegagalan storage tidak memblokir operasional.
 - Tidak mengubah Attendance, transaksi, QC, tarif, atau Payroll; tanpa migration.
 
+## Daftar karyawan dari card ringkasan
+
+- Setiap card membuka dialog baca-saja dengan pencarian nama/nomor dan
+  pagination server, default 50 dan maksimum 500. Daftar memuat bagian/modul
+  efektif, jam masuk/pulang, dan khusus Sudah Input: jumlah transaksi POSTED,
+  total PCS mentah serta waktu setoran terakhir. Tidak mengirim upah/tarif.
+- Endpoint `GET /api/production/terminal/daily-summary/employees` memakai token
+  perangkat aktif, permission scan, dan akses site. Site/hari berasal dari
+  perangkat/server; frontend hanya memilih UID bagian dan kondisi card.
+- Summary dan daftar memakai SQL membership bersama. Schema histori lama tanpa
+  kolom `status` didukung; schema baru tetap mengecualikan histori CANCELLED.
+- State tabel sementara berada di dialog, bukan URL scanner. Menutup dialog
+  mengembalikan fokus ke barcode. Tidak ada action bisnis atau mutation data.
+
 ## Batas penerapan akhir ringkasan
 
 Tidak mengeksekusi migration/seed, tidak deploy, dan tidak commit tanpa permintaan

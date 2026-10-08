@@ -11,6 +11,10 @@ export const Route = createFileRoute('/_authenticated/produksi/transaksi')({
     dateFrom: z.string().date().optional(),
     dateTo: z.string().date().optional(),
     jobUid: z.array(z.string().uuid()).optional(),
+    moduleUid: z.array(z.string().uuid()).optional(),
+    employeeType: z
+      .array(z.enum(['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING']))
+      .optional(),
     status: z.array(z.enum(['POSTED', 'VOID'])).optional(),
     page: z.number().int().positive().optional(),
     pageSize: z.number().int().min(1).max(500).optional(),

@@ -594,6 +594,49 @@ export type ProductionTerminalDailySummary = {
   }>
 }
 
+export type ProductionTerminalSummaryCondition =
+  | 'PRESENT'
+  | 'SUBMITTED'
+  | 'PENDING'
+
+export type ProductionTerminalSummaryEmployeeParams = {
+  sectionUid: string
+  condition: ProductionTerminalSummaryCondition
+  page?: number
+  pageSize?: number
+  search?: string
+}
+
+export type ProductionTerminalSummaryEmployee = {
+  uid: string
+  employeeNumber: string
+  fullName: string
+  section: { uid: string; name: string }
+  module: { uid: string; name: string }
+  attendance: {
+    status: 'PRESENT'
+    clockInAt: string | null
+    clockOutAt: string | null
+  }
+  deposits: {
+    count: number
+    quantityPcs: string
+    lastTransactionAt: string | null
+  } | null
+}
+
+export type ProductionTerminalSummaryEmployeeResult = {
+  businessDate: string
+  siteName: string
+  items: ProductionTerminalSummaryEmployee[]
+  pagination: {
+    page: number
+    pageSize: number
+    total: number
+    totalPages: number
+  }
+}
+
 export type ProductionTerminalRecentTransaction = Pick<
   ProductionTransaction,
   | 'uid'
@@ -630,6 +673,8 @@ export type ProductionTransactionListParams = {
   dateTo?: string
   query?: string
   jobUid?: string[]
+  moduleUid?: string[]
+  employeeType?: string[]
   status?: ProductionTransactionStatus[]
   page: number
   pageSize: number

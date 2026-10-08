@@ -84,11 +84,13 @@ Halaman `/attendance/scan` membutuhkan `attendance.scan`, autentikasi pengguna, 
 Jika browser belum terhubung:
 
 1. ambil kode dari Master Perangkat;
-2. masukkan kode pada layar Aktivasi Terminal dalam 15 menit;
+2. masukkan kode pada layar Aktivasi Terminal; kode tanpa batas waktu, tetapi hanya sekali pakai;
 3. pastikan nama, kode, dan site terminal tampil dengan benar;
 4. jangan bagikan kode/token melalui chat atau screenshot.
 
 Terminal membutuhkan internet. Tidak ada antrean scan offline. Sistem tidak meminta foto atau geolocation. Kamera pada halaman terminal hanya dipakai untuk membaca barcode dan tidak menyimpan foto karyawan.
+
+Login yang habis cukup ditangani dengan login ulang; aktivasi perangkat tetap tersimpan. Gunakan browser/profil tetap, jangan Incognito. Kode baru diperlukan jika token perangkat dicabut, operator memilih **Putuskan**, atau data browser dihapus.
 
 Setelah terminal aktif, bagian identitas menampilkan site, kode perangkat, dan tipe perangkat. Gunakan **Uji kamera** sebelum jam operasional untuk memastikan izin dan kamera browser bekerja tanpa mengirim scan. **Mode kiosk** membuka layar penuh, sedangkan tombol suara mengaktifkan atau mematikan bunyi pendek yang membedakan hasil berhasil, peringatan, dan gagal. Pilihan suara disimpan pada browser terminal tersebut.
 

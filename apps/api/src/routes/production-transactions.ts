@@ -13,6 +13,7 @@ import {
 import { writeAudit } from '../lib/audit.js'
 import { businessDate } from '../lib/contract-lifecycle.js'
 import { ApiError } from '../lib/errors.js'
+import { productionTerminalSummaryAttendanceSql, productionTerminalSummaryPostedSql } from '../lib/production-terminal-summary.js'
 import { assertProductionQcReplay, loadProductionQcOptions, lastProductionDeviceBrand, resolveProductionQc, saveProductionQc, readProductionQc, cloneProductionQc, loadProductionImportQcMasters, resolveProductionImportQc, saveProductionImportQc, assertProductionImportQcReplay, type ProductionImportQc, type ResolvedProductionQc } from '../lib/production-qc-storage.js'
 import { priceProductionTiers, type ProductionRateTier } from '../lib/production-tier-pricing.js'
 import {
@@ -105,7 +106,7 @@ function validDate(raw: unknown, fallback: string) {
 function deviceToken(req: { get(name: string): string | undefined }) {
   const token = req.get('X-Production-Device-Token')?.trim()
   if (!token || token.length < 40 || token.length > 200) {
-    throw new ApiError(401, 'Token perangkat Produksi tidak valid.')
+    throw new ApiError(401, 'Token perangkat Produksi tidak valid.', 'DEVICE_SESSION_INVALID')
   }
   return token
 }
@@ -131,7 +132,7 @@ async function getDevice(
   if (
     !device || Number(device.isActive) !== 1 || device.activatedAt === null
   ) {
-    throw new ApiError(401, 'Perangkat Produksi tidak aktif atau belum terdaftar.')
+    throw new ApiError(401, 'Perangkat Produksi tidak aktif atau belum terdaftar.', 'DEVICE_SESSION_INVALID')
   }
   return device
 }
@@ -2251,6 +2252,14 @@ productionTransactionsRouter.get('/terminal/daily-summary', requirePermission('p
     const device = await getDevice(conn, deviceToken(req))
     enforceSite(res.locals.auth as AuthContext, String(device.site))
     const { businessDate } = await currentServerTime(conn)
+    // Older operational schemas have no cancellation status on employment
+    // histories. Keep their date-based semantics without requiring a migration.
+    const [historyColumns] = await conn.query<RowDataPacket[]>(
+      `SELECT COUNT(*) hasHistoryStatus FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='employee_employment_histories'
+          AND COLUMN_NAME='status'`
+    )
+    const hasHistoryStatus = Number(historyColumns[0]?.hasHistoryStatus) > 0
     const [rows] = await conn.query<RowDataPacket[]>(
       `SELECT section.uid,section.name,
               COALESCE(summary.presentEmployees,0) presentEmployees,
@@ -2259,34 +2268,9 @@ productionTransactionsRouter.get('/terminal/daily-summary', requirePermission('p
          LEFT JOIN (
            SELECT mapping.production_section_id,
                   COUNT(DISTINCT attendance.employee_id) presentEmployees,
-                  COUNT(DISTINCT CASE WHEN EXISTS (
-                    SELECT 1 FROM production_transactions transaction_row
-                     WHERE transaction_row.employee_id=attendance.employee_id
-                       AND transaction_row.site_id=attendance.site_id
-                       AND transaction_row.business_date=attendance.business_date
-                       AND transaction_row.status='POSTED'
-                  ) THEN attendance.employee_id END) submittedEmployees
-             FROM attendance_records attendance
-             JOIN employee_employment_histories history
-               ON history.employee_id=attendance.employee_id
-              AND history.site_id=attendance.site_id
-              AND history.status='ACTIVE'
-              AND history.effective_from<=?
-              AND (history.effective_to IS NULL OR history.effective_to>=?)
-             JOIN employee_statuses employment_status
-               ON employment_status.id=history.employee_status_id
-              AND employment_status.allows_production=1
-             JOIN production_module_sections mapping
-               ON mapping.id=history.production_module_section_id
-            WHERE attendance.business_date=? AND attendance.site_id=?
-              AND attendance.attendance_status='PRESENT'
-              AND NOT EXISTS (
-                SELECT 1 FROM employee_employment_histories other_history
-                 WHERE other_history.employee_id=history.employee_id
-                   AND other_history.id<>history.id AND other_history.status='ACTIVE'
-                   AND other_history.effective_from<=?
-                   AND (other_history.effective_to IS NULL OR other_history.effective_to>=?)
-              )
+                  COUNT(DISTINCT CASE WHEN ${productionTerminalSummaryPostedSql}
+                    THEN attendance.employee_id END) submittedEmployees
+             ${productionTerminalSummaryAttendanceSql(hasHistoryStatus)}
             GROUP BY mapping.production_section_id
          ) summary ON summary.production_section_id=section.id
         WHERE section.is_active=1 ORDER BY section.name,section.id`,
@@ -2297,6 +2281,70 @@ productionTransactionsRouter.get('/terminal/daily-summary', requirePermission('p
       submittedEmployees:Number(row.submittedEmployees),
       pendingEmployees:Number(row.presentEmployees)-Number(row.submittedEmployees),
     })) })
+  } catch (error) { next(error) } finally { conn.release() }
+})
+
+productionTransactionsRouter.get('/terminal/daily-summary/employees', requirePermission('production.scan'), async (req, res, next) => {
+  const conn = await pool.getConnection()
+  try {
+    const device = await getDevice(conn, deviceToken(req))
+    enforceSite(res.locals.auth as AuthContext, String(device.site))
+    const input = z.object({
+      sectionUid:z.string().uuid(),
+      condition:z.enum(['PRESENT','SUBMITTED','PENDING']).default('PRESENT'),
+      page:z.coerce.number().int().min(1).max(1_000_000).default(1),
+      pageSize:z.coerce.number().int().min(1).max(500).default(50),
+      search:z.string().trim().max(100).default(''),
+    }).parse(req.query)
+    const { businessDate } = await currentServerTime(conn)
+    const [historyColumns] = await conn.query<RowDataPacket[]>(
+      `SELECT COUNT(*) hasHistoryStatus FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='employee_employment_histories'
+          AND COLUMN_NAME='status'`
+    )
+    const hasHistoryStatus = Number(historyColumns[0]?.hasHistoryStatus) > 0
+    const condition = input.condition==='SUBMITTED'
+      ? ` AND ${productionTerminalSummaryPostedSql}`
+      : input.condition==='PENDING' ? ` AND NOT ${productionTerminalSummaryPostedSql}` : ''
+    const filter = ` AND employee_section.uid=?${condition}
+      ${input.search ? 'AND (employee.full_name LIKE ? OR employee.employee_number LIKE ?)' : ''}`
+    const values = [businessDate,businessDate,businessDate,device.siteId,businessDate,businessDate,input.sectionUid,
+      ...(input.search ? [`%${input.search}%`,`%${input.search}%`] : [])]
+    const [counts] = await conn.query<RowDataPacket[]>(
+      `SELECT COUNT(DISTINCT attendance.employee_id) total
+        ${productionTerminalSummaryAttendanceSql(hasHistoryStatus)} ${filter}`, values
+    )
+    const total = Number(counts[0]?.total ?? 0)
+    const page = Math.min(input.page,Math.max(1,Math.ceil(total/input.pageSize)))
+    // Aggregate raw PCS only. No payable quantities, prices or Payroll data.
+    const depositJoin = input.condition==='SUBMITTED' ? `LEFT JOIN (
+      SELECT pt.employee_id,COUNT(*) depositCount,
+             SUM(CASE WHEN unit.code='PCS' THEN pt.quantity ELSE 0 END) quantityPcs,
+             MAX(pt.transaction_at) lastTransactionAt
+        FROM production_transactions pt JOIN work_units unit ON unit.id=pt.unit_id
+       WHERE pt.business_date=? AND pt.site_id=? AND pt.status='POSTED'
+       GROUP BY pt.employee_id
+    ) deposits ON deposits.employee_id=attendance.employee_id` : ''
+    const [rows] = await conn.query<RowDataPacket[]>(
+      `SELECT employee.uid,employee.employee_number employeeNumber,employee.full_name fullName,
+              employee_section.uid sectionUid,employee_section.name sectionName,
+              employee_module.uid moduleUid,employee_module.name moduleName,
+              DATE_FORMAT(attendance.clock_in_at,'%Y-%m-%dT%H:%i:%s+07:00') clockInAt,
+              DATE_FORMAT(attendance.clock_out_at,'%Y-%m-%dT%H:%i:%s+07:00') clockOutAt
+              ${input.condition==='SUBMITTED' ? ",deposits.depositCount,CAST(deposits.quantityPcs AS CHAR) quantityPcs,DATE_FORMAT(deposits.lastTransactionAt,'%Y-%m-%dT%H:%i:%s+07:00') lastTransactionAt" : ''}
+        ${productionTerminalSummaryAttendanceSql(hasHistoryStatus,depositJoin)} ${filter}
+       ORDER BY employee.full_name,employee.employee_number,employee.id LIMIT ? OFFSET ?`,
+      // Deposit placeholders occur after the two history-date placeholders.
+      [values[0],values[1],...(depositJoin ? [businessDate,device.siteId] : []),...values.slice(2),input.pageSize,(page-1)*input.pageSize]
+    )
+    res.json({businessDate,siteName:device.siteName,
+      items:rows.map(row => ({
+        uid:row.uid,employeeNumber:row.employeeNumber,fullName:row.fullName,
+        section:{uid:row.sectionUid,name:row.sectionName},module:{uid:row.moduleUid,name:row.moduleName},
+        attendance:{status:'PRESENT',clockInAt:row.clockInAt ?? null,clockOutAt:row.clockOutAt ?? null},
+        deposits:input.condition==='SUBMITTED' ? {count:Number(row.depositCount),quantityPcs:String(row.quantityPcs ?? '0'),lastTransactionAt:row.lastTransactionAt ?? null} : null,
+      })),pagination:{page,pageSize:input.pageSize,total,totalPages:Math.ceil(total/input.pageSize)},
+    })
   } catch (error) { next(error) } finally { conn.release() }
 })
 
@@ -2385,7 +2433,6 @@ productionTransactionsRouter.post(
            FROM scan_devices d
            JOIN sites s ON s.id=d.site_id
           WHERE d.activation_code_hash IN (?,?)
-            AND d.activation_code_expires_at>NOW(3)
             AND d.device_type IN ('USB_SCANNER','TERMINAL')
           FOR UPDATE`,
         [
@@ -2397,7 +2444,7 @@ productionTransactionsRouter.post(
       if (!device) {
         throw new ApiError(
           422,
-          'Kode aktivasi tidak valid, kedaluwarsa, atau bukan perangkat Produksi.'
+          'Kode aktivasi tidak valid, sudah digunakan/diganti, atau bukan perangkat Produksi.'
         )
       }
       enforceSite(auth, String(device.site))
@@ -3921,6 +3968,23 @@ productionTransactionsRouter.post(
   }
 )
 
+productionTransactionsRouter.get('/transactions/module-options', requirePermission('production.view'), async (req,res,next) => {
+  try {
+    const auth=res.locals.auth as AuthContext
+    const scope=scopeWhere(auth)
+    const sites=csvValues(req.query.site)
+    if (sites.some(site => !allowedSites.includes(site as never))) throw new ApiError(422,'Filter site tidak valid.')
+    sites.forEach(site => enforceSite(auth,site))
+    const [rows]=await pool.query<RowDataPacket[]>(
+      `SELECT module.uid,module.name,s.code site,s.name siteName
+        FROM production_modules module JOIN sites s ON s.id=module.site_id
+       WHERE ${scope.sql} ${sites.length ? `AND s.code IN (${sites.map(() => '?').join(',')})` : ''}
+       ORDER BY s.name,module.name,module.id`, [...scope.params,...sites]
+    )
+    res.json({items:rows.map(row => ({uid:row.uid,name:row.name,site:row.site,siteName:row.siteName}))})
+  } catch(error) {next(error)}
+})
+
 productionTransactionsRouter.get(
   '/transactions',
   requirePermission('production.view'),
@@ -3962,6 +4026,44 @@ productionTransactionsRouter.get(
         }
         where.push(`j.uid IN (${jobUids.map(() => '?').join(',')})`)
         values.push(...jobUids)
+      }
+      const moduleUids = csvValues(req.query.moduleUid)
+      const employeeTypes = csvValues(req.query.employeeType)
+      if (employeeTypes.some(type => !['BORONGAN','HARIAN','BULANAN','TRAINING'].includes(type))) {
+        throw new ApiError(422, 'Filter jenis karyawan tidak valid.')
+      }
+      if (moduleUids.length || employeeTypes.length) {
+        if (moduleUids.some((uid) => !z.string().uuid().safeParse(uid).success)) {
+          throw new ApiError(422, 'Filter modul Produksi tidak valid.')
+        }
+        const [columns] = await pool.query<RowDataPacket[]>(
+          `SELECT COUNT(*) hasHistoryStatus FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='employee_employment_histories' AND COLUMN_NAME='status'`
+        )
+        const hasStatus = Number(columns[0]?.hasHistoryStatus)>0
+        // Historical placement, not the employee's current module. EXISTS
+        // avoids duplicating transaction totals when joining employment data.
+        where.push(`EXISTS (
+          SELECT 1 FROM employee_employment_histories module_history
+          LEFT JOIN production_module_sections module_mapping ON module_mapping.id=module_history.production_module_section_id
+          LEFT JOIN production_modules module ON module.id=module_mapping.production_module_id
+          JOIN employee_types historical_type ON historical_type.id=module_history.employee_type_id
+          WHERE module_history.employee_id=pt.employee_id AND module_history.site_id=pt.site_id
+            AND module_history.effective_from<=pt.business_date
+            AND (module_history.effective_to IS NULL OR module_history.effective_to>=pt.business_date)
+            ${hasStatus ? "AND module_history.status='ACTIVE'" : ''}
+            ${moduleUids.length ? `AND module.uid IN (${moduleUids.map(() => '?').join(',')})` : ''}
+            ${employeeTypes.length ? `AND historical_type.code IN (${employeeTypes.map(() => '?').join(',')})` : ''}
+            AND NOT EXISTS (
+              SELECT 1 FROM employee_employment_histories conflicting_history
+              WHERE conflicting_history.employee_id=module_history.employee_id AND conflicting_history.id<>module_history.id
+                AND conflicting_history.effective_from<=pt.business_date
+                AND (conflicting_history.effective_to IS NULL OR conflicting_history.effective_to>=pt.business_date)
+                ${hasStatus ? "AND conflicting_history.status='ACTIVE'" : ''}
+            )
+        )`)
+        values.push(...moduleUids)
+        values.push(...employeeTypes)
       }
       const statuses = csvValues(req.query.status)
       if (statuses.length) {

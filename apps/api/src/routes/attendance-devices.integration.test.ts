@@ -133,7 +133,7 @@ describe('Attendance device readiness API', () => {
     conn.query
       .mockResolvedValueOnce([[deviceRow()]])
       .mockResolvedValueOnce([[
-        { activationCodeExpiresAt: '2026-09-08T12:00:00+07:00' },
+        { activationCodeExpiresAt: null },
       ]])
     mocks.getConnection.mockResolvedValue(conn)
 
@@ -141,19 +141,37 @@ describe('Attendance device readiness API', () => {
       '/devices/44444444-4444-4444-8444-444444444444/regenerate-activation',
       { method: 'POST', body: { purpose: 'PRODUCTION' } }
     )
-    const body = (await response.json()) as { purpose: string }
+    const body = (await response.json()) as { purpose: string; activationCodeExpiresAt: string | null }
 
     expect(response.status).toBe(200)
     expect(body.purpose).toBe('PRODUCTION')
+    expect(body.activationCodeExpiresAt).toBeNull()
     const update = conn.execute.mock.calls.find(([sql]) =>
       String(sql).includes('UPDATE scan_devices')
     )
     expect(String(update?.[0])).toContain('production_token_hash=NULL')
+    expect(String(update?.[0])).toContain('activation_code_expires_at=NULL')
     expect(String(update?.[0])).not.toContain('SET device_token_hash=NULL')
     expect(String((update?.[1] as unknown[] | undefined)?.[0])).toMatch(
       /^PRODUCTION:[a-f0-9]{64}$/
     )
     expect(conn.commit).toHaveBeenCalledOnce()
+  })
+
+  it('membuat kode Attendance tanpa expiry dan tidak mencabut token Produksi', async () => {
+    const conn = connection()
+    conn.query.mockResolvedValueOnce([[deviceRow()]])
+      .mockResolvedValueOnce([[{activationCodeExpiresAt:null}]])
+    mocks.getConnection.mockResolvedValue(conn)
+    const response = await request('/devices/44444444-4444-4444-8444-444444444444/regenerate-activation', {
+      method:'POST',body:{purpose:'ATTENDANCE'},
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({purpose:'ATTENDANCE',activationCodeExpiresAt:null})
+    const update = conn.execute.mock.calls.find(([sql]) => String(sql).includes('UPDATE scan_devices'))
+    expect(String(update?.[0])).toContain('device_token_hash=NULL')
+    expect(String(update?.[0])).toContain('activation_code_expires_at=NULL')
+    expect(String(update?.[0])).not.toContain('production_token_hash=NULL')
   })
 
   it('menukar hanya kode bertujuan Attendance atau kode legacy', async () => {
@@ -167,6 +185,9 @@ describe('Attendance device readiness API', () => {
     })
 
     expect(response.status).toBe(200)
+    expect(String(conn.query.mock.calls[0]?.[0])).not.toContain('activation_code_expires_at>')
+    const update = conn.execute.mock.calls.find(([sql]) => String(sql).includes('UPDATE scan_devices'))
+    expect(String(update?.[0])).toContain('activation_code_hash=NULL')
     const lookupParams = conn.query.mock.calls[0]?.[1] as string[]
     expect(lookupParams[0]).toMatch(/^ATTENDANCE:[a-f0-9]{64}$/)
     expect(lookupParams[1]).toMatch(/^[a-f0-9]{64}$/)

@@ -112,6 +112,18 @@ describe('Attendance terminal API integration', () => {
 
   afterEach(() => vi.restoreAllMocks())
 
+  it('menandai token perangkat invalid terpisah dari login dan izin', async () => {
+    const conn = connection()
+    conn.query.mockResolvedValueOnce([[{scanTimestamp:'2026-10-09 08:00:00',currentDate:'2026-10-09'}]])
+      .mockResolvedValueOnce([[]])
+    mocks.getConnection.mockResolvedValue(conn)
+    const response = await postScan(auth())
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({code:'DEVICE_SESSION_INVALID'})
+    expect(conn.commit).not.toHaveBeenCalled()
+    expect(conn.rollback).toHaveBeenCalledOnce()
+  })
+
   it('menolak request sebelum akses database ketika permission scan tidak ada', async () => {
     const response = await postScan(auth({ permissions: [] }))
 

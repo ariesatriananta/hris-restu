@@ -13,6 +13,8 @@ const {
   recentState,
   detailQuery,
   dailySummary,
+  summaryEmployees,
+  authState,
 } = vi.hoisted(() => ({
   lookup: vi.fn(),
   post: vi.fn(),
@@ -21,18 +23,20 @@ const {
   recentState: { isPending: false, isError: false },
   detailQuery: vi.fn(),
   dailySummary: vi.fn(),
+  summaryEmployees: vi.fn(),
+  authState: {
+    session: { user: { role: 'SUPER_ADMIN', siteAccess: ['JEPARA'] } },
+  },
 }))
 vi.mock('@/stores/auth-store', () => ({
-  useAuthStore: (selector: (state: unknown) => unknown) =>
-    selector({
-      session: { user: { role: 'SUPER_ADMIN', siteAccess: ['JEPARA'] } },
-    }),
+  useAuthStore: (selector: (state: unknown) => unknown) => selector(authState),
 }))
 vi.mock('@/features/production/data/queries', async () => {
   const { useState } = await import('react')
   return {
     useProductionTerminalDetail: detailQuery,
     useProductionTerminalDailySummary: dailySummary,
+    useProductionTerminalSummaryEmployees: summaryEmployees,
     useProductionTerminalRecent: (deviceUid: string, deviceToken: string) => {
       const [data, setData] = useState(() => recent())
       return {
@@ -91,6 +95,8 @@ const result = {
 }
 
 beforeEach(async () => {
+  authState.session.user.role = 'SUPER_ADMIN'
+  authState.session.user.siteAccess = ['JEPARA']
   await page.viewport(320, 740)
   localStorage.setItem(
     'hris-rsia-production-device-v1',
@@ -143,6 +149,35 @@ beforeEach(async () => {
     isError: false,
     refetch: vi.fn(),
   })
+  summaryEmployees.mockReset().mockReturnValue({
+    data: {
+      businessDate: '2026-10-09',
+      siteName: 'Jepara',
+      items: [
+        {
+          uid: 'employee-summary',
+          employeeNumber: 'TEST-002',
+          fullName: 'Pekerja Ringkasan',
+          section: { uid: 'section-linting', name: 'Linting' },
+          module: { uid: 'module-skt', name: 'SKT' },
+          attendance: {
+            status: 'PRESENT',
+            clockInAt: '2026-10-09T07:00:00+07:00',
+            clockOutAt: null,
+          },
+          deposits: {
+            count: 2,
+            quantityPcs: '1500',
+            lastTransactionAt: '2026-10-09T10:00:00+07:00',
+          },
+        },
+      ],
+      pagination: { page: 1, pageSize: 50, total: 1, totalPages: 1 },
+    },
+    isPending: false,
+    isError: false,
+    refetch: vi.fn(),
+  })
 })
 afterEach(async () => {
   localStorage.removeItem('hris-rsia-production-device-v1')
@@ -152,6 +187,278 @@ afterEach(async () => {
 })
 
 describe('compact production deposit form', () => {
+  it.each([
+    ['Total Absen Linting Hari Ini', 'PRESENT'],
+    ['Pekerja Linting Sudah Input', 'SUBMITTED'],
+    ['Pekerja Linting Belum Input', 'PENDING'],
+  ])(
+    'opens compact employee details for %s without wages or business actions',
+    async (label, condition) => {
+      const screen = await render(<ProductionTerminalPage />)
+      await screen.getByRole('button', { name: label, exact: true }).click()
+      const dialog = screen.getByRole('dialog')
+      await expect
+        .element(
+          dialog
+            .getByRole('list', { name: 'Daftar karyawan ringkasan' })
+            .getByText('Pekerja Ringkasan')
+        )
+        .toBeVisible()
+      await expect
+        .element(dialog.getByText('TEST-002 · Linting / SKT'))
+        .toBeVisible()
+      expect(summaryEmployees).toHaveBeenLastCalledWith(
+        'test-device',
+        'synthetic-test-token',
+        {
+          sectionUid: 'section-linting',
+          condition,
+          page: 1,
+          pageSize: 50,
+          search: '',
+        }
+      )
+      if (condition === 'SUBMITTED') {
+        await expect
+          .element(
+            dialog
+              .getByRole('list', { name: 'Daftar karyawan ringkasan' })
+              .getByText('1.500 PCS')
+          )
+          .toBeVisible()
+        await expect
+          .element(
+            dialog
+              .getByRole('list', { name: 'Daftar karyawan ringkasan' })
+              .getByText('2 setoran · 10.00')
+          )
+          .toBeVisible()
+      } else {
+        expect(dialog.element().textContent).not.toContain('1.500 PCS')
+      }
+      expect(dialog.element().textContent).not.toMatch(
+        /Rp|upah|dibayar|Simpan|Aktifkan/
+      )
+      const element = dialog.element()
+      expect(element.scrollWidth).toBeLessThanOrEqual(element.clientWidth)
+      expect(element.getBoundingClientRect().height).toBeLessThanOrEqual(
+        window.innerHeight
+      )
+      expect(lookup).not.toHaveBeenCalled()
+      expect(post).not.toHaveBeenCalled()
+    }
+  )
+  it('searches summary employee list with server pagination and resets page', async () => {
+    const response = summaryEmployees()
+    summaryEmployees.mockImplementation((_uid, _token, params) => ({
+      ...response,
+      data: {
+        ...response.data,
+        pagination: {
+          page: params.page,
+          pageSize: 50,
+          total: 51,
+          totalPages: 2,
+        },
+      },
+    }))
+    const screen = await render(<ProductionTerminalPage />)
+    await screen
+      .getByRole('button', {
+        name: 'Total Absen Linting Hari Ini',
+        exact: true,
+      })
+      .click()
+    await screen
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Go to next page' })
+      .click()
+    expect(summaryEmployees).toHaveBeenLastCalledWith(
+      'test-device',
+      'synthetic-test-token',
+      {
+        sectionUid: 'section-linting',
+        condition: 'PRESENT',
+        page: 2,
+        pageSize: 50,
+        search: '',
+      }
+    )
+    await screen
+      .getByRole('dialog')
+      .getByPlaceholder('Cari nama / nomor karyawan...')
+      .fill('TEST-002')
+    await vi.waitFor(() =>
+      expect(summaryEmployees).toHaveBeenLastCalledWith(
+        'test-device',
+        'synthetic-test-token',
+        {
+          sectionUid: 'section-linting',
+          condition: 'PRESENT',
+          page: 1,
+          pageSize: 50,
+          search: 'TEST-002',
+        }
+      )
+    )
+  })
+  it('shows the standard compact desktop datatable and handles an empty result', async () => {
+    await page.viewport(1280, 740)
+    const screen = await render(<ProductionTerminalPage />)
+    await screen
+      .getByRole('button', { name: 'Pekerja Linting Sudah Input', exact: true })
+      .click()
+    const dialog = screen.getByRole('dialog')
+    await expect
+      .element(dialog.getByText('Bagian / Modul', { exact: true }))
+      .toBeVisible()
+    await expect
+      .element(dialog.getByText('Setoran hari ini', { exact: true }))
+      .toBeVisible()
+    const table = dialog.getByRole('table').element()
+    expect(table.scrollWidth).toBeLessThanOrEqual(dialog.element().clientWidth)
+    await screen.unmount()
+    const response = summaryEmployees()
+    summaryEmployees.mockReturnValue({
+      ...response,
+      data: {
+        ...response.data,
+        items: [],
+        pagination: { page: 1, pageSize: 50, total: 0, totalPages: 1 },
+      },
+    })
+    const empty = await render(<ProductionTerminalPage />)
+    await empty
+      .getByRole('button', {
+        name: 'Total Absen Linting Hari Ini',
+        exact: true,
+      })
+      .click()
+    await expect
+      .element(
+        empty
+          .getByRole('dialog')
+          .getByRole('table')
+          .getByText('Tidak ada karyawan sesuai pencarian.')
+      )
+      .toBeVisible()
+  })
+  it('keeps employee list loading and error local to dialog and supports retry', async () => {
+    summaryEmployees.mockReturnValue({
+      data: undefined,
+      isPending: true,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    const loading = await render(<ProductionTerminalPage />)
+    await loading
+      .getByRole('button', {
+        name: 'Total Absen Linting Hari Ini',
+        exact: true,
+      })
+      .click()
+    await expect
+      .element(
+        loading.getByRole('dialog').getByText('Memuat daftar karyawan...')
+      )
+      .toBeVisible()
+    await loading.unmount()
+    const retry = vi.fn()
+    summaryEmployees.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      refetch: retry,
+    })
+    const failed = await render(<ProductionTerminalPage />)
+    await failed
+      .getByRole('button', {
+        name: 'Total Absen Linting Hari Ini',
+        exact: true,
+      })
+      .click()
+    await failed
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Muat ulang daftar' })
+      .click()
+    expect(retry).toHaveBeenCalledOnce()
+  })
+  it('restores barcode focus after closing employee details without interrupting dialog input', async () => {
+    const screen = await render(<ProductionTerminalPage />)
+    await screen
+      .getByRole('button', {
+        name: 'Total Absen Linting Hari Ini',
+        exact: true,
+      })
+      .click()
+    const dialog = screen.getByRole('dialog')
+    await dialog
+      .getByPlaceholder('Cari nama / nomor karyawan...')
+      .fill('Pekerja')
+    expect(document.activeElement).toBe(
+      dialog.getByPlaceholder('Cari nama / nomor karyawan...').element()
+    )
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect.element(dialog).not.toBeInTheDocument()
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByLabelText('Barcode karyawan').element()
+      )
+    )
+    expect(lookup).not.toHaveBeenCalled()
+    expect(post).not.toHaveBeenCalled()
+  })
+  it('blocks a different site account without discarding device activation', async () => {
+    authState.session.user.role = 'PRODUCTION_ADMIN'
+    authState.session.user.siteAccess = ['KLATEN']
+    const blocked = await render(<ProductionTerminalPage />)
+    await expect
+      .element(blocked.getByText('Akses terminal belum tersedia.'))
+      .toBeVisible()
+    expect(
+      localStorage.getItem('hris-rsia-production-device-v1')
+    ).not.toBeNull()
+    expect(lookup).not.toHaveBeenCalled()
+    await blocked.unmount()
+    authState.session.user.siteAccess = ['JEPARA']
+    const allowed = await render(<ProductionTerminalPage />)
+    await expect
+      .element(allowed.getByLabelText('Barcode karyawan'))
+      .toBeVisible()
+  })
+  it.each([
+    [401, undefined, false],
+    [403, undefined, false],
+    [500, undefined, false],
+    [401, 'DEVICE_SESSION_INVALID', true],
+  ])(
+    'retains scanner activation unless explicitly invalid: %s %s',
+    async (status, code, disconnected) => {
+      lookup.mockRejectedValueOnce({
+        isAxiosError: true,
+        response: { status, data: { code, message: 'Penolakan uji' } },
+      })
+      const screen = await render(<ProductionTerminalPage />)
+      await screen.getByLabelText('Barcode karyawan').fill('TEST-001')
+      await screen.getByRole('button', { name: 'Cek', exact: true }).click()
+      if (disconnected) {
+        await expect
+          .element(screen.getByLabelText('Kode aktivasi'))
+          .toBeVisible()
+        expect(
+          localStorage.getItem('hris-rsia-production-device-v1')
+        ).toBeNull()
+      } else {
+        await expect
+          .element(screen.getByLabelText('Barcode karyawan'))
+          .toBeVisible()
+        expect(
+          localStorage.getItem('hris-rsia-production-device-v1')
+        ).not.toBeNull()
+      }
+    }
+  )
+
   it('shows each daily section in three compact columns on mobile only while free', async () => {
     const screen = await render(<ProductionTerminalPage />)
     const summary = screen.getByRole('region', {

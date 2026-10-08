@@ -274,9 +274,10 @@ describe('Production transactions API', () => {
     )
   })
 
-  it.each(['success', 'empty', 'no-token', 'inactive', 'outside-site', 'no-permission'])('ringkasan harian terminal seluruh site read-only: %s', async variant => {
+  it.each(['success', 'legacy-schema', 'empty', 'no-token', 'inactive', 'outside-site', 'no-permission'])('ringkasan harian terminal seluruh site read-only: %s', async variant => {
     mocks.query.mockResolvedValueOnce([variant==='inactive' ? [] : [deviceRow()]])
       .mockResolvedValueOnce([[{businessDate:'2026-10-08',transactionTimestamp:'2026-10-09 00:05:00.000000',serverTime:'2026-10-09T00:05:00+07:00'}]])
+      .mockResolvedValueOnce([[{hasHistoryStatus:variant==='legacy-schema' ? 0 : 1}]])
       .mockResolvedValueOnce([variant==='empty' ? [] : [
         {uid:'section-linting',name:'Linting',presentEmployees:'315',submittedEmployees:'200'},
         {uid:'section-slop',name:'Slop',presentEmployees:'0',submittedEmployees:'0'},
@@ -289,7 +290,7 @@ describe('Production transactions API', () => {
     expect(mocks.execute).not.toHaveBeenCalled()
     expect(mocks.beginTransaction).not.toHaveBeenCalled()
     expect(mocks.audit).not.toHaveBeenCalled()
-    if (variant==='success' || variant==='empty') {
+    if (variant==='success' || variant==='legacy-schema' || variant==='empty') {
       const body = await response.json() as {
         businessDate: string
         siteName: string
@@ -297,11 +298,17 @@ describe('Production transactions API', () => {
       }
       expect(body).toMatchObject({businessDate:'2026-10-09',siteName:'Site Jepara'})
       expect(body.sections).toHaveLength(variant==='empty' ? 0 : 2)
-      if (variant==='success') expect(body.sections).toEqual([
+      if (variant==='success' || variant==='legacy-schema') expect(body.sections).toEqual([
         {uid:'section-linting',name:'Linting',presentEmployees:315,submittedEmployees:200,pendingEmployees:115},
         {uid:'section-slop',name:'Slop',presentEmployees:0,submittedEmployees:0,pendingEmployees:0},
       ])
-      const [sql,params] = mocks.query.mock.calls[2]
+      const [sql,params] = mocks.query.mock.calls[3]
+      if (variant==='legacy-schema') {
+        expect(sql).not.toContain('history.status')
+      } else {
+        expect(sql).toContain("history.status='ACTIVE'")
+        expect(sql).toContain("other_history.status='ACTIVE'")
+      }
       expect(params).toEqual(['2026-10-09','2026-10-09','2026-10-09',1,'2026-10-09','2026-10-09'])
       expect(sql).toContain('COUNT(DISTINCT attendance.employee_id)')
       expect(sql).toContain("transaction_row.status='POSTED'")
@@ -312,6 +319,106 @@ describe('Production transactions API', () => {
       expect(sql).toContain('other_history.id<>history.id')
       expect(sql).not.toContain('scan_device_id')
       expect(JSON.stringify(body)).not.toMatch(/grossAmount|rateSnapshot|payroll|employeeNumber|"id"/)
+    }
+  })
+
+  it.each(['PRESENT','SUBMITTED','PENDING','legacy-schema','search','pagination','empty','no-token','inactive','outside-site','no-permission','invalid-section','invalid-condition','too-large'])('daftar pegawai ringkasan mengikuti cakupan card dan tidak membocorkan upah: %s', async variant => {
+    const sectionUid='55555555-5555-4555-8555-555555555555'
+    const condition=variant==='SUBMITTED' || variant==='PENDING' ? variant : 'PRESENT'
+    const employeeRow={uid:employeeUid,employeeNumber:'TEST-001',fullName:'Pekerja Uji',sectionUid,sectionName:'Linting',moduleUid:jobUid,moduleName:'Modul Uji',clockInAt:'2026-10-09T07:00:00+07:00',clockOutAt:null,depositCount:'2',quantityPcs:'500.0000',lastTransactionAt:'2026-10-09T08:00:00+07:00'}
+    mocks.query.mockResolvedValueOnce([variant==='inactive' ? [] : [deviceRow()]])
+      .mockResolvedValueOnce([[{transactionTimestamp:'2026-10-09 08:00:00',businessDate:'2026-10-09'}]])
+      .mockResolvedValueOnce([[{hasHistoryStatus:variant==='legacy-schema' ? 0 : 1}]])
+      .mockResolvedValueOnce([[{total:variant==='empty' ? 0 : variant==='pagination' ? 51 : 1}]])
+      .mockResolvedValueOnce([variant==='empty' ? [] : [employeeRow]])
+    const query=new URLSearchParams({sectionUid:variant==='invalid-section' ? 'internal-1' : sectionUid,condition:variant==='invalid-condition' ? 'ALL' : condition})
+    if (variant==='search') query.set('search','Pekerja')
+    if (variant==='pagination') query.set('page','9')
+    if (variant==='too-large') query.set('pageSize','501')
+    const response=await request(`/terminal/daily-summary/employees?${query}`,{
+      withToken:variant!=='no-token',
+      auth:auth({permissions:variant==='no-permission' ? ['production.view'] : ['production.scan'],sites:variant==='outside-site' ? ['KLATEN'] : ['JEPARA']}),
+    })
+    const rejected=variant==='no-token' || variant==='inactive' ? 401 : variant==='outside-site' || variant==='no-permission' ? 403 : ['invalid-section','invalid-condition','too-large'].includes(variant) ? 422 : 200
+    expect(response.status).toBe(rejected)
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.beginTransaction).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
+    if (rejected!==200) return
+    const body=await response.json() as {items:Array<Record<string,unknown>>;pagination:Record<string,number>}
+    expect(body.pagination).toMatchObject({page:variant==='pagination' ? 2 : 1,pageSize:50,total:variant==='empty' ? 0 : variant==='pagination' ? 51 : 1})
+    expect(body.items).toHaveLength(variant==='empty' ? 0 : 1)
+    const [countSql,countValues]=mocks.query.mock.calls[3]
+    const [sql,values]=mocks.query.mock.calls[4]
+    expect(countValues.slice(0,7)).toEqual(['2026-10-09','2026-10-09','2026-10-09',1,'2026-10-09','2026-10-09',sectionUid])
+    expect(countSql).toContain('COUNT(DISTINCT attendance.employee_id)')
+    expect(countSql).toContain("attendance.attendance_status='PRESENT'")
+    expect(countSql).toContain('employee_section.uid=?')
+    expect(sql).not.toContain('scan_device_id')
+    if (variant==='legacy-schema') expect(sql).not.toContain('history.status')
+    if (variant==='PENDING') expect(countSql).toContain('AND NOT EXISTS')
+    if (variant==='SUBMITTED') {
+      expect(countSql).toContain('AND EXISTS')
+      expect(sql).toContain("pt.status='POSTED'")
+      expect(sql).toContain("unit.code='PCS'")
+      expect(values.slice(0,6)).toEqual(['2026-10-09','2026-10-09','2026-10-09',1,'2026-10-09',1])
+    }
+    if (variant==='search') expect(countValues.slice(-2)).toEqual(['%Pekerja%','%Pekerja%'])
+    if (variant!=='empty') {
+      expect(body.items[0]).toMatchObject({uid:employeeUid,section:{name:'Linting'},module:{name:'Modul Uji'},attendance:{status:'PRESENT',clockOutAt:null}})
+      expect(body.items[0].deposits).toEqual(variant==='SUBMITTED' ? {count:2,quantityPcs:'500.0000',lastTransactionAt:'2026-10-09T08:00:00+07:00'} : null)
+    }
+    expect(JSON.stringify(body)).not.toMatch(/grossAmount|rateSnapshot|payableQuantity|payroll|"id"|nik|salary|deviceToken/i)
+  })
+
+  it.each(['all','site','multiple','invalid','outside','denied'])('opsi modul transaksi dibatasi site dan izin: %s', async variant => {
+    mocks.query.mockResolvedValueOnce([[{uid:jobUid,name:'Modul Uji',site:'JEPARA',siteName:'Jepara'}]])
+    const suffix=variant==='site' ? '?site=JEPARA' : variant==='multiple' ? '?site=JEPARA&site=KLATEN' : variant==='invalid' ? '?site=UNKNOWN' : variant==='outside' ? '?site=KLATEN' : ''
+    const response=await request(`/transactions/module-options${suffix}`,{
+      auth:auth({permissions:variant==='denied' ? [] : ['production.view'],sites:variant==='multiple' ? ['JEPARA','KLATEN'] : ['JEPARA']}),
+    })
+    expect(response.status).toBe(variant==='invalid' ? 422 : variant==='outside' || variant==='denied' ? 403 : 200)
+    expect(mocks.execute).not.toHaveBeenCalled()
+    if (response.status!==200) {expect(mocks.query).not.toHaveBeenCalled();return}
+    const [sql,values]=mocks.query.mock.calls[0]
+    expect(sql).toContain('FROM production_modules module')
+    expect(sql).toContain(variant==='multiple' ? 's.code IN (?,?)' : 's.code IN (?)')
+    expect(values).toEqual(variant==='multiple' ? ['JEPARA','KLATEN','JEPARA','KLATEN'] : variant==='site' ? ['JEPARA','JEPARA'] : ['JEPARA'])
+    expect(await response.json()).toEqual({items:[{uid:jobUid,name:'Modul Uji',site:'JEPARA',siteName:'Jepara'}]})
+  })
+
+  it.each(['legacy','status','invalid'])('filter modul berlaku pada list dan semua total dengan penempatan historis: %s', async variant => {
+    mocks.query.mockResolvedValueOnce([[{hasHistoryStatus:variant==='status' ? 1 : 0}]])
+      .mockResolvedValueOnce([[{transactionCount:0,employeeCount:0,totalGrossAmount:0}]])
+      .mockResolvedValueOnce([[]]).mockResolvedValueOnce([[]])
+    const response=await request(`/transactions?site=JEPARA&moduleUid=${variant==='invalid' ? '1' : jobUid}`)
+    expect(response.status).toBe(variant==='invalid' ? 422 : 200)
+    if (variant==='invalid') {expect(mocks.query).not.toHaveBeenCalled();return}
+    expect(mocks.query).toHaveBeenCalledTimes(4)
+    for (const [sql,values] of mocks.query.mock.calls.slice(1)) {
+      expect(sql).toContain('module_history.site_id=pt.site_id')
+      expect(sql).toContain('module_history.effective_from<=pt.business_date')
+      expect(sql).toContain('module.uid IN (?)')
+      expect(sql).toContain('conflicting_history.id<>module_history.id')
+      expect(values).toContain(jobUid)
+      if (variant==='status') expect(sql).toContain("module_history.status='ACTIVE'")
+      else expect(sql).not.toContain('module_history.status')
+    }
+  })
+
+  it.each(['BORONGAN','TRAINING','combined','invalid'])('jenis karyawan memakai histori transaksi dan bisa digabung dengan modul: %s', async variant => {
+    mocks.query.mockResolvedValueOnce([[{hasHistoryStatus:0}]])
+      .mockResolvedValueOnce([[{transactionCount:0,employeeCount:0,totalGrossAmount:0}]])
+      .mockResolvedValueOnce([[]]).mockResolvedValueOnce([[]])
+    const type=variant==='invalid' ? 'OTHER' : variant==='TRAINING' ? 'TRAINING' : 'BORONGAN'
+    const response=await request(`/transactions?employeeType=${type}${variant==='combined' ? `&moduleUid=${jobUid}` : ''}`)
+    expect(response.status).toBe(variant==='invalid' ? 422 : 200)
+    if (variant==='invalid') {expect(mocks.query).not.toHaveBeenCalled();return}
+    for (const [sql,values] of mocks.query.mock.calls.slice(1)) {
+      expect(sql).toContain('historical_type.id=module_history.employee_type_id')
+      expect(sql).toContain('historical_type.code IN (?)')
+      expect(values).toContain(type)
+      expect(sql.includes('module.uid IN (?)')).toBe(variant==='combined')
     }
   })
 
@@ -981,6 +1088,9 @@ describe('Production transactions API', () => {
     })
 
     expect(response.status).toBe(200)
+    expect(String(mocks.query.mock.calls[0]?.[0])).not.toContain('activation_code_expires_at>')
+    const update = mocks.execute.mock.calls.find(([sql]) => String(sql).includes('UPDATE scan_devices'))
+    expect(String(update?.[0])).toContain('activation_code_hash=NULL')
     const lookupParams = mocks.query.mock.calls[0]?.[1] as string[]
     expect(lookupParams[0]).toMatch(/^PRODUCTION:[a-f0-9]{64}$/)
     expect(lookupParams[1]).toMatch(/^[a-f0-9]{64}$/)
@@ -994,6 +1104,7 @@ describe('Production transactions API', () => {
       withToken: false,
     })
     expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({code:'DEVICE_SESSION_INVALID'})
     expect(mocks.rollback).toHaveBeenCalled()
   })
   it('lookup pekerjaan non-Linting tetap memuat brand site dan default terakhir perangkat', async () => {

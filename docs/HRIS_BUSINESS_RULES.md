@@ -119,6 +119,12 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   kerja atau penugasan efektif yang bertumpang-tindih, site Shift yang berbeda,
   Shift nonaktif, serta hari kerja kosong wajib ditandai sebagai kondisi yang
   perlu diperiksa dan tidak boleh disamarkan sebagai penugasan siap.
+- Kode aktivasi Attendance/Produksi tidak kedaluwarsa,
+  tetapi hanya dapat digunakan sekali; kode pengganti membatalkan kode yang
+  belum dipakai dan token lama hanya pada tujuan aktivasi yang dipilih.
+  Aktivasi browser dipertahankan saat login habis, izin berubah, atau koneksi
+  gagal; hanya penolakan eksplisit `DEVICE_SESSION_INVALID`, Putuskan manual,
+  atau kehilangan data browser yang melepas aktivasi tersimpan.
 - Laporan Perangkat dan Aktivitas Scan merupakan ringkasan baca-saja per
   perangkat dan periode. Kondisi aktivitas hanya dihitung dari
   `attendance_scan_events`; perangkat nonaktif, belum diaktivasi untuk
@@ -141,6 +147,10 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   untuk karyawan, site, dan tanggal yang sama. Eligibility aksi individual dan
   massal pada Monitoring Harian wajib berasal dari policy server yang sama.
 - Attendance merupakan syarat setoran produksi pada business date yang sama.
+- Filter Modul Produksi pada Transaksi Produksi memakai opsi modul sesuai site
+  yang dipilih dan cakupan akses akun. Filter modul serta Jenis Karyawan memakai
+  histori penempatan efektif pada tanggal/site transaksi, bukan data current.
+  Histori ambigu tidak dipilih; filter berlaku sama pada daftar dan total.
 - Tanggal go-live Attendance adalah batas inklusif fakta operasional resmi.
   Monitoring Harian, Kesiapan Attendance, serta antrean aktif Koreksi dan
   Klasifikasi hanya memproses tanggal sejak go-live. Histori sebelum go-live

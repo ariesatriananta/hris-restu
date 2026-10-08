@@ -545,7 +545,7 @@ export interface AttendanceDeviceActivation {
   uid?: string
   purpose: AttendanceDeviceActivationPurpose
   activationCode: string
-  activationCodeExpiresAt: string
+  activationCodeExpiresAt: string | null
 }
 
 export interface ActivatedAttendanceDevice {

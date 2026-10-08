@@ -41,6 +41,8 @@ import type {
   ProductionQcOptions,
   ProductionTerminalLookup,
   ProductionTerminalDailySummary,
+  ProductionTerminalSummaryEmployeeParams,
+  ProductionTerminalSummaryEmployeeResult,
   ProductionTerminalRecentTransaction,
   ProductionTerminalTransactionDetail,
   ProductionTransactionListParams,
@@ -334,10 +336,37 @@ export function useProductionTerminalDailySummary(
   return useQuery({
     queryKey: [...keys.all, 'terminal-daily-summary', deviceUid],
     queryFn: async () =>
-      (await apiClient.get<ProductionTerminalDailySummary>(
-        '/production/terminal/daily-summary',
-        { headers: { 'X-Production-Device-Token': deviceToken } }
-      )).data,
+      (
+        await apiClient.get<ProductionTerminalDailySummary>(
+          '/production/terminal/daily-summary',
+          { headers: { 'X-Production-Device-Token': deviceToken } }
+        )
+      ).data,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchInterval: 60_000,
+    retry: false,
+  })
+}
+
+export function useProductionTerminalSummaryEmployees(
+  deviceUid: string,
+  deviceToken: string,
+  params?: ProductionTerminalSummaryEmployeeParams,
+  enabled = true
+) {
+  // Device credentials must not be exposed in cache keys.
+  // eslint-disable-next-line @tanstack/query/exhaustive-deps
+  return useQuery({
+    queryKey: [...keys.all, 'terminal-summary-employees', deviceUid, params],
+    enabled: enabled && Boolean(params),
+    queryFn: async () =>
+      (
+        await apiClient.get<ProductionTerminalSummaryEmployeeResult>(
+          '/production/terminal/daily-summary/employees',
+          { params, headers: { 'X-Production-Device-Token': deviceToken } }
+        )
+      ).data,
     staleTime: 0,
     refetchOnMount: 'always',
     refetchInterval: 60_000,
@@ -415,6 +444,23 @@ export function useProductionTerminalDetail(
     enabled: Boolean(uid),
     refetchOnMount: 'always',
     retry: false,
+  })
+}
+
+export function useProductionTransactionModuleOptions(site?: string[]) {
+  return useQuery({
+    queryKey: [...keys.all, 'transaction-module-options', site],
+    queryFn: async () =>
+      (
+        await apiClient.get<{
+          items: Array<{
+            uid: string
+            name: string
+            site: ProductionSite
+            siteName: string
+          }>
+        }>(`/production/transactions/module-options?${params({ site })}`)
+      ).data,
   })
 }
 

@@ -671,8 +671,8 @@ function ActivationCodeDialog({
           </DialogTitle>
           <DialogDescription>
             Gunakan kode ini pada halaman Terminal {purposeLabel}. Kode hanya
-            ditampilkan sekarang dan berlaku sampai{' '}
-            {formatDateTime(activation.activationCodeExpiresAt)}.
+            ditampilkan sekarang, tidak kedaluwarsa, dan hanya bisa digunakan
+            satu kali. Membuat kode baru akan menggantikan kode ini.
           </DialogDescription>
         </DialogHeader>
         <div className='rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm'>

@@ -20,6 +20,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { isDeviceSessionInvalid } from '@/lib/device-session'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -129,7 +130,7 @@ function ActivationScreen({
               >
                 {apiMessage(
                   activate.error,
-                  'Kode aktivasi tidak valid atau sudah kedaluwarsa.'
+                  'Kode aktivasi tidak valid, sudah digunakan, atau sudah diganti.'
                 )}
               </p>
             )}
@@ -238,8 +239,10 @@ function ScanTerminal({
         setRecent((current) => [item, ...current].slice(0, 5))
         setBarcode('')
       } catch (error) {
-        const status = isAxiosError(error) ? error.response?.status : undefined
-        if (status === 401 || status === 403) {
+        if (isDeviceSessionInvalid(error)) {
+          toast.error(
+            'Aktivasi perangkat tidak valid. Hubungkan kembali perangkat.'
+          )
           localStorage.removeItem(storageKey)
           onDeactivate()
           return
@@ -924,7 +927,13 @@ function readSession(): TerminalSession | null {
   }
 }
 function apiMessage(error: unknown, fallback: string) {
+  if (
+    isAxiosError(error) &&
+    error.response?.status === 401 &&
+    !isDeviceSessionInvalid(error)
+  )
+    return 'Sesi login tidak valid. Silakan login ulang; aktivasi perangkat tetap tersimpan.'
   return isAxiosError<{ message?: string }>(error)
-    ? (error.response?.data.message ?? fallback)
+    ? (error.response?.data?.message ?? fallback)
     : fallback
 }

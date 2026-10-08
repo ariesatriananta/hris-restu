@@ -201,7 +201,7 @@ attendanceTerminalRouter.post(
       const auth = res.locals.auth as AuthContext
       const deviceToken = req.get('X-Attendance-Device-Token')?.trim()
       if (!deviceToken || deviceToken.length < 40 || deviceToken.length > 200) {
-        throw new ApiError(401, 'Token perangkat Attendance tidak valid.')
+        throw new ApiError(401, 'Token perangkat Attendance tidak valid.', 'DEVICE_SESSION_INVALID')
       }
 
       await conn.beginTransaction()
@@ -227,7 +227,7 @@ attendanceTerminalRouter.post(
       )
       const device = deviceRows[0]
       if (!device || Number(device.isActive) !== 1) {
-        throw new ApiError(401, 'Perangkat Attendance tidak aktif atau belum terdaftar.')
+        throw new ApiError(401, 'Perangkat Attendance tidak aktif atau belum terdaftar.', 'DEVICE_SESSION_INVALID')
       }
       enforceSite(auth, device.site)
       eventContext = {
