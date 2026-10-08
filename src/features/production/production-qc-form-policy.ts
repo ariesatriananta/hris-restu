@@ -71,12 +71,14 @@ export function validateQcWeight(value: string) {
 }
 export function validateProductionQc(
   draft: ProductionQcDraft,
-  options?: ProductionQcOptions
+  options?: ProductionQcOptions,
+  linting = true
 ): string | undefined {
   if (!options?.brands.length)
     return 'Brand aktif untuk site ini belum tersedia. Hubungi pengelola master Brand Produksi.'
   if (!options.brands.some((item) => item.uid === draft.brandUid))
     return 'Pilih brand terlebih dahulu.'
+  if (!linting) return
   if (!validateQcWeight(draft.weight1) || !validateQcWeight(draft.weight2))
     return 'Isi kedua berat dengan angka positif maksimal dua desimal.'
   if (
@@ -90,8 +92,10 @@ export function validateProductionQc(
 }
 export function productionQcPayload(
   draft: ProductionQcDraft,
-  options: ProductionQcOptions
+  options: ProductionQcOptions,
+  linting = true
 ): ProductionQcInput {
+  if (!linting) return { brandUid: draft.brandUid, defects: [] }
   return {
     brandUid: draft.brandUid,
     weight1Grams: draft.weight1.trim().replace(',', '.'),

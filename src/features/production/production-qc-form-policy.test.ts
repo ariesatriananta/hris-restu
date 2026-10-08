@@ -16,6 +16,22 @@ const options = {
   defects: [{ uid: 'defect', code: 'DF-1', name: 'Defect A', sortOrder: 0 }],
 }
 describe('QC form policy', () => {
+  it('requires only an active site brand for other jobs and omits stale Linting metadata', () => {
+    const draft = {
+      ...emptyProductionQc(),
+      brandUid: 'brand',
+      weight1: '71,29',
+      defects: { defect: '10' },
+    }
+    expect(validateProductionQc(draft, options, false)).toBeUndefined()
+    expect(productionQcPayload(draft, options, false)).toEqual({
+      brandUid: 'brand',
+      defects: [],
+    })
+    expect(
+      validateProductionQc({ ...draft, brandUid: '' }, options, false)
+    ).toBeTruthy()
+  })
   it.each([
     ['8132', '81,32'],
     ['71,29', '71,29'],

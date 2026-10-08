@@ -261,15 +261,6 @@ export function buildProductionTemplateWorkbook(
   sheet['!autofilter'] = {
     ref: `A1:${XLSX.utils.encode_col(headers.length - 1)}${result.data.length + 1}`,
   }
-  defects.forEach((defect, index) => {
-    const cell = sheet[XLSX.utils.encode_cell({ r: 0, c: 7 + index })]
-    cell.c = [
-      {
-        a: 'HRIS RSIA',
-        t: `Defect: ${defect.name}. Isi jumlah bilangan bulat; kosong berarti 0.`,
-      },
-    ]
-  })
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, sheet, 'Hasil Produksi')
   const reference = XLSX.utils.aoa_to_sheet([
@@ -296,13 +287,13 @@ export function buildProductionTemplateWorkbook(
     ['Jangan mengubah NOMOR_KARYAWAN; NAMA_KARYAWAN hanya informasi.'],
     ['Site dan pekerjaan utama mengikuti histori pada tanggal setoran.'],
     [
-      'QC hanya untuk pekerjaan BORONGAN-LINTING. Salin satu kode Brand sesuai site dari Referensi QC.',
+      'Brand dapat diisi untuk semua pekerjaan. Salin satu kode Brand sesuai site dari Referensi QC; sementara boleh kosong.',
     ],
     [
-      'Dua berat adalah gram untuk masing-masing satu sampel, positif maksimal 2 desimal; koma atau titik diterima.',
+      'Berat dan defect hanya untuk BORONGAN-LINTING. Dua berat adalah gram untuk masing-masing satu sampel, positif maksimal 2 desimal; koma atau titik diterima.',
     ],
     [
-      'Nama defect tersedia pada komentar header dan Referensi QC. Isi jumlah per defect; kosong berarti 0.',
+      'Nama defect tersedia pada Referensi QC. Isi jumlah bilangan bulat per defect; kosong berarti 0.',
     ],
     [
       'Defect tidak mengurangi setoran atau upah. Satu batang boleh memiliki beberapa defect.',

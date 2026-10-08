@@ -40,6 +40,9 @@ import type {
   ProductionQcInput,
   ProductionQcOptions,
   ProductionTerminalLookup,
+  ProductionTerminalDailySummary,
+  ProductionTerminalRecentTransaction,
+  ProductionTerminalTransactionDetail,
   ProductionTransactionListParams,
   ProductionTransactionResult,
   ProductionRevisionResult,
@@ -68,6 +71,8 @@ const keys = {
   transactions: (input: ProductionTransactionListParams) =>
     [...keys.all, 'transactions', input] as const,
   transaction: (uid: string) => [...keys.all, 'transaction', uid] as const,
+  terminalRecent: (deviceUid: string) =>
+    [...keys.all, 'terminal-recent', deviceUid] as const,
   correctionContext: (uid: string) =>
     [...keys.all, 'transaction', uid, 'correction-context'] as const,
   eligibleEmployees: (input: Record<string, unknown>) =>
@@ -320,6 +325,46 @@ export function useProductionTerminalLookup() {
   })
 }
 
+export function useProductionTerminalDailySummary(
+  deviceUid: string,
+  deviceToken: string
+) {
+  // Scope by public device UID; never expose device tokens in cache keys.
+  // eslint-disable-next-line @tanstack/query/exhaustive-deps
+  return useQuery({
+    queryKey: [...keys.all, 'terminal-daily-summary', deviceUid],
+    queryFn: async () =>
+      (await apiClient.get<ProductionTerminalDailySummary>(
+        '/production/terminal/daily-summary',
+        { headers: { 'X-Production-Device-Token': deviceToken } }
+      )).data,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchInterval: 60_000,
+    retry: false,
+  })
+}
+
+export function useProductionTerminalRecent(
+  deviceUid: string,
+  deviceToken: string
+) {
+  // Scope by public device UID; never expose device tokens in cache keys.
+  // eslint-disable-next-line @tanstack/query/exhaustive-deps
+  return useQuery({
+    queryKey: keys.terminalRecent(deviceUid),
+    queryFn: async () =>
+      (
+        await apiClient.get<{ items: ProductionTerminalRecentTransaction[] }>(
+          '/production/terminal/recent',
+          { headers: { 'X-Production-Device-Token': deviceToken } }
+        )
+      ).data,
+    refetchOnMount: 'always',
+    retry: false,
+  })
+}
+
 export function usePostProductionTransaction() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -347,6 +392,29 @@ export function usePostProductionTransaction() {
       queryClient.invalidateQueries({
         queryKey: [...keys.all, 'transactions'],
       }),
+  })
+}
+
+export function useProductionTerminalDetail(
+  deviceUid: string,
+  deviceToken: string,
+  uid?: string
+) {
+  // Device tokens are credentials, not public cache identifiers.
+  // eslint-disable-next-line @tanstack/query/exhaustive-deps
+  return useQuery({
+    queryKey: [...keys.terminalRecent(deviceUid), 'detail', uid],
+    queryFn: async () =>
+      (
+        await apiClient.get<{
+          transaction: ProductionTerminalTransactionDetail
+        }>(`/production/terminal/transactions/${uid}`, {
+          headers: { 'X-Production-Device-Token': deviceToken },
+        })
+      ).data.transaction,
+    enabled: Boolean(uid),
+    refetchOnMount: 'always',
+    retry: false,
   })
 }
 

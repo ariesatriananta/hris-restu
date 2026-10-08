@@ -30,6 +30,28 @@ function Form({ quantity = '' }: { quantity?: string }) {
   )
 }
 describe('QC Linting fields', () => {
+  it('shows only brand for other jobs, without sample, defect or Linting summary fields', async () => {
+    const screen = await render(
+      <ProductionQcFields
+        value={emptyProductionQc()}
+        onChange={() => undefined}
+        options={options}
+        linting={false}
+      />
+    )
+    await expect
+      .element(screen.getByRole('radio', { name: 'Brand A' }))
+      .toBeVisible()
+    await expect
+      .element(screen.getByLabelText('Berat 1 (gram) *'))
+      .not.toBeInTheDocument()
+    await expect
+      .element(screen.getByTestId('qc-defects-grid'))
+      .not.toBeInTheDocument()
+    await expect
+      .element(screen.getByLabelText('Ringkasan hasil setoran'))
+      .not.toBeInTheDocument()
+  })
   it('increments and decrements defects without going below zero', async () => {
     const screen = await render(<Form />)
     const defect = screen.getByLabelText('Rokok Mletek', { exact: true })

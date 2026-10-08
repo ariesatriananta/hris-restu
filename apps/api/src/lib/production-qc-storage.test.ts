@@ -29,6 +29,15 @@ function database(brands = [brand], defects = [defect, secondDefect]) {
 }
 
 describe('production QC persistence', () => {
+  it('accepts and persists brand-only metadata for non-Linting work without payroll fields', async () => {
+    const db = database()
+    const resolved = await resolveProductionQc(db.connection, productionQcInput.parse({ brandUid }), 5, 'BORONGAN-PACKING', true)
+    expect(resolved).toMatchObject({ brand: { uid: brandUid }, weight1Grams: null, weight2Grams: null, defects: [] })
+    await saveProductionQc(db.connection, 101, resolved, 7)
+    expect(db.execute).toHaveBeenCalledTimes(1)
+    const calls = db.execute.mock.calls as unknown as [string, unknown[]][]
+    expect(calls[0][0]).not.toContain('production_transactions(')
+  })
   it.each([{ rows: [{ uid: brandUid }] }, { rows: [] }])('reads the last saved brand scoped to the verified device and site: %j', async ({ rows }) => {
     const query = vi.fn().mockResolvedValue([rows])
     expect(await lastProductionDeviceBrand({ query } as unknown as PoolConnection, 8, 5)).toBe(rows[0]?.uid ?? null)

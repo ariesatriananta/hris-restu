@@ -3,6 +3,26 @@ import { render } from 'vitest-browser-react'
 import { ProductionQcDetail } from './production-qc-detail'
 
 describe('QC detail snapshot', () => {
+  it('shows only the brand snapshot for non-Linting work', async () => {
+    const screen = await render(
+      <ProductionQcDetail
+        linting={false}
+        qc={{
+          brand: { uid: 'brand', code: 'BR-1', name: 'Brand saat setor' },
+          weight1Grams: null,
+          weight2Grams: null,
+          defects: [],
+        }}
+      />
+    )
+    await expect.element(screen.getByText('Brand saat setor')).toBeVisible()
+    await expect
+      .element(screen.getByText('QC Hasil Linting'))
+      .not.toBeInTheDocument()
+    await expect
+      .element(screen.getByText('Berat 1 (sampel)'))
+      .not.toBeInTheDocument()
+  })
   it('shows original labels, two-decimal grams and overlapping defects independently from pay', async () => {
     const screen = await render(
       <ProductionQcDetail

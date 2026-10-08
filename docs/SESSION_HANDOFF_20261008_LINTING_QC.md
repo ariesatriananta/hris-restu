@@ -2,10 +2,12 @@
 
 ## Keputusan Bos
 
-- QC hanya untuk pekerjaan `BORONGAN-LINTING`, bukan bagian karyawan.
+- Berat dan defect QC hanya untuk pekerjaan `BORONGAN-LINTING`, bukan bagian
+  karyawan. Brand berlaku untuk seluruh pekerjaan (revisi terakhir Bos).
 - Satu setoran satu brand; master brand per site, current-state tanpa tanggal berlaku.
 - Master defect global: nama jenis, aktif/nonaktif, urutan; tanpa alasan tambahan.
-- Brand dan dua berat wajib pada UI setoran baru; backend tetap opsional.
+- Brand wajib pada seluruh UI setoran baru/susulan; dua berat hanya wajib
+  untuk Linting. Backend dan Excel tetap opsional.
 - Berat 1/2 masing-masing satu sampel batang, gram positif maksimal dua desimal;
   input koma atau titik diterima.
 - Defect bilangan bulat tidak negatif; satu batang boleh punya beberapa defect,
@@ -227,7 +229,85 @@
 - Verifikasi: 74 test frontend pada 11 suite lulus; TypeScript, lint focused,
   dan build frontend lulus. Tidak menjalankan transaksi atau migration database.
 
-## Batas penerapan akhir
+## Perluasan Brand seluruh pekerjaan dan perapihan template
+
+- Lookup terminal selalu memuat opsi Brand site bila ada pekerjaan tersedia,
+  tetap mengikuti default Brand terakhir perangkat/site atau opsi pertama.
+- Form scan dan susulan mewajibkan Brand untuk seluruh pekerjaan; form selain
+  Linting tidak menampilkan atau mengirim berat, defect, dan ringkasan Linting.
+- API/Excel menerima Brand saja untuk pekerjaan lain, tetap memvalidasi Brand
+  aktif pada site efektif. Berat/defect ditolak untuk pekerjaan non-Linting;
+  API/Excel lama tanpa metadata tetap diterima.
+- Koreksi append-only mempertahankan snapshot Brand; berat dan defect hanya
+  disalin ke pekerjaan Linting. Detail non-Linting hanya menampilkan Brand.
+- Komentar pada header defect template dihapus karena WPS menampilkannya sebagai
+  panel mengambang di area input. Nama/kode defect dan panduan tetap tersedia
+  pada sheet Referensi QC/Panduan. Unduh ulang template untuk mendapat revisi;
+  file lama di komputer tidak berubah otomatis.
+- Tidak ada migration, backfill, perubahan kuantitas/tarif/potongan/Payroll,
+  transaksi database, atau deploy pada perubahan ini.
+- Verifikasi perluasan: 83 test frontend Produksi pada 11 suite dan 749 test
+  backend pada 96 suite lulus. Backend diuji berurutan dengan environment dummy,
+  bukan koneksi database operasional; lint focused, format frontend, build
+  frontend, dan build API lulus.
+
+## Riwayat 5 setoran per perangkat
+
+- Riwayat terminal kini dibaca dari transaksi tersimpan melalui
+  `GET /api/production/terminal/recent`, bukan state sesi browser.
+- Endpoint membutuhkan `production.scan`, token perangkat Produksi aktif, dan
+  akses site perangkat. Query dibatasi `scan_device_id`, site, status POSTED,
+  urutan tanggal transaksi/id terbaru, maksimal lima transaksi. Bukan filter
+  pengguna atau hari tertentu, sehingga tetap tersedia setelah refresh.
+- Respons hanya identitas operasional, pekerjaan, satuan/PCS, waktu, dan
+  snapshot Brand. Tidak mengirim nominal upah, tarif, atau jumlah dibayar.
+- Frontend mengambil ulang saat mount/refresh dan setelah simpan berhasil;
+  loading/error/retry tersedia tanpa mengubah data setoran. Token tidak dimuat
+  dalam query cache key. Endpoint bersifat read-only, tanpa migration.
+- Regresi: 86 test frontend Produksi dan 73 test route transaksi lulus;
+  TypeScript frontend, build API, serta lint focused lulus.
+
+## Drawer detail setoran terminal
+
+- Card riwayat adalah tombol aksesibel yang membuka Sheet standar repo,
+  full-width di HP dan scroll vertikal aman, tanpa action bisnis.
+- Detail baca-saja menampilkan identitas pekerja, PCS mentah, status, nomor,
+  tanggal/waktu, pekerjaan, perangkat, sumber, dan snapshot Brand/QC.
+- API khusus `GET /api/production/terminal/transactions/:uid` memvalidasi
+  permission scan, token perangkat aktif, akses site, serta kepemilikan UID
+  transaksi pada perangkat/site. Transaksi VOID boleh dibaca sebagai Dibatalkan.
+- Query/respons detail tidak memuat upah, tarif, potongan, Payroll, atau action
+  permissions. QC tetap snapshot; setoran lama tanpa QC diberi informasi kosong.
+- Tidak memakai endpoint detail admin dan tidak mengubah transaksi database.
+- Regresi: 87 test frontend Produksi dan 80 test route transaksi lulus,
+  termasuk akses perangkat/site, snapshot QC, drawer mobile tanpa upah/action.
+
+## Ringkasan QC pada card riwayat Linting
+
+- Card Linting menambah satu baris compact: total defect serta berat sampel
+  1/2 dalam gram dua desimal. Card pekerjaan lain tidak mendapat baris ini.
+- Endpoint recent membaca berat tersimpan dan SUM jumlah detail defect dalam
+  query yang sama, bukan dari master/draft terbaru. QC lama yang tidak tersedia
+  ditampilkan sebagai tanda kosong, bukan dianggap berat/defect nol.
+- Tidak mengubah PCS, upah, scope perangkat, atau drawer baca-saja.
+
+## Ringkasan harian terminal dan panel riwayat
+
+- `GET /api/production/terminal/daily-summary` bersifat read-only, memerlukan
+  permission scan, token perangkat aktif, dan akses site perangkat.
+- Hari mengikuti waktu server Asia/Jakarta. Ringkasan seluruh site, bukan hanya
+  perangkat: hadir = karyawan PRESENT per bagian dari histori efektif; sudah
+  input = karyawan hadir dengan minimal satu transaksi POSTED pada site/hari
+  tersebut; belum input = hadir dikurangi sudah input. Setoran berulang dihitung
+  satu orang, VOID tidak dihitung, histori batal/bertumpang tindih tidak dipilih.
+- Satu baris tiga card per bagian produksi aktif, termasuk bagian bernilai nol.
+  Hanya tampil saat barcode kosong dan tidak sedang input setoran. Memuat ulang
+  saat kembali idle dan setiap 60 detik; kegagalan summary tidak memblokir scan.
+- Panel lima setoran perangkat dapat dilipat. Preferensi buka/tutup disimpan
+  lokal browser, default terbuka; kegagalan storage tidak memblokir operasional.
+- Tidak mengubah Attendance, transaksi, QC, tarif, atau Payroll; tanpa migration.
+
+## Batas penerapan akhir ringkasan
 
 Tidak mengeksekusi migration/seed, tidak deploy, dan tidak commit tanpa permintaan
 Bos. Pertahankan perubahan user lain pada working tree.

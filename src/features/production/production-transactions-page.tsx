@@ -322,8 +322,13 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
     (assignment) => assignment.jobUid === jobUid
   )
   const linting = isLintingJob(selectedAssignment?.jobCode)
-  const qcOptions = useProductionQcOptions(employee?.site, open && linting)
-  const qcError = linting ? validateProductionQc(qc, qcOptions.data) : undefined
+  const qcOptions = useProductionQcOptions(
+    employee?.site,
+    open && Boolean(selectedAssignment)
+  )
+  const qcError = selectedAssignment
+    ? validateProductionQc(qc, qcOptions.data, linting)
+    : undefined
   const quantityError = selectedAssignment
     ? validateProductionQuantity(
         quantity,
@@ -379,8 +384,8 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
     try {
       const output = await create.mutateAsync({
         ...proposal,
-        ...(linting && qcOptions.data
-          ? { qc: productionQcPayload(qc, qcOptions.data) }
+        ...(qcOptions.data
+          ? { qc: productionQcPayload(qc, qcOptions.data, linting) }
           : {}),
         reason: reason.trim(),
         idempotencyKey,
@@ -503,8 +508,9 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
             )}
           </label>
         </div>
-        {linting && (
+        {selectedAssignment && (
           <ProductionQcFields
+            linting={linting}
             quantity={quantity}
             value={qc}
             options={qcOptions.data}
@@ -1184,7 +1190,10 @@ function TransactionDetailSheet({
                 </div>
               )}
               {item.qc ? (
-                <ProductionQcDetail qc={item.qc} />
+                <ProductionQcDetail
+                  qc={item.qc}
+                  linting={isLintingJob(item.job.code)}
+                />
               ) : isLintingJob(item.job.code) ? (
                 <div className='rounded-lg border p-3 text-sm'>
                   <p className='font-semibold'>QC Hasil Linting</p>
@@ -1557,9 +1566,9 @@ function CorrectionDialog({
             {preview.data && <CorrectionPreviewPanel preview={preview.data} />}
             {context.data.transaction.qc && (
               <p className='rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground'>
-                QC asli dipertahankan jika pekerjaan pengganti tetap Linting.
-                Pekerjaan lain tidak membawa QC Linting. Koreksi ini tidak
-                mengubah data QC.
+                Brand asli dipertahankan. Berat dan defect hanya dibawa jika
+                pekerjaan pengganti tetap Linting. Koreksi ini tidak mengubah
+                data QC.
               </p>
             )}
             <label className='grid gap-1.5 text-sm'>

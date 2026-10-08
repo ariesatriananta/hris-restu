@@ -274,6 +274,47 @@ describe('Production transactions API', () => {
     )
   })
 
+  it.each(['success', 'empty', 'no-token', 'inactive', 'outside-site', 'no-permission'])('ringkasan harian terminal seluruh site read-only: %s', async variant => {
+    mocks.query.mockResolvedValueOnce([variant==='inactive' ? [] : [deviceRow()]])
+      .mockResolvedValueOnce([[{businessDate:'2026-10-08',transactionTimestamp:'2026-10-09 00:05:00.000000',serverTime:'2026-10-09T00:05:00+07:00'}]])
+      .mockResolvedValueOnce([variant==='empty' ? [] : [
+        {uid:'section-linting',name:'Linting',presentEmployees:'315',submittedEmployees:'200'},
+        {uid:'section-slop',name:'Slop',presentEmployees:'0',submittedEmployees:'0'},
+      ]])
+    const response = await request('/terminal/daily-summary', {
+      withToken:variant!=='no-token',
+      auth:auth({permissions:variant==='no-permission' ? ['production.view'] : ['production.scan'],sites:variant==='outside-site' ? ['KLATEN'] : ['JEPARA']}),
+    })
+    expect(response.status).toBe(variant==='inactive' || variant==='no-token' ? 401 : variant==='outside-site' || variant==='no-permission' ? 403 : 200)
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.beginTransaction).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
+    if (variant==='success' || variant==='empty') {
+      const body = await response.json() as {
+        businessDate: string
+        siteName: string
+        sections: Array<{uid:string;name:string;presentEmployees:number;submittedEmployees:number;pendingEmployees:number}>
+      }
+      expect(body).toMatchObject({businessDate:'2026-10-09',siteName:'Site Jepara'})
+      expect(body.sections).toHaveLength(variant==='empty' ? 0 : 2)
+      if (variant==='success') expect(body.sections).toEqual([
+        {uid:'section-linting',name:'Linting',presentEmployees:315,submittedEmployees:200,pendingEmployees:115},
+        {uid:'section-slop',name:'Slop',presentEmployees:0,submittedEmployees:0,pendingEmployees:0},
+      ])
+      const [sql,params] = mocks.query.mock.calls[2]
+      expect(params).toEqual(['2026-10-09','2026-10-09','2026-10-09',1,'2026-10-09','2026-10-09'])
+      expect(sql).toContain('COUNT(DISTINCT attendance.employee_id)')
+      expect(sql).toContain("transaction_row.status='POSTED'")
+      expect(sql).toContain('transaction_row.business_date=attendance.business_date')
+      expect(sql).toContain('transaction_row.site_id=attendance.site_id')
+      expect(sql).toContain("attendance.attendance_status='PRESENT'")
+      expect(sql).toContain('GROUP BY mapping.production_section_id')
+      expect(sql).toContain('other_history.id<>history.id')
+      expect(sql).not.toContain('scan_device_id')
+      expect(JSON.stringify(body)).not.toMatch(/grossAmount|rateSnapshot|payroll|employeeNumber|"id"/)
+    }
+  })
+
   it('menolak Terminal tanpa production.scan sebelum membuka transaksi', async () => {
     const response = await request('/terminal/lookup', {
       method: 'POST',
@@ -282,6 +323,51 @@ describe('Production transactions API', () => {
     })
     expect(response.status).toBe(403)
     expect(mocks.beginTransaction).not.toHaveBeenCalled()
+  })
+  it.each(['qc', 'legacy', 'other-device', 'inactive', 'outside-site', 'no-permission', 'no-token'])('detail terminal hanya informasi operasional dan milik perangkat: %s', async variant => {
+    mocks.query.mockResolvedValueOnce([variant==='inactive' ? [] : [deviceRow()]])
+      .mockResolvedValueOnce([variant==='other-device' ? [] : [{ id:21,uid:transactionUid,transactionNumber:'TEST-DETAIL-001',businessDate:'2026-08-21',transactionAt:'2026-08-21T09:00:00+07:00',status:'POSTED',entrySource:'TERMINAL',quantity:'500.0000',employeeUid,employeeNumber:'TEST-001',fullName:'Pekerja Uji',jobUid,jobCode:'BORONGAN-LINTING',jobName:'Linting',unitUid:'unit',unitCode:'PCS',unitName:'Pcs',decimalPrecision:0 }]])
+      .mockResolvedValueOnce([variant==='legacy' ? [] : [{id:61,brandUid:'brand',brandCode:'BR-1',brandName:'Brand Snapshot',weight1Grams:'80.00',weight2Grams:'81.32'}]])
+      .mockResolvedValueOnce([[{uid:'defect',code:'DF-1',name:'Cowong Snapshot',sortOrder:0,quantity:10}]])
+    const response = await request(`/terminal/transactions/${transactionUid}`, {
+      withToken:variant!=='no-token',
+      auth:auth({permissions:variant==='no-permission' ? ['production.view'] : ['production.scan'],sites:variant==='outside-site' ? ['KLATEN'] : ['JEPARA']}),
+    })
+    expect(response.status).toBe(variant==='other-device' ? 404 : variant==='inactive' || variant==='no-token' ? 401 : variant==='outside-site' || variant==='no-permission' ? 403 : 200)
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.beginTransaction).not.toHaveBeenCalled()
+    if (variant==='qc' || variant==='legacy' || variant==='other-device') {
+      expect(mocks.query.mock.calls[1][1]).toEqual([transactionUid,9,1])
+      expect(mocks.query.mock.calls[1][0]).toContain('pt.uid=? AND pt.scan_device_id=? AND pt.site_id=?')
+    }
+    if (variant==='qc' || variant==='legacy') {
+      const body = await response.json() as {transaction:Record<string,unknown>}
+      expect(body.transaction).toMatchObject({quantity:'500.0000',employee:{fullName:'Pekerja Uji'},device:{uid:deviceRow().uid}})
+      expect(JSON.stringify(body)).not.toMatch(/grossAmount|rateSnapshot|payableQuantity|deduction|payroll|"id"/i)
+      if (variant==='qc') expect(body.transaction.qc).toMatchObject({brand:{name:'Brand Snapshot'},defects:[{name:'Cowong Snapshot',quantity:10}]})
+      else expect(body.transaction.qc).toBeNull()
+    }
+  })
+  it.each(['success', 'empty', 'no-token', 'inactive', 'outside-site', 'no-permission'])('riwayat terminal read-only dan terbatas perangkat aktif: %s', async variant => {
+    mocks.query.mockResolvedValueOnce([variant==='inactive' ? [] : [deviceRow()]])
+      .mockResolvedValueOnce([variant==='empty' ? [] : [{ uid: transactionUid, transactionNumber:'TEST-001', transactionAt:'2026-08-21T09:00:00+07:00', quantity:'500.0000', employeeUid, fullName:'Pekerja Uji', employeeNumber:'TEST-001', jobUid, jobCode:'BORONGAN-LINTING', jobName:'Linting', unitUid:'unit', unitCode:'PCS', unitName:'Pcs', decimalPrecision:0, brandUid:'brand', brandName:'Brand Snapshot',qcId:61,weight1Grams:'80.00',weight2Grams:'81.32',totalDefects:'10' }]])
+    const response = await request('/terminal/recent', {
+      withToken: variant!=='no-token',
+      auth:auth({ permissions:variant==='no-permission' ? ['production.view'] : ['production.scan'], sites:variant==='outside-site' ? ['KLATEN'] : ['JEPARA'] }),
+    })
+    expect(response.status).toBe(variant==='no-token' || variant==='inactive' ? 401 : variant==='outside-site' || variant==='no-permission' ? 403 : 200)
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.beginTransaction).not.toHaveBeenCalled()
+    if (variant==='success' || variant==='empty') {
+      const body = await response.json() as { items: unknown[] }
+      expect(body.items).toHaveLength(variant==='empty' ? 0 : 1)
+      const [sql,params] = mocks.query.mock.calls[1]
+      expect(params).toEqual([9,1])
+      expect(sql).toContain("pt.scan_device_id=? AND pt.site_id=? AND pt.status='POSTED'")
+      expect(sql).toContain('ORDER BY pt.transaction_at DESC,pt.id DESC LIMIT 5')
+      expect(sql).not.toContain('gross_amount')
+      if (variant==='success') expect(body.items[0]).toMatchObject({ quantity:'500.0000',brand:{name:'Brand Snapshot'},qcSummary:{weight1Grams:'80.00',weight2Grams:'81.32',totalDefects:10} })
+    } else expect(mocks.query).toHaveBeenCalledTimes(variant==='no-token' || variant==='no-permission' ? 0 : 1)
   })
 
   it('preview import memberi error per baris untuk tanggal tidak valid', async () => {
@@ -910,6 +996,24 @@ describe('Production transactions API', () => {
     expect(response.status).toBe(401)
     expect(mocks.rollback).toHaveBeenCalled()
   })
+  it('lookup pekerjaan non-Linting tetap memuat brand site dan default terakhir perangkat', async () => {
+    const brandUid = '11111111-1111-4111-8111-111111111111'
+    mocks.query
+      .mockResolvedValueOnce([[deviceRow()]])
+      .mockResolvedValueOnce([[{ businessDate: '2026-08-21', serverTime: '2026-08-21T09:00:00+07:00' }]])
+      .mockResolvedValueOnce([[{ id: 11, uid: employeeUid, employeeNumber: 'TEST-001', fullName: 'Pekerja Uji' }]])
+      .mockResolvedValueOnce([[{ id: 12, siteId: 1, allowsProduction: 1, payrollBasis: 'PIECE_RATE', site: 'JEPARA' }]])
+      .mockResolvedValueOnce([[{ id: 13, uid: 'attendance', attendanceStatus: 'PRESENT', clockInAt: '2026-08-21T06:00:00+07:00' }]])
+      .mockResolvedValueOnce([[{ id: 14 }]])
+      .mockResolvedValueOnce([[{ assignmentId: 14, isPrimary: 1, jobId: 15, jobUid, jobCode: 'BORONGAN-PACKING', jobName: 'Packing', rateId: 16, rateUid: 'rate', rateAmount: '1175.0000', currency: 'IDR', unitId: 17, unitUid: 'unit', unitCode: 'PCS', unitName: 'Pcs', decimalPrecision: 0 }]])
+      .mockResolvedValueOnce([[{ uid: brandUid, code: 'BR-A', name: 'Brand A', sortOrder: 0 }]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[{ uid: brandUid }]])
+    const response = await request('/terminal/lookup', { method: 'POST', body: { barcode: 'TEST-001' } })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ jobs: [{ code: 'BORONGAN-PACKING' }], qcOptions: { brands: [{ uid: brandUid }], defects: [] }, lastBrandUid: brandUid })
+    expect(mocks.query.mock.calls.at(-1)?.[1]).toEqual([9, 1])
+  })
 
   it('menolak setoran bila Attendance bukan Hadir meski record tersedia', async () => {
     mocks.query
@@ -1054,7 +1158,7 @@ describe('Production transactions API', () => {
     )
   })
 
-  it.each(['legacy','qc','invalid-brand','invalid-defect','qc-write-failure'])('setoran atomik dan QC tidak mengubah PCS/upah: %s', async (variant) => {
+  it.each(['legacy','qc','brand-only','invalid-brand','invalid-defect','qc-write-failure'])('setoran atomik dan QC tidak mengubah PCS/upah: %s', async (variant) => {
     const brandUid = '11111111-1111-4111-8111-111111111111'
     const defectUid = '22222222-2222-4222-8222-222222222222'
     mocks.query.mockImplementation(async (sql: unknown) => {
@@ -1094,7 +1198,7 @@ describe('Production transactions API', () => {
       ]])
       .mockResolvedValueOnce([[{ id: 14 }]])
       .mockResolvedValueOnce([[
-        { assignmentId: 14, isPrimary: 1, isJobActive: 1, jobId: 15, jobUid, jobCode: 'BORONGAN-LINTING', jobName: 'Linting' },
+        { assignmentId: 14, isPrimary: 1, isJobActive: 1, jobId: 15, jobUid, jobCode: variant==='brand-only' ? 'BORONGAN-PACKING' : 'BORONGAN-LINTING', jobName: 'Pekerjaan' },
       ]])
       .mockResolvedValueOnce([[
         { rateId: 16, rateUid: 'rate', rateAmount: '1175.0000', currency: 'IDR', unitId: 17, unitUid: 'unit', unitCode: 'PCS', unitName: 'Pcs', decimalPrecision: 0 },
@@ -1117,7 +1221,7 @@ describe('Production transactions API', () => {
         jobUid,
         quantity: '3',
         idempotencyKey: '66666666-6666-4666-8666-666666666666',
-        ...(variant!=='legacy' ? {qc:{brandUid,weight1Grams:'71,29',weight2Grams:'70.05',defects:[{defectUid,quantity:10}]}} : {}),
+        ...(variant==='brand-only' ? {qc:{brandUid}} : variant!=='legacy' ? {qc:{brandUid,weight1Grams:'71,29',weight2Grams:'70.05',defects:[{defectUid,quantity:10}]}} : {}),
       },
     })
     if (variant==='invalid-brand' || variant==='invalid-defect' || variant==='qc-write-failure') {
@@ -1142,6 +1246,9 @@ describe('Production transactions API', () => {
     if (variant==='qc') {
       expect(qcHeader?.[1]).toEqual(expect.arrayContaining([21,81,'BR-A','Brand A','71.29','70.05']))
       expect(mocks.execute.mock.calls.some(call=>String(call[0]).includes('INSERT INTO production_transaction_qc_defects'))).toBe(true)
+    } else if (variant==='brand-only') {
+      expect(qcHeader?.[1]).toEqual(expect.arrayContaining([21,81,'BR-A','Brand A',null]))
+      expect(mocks.execute.mock.calls.some(call=>String(call[0]).includes('INSERT INTO production_transaction_qc_defects'))).toBe(false)
     } else expect(qcHeader).toBeUndefined()
   })
 

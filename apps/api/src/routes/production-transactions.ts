@@ -2245,6 +2245,131 @@ async function productionBatchDeleteSummary(
 export const productionTransactionsRouter = Router()
 productionTransactionsRouter.use(authenticate)
 
+productionTransactionsRouter.get('/terminal/daily-summary', requirePermission('production.scan'), async (req, res, next) => {
+  const conn = await pool.getConnection()
+  try {
+    const device = await getDevice(conn, deviceToken(req))
+    enforceSite(res.locals.auth as AuthContext, String(device.site))
+    const { businessDate } = await currentServerTime(conn)
+    const [rows] = await conn.query<RowDataPacket[]>(
+      `SELECT section.uid,section.name,
+              COALESCE(summary.presentEmployees,0) presentEmployees,
+              COALESCE(summary.submittedEmployees,0) submittedEmployees
+         FROM production_sections section
+         LEFT JOIN (
+           SELECT mapping.production_section_id,
+                  COUNT(DISTINCT attendance.employee_id) presentEmployees,
+                  COUNT(DISTINCT CASE WHEN EXISTS (
+                    SELECT 1 FROM production_transactions transaction_row
+                     WHERE transaction_row.employee_id=attendance.employee_id
+                       AND transaction_row.site_id=attendance.site_id
+                       AND transaction_row.business_date=attendance.business_date
+                       AND transaction_row.status='POSTED'
+                  ) THEN attendance.employee_id END) submittedEmployees
+             FROM attendance_records attendance
+             JOIN employee_employment_histories history
+               ON history.employee_id=attendance.employee_id
+              AND history.site_id=attendance.site_id
+              AND history.status='ACTIVE'
+              AND history.effective_from<=?
+              AND (history.effective_to IS NULL OR history.effective_to>=?)
+             JOIN employee_statuses employment_status
+               ON employment_status.id=history.employee_status_id
+              AND employment_status.allows_production=1
+             JOIN production_module_sections mapping
+               ON mapping.id=history.production_module_section_id
+            WHERE attendance.business_date=? AND attendance.site_id=?
+              AND attendance.attendance_status='PRESENT'
+              AND NOT EXISTS (
+                SELECT 1 FROM employee_employment_histories other_history
+                 WHERE other_history.employee_id=history.employee_id
+                   AND other_history.id<>history.id AND other_history.status='ACTIVE'
+                   AND other_history.effective_from<=?
+                   AND (other_history.effective_to IS NULL OR other_history.effective_to>=?)
+              )
+            GROUP BY mapping.production_section_id
+         ) summary ON summary.production_section_id=section.id
+        WHERE section.is_active=1 ORDER BY section.name,section.id`,
+      [businessDate,businessDate,businessDate,device.siteId,businessDate,businessDate]
+    )
+    res.json({ businessDate,siteName:device.siteName,sections:rows.map(row => ({
+      uid:row.uid,name:row.name,presentEmployees:Number(row.presentEmployees),
+      submittedEmployees:Number(row.submittedEmployees),
+      pendingEmployees:Number(row.presentEmployees)-Number(row.submittedEmployees),
+    })) })
+  } catch (error) { next(error) } finally { conn.release() }
+})
+
+productionTransactionsRouter.get('/terminal/recent', requirePermission('production.scan'), async (req, res, next) => {
+  const conn = await pool.getConnection()
+  try {
+    const auth = res.locals.auth as AuthContext
+    const device = await getDevice(conn, deviceToken(req))
+    enforceSite(auth, String(device.site))
+    const [rows] = await conn.query<RowDataPacket[]>(
+      `SELECT pt.uid,pt.transaction_number transactionNumber,
+              DATE_FORMAT(pt.transaction_at,'%Y-%m-%dT%H:%i:%s+07:00') transactionAt,
+              CAST(pt.quantity AS CHAR) quantity,e.uid employeeUid,e.full_name fullName,
+              e.employee_number employeeNumber,j.uid jobUid,j.code jobCode,j.name jobName,
+              u.uid unitUid,u.code unitCode,u.name unitName,u.decimal_precision decimalPrecision,
+              brand.uid brandUid,qc.brand_name_snapshot brandName,qc.id qcId,
+              CAST(qc.weight_1_grams AS CHAR) weight1Grams,CAST(qc.weight_2_grams AS CHAR) weight2Grams,
+              (SELECT COALESCE(SUM(defect.quantity),0) FROM production_transaction_qc_defects defect
+                WHERE defect.production_transaction_qc_id=qc.id) totalDefects
+         FROM production_transactions pt
+         JOIN employees e ON e.id=pt.employee_id
+         JOIN production_jobs j ON j.id=pt.production_job_id
+         JOIN work_units u ON u.id=pt.unit_id
+         LEFT JOIN production_transaction_qc qc ON qc.production_transaction_id=pt.id
+         LEFT JOIN production_brands brand ON brand.id=qc.brand_id
+        WHERE pt.scan_device_id=? AND pt.site_id=? AND pt.status='POSTED'
+        ORDER BY pt.transaction_at DESC,pt.id DESC LIMIT 5`,
+      [device.id, device.siteId]
+    )
+    res.json({ items: rows.map(row => ({
+      uid: row.uid,transactionNumber: row.transactionNumber,transactionAt: row.transactionAt,quantity: row.quantity,
+      employee: { uid:row.employeeUid,fullName:row.fullName,employeeNumber:row.employeeNumber },
+      job: { uid:row.jobUid,code:row.jobCode,name:row.jobName },
+      unit: { uid:row.unitUid,code:row.unitCode,name:row.unitName,decimalPrecision:Number(row.decimalPrecision) },
+      brand: row.brandUid ? { uid:row.brandUid,name:row.brandName } : null,
+      qcSummary: row.qcId ? { weight1Grams:row.weight1Grams ?? null,weight2Grams:row.weight2Grams ?? null,totalDefects:Number(row.totalDefects ?? 0) } : null,
+    })) })
+  } catch (error) { next(error) } finally { conn.release() }
+})
+
+productionTransactionsRouter.get('/terminal/transactions/:uid', requirePermission('production.scan'), async (req, res, next) => {
+  const conn = await pool.getConnection()
+  try {
+    const uid = z.string().uuid().parse(routeParam(req.params.uid))
+    const device = await getDevice(conn, deviceToken(req))
+    enforceSite(res.locals.auth as AuthContext, String(device.site))
+    const [rows] = await conn.query<RowDataPacket[]>(
+      `SELECT pt.id,pt.uid,pt.transaction_number transactionNumber,pt.status,pt.entry_source entrySource,
+              DATE_FORMAT(pt.business_date,'%Y-%m-%d') businessDate,
+              DATE_FORMAT(pt.transaction_at,'%Y-%m-%dT%H:%i:%s+07:00') transactionAt,
+              CAST(pt.quantity AS CHAR) quantity,e.uid employeeUid,e.full_name fullName,e.employee_number employeeNumber,
+              j.uid jobUid,j.code jobCode,j.name jobName,u.uid unitUid,u.code unitCode,u.name unitName,u.decimal_precision decimalPrecision
+         FROM production_transactions pt
+         JOIN employees e ON e.id=pt.employee_id
+         JOIN production_jobs j ON j.id=pt.production_job_id
+         JOIN work_units u ON u.id=pt.unit_id
+        WHERE pt.uid=? AND pt.scan_device_id=? AND pt.site_id=? LIMIT 1`,
+      [uid,device.id,device.siteId]
+    )
+    const row = rows[0]
+    if (!row) throw new ApiError(404, 'Setoran tidak ditemukan pada perangkat ini.')
+    const qc = await readProductionQc(conn, Number(row.id))
+    res.json({ transaction: {
+      uid:row.uid,transactionNumber:row.transactionNumber,businessDate:row.businessDate,transactionAt:row.transactionAt,
+      status:row.status,entrySource:row.entrySource,quantity:row.quantity,siteName:device.siteName,
+      device:{uid:device.uid,code:device.code,name:device.name},
+      employee:{uid:row.employeeUid,fullName:row.fullName,employeeNumber:row.employeeNumber},
+      job:{uid:row.jobUid,code:row.jobCode,name:row.jobName},
+      unit:{uid:row.unitUid,code:row.unitCode,name:row.unitName,decimalPrecision:Number(row.decimalPrecision)},qc,
+    } })
+  } catch (error) { next(error) } finally { conn.release() }
+})
+
 productionTransactionsRouter.post(
   '/terminal/activate',
   requirePermission('production.scan'),
@@ -2357,7 +2482,7 @@ productionTransactionsRouter.post(
         Number(device.siteId),
         String(time.businessDate)
       )
-      const qcOptions = jobs.some(job=>job.code===LINTING_JOB_CODE)
+      const qcOptions = jobs.length
         ? await loadProductionQcOptions(conn,Number(device.siteId)) : undefined
       const lastBrandUid = qcOptions ? await lastProductionDeviceBrand(conn, Number(device.id), Number(device.siteId)) : null
       await conn.execute(

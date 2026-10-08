@@ -64,8 +64,8 @@ export async function resolveProductionQc(
     !qc.defects.length
   )
     return null
-  if (jobCode !== LINTING_JOB_CODE)
-    throw new ApiError(422, 'Informasi QC hanya untuk pekerjaan Linting.')
+  if (jobCode !== LINTING_JOB_CODE && (qc.weight1Grams || qc.weight2Grams || qc.defects.length))
+    throw new ApiError(422, 'Berat dan defect hanya untuk pekerjaan Linting.')
   let brand: QcMaster | null = null
   if (qc.brandUid) {
     const [rows] = await conn.query<RowDataPacket[]>(
@@ -256,15 +256,15 @@ export async function cloneProductionQc(
   targetJobCode: string,
   actorId: number
 ) {
-  if (targetJobCode !== LINTING_JOB_CODE) return
+  const linting = targetJobCode === LINTING_JOB_CODE
   const [result] = await conn.execute<ResultSetHeader>(
     `INSERT INTO production_transaction_qc(uid,production_transaction_id,brand_id,brand_code_snapshot,brand_name_snapshot,
       weight_1_grams,weight_2_grams,created_by,updated_by)
-     SELECT ?,?,brand_id,brand_code_snapshot,brand_name_snapshot,weight_1_grams,weight_2_grams,?,?
-     FROM production_transaction_qc WHERE production_transaction_id=?`,
+     SELECT ?,?,brand_id,brand_code_snapshot,brand_name_snapshot,${linting ? 'weight_1_grams,weight_2_grams' : 'NULL,NULL'},?,?
+     FROM production_transaction_qc WHERE production_transaction_id=? ${linting ? '' : 'AND brand_id IS NOT NULL'}`,
     [randomUUID(), targetId, actorId, actorId, sourceId]
   )
-  if (!result.affectedRows) return
+  if (!result.affectedRows || !linting) return
   await conn.execute(
     `INSERT INTO production_transaction_qc_defects(uid,production_transaction_qc_id,defect_id,defect_code_snapshot,
       defect_name_snapshot,sort_order_snapshot,quantity,created_by,updated_by)
@@ -313,8 +313,8 @@ export function resolveProductionImportQc(
       !input.defects.length)
   )
     return null
-  if (jobCode !== LINTING_JOB_CODE)
-    throw new ApiError(422, 'Informasi QC hanya untuk pekerjaan Linting.')
+  if (jobCode !== LINTING_JOB_CODE && (hasWeight(input.weight1Grams) || hasWeight(input.weight2Grams) || input.defects.length))
+    throw new ApiError(422, 'Berat dan defect hanya untuk pekerjaan Linting.')
   let index = importMasterIndex.get(masters)
   if (!index) {
     index = {

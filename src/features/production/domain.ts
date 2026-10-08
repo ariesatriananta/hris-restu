@@ -11,8 +11,8 @@ export type ProductionQcOptions = {
 }
 export type ProductionQcInput = {
   brandUid: string
-  weight1Grams: string
-  weight2Grams: string
+  weight1Grams?: string
+  weight2Grams?: string
   defects: Array<{ defectUid: string; quantity: number }>
 }
 export type ProductionRateStatus = 'DRAFT' | 'ACTIVE' | 'INACTIVE'
@@ -580,6 +580,48 @@ export type ProductionPostResult = {
   duplicate: boolean
   message: string
   transaction: ProductionTransaction
+}
+
+export type ProductionTerminalDailySummary = {
+  businessDate: string
+  siteName: string
+  sections: Array<{
+    uid: string
+    name: string
+    presentEmployees: number
+    submittedEmployees: number
+    pendingEmployees: number
+  }>
+}
+
+export type ProductionTerminalRecentTransaction = Pick<
+  ProductionTransaction,
+  | 'uid'
+  | 'transactionNumber'
+  | 'transactionAt'
+  | 'quantity'
+  | 'employee'
+  | 'job'
+  | 'unit'
+> & {
+  brand: { uid: string; name: string } | null
+  qcSummary?: {
+    weight1Grams: string | null
+    weight2Grams: string | null
+    totalDefects: number
+  } | null
+}
+
+export type ProductionTerminalTransactionDetail = Omit<
+  ProductionTerminalRecentTransaction,
+  'brand' | 'qcSummary'
+> & {
+  businessDate: string
+  status: ProductionTransactionStatus
+  entrySource: string
+  siteName: string
+  device: { uid: string; code: string; name: string }
+  qc: ProductionQcSnapshot | null
 }
 
 export type ProductionTransactionListParams = {

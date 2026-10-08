@@ -109,6 +109,10 @@ describe('QC Excel and lifecycle', () => {
       resolveProductionImportQc({ defects: [] }, 5, 'BORONGAN-PACKING', masters)
     ).toBeNull()
   })
+  it('imports brand alone for non-Linting jobs and still checks its site', () => {
+    expect(resolveProductionImportQc({ brandCode: 'BR-A', defects: [] }, 5, 'BORONGAN-PACKING', masters)).toMatchObject({ brand: { code: 'BR-A' }, weight1Grams: null, weight2Grams: null, defects: [] })
+    expect(() => resolveProductionImportQc({ brandCode: 'BR-A', defects: [] }, 6, 'BORONGAN-PACKING', masters)).toThrow()
+  })
   it.each([
     { weight1Grams: 0, defects: [] },
     { weight2Grams: 0, defects: [] },
@@ -162,19 +166,22 @@ describe('QC Excel and lifecycle', () => {
       )
     ).toBe(true)
   })
-  it('clones snapshots for Linting only and keeps a legacy no-QC correction empty', async () => {
+  it('clones brand only for other jobs, full snapshots for Linting, and keeps legacy corrections empty', async () => {
     const execute = vi
       .fn()
       .mockResolvedValueOnce([{ affectedRows: 1, insertId: 8 }])
       .mockResolvedValueOnce([{ affectedRows: 1 }])
     const conn = { execute } as unknown as PoolConnection
     await cloneProductionQc(conn, 20, 21, 'BORONGAN-PACKING', 7)
-    expect(execute).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute.mock.calls[0][0]).toContain('NULL,NULL')
+    expect(execute.mock.calls[0][0]).toContain('AND brand_id IS NOT NULL')
+    execute.mockReset().mockResolvedValueOnce([{ affectedRows: 1, insertId: 8 }]).mockResolvedValueOnce([{ affectedRows: 1 }])
     await cloneProductionQc(conn, 20, 21, 'BORONGAN-LINTING', 7)
     expect(execute).toHaveBeenCalledTimes(2)
     expect(execute.mock.calls[0][0]).toContain('brand_name_snapshot')
     expect(execute.mock.calls[1][0]).toContain('sort_order_snapshot')
-    execute.mockClear().mockResolvedValueOnce([{ affectedRows: 0 }])
+    execute.mockReset().mockResolvedValueOnce([{ affectedRows: 0 }])
     await cloneProductionQc(conn, 30, 31, 'BORONGAN-LINTING', 7)
     expect(execute).toHaveBeenCalledTimes(1)
   })

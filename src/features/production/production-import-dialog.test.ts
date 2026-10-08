@@ -163,7 +163,7 @@ describe('parser import hasil Produksi', () => {
     expect(rows[0].quantity).toBe('500')
   })
 
-  it('template contains scoped brand reference and ordered defect comments without defaults', async () => {
+  it('template contains scoped brand and defect references without floating cell comments or defaults', async () => {
     const workbook = buildProductionTemplateWorkbook(
       {
         data: [{ employeeNumber: 'PKDS-001', employeeName: 'Siti' }],
@@ -184,8 +184,18 @@ describe('parser import hasil Produksi', () => {
       },
       '2026-09-19'
     )
-    expect(workbook.Sheets['Hasil Produksi']['H1'].c?.[0].t).toContain('Cowong')
+    expect(workbook.Sheets['Hasil Produksi']['H1'].c).toBeUndefined()
+    expect(JSON.stringify(workbook.Sheets['Referensi QC'])).toContain('Cowong')
+    expect(JSON.stringify(workbook.Sheets['Panduan'])).toContain(
+      'Brand dapat diisi untuk semua pekerjaan'
+    )
     const content = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' })
+    const exported = XLSX.read(content, { type: 'array' })
+    expect(
+      Object.values(exported.Sheets['Hasil Produksi']).some(
+        (cell) => cell && typeof cell === 'object' && 'c' in cell
+      )
+    ).toBe(false)
     const rows = await parseProductionWorkbook(
       new File([content], 'template.xlsx')
     )

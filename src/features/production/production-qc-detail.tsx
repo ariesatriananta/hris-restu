@@ -1,6 +1,26 @@
 import type { ProductionQcSnapshot } from './domain'
 
-export function ProductionQcDetail({ qc }: { qc: ProductionQcSnapshot }) {
+export function ProductionQcDetail({
+  qc,
+  linting = true,
+  showPayHint = true,
+}: {
+  qc: ProductionQcSnapshot
+  linting?: boolean
+  showPayHint?: boolean
+}) {
+  if (!linting)
+    return (
+      <section
+        className='rounded-lg border p-3 text-sm'
+        aria-label='Brand hasil produksi'
+      >
+        <p className='text-xs text-muted-foreground'>Brand</p>
+        <p className='mt-1 font-medium break-words'>
+          {qc.brand?.name ?? 'Belum dicatat'}
+        </p>
+      </section>
+    )
   const total = qc.defects.reduce((sum, defect) => sum + defect.quantity, 0)
   const grams = (value: string | null) =>
     value === null
@@ -13,10 +33,12 @@ export function ProductionQcDetail({ qc }: { qc: ProductionQcSnapshot }) {
     >
       <div>
         <h3 className='font-semibold'>QC Hasil Linting</h3>
-        <p className='mt-0.5 text-xs text-muted-foreground'>
-          Informasi kualitas saat setoran dicatat. Tidak mengurangi hasil setor
-          atau upah.
-        </p>
+        {showPayHint && (
+          <p className='mt-0.5 text-xs text-muted-foreground'>
+            Informasi kualitas saat setoran dicatat. Tidak mengurangi hasil
+            setor atau upah.
+          </p>
+        )}
       </div>
       <dl className='grid grid-cols-2 gap-3'>
         <div className='col-span-2 min-w-0'>

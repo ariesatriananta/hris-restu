@@ -15,7 +15,7 @@ export const productionMasterUpdateInput = z.object({
 }).strict().refine(value => Object.keys(value).length>0, 'Isi perubahan master.')
 export const productionBrandUpdateInput = productionMasterUpdateInput
 
-// Optional API metadata; interactive Linting forms require brand and both weights.
+// Optional API metadata; all interactive forms require brand, only Linting requires weights.
 const grams = z.union([z.string(), z.number()])
   .transform(value => String(value).trim().replace(',', '.'))
   .refine(value => /^\d{1,8}(\.\d{1,2})?$/.test(value) && Number(value)>0,

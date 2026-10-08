@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { isAxiosError } from 'axios'
 import {
   CheckCircle2,
+  ChevronDown,
   Keyboard,
   LoaderCircle,
   LogOut,
@@ -17,6 +18,11 @@ import { useAuthStore } from '@/stores/auth-store'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -32,10 +38,10 @@ import {
   useActivateProductionDevice,
   usePostProductionTransaction,
   useProductionTerminalLookup,
+  useProductionTerminalRecent,
 } from './data/queries'
 import type {
   ActivatedProductionDevice,
-  ProductionPostResult,
   ProductionTerminalLookup,
 } from './domain'
 import { ProductionQcFields } from './production-qc-fields'
@@ -47,17 +53,16 @@ import {
   productionQcPayload,
   validateProductionQc,
 } from './production-qc-form-policy'
+import { ProductionTerminalDetail } from './production-terminal-detail'
 import {
   canUseProductionTerminalSite,
   normalizeProductionQuantity,
   validateProductionQuantity,
 } from './production-terminal-policy'
+import { ProductionTerminalSummary } from './production-terminal-summary'
 
 const storageKey = 'hris-rsia-production-device-v1'
-
-type RecentTransaction = ProductionPostResult['transaction'] & {
-  duplicate: boolean
-}
+const recentExpandedKey = 'hris-rsia-production-recent-expanded-v1'
 
 export function ProductionTerminalPage() {
   const authSession = useAuthStore((state) => state.session)
@@ -188,8 +193,14 @@ function ProductionTerminal({
   const [jobUid, setJobUid] = useState('')
   const [quantity, setQuantity] = useState('')
   const [qc, setQc] = useState(emptyProductionQc)
-  const [recent, setRecent] = useState<RecentTransaction[]>([])
+  const recentQuery = useProductionTerminalRecent(
+    session.device.uid,
+    session.deviceToken
+  )
+  const recent = recentQuery.data?.items ?? []
+  const [recentExpanded, setRecentExpanded] = useState(readRecentExpanded)
   const [confirmDeactivate, setConfirmDeactivate] = useState(false)
+  const [detailUid, setDetailUid] = useState<string>()
   const [online, setOnline] = useState(
     () => typeof navigator === 'undefined' || navigator.onLine
   )
@@ -200,8 +211,8 @@ function ProductionTerminal({
   const postMutation = usePostProductionTransaction()
   const selectedJob = lookup?.jobs.find((job) => job.uid === jobUid)
   const linting = isLintingJob(selectedJob?.code)
-  const qcError = linting
-    ? validateProductionQc(qc, lookup?.qcOptions)
+  const qcError = selectedJob
+    ? validateProductionQc(qc, lookup?.qcOptions, linting)
     : undefined
 
   useEffect(() => {
@@ -285,18 +296,13 @@ function ProductionTerminal({
           barcode: barcode.trim(),
           jobUid: selectedJob.uid,
           quantity: normalizeProductionQuantity(quantity),
-          ...(linting && lookup.qcOptions
-            ? { qc: productionQcPayload(qc, lookup.qcOptions) }
+          ...(lookup.qcOptions
+            ? { qc: productionQcPayload(qc, lookup.qcOptions, linting) }
             : {}),
           idempotencyKey: idempotencyKey.current,
         },
       })
-      setRecent((items) =>
-        [
-          { ...result.transaction, duplicate: result.duplicate },
-          ...items.filter((item) => item.uid !== result.transaction.uid),
-        ].slice(0, 5)
-      )
+      void recentQuery.refetch()
       toast.success(
         result.duplicate
           ? 'Setoran sebelumnya ditemukan; tidak dibuat ganda.'
@@ -521,8 +527,9 @@ function ProductionTerminal({
                   </div>
                 </div>
 
-                {linting && (
+                {selectedJob && (
                   <ProductionQcFields
+                    linting={linting}
                     quantity={quantity}
                     value={qc}
                     options={lookup.qcOptions}
@@ -576,69 +583,162 @@ function ProductionTerminal({
           </CardContent>
         </Card>
 
-        <Card className='min-w-0 gap-0 py-0'>
+        <Card className='min-w-0 gap-0 self-start py-0'>
           <CardContent className='p-3'>
-            <div className='mb-3'>
-              <h2 className='font-semibold'>5 setoran terakhir</h2>
-              <p className='text-xs text-muted-foreground'>
-                Riwayat sesi browser ini, bukan daftar transaksi lengkap.
-              </p>
-            </div>
-            {!recent.length ? (
-              <div className='rounded-lg border border-dashed py-4 text-center text-sm text-muted-foreground'>
-                <PackageCheck className='mx-auto mb-2 size-6' />
-                Belum ada setoran pada sesi ini.
-              </div>
-            ) : (
-              <div className='space-y-2'>
-                {recent.map((item) => (
-                  <div key={item.uid} className='rounded-lg border p-3'>
-                    <div className='flex items-start justify-between gap-2'>
-                      <div className='min-w-0'>
-                        <p className='truncate font-medium'>
-                          {item.employee.fullName}
-                        </p>
-                        <p className='truncate text-xs text-muted-foreground'>
-                          {item.job.name} · {item.transactionNumber}
-                        </p>
-                      </div>
-                      <CheckCircle2 className='size-5 shrink-0 text-emerald-600' />
-                    </div>
-                    <div className='mt-2 flex items-start justify-between gap-2'>
-                      <div className='shrink-0'>
-                        <p className='text-sm font-semibold'>
-                          {formatQuantity(
-                            item.quantity,
-                            item.unit.decimalPrecision
-                          )}{' '}
-                          {item.unit.code}
-                        </p>
-                      </div>
-                      <div className='min-w-0 text-right'>
-                        <p
-                          className='truncate text-sm font-semibold'
-                          title={item.qc?.brand?.name}
-                        >
-                          {item.qc?.brand?.name ?? '—'}
-                        </p>
-                        <p className='text-[11px] text-muted-foreground'>
-                          {formatTime(item.transactionAt)}
-                        </p>
-                      </div>
-                    </div>
-                    {item.duplicate && (
-                      <Badge variant='secondary' className='mt-2'>
-                        Hasil request sebelumnya
-                      </Badge>
-                    )}
+            <Collapsible
+              open={recentExpanded}
+              onOpenChange={(expanded) => {
+                setRecentExpanded(expanded)
+                try {
+                  localStorage.setItem(
+                    recentExpandedKey,
+                    JSON.stringify(expanded)
+                  )
+                } catch {
+                  // Browser restrictions must not interrupt scanning.
+                }
+              }}
+            >
+              <CollapsibleTrigger asChild>
+                <button
+                  type='button'
+                  className='flex min-h-10 w-full items-center justify-between gap-2 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none'
+                >
+                  <span className='min-w-0'>
+                    <span className='block font-semibold'>
+                      5 setoran terakhir
+                    </span>
+                    <span className='block text-xs text-muted-foreground'>
+                      Transaksi terakhir dari perangkat aktif ini.
+                    </span>
+                  </span>
+                  <ChevronDown
+                    aria-hidden='true'
+                    className={`size-4 shrink-0 transition-transform ${recentExpanded ? 'rotate-180' : ''}`}
+                  />
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className='pt-3'>
+                {recentQuery.isPending ? (
+                  <p
+                    role='status'
+                    className='py-4 text-center text-sm text-muted-foreground'
+                  >
+                    Memuat setoran terakhir...
+                  </p>
+                ) : recentQuery.isError ? (
+                  <div
+                    role='alert'
+                    className='space-y-2 rounded-lg border p-3 text-sm'
+                  >
+                    <p>
+                      Riwayat setoran gagal dimuat. Data setoran tersimpan tetap
+                      aman.
+                    </p>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      onClick={() => void recentQuery.refetch()}
+                    >
+                      Coba lagi
+                    </Button>
                   </div>
-                ))}
-              </div>
-            )}
+                ) : !recent.length ? (
+                  <div className='rounded-lg border border-dashed py-4 text-center text-sm text-muted-foreground'>
+                    <PackageCheck className='mx-auto mb-2 size-6' />
+                    Belum ada setoran dari perangkat ini.
+                  </div>
+                ) : (
+                  <div className='space-y-2'>
+                    {recent.map((item) => (
+                      <button
+                        type='button'
+                        key={item.uid}
+                        onClick={() => setDetailUid(item.uid)}
+                        aria-label={`Lihat detail setoran ${item.transactionNumber}`}
+                        className='w-full rounded-lg border p-3 text-left transition-colors hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none'
+                      >
+                        <div className='flex items-start justify-between gap-2'>
+                          <div className='min-w-0'>
+                            <p className='truncate font-medium'>
+                              {item.employee.fullName}
+                            </p>
+                            <p className='truncate text-xs text-muted-foreground'>
+                              {item.job.name} · {item.transactionNumber}
+                            </p>
+                          </div>
+                          <CheckCircle2 className='size-5 shrink-0 text-emerald-600' />
+                        </div>
+                        <div className='mt-2 flex items-start justify-between gap-2'>
+                          <div className='shrink-0'>
+                            <p className='text-sm font-semibold'>
+                              {formatQuantity(
+                                item.quantity,
+                                item.unit.decimalPrecision
+                              )}{' '}
+                              {item.unit.code}
+                            </p>
+                          </div>
+                          <div className='min-w-0 text-right'>
+                            <p
+                              className='truncate text-sm font-semibold'
+                              title={item.brand?.name}
+                            >
+                              {item.brand?.name ?? '—'}
+                            </p>
+                            <p className='text-[11px] text-muted-foreground'>
+                              {formatTime(item.transactionAt)}
+                            </p>
+                          </div>
+                        </div>
+                        {isLintingJob(item.job.code) && (
+                          <p
+                            className='mt-2 flex items-center justify-between gap-2 border-t pt-2 text-[11px] text-muted-foreground'
+                            aria-label='Ringkasan QC Linting'
+                          >
+                            <span className='shrink-0'>
+                              Defect{' '}
+                              {item.qcSummary
+                                ? item.qcSummary.totalDefects.toLocaleString(
+                                    'id-ID'
+                                  )
+                                : '—'}
+                            </span>
+                            <span
+                              className='min-w-0 truncate text-right'
+                              title={`Berat 1: ${formatSampleWeight(item.qcSummary?.weight1Grams)} g · Berat 2: ${formatSampleWeight(item.qcSummary?.weight2Grams)} g`}
+                            >
+                              Berat{' '}
+                              {formatSampleWeight(item.qcSummary?.weight1Grams)}{' '}
+                              /{' '}
+                              {formatSampleWeight(item.qcSummary?.weight2Grams)}{' '}
+                              g
+                            </span>
+                          </p>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
           </CardContent>
         </Card>
       </div>
 
+      {!lookup && !barcode.trim() && (
+        <ProductionTerminalSummary
+          deviceUid={session.device.uid}
+          deviceToken={session.deviceToken}
+        />
+      )}
+
+      <ProductionTerminalDetail
+        session={session}
+        uid={detailUid}
+        onClose={() => setDetailUid(undefined)}
+      />
       <ConfirmDialog
         open={confirmDeactivate}
         onOpenChange={setConfirmDeactivate}
@@ -656,6 +756,15 @@ function formatQuantity(value: string, precision: number) {
   return new Intl.NumberFormat('id-ID', {
     maximumFractionDigits: precision,
   }).format(Number(value))
+}
+
+function formatSampleWeight(value?: string | null) {
+  return value == null
+    ? '—'
+    : Number(value).toLocaleString('id-ID', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
 }
 
 function formatTime(value: string) {
@@ -689,5 +798,14 @@ function readSession(): ActivatedProductionDevice | null {
   } catch {
     localStorage.removeItem(storageKey)
     return null
+  }
+}
+
+function readRecentExpanded() {
+  if (typeof window === 'undefined') return true
+  try {
+    return localStorage.getItem(recentExpandedKey) !== 'false'
+  } catch {
+    return true
   }
 }

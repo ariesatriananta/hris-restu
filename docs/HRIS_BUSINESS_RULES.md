@@ -172,6 +172,9 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   upah; satu batang boleh memiliki beberapa defect sehingga total defect
   dapat melebihi jumlah setoran.
 - Master Brand Produksi berlaku per site; Master Defect berlaku global.
+  Semua pekerjaan wajib memilih Brand pada UI setoran baru maupun susulan;
+  pekerjaan selain Linting hanya mengisi Brand, tanpa berat atau defect.
+  API dan Excel tetap boleh tanpa Brand untuk kompatibilitas data lama.
   Keduanya menggunakan nama, status aktif, dan urutan tanpa tanggal berlaku
   atau alasan tambahan. Kode stabil dibuat otomatis dan tidak berubah.
   Nama Brand unik per site dan nama Defect unik global, tidak membedakan
@@ -191,8 +194,9 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   bukan site yang ditebak dari file. QC disimpan atomik bersama seluruh batch.
 - Detail QC memakai snapshot nama/kode/urutan saat setoran dibuat. Koreksi
   append-only menyalin snapshot QC asli bila pekerjaan pengganti tetap Linting,
-  termasuk ketika master sudah berubah atau nonaktif; pekerjaan non-Linting
-  tidak membawa QC tersebut. Transaksi lama tanpa QC tetap dapat dikoreksi
+  termasuk ketika master sudah berubah atau nonaktif. Brand asli tetap dibawa
+  ke pekerjaan pengganti non-Linting, tetapi berat dan defect tidak dibawa.
+  Transaksi lama tanpa QC tetap dapat dikoreksi
   tanpa kewajiban melengkapi QC. Void mempertahankan metadata QC untuk audit.
 - Reset batch Produksi khusus `SUPER_ADMIN` boleh menghapus transaksi yang
   memiliki histori koreksi atau void. Seluruh revision sumber/pengganti,
