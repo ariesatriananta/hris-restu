@@ -5,7 +5,7 @@ import { errorHandler } from '../lib/errors.js'
 import { productionQcRouter } from './production-qc.js'
 
 const mocks = vi.hoisted(() => ({
-  query:vi.fn(),execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),audit:vi.fn(),
+  query:vi.fn(),execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),destroy:vi.fn(),audit:vi.fn(),
 }))
 vi.mock('../db.js', () => ({ pool:{ query:mocks.query,getConnection:async()=>mocks } }))
 vi.mock('../lib/audit.js', () => ({ writeAudit:mocks.audit }))
@@ -32,7 +32,14 @@ async function request(path:string,method='GET',body?:unknown,permissions=['prod
     return { status:response.status,body:response.status===204 ? null:await response.json() }
   } finally { await new Promise<void>(resolve=>server.close(()=>resolve())) }
 }
-beforeEach(()=>{ vi.clearAllMocks(); mocks.query.mockResolvedValue([[]]); mocks.execute.mockResolvedValue([{ insertId:1 }]); mocks.audit.mockResolvedValue(undefined) })
+function createQuery(sql: unknown) {
+  if (String(sql).includes('GET_LOCK')) return [[{acquired:1}]]
+  if (String(sql).includes('RELEASE_LOCK')) return [[{released:1}]]
+  if (String(sql).includes('SELECT id FROM sites')) return [[{id:2}]]
+  if (String(sql).includes('maximum FROM')) return [[{maximum:'0'}]]
+  return [[]]
+}
+beforeEach(()=>{ vi.clearAllMocks(); mocks.query.mockReset().mockImplementation(createQuery); mocks.execute.mockReset().mockResolvedValue([{ insertId:1 }]); mocks.audit.mockResolvedValue(undefined) })
 describe('QC master APIs',()=>{
   it('requires view and manage permissions',async()=>{
     expect((await request('/brands','GET',undefined,[])).status).toBe(403)
@@ -60,13 +67,39 @@ describe('QC master APIs',()=>{
     expect(mocks.query.mock.calls[1][0]).toContain('is_active=1 ORDER BY sort_order,id')
   })
   it('creates server code and atomic site audit',async()=>{
-    mocks.query.mockResolvedValueOnce([[{id:2}]])
     const response=await request('/brands','POST',{site:'JEPARA',name:'Brand',sortOrder:3})
     expect(response.status).toBe(201)
-    expect(response.body).toEqual(expect.objectContaining({code:expect.stringMatching(/^BR-[A-F0-9]{32}$/)}))
+    expect(response.body).toEqual(expect.objectContaining({code:'BR-0001'}))
     expect(mocks.execute.mock.calls[0][1]).toContain(2)
     expect(mocks.audit.mock.calls[0][0]).toMatchObject({siteId:2,action:'CREATE'})
     expect(mocks.commit).toHaveBeenCalledOnce()
+    expect(mocks.query.mock.calls[0]).toEqual(['SELECT GET_LOCK(?, 10) acquired',['hris:production-qc-code:brands']])
+    expect(mocks.query).toHaveBeenLastCalledWith('SELECT RELEASE_LOCK(?) released',['hris:production-qc-code:brands'])
+    expect(mocks.destroy).not.toHaveBeenCalled()
+  })
+  it.each([['brands','41','BR-0042'],['defects','0','DF-0001'],['defects','9999','DF-10000']])('continues the global %s sequence from %s',async(kind,maximum,code)=>{
+    mocks.query.mockImplementation(sql=>String(sql).includes('maximum FROM') ? [[{maximum}]] : createQuery(sql))
+    const response=await request('/'+kind,'POST',{...(kind==='brands' ? {site:'JEPARA'} : {}),name:'Master baru'})
+    expect(response.status).toBe(201)
+    expect(response.body).toMatchObject({code})
+    const sequenceQuery=mocks.query.mock.calls.find(([sql])=>String(sql).includes('maximum FROM'))
+    expect(sequenceQuery?.[0]).toContain(kind==='brands' ? 'production_brands' : 'production_defects')
+    expect(sequenceQuery?.[0]).not.toContain('is_active')
+    expect(sequenceQuery?.[1]).toEqual(['^'+(kind==='brands' ? 'BR-' : 'DF-')+'[0-9]{4,20}$'])
+  })
+  it('does not create a master when the sequence lock is busy',async()=>{
+    mocks.query.mockResolvedValueOnce([[{acquired:0}]])
+    expect((await request('/defects','POST',{name:'Cowong'})).status).toBe(409)
+    expect(mocks.beginTransaction).not.toHaveBeenCalled()
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.release).toHaveBeenCalledOnce()
+    expect(mocks.query).not.toHaveBeenCalledWith('SELECT RELEASE_LOCK(?) released',expect.anything())
+  })
+  it('destroys the connection when the code lock cannot be released',async()=>{
+    mocks.query.mockImplementation(sql=>String(sql).includes('RELEASE_LOCK') ? [[{released:0}]] : createQuery(sql))
+    expect((await request('/defects','POST',{name:'Cowong'})).status).toBe(201)
+    expect(mocks.destroy).toHaveBeenCalledOnce()
+    expect(mocks.release).not.toHaveBeenCalled()
   })
   it('global defect update changes no snapshots or code',async()=>{
     mocks.query.mockResolvedValueOnce([[{id:3,uid,code:'DF-X',name:'Old',isActive:1,sortOrder:0}]])
@@ -97,6 +130,7 @@ describe('QC master APIs',()=>{
     expect(mocks.rollback).toHaveBeenCalledOnce()
     expect(mocks.audit).not.toHaveBeenCalled()
     expect(mocks.commit).not.toHaveBeenCalled()
+    expect(mocks.query).toHaveBeenLastCalledWith('SELECT RELEASE_LOCK(?) released',['hris:production-qc-code:defects'])
   })
   it('rejects malformed order and update code/site',async()=>{
     expect((await request('/defects','POST',{name:'X',sortOrder:-1})).status).toBe(422)

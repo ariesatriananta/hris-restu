@@ -72,16 +72,29 @@ for (const kind of ['brands', 'defects'] as const) {
 
   productionQcRouter.post('/'+kind, requirePermission('production.manage_master'), async (req, res, next) => {
     let connection: PoolConnection | undefined
+    const codeLockName = 'hris:production-qc-code:'+kind
+    let codeLockHeld = false
     try {
       const auth = res.locals.auth as AuthContext
       const input = brand ? productionBrandInput.parse(req.body) : productionDefectInput.parse(req.body)
       const site = brand ? productionSiteCode.parse(req.body.site) : undefined
       if (site) enforceSite(auth, site)
       connection = await pool.getConnection()
+      const [locks] = await connection.query<RowDataPacket[]>('SELECT GET_LOCK(?, 10) acquired', [codeLockName])
+      if (Number(locks[0]?.acquired) !== 1) throw new ApiError(409, 'Kode master sedang diproses. Silakan coba kembali.')
+      codeLockHeld = true
       await connection.beginTransaction()
       const sid = site ? await siteId(connection, site) : null
       const uid = randomUUID()
-      const code = (brand ? 'BR-' : 'DF-')+uid.replaceAll('-', '').toUpperCase()
+      const prefix = brand ? 'BR-' : 'DF-'
+      // Include inactive masters; exclude the old 32-character UUID suffix.
+      const [sequences] = await connection.query<RowDataPacket[]>(
+        'SELECT CAST(COALESCE(MAX(CAST(SUBSTRING(code,4) AS UNSIGNED)),0) AS CHAR) maximum FROM '+table+' WHERE code REGEXP ?',
+        ['^'+prefix+'[0-9]{4,20}$']
+      )
+      const sequence = BigInt(String(sequences[0]?.maximum ?? '0'))+1n
+      if (sequence > 18446744073709551615n) throw new ApiError(409, 'Nomor kode master sudah mencapai batas.')
+      const code = prefix+String(sequence).padStart(4,'0')
       const values = [uid,code,...(brand ? [sid] : []),input.name,input.isActive ? 1 : 0,input.sortOrder,auth.id,auth.id]
       await connection.execute('INSERT INTO '+table+'(uid,code,'+(brand ? 'site_id,' : '')+'name,is_active,sort_order,created_by,updated_by) VALUES('+values.map(() => '?').join(',')+')', values)
       await writeAudit({ auth, request: req, module: 'PRODUCTION', siteId: sid, action: 'CREATE', table, recordUid: uid,
@@ -89,7 +102,19 @@ for (const kind of ['brands', 'defects'] as const) {
       await connection.commit()
       res.status(201).json({ uid,code })
     } catch (error) { if (connection) await connection.rollback(); next(error) }
-    finally { connection?.release() }
+    finally {
+      if (connection) {
+        let reusable = true
+        if (codeLockHeld) {
+          try {
+            const [released] = await connection.query<RowDataPacket[]>('SELECT RELEASE_LOCK(?) released', [codeLockName])
+            reusable = Number(released[0]?.released) === 1
+          } catch { reusable = false }
+        }
+        if (reusable) connection.release()
+        else connection.destroy()
+      }
+    }
   })
 
   productionQcRouter.patch('/'+kind+'/:uid', requirePermission('production.manage_master'), async (req, res, next) => {

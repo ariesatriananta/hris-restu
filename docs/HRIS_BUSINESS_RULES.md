@@ -198,6 +198,10 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   API dan Excel tetap boleh tanpa Brand untuk kompatibilitas data lama.
   Keduanya menggunakan nama, status aktif, dan urutan tanpa tanggal berlaku
   atau alasan tambahan. Kode stabil dibuat otomatis dan tidak berubah.
+  Master baru memakai nomor urut `BR-0001` untuk Brand dan `DF-0001` untuk
+  Defect, masing-masing satu urutan global lintas site, termasuk master
+  nonaktif. Setelah 9999, angka bertambah tanpa dipotong. Kode lama tetap
+  dipertahankan, termasuk snapshot transaksi dan referensi import.
   Nama Brand unik per site dan nama Defect unik global, tidak membedakan
   kapital sesuai collation database. Master dinonaktifkan, bukan dihapus.
 - Satu setoran Linting memiliki maksimal satu Brand dan dua sampel berat
