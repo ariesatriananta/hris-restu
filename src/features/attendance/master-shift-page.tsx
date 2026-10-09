@@ -349,6 +349,11 @@ export function MasterShiftPage({
           key={pendingOnboardingEmployeeUids.join(',') || 'manual'}
           open
           onOpenChange={setAssignmentDialogOpen}
+          backdateGoLiveDate={
+            !setupAttendance
+              ? foundation.data?.configuration.goLiveDate
+              : undefined
+          }
           shifts={allShifts}
           siteOptions={siteOptions as { value: Shift['site']; label: string }[]}
           productionModules={productionModules}

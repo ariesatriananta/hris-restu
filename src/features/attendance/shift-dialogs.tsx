@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { isAxiosError } from 'axios'
 import {
+  CircleCheck,
+  CircleAlert,
   ChevronLeft,
   ChevronRight,
   LoaderCircle,
@@ -9,6 +11,7 @@ import {
   Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -29,10 +32,14 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DatePicker } from '@/components/date-picker'
 import {
   useCreateShiftAssignments,
+  useApplyShiftBackdate,
+  usePreviewShiftBackdate,
+  useSelectShiftCandidates,
   useSaveShift,
   useShiftAssignmentCandidates,
 } from './data/queries'
@@ -310,6 +317,7 @@ export function ShiftAssignmentDialog({
   productionSections = [],
   initialEmployeeUids = emptyEmployeeUids,
   onAssigned,
+  backdateGoLiveDate,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -319,6 +327,7 @@ export function ShiftAssignmentDialog({
   productionSections?: AttendanceProductionSectionLookup[]
   initialEmployeeUids?: string[]
   onAssigned?: (employeeUids: string[]) => void
+  backdateGoLiveDate?: string
 }) {
   const initialEmployeeUidSet = useMemo(
     () => new Set(initialEmployeeUids),
@@ -340,6 +349,13 @@ export function ShiftAssignmentDialog({
   const [effectiveTo, setEffectiveTo] = useState('')
   const [workDays, setWorkDays] = useState<number[]>([1, 2, 3, 4, 5])
   const [confirm, setConfirm] = useState(false)
+  const [reason, setReason] = useState('')
+  const [previewSignature, setPreviewSignature] = useState('')
+  const backdatePreview = usePreviewShiftBackdate()
+  const applyBackdate = useApplyShiftBackdate()
+  const selectCandidates = useSelectShiftCandidates()
+  const isOperationalBackdate =
+    Boolean(backdateGoLiveDate) && effectiveFrom < todayJakarta()
   const candidates = useShiftAssignmentCandidates(
     {
       query: query.trim() || undefined,
@@ -365,7 +381,8 @@ export function ShiftAssignmentDialog({
   const selectedVisible = items.filter((item) => selected.has(item.uid)).length
   const allVisible = items.length > 0 && selectedVisible === items.length
   const selectedCandidates = [...selected.values()]
-  const minimumEffectiveFrom = selectedMinimumDate(selectedCandidates)
+  const minimumEffectiveFrom =
+    backdateGoLiveDate ?? selectedMinimumDate(selectedCandidates)
   const firstAssignmentCount = selectedCandidates.filter(
     (candidate) => !candidate.hasAssignmentHistory
   ).length
@@ -416,7 +433,7 @@ export function ShiftAssignmentDialog({
     )
     if (!matching.length) return
     const next = new Map(matching.map((item) => [item.uid, item]))
-    const minimum = selectedMinimumDate(matching)
+    const minimum = backdateGoLiveDate ?? selectedMinimumDate(matching)
     let cancelled = false
     queueMicrotask(() => {
       if (cancelled) return
@@ -432,10 +449,12 @@ export function ShiftAssignmentDialog({
     initialEmployeeUids.length,
     items,
     site,
+    backdateGoLiveDate,
   ])
   const applySelection = (next: Map<string, ShiftAssignmentCandidate>) => {
     setSelected(next)
-    const minimum = selectedMinimumDate([...next.values()])
+    const minimum =
+      backdateGoLiveDate ?? selectedMinimumDate([...next.values()])
     if (next.size > 0 && effectiveFrom < minimum) {
       setEffectiveFrom(minimum)
       toast.info(
@@ -473,8 +492,100 @@ export function ShiftAssignmentDialog({
     }
     applySelection(next)
   }
+  const batchInput = {
+    shiftUid,
+    employeeUids: [...selected.keys()],
+    effectiveFrom,
+    effectiveTo: effectiveTo || undefined,
+    workDays: [...workDays].sort(),
+  }
+  const signature = JSON.stringify(batchInput)
+  const selectionSignature = JSON.stringify({
+    query,
+    site,
+    employeeType,
+    productionModule,
+    productionSection,
+  })
+  const latestSelectionSignature = useRef(selectionSignature)
+  useEffect(() => {
+    latestSelectionSignature.current = selectionSignature
+  }, [selectionSignature])
+  const selectAllFiltered = () =>
+    selectCandidates.mutate(
+      {
+        query: query.trim() || undefined,
+        site: site ? [site] : undefined,
+        employeeType: employeeType === 'ALL' ? undefined : [employeeType],
+        productionModule: productionModule ? [productionModule] : undefined,
+        productionSection: productionSection ? [productionSection] : undefined,
+        page: 1,
+        pageSize: 500,
+      },
+      {
+        onSuccess: (result) => {
+          if (latestSelectionSignature.current !== selectionSignature) {
+            toast.info('Filter berubah. Pilih semua hasil filter kembali.')
+            return
+          }
+          if (result.total > 500) {
+            toast.error(
+              'Hasil filter melebihi 500 karyawan. Persempit filter Modul atau Bagian terlebih dahulu.'
+            )
+            return
+          }
+          applySelection(new Map(result.items.map((item) => [item.uid, item])))
+        },
+        onError: (error) =>
+          toast.error(apiMessage(error, 'Pemilihan karyawan gagal.')),
+      }
+    )
+  const freshPreview =
+    !backdatePreview.isPending && previewSignature === signature
+      ? backdatePreview.data
+      : undefined
+  const review = () => {
+    if (!isOperationalBackdate) {
+      setConfirm(true)
+      return
+    }
+    setPreviewSignature('')
+    backdatePreview.mutate(batchInput, {
+      onSuccess: () => setPreviewSignature(signature),
+      onError: (error) =>
+        toast.error(apiMessage(error, 'Pratinjau gagal dimuat.')),
+    })
+  }
   const submit = () => {
     if (!valid) return
+    if (isOperationalBackdate) {
+      if (!freshPreview?.canApply || reason.trim().length < 10) return
+      applyBackdate.mutate(
+        {
+          ...batchInput,
+          reason: reason.trim(),
+          previewToken: freshPreview.previewToken,
+        },
+        {
+          onSuccess: (result) => {
+            toast.success(
+              `Shift berhasil disimpan untuk ${result.createdCount} karyawan. ${result.invalidatedFinalizationCount} finalisasi ditandai perlu diulang.`
+            )
+            setConfirm(false)
+            onOpenChange(false)
+            onAssigned?.([...selected.keys()])
+          },
+          onError: (error) => {
+            setConfirm(false)
+            setPreviewSignature('')
+            toast.error(
+              apiMessage(error, 'Perubahan dibatalkan. Tinjau ulang data.')
+            )
+          },
+        }
+      )
+      return
+    }
     create.mutate(
       {
         shiftUid,
@@ -512,7 +623,9 @@ export function ShiftAssignmentDialog({
             <DialogTitle>Atur / Ganti Shift Karyawan</DialogTitle>
             <DialogDescription>
               {initialEmployeeUids.length
-                ? 'Karyawan hasil onboarding sudah dipilih otomatis. Tentukan shift, tanggal mulai, dan hari kerja agar siap menggunakan Attendance.'
+                ? backdateGoLiveDate
+                  ? 'Karyawan sudah dipilih. Tentukan shift, tanggal mulai, dan hari kerja.'
+                  : 'Karyawan hasil onboarding sudah dipilih otomatis. Tentukan shift, tanggal mulai, dan hari kerja agar siap menggunakan Attendance.'
                 : 'Pilih maksimal 500 karyawan. Karyawan yang sudah memiliki shift akan diganti mulai tanggal efektif tanpa menghapus histori lama.'}
             </DialogDescription>
           </DialogHeader>
@@ -595,6 +708,20 @@ export function ShiftAssignmentDialog({
               normalizeNone
             />
           </div>
+          {backdateGoLiveDate && (
+            <div className='flex justify-end'>
+              <Button
+                variant='outline'
+                size='sm'
+                disabled={
+                  !site || selectCandidates.isPending || candidates.isFetching
+                }
+                onClick={selectAllFiltered}
+              >
+                Pilih semua hasil filter
+              </Button>
+            </div>
+          )}
           <div className='rounded-lg border'>
             <div className='flex items-center justify-between border-b bg-muted/40 px-3 py-2 text-sm'>
               <label className='flex items-center gap-2 font-medium'>
@@ -679,11 +806,13 @@ export function ShiftAssignmentDialog({
                               : undefined
                           }
                         >
-                          {employee.canBackdateFirstAssignment
-                            ? ` · Penugasan pertama ≥ ${formatDateShort(employee.minimumEffectiveFrom)}`
-                            : employee.hasAssignmentHistory
-                              ? ` · Penggantian shift ≥ ${formatDateShort(employee.minimumEffectiveFrom)}`
-                              : ' · Penugasan pertama, tanggal lampau tidak tersedia'}
+                          {backdateGoLiveDate
+                            ? ' · Tanggal berlaku diperiksa saat pratinjau'
+                            : employee.canBackdateFirstAssignment
+                              ? ` · Penugasan pertama ≥ ${formatDateShort(employee.minimumEffectiveFrom)}`
+                              : employee.hasAssignmentHistory
+                                ? ` · Penggantian shift ≥ ${formatDateShort(employee.minimumEffectiveFrom)}`
+                                : ' · Penugasan pertama, tanggal lampau tidak tersedia'}
                         </span>
                       </span>
                     </span>
@@ -752,11 +881,6 @@ export function ShiftAssignmentDialog({
                   return Boolean(minimum && date < minimum)
                 }}
               />
-              {selected.size > 0 && (
-                <p className='text-xs text-muted-foreground'>
-                  Batas batch: {formatDateShort(minimumEffectiveFrom)}.
-                </p>
-              )}
             </Field>
             <Field label='Berlaku sampai (opsional)'>
               <DatePicker
@@ -796,14 +920,27 @@ export function ShiftAssignmentDialog({
             <ShieldCheck className='mt-0.5 size-4 shrink-0 text-positive' />
             <div>
               <p className='font-medium'>Histori penugasan tetap aman</p>
+              {selected.size > 0 && (
+                <p className='text-muted-foreground'>
+                  Tanggal mulai paling awal:{' '}
+                  {formatDateShort(minimumEffectiveFrom)}.
+                </p>
+              )}
               <p className='text-muted-foreground'>
-                {backdateEligibleCount > 0 && (
+                {backdateGoLiveDate && (
+                  <>
+                    Backdate diperiksa per karyawan melalui pratinjau. Histori
+                    dan Attendance diselaraskan; Produksi dan Payroll yang sudah
+                    diproses tetap dilindungi.
+                  </>
+                )}
+                {!backdateGoLiveDate && backdateEligibleCount > 0 && (
                   <>
                     {backdateEligibleCount} penugasan pertama dapat memakai
                     tanggal lampau sesuai batas kandidat.{' '}
                   </>
                 )}
-                {replacementCount > 0 && (
+                {!backdateGoLiveDate && replacementCount > 0 && (
                   <>
                     {replacementCount} penggantian mengikuti batas tanggal aman
                     dari server.{' '}
@@ -814,11 +951,134 @@ export function ShiftAssignmentDialog({
               </p>
             </div>
           </div>
+          {isOperationalBackdate && (
+            <div className='space-y-2'>
+              <Field label='Alasan perubahan (minimal 10 karakter)'>
+                <Textarea
+                  aria-label='Alasan perubahan'
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                  maxLength={500}
+                  rows={2}
+                />
+              </Field>
+              {freshPreview && (
+                <div
+                  className='overflow-hidden rounded-lg border'
+                  aria-live='polite'
+                >
+                  <div className='flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2'>
+                    <p className='text-xs font-semibold'>
+                      Hasil validasi{' '}
+                      <span className='font-normal text-muted-foreground'>
+                        ({freshPreview.items.length} karyawan)
+                      </span>
+                    </p>
+                    <div className='flex flex-wrap gap-2'>
+                      <Badge
+                        variant='outline'
+                        className='border-positive/30 bg-positive/5 text-positive'
+                      >
+                        <CircleCheck aria-hidden='true' />
+                        {
+                          freshPreview.items.filter((item) => item.canApply)
+                            .length
+                        }{' '}
+                        siap
+                      </Badge>
+                      <Badge
+                        variant='outline'
+                        className={
+                          freshPreview.canApply
+                            ? 'text-muted-foreground'
+                            : 'border-destructive/30 bg-destructive/5 text-destructive'
+                        }
+                      >
+                        <CircleAlert aria-hidden='true' />
+                        {
+                          freshPreview.items.filter((item) => !item.canApply)
+                            .length
+                        }{' '}
+                        terblokir
+                      </Badge>
+                    </div>
+                  </div>
+                  <ul className='max-h-60 divide-y overflow-y-auto'>
+                    {[...freshPreview.items]
+                      .sort((a, b) => Number(a.canApply) - Number(b.canApply))
+                      .map((item) => (
+                        <li
+                          key={item.employeeUid}
+                          className='flex items-start gap-2 px-3 py-1.5'
+                        >
+                          {item.canApply ? (
+                            <CircleCheck
+                              className='mt-0.5 size-3.5 shrink-0 text-positive'
+                              aria-hidden='true'
+                            />
+                          ) : (
+                            <CircleAlert
+                              className='mt-0.5 size-3.5 shrink-0 text-destructive'
+                              aria-hidden='true'
+                            />
+                          )}
+                          <p className='min-w-0 text-xs leading-5 break-words'>
+                            <span className='font-medium'>
+                              {item.employeeName}
+                            </span>{' '}
+                            <span className='text-muted-foreground'>
+                              ({item.employeeNumber})
+                            </span>
+                            {' — '}
+                            <span
+                              className={
+                                item.canApply
+                                  ? 'text-muted-foreground'
+                                  : 'text-destructive'
+                              }
+                            >
+                              {item.canApply
+                                ? `Siap · ${item.attendanceCount} data Attendance akan diselaraskan.`
+                                : `Terblokir · ${item.blockers.join(' ')}`}
+                            </span>
+                          </p>
+                        </li>
+                      ))}
+                  </ul>
+                  {!freshPreview.canApply && (
+                    <div className='flex items-start gap-2 border-t bg-muted/40 px-3 py-2 text-xs leading-5'>
+                      <CircleAlert
+                        className='mt-0.5 size-4 shrink-0 text-destructive'
+                        aria-hidden='true'
+                      />
+                      <p>
+                        Sesuaikan tanggal atau keluarkan karyawan terblokir,
+                        lalu tinjau ulang.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <DialogFooter>
             <Button variant='outline' onClick={() => onOpenChange(false)}>
               Batal
             </Button>
-            <Button disabled={!valid} onClick={() => setConfirm(true)}>
+            {isOperationalBackdate && freshPreview?.canApply && (
+              <Button
+                disabled={reason.trim().length < 10 || applyBackdate.isPending}
+                onClick={() => setConfirm(true)}
+              >
+                Terapkan perubahan
+              </Button>
+            )}
+            <Button
+              disabled={
+                !valid || backdatePreview.isPending || applyBackdate.isPending
+              }
+              onClick={review}
+            >
               Tinjau {selected.size} perubahan
             </Button>
           </DialogFooter>
@@ -830,7 +1090,7 @@ export function ShiftAssignmentDialog({
         title='Konfirmasi atur / ganti shift'
         desc={`Terapkan shift kepada ${selected.size} karyawan mulai ${effectiveFrom}${effectiveTo ? ` sampai ${effectiveTo}` : ''}? ${firstAssignmentCount} penugasan pertama, ${replacementCount} penggantian. Jika satu kandidat melanggar batas tanggal atau bentrok, seluruh batch dibatalkan.`}
         confirmText='Ya, simpan perubahan'
-        isLoading={create.isPending}
+        isLoading={create.isPending || applyBackdate.isPending}
         handleConfirm={submit}
       />
     </>

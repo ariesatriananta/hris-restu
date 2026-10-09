@@ -1,8 +1,8 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Router, type Request } from 'express'
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { Pool, PoolConnection } from 'mysql2/promise'
-import { ZodError } from 'zod'
+import { z, ZodError } from 'zod'
 import { env } from '../config.js'
 import { pool } from '../db.js'
 import { resolveAttendanceCalendarDay } from '../lib/attendance-calendar.js'
@@ -13,6 +13,7 @@ import {
   jakartaBusinessDate,
   nextDate,
   planHistoricalShiftTimeline,
+  shiftAssignmentBatchInput,
   type ShiftAssignmentTimelineItem,
   type ShiftAssignmentTimelineSegment,
 } from '../lib/attendance-shift-policy.js'
@@ -487,7 +488,8 @@ async function reconcileAttendance(
   input: HistoryInput,
   context: HistoryContext,
   replacementAssignmentId: number,
-  actorId: number
+  actorId: number,
+  preserveLinkedRecords = false
 ) {
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT ar.id,ar.attendance_status attendanceStatus,ar.clock_in_at clockInAt,
@@ -500,6 +502,15 @@ async function reconcileAttendance(
               WHERE ac.attendance_record_id=ar.id) hasCorrection,
             EXISTS(SELECT 1 FROM attendance_classification_details acd
               WHERE acd.attendance_record_id=ar.id) hasClassification
+            ${preserveLinkedRecords ? `,
+            (EXISTS(SELECT 1 FROM attendance_scan_events scan
+              WHERE scan.attendance_record_id=ar.id)
+             OR EXISTS(SELECT 1 FROM production_transactions production
+              WHERE production.attendance_record_id=ar.id)
+             OR EXISTS(SELECT 1 FROM payroll_time_details payroll_time
+              WHERE payroll_time.attendance_record_id=ar.id)
+             OR EXISTS(SELECT 1 FROM payroll_monthly_daily_details payroll_daily
+              WHERE payroll_daily.attendance_record_id=ar.id)) hasLinkedRecord` : ''}
        FROM attendance_records ar
       WHERE ar.employee_id=? AND ar.business_date BETWEEN ? AND ?
       FOR UPDATE`,
@@ -524,7 +535,8 @@ async function reconcileAttendance(
       Number(row.hasRawScan) === 0 &&
       Number(row.hasCorrection) === 0 &&
       Number(row.hasClassification) === 0
-    if (synthetic && calendar.dayType === 'NON_WORKDAY') {
+    if (synthetic && calendar.dayType === 'NON_WORKDAY' &&
+        (!preserveLinkedRecords || Number(row.hasLinkedRecord) === 0)) {
       await conn.execute('DELETE FROM attendance_records WHERE id=?', [row.id])
       removedSynthetic += 1
       continue
@@ -856,7 +868,9 @@ async function applyPlannedAssignment(
   context: HistoryContext,
   auth: AuthContext,
   request: Request,
-  requestId: string
+  requestId: string,
+  changeReason?: string,
+  invalidatedSites?: Set<number>
 ) {
   const affected = new Set(context.affectedIds)
   const insertedSegments: Array<{
@@ -917,10 +931,12 @@ async function applyPlannedAssignment(
     input,
     context,
     replacement.id,
-    auth.id
+    auth.id,
+    changeReason !== undefined
   )
-  const reason = 'Penugasan Shift massal dari alur kesiapan karyawan.'
-  const [invalidated] = await conn.execute<ResultSetHeader>(
+  const reason = changeReason ?? 'Penugasan Shift massal dari alur kesiapan karyawan.'
+  const sitesToInvalidate = context.affectedSiteIds.filter((siteId) => !invalidatedSites?.has(siteId))
+  const [invalidated] = sitesToInvalidate.length ? await conn.execute<ResultSetHeader>(
     `INSERT INTO attendance_daily_finalization_runs
       (uid,site_id,business_date,trigger_type,status,grace_minutes,reason,
        summary,warnings,requested_by,started_at,finished_at,created_by,updated_by)
@@ -928,7 +944,7 @@ async function applyPlannedAssignment(
             JSON_OBJECT('invalidatedByBulkShiftPlan',TRUE),JSON_ARRAY(?),?,
             CURRENT_TIMESTAMP(3),CURRENT_TIMESTAMP(3),?,?
        FROM attendance_daily_finalization_runs latest
-       WHERE latest.site_id IN (${context.affectedSiteIds.map(() => '?').join(',')})
+       WHERE latest.site_id IN (${sitesToInvalidate.map(() => '?').join(',')})
          AND latest.business_date BETWEEN ? AND ?
          AND latest.id=(SELECT MAX(previous.id)
            FROM attendance_daily_finalization_runs previous
@@ -941,11 +957,12 @@ async function applyPlannedAssignment(
       auth.id,
       auth.id,
       auth.id,
-      ...context.affectedSiteIds,
+      ...sitesToInvalidate,
       input.effectiveFrom,
       context.reconciliationTo,
     ]
-  )
+  ) : [{ affectedRows: 0 }]
+  for (const siteId of sitesToInvalidate) invalidatedSites?.add(siteId)
   await writeAudit(
     {
       auth,
@@ -978,6 +995,95 @@ async function applyPlannedAssignment(
 }
 
 export const attendanceShiftHistoryRouter = Router()
+
+// Operational backdate is isolated from onboarding and the ordinary batch API.
+async function loadBatchBackdate(executor: Executor, input: z.output<typeof shiftAssignmentBatchInput>, auth: AuthContext, lock: boolean) {
+  if (input.effectiveFrom >= jakartaBusinessDate()) {
+    throw new ApiError(422, 'Alur backdate hanya untuk tanggal mulai sebelum hari ini.')
+  }
+  const contexts: Array<{ input: HistoryInput; context: HistoryContext }> = []
+  for (const employeeUid of [...input.employeeUids].sort()) {
+    const historyInput: HistoryInput = { ...input, employeeUid, effectiveTo: input.effectiveTo ?? null }
+    const context = await loadHistoryContext(executor, historyInput, auth, lock, true)
+    const lockSql = lock ? ' FOR UPDATE' : ''
+    const [runs] = await executor.query<RowDataPacket[]>(
+      `SELECT run.id FROM payroll_runs run JOIN payroll_periods period ON period.id=run.payroll_period_id
+        WHERE period.site_id IN (${context.affectedSiteIds.map(() => '?').join(',')})
+          AND period.period_start<=? AND period.period_end>=? AND run.status='PROCESSING'${lockSql}`,
+      [...context.affectedSiteIds, context.reconciliationTo, input.effectiveFrom]
+    )
+    if (runs.length) context.blockers.push('Payroll sedang dihitung pada rentang ini.')
+    const [corrections] = await executor.query<RowDataPacket[]>(
+      `SELECT correction.id FROM attendance_corrections correction
+        JOIN attendance_records record ON record.id=correction.attendance_record_id
+        WHERE record.employee_id=? AND record.business_date BETWEEN ? AND ?
+          AND correction.approval_status='PENDING'${lockSql}`,
+      [context.employee.id, input.effectiveFrom, context.reconciliationTo]
+    )
+    const [classifications] = await executor.query<RowDataPacket[]>(
+      `SELECT detail.id FROM attendance_classification_details detail
+        JOIN attendance_classification_requests request ON request.id=detail.request_id
+        WHERE detail.employee_id=? AND detail.business_date BETWEEN ? AND ?
+          AND request.approval_status='PENDING'${lockSql}`,
+      [context.employee.id, input.effectiveFrom, context.reconciliationTo]
+    )
+    if (corrections.length || classifications.length) context.blockers.push('Ada koreksi atau klasifikasi Attendance yang masih menunggu keputusan.')
+    contexts.push({ input: historyInput, context })
+  }
+  const items = contexts.map(({ input: itemInput, context }) => ({
+    employeeUid: itemInput.employeeUid,
+    employeeNumber: String(context.employee.employeeNumber),
+    employeeName: String(context.employee.fullName),
+    canApply: context.blockers.length === 0,
+    blockers: context.blockers,
+    attendanceCount: context.impact.attendanceRecords,
+  }))
+  const previewToken = createHash('sha256').update(JSON.stringify({
+    input: { ...input, employeeUids: [...input.employeeUids].sort() },
+    contexts: contexts.map(({ context }) => ({
+      existing: context.existing, timeline: context.timeline, shift: context.shift,
+      impact: context.impact, blockers: context.blockers,
+      reconciliationTo: context.reconciliationTo, affectedSiteIds: context.affectedSiteIds,
+    })),
+  })).digest('hex')
+  return { contexts, items, previewToken, canApply: items.every((item) => item.canApply) }
+}
+
+attendanceShiftHistoryRouter.post('/shift-assignments/backdate/preview', requirePermission('attendance.manage_shift'), async (req, res, next) => {
+  try {
+    const input = shiftAssignmentBatchInput.parse(req.body)
+    const result = await loadBatchBackdate(pool, input, res.locals.auth as AuthContext, false)
+    res.json({ items: result.items, canApply: result.canApply, previewToken: result.previewToken })
+  } catch (error) { next(error) }
+})
+
+attendanceShiftHistoryRouter.post('/shift-assignments/backdate/apply', requirePermission('attendance.manage_shift'), async (req, res, next) => {
+  let conn: PoolConnection | null = null
+  try {
+    const { reason: rawReason, previewToken: rawToken, ...rawInput } = z.record(z.string(), z.unknown()).parse(req.body)
+    const reason = z.string().trim().min(10).max(500).parse(rawReason)
+    const previewToken = z.string().regex(/^[a-f0-9]{64}$/).parse(rawToken)
+    const input = shiftAssignmentBatchInput.parse(rawInput)
+    const auth = res.locals.auth as AuthContext
+    conn = await pool.getConnection()
+    await conn.beginTransaction()
+    const result = await loadBatchBackdate(conn, input, auth, true)
+    const blocked = result.items.find((item) => !item.canApply)
+    if (blocked) throw new ApiError(409, `${blocked.employeeNumber}: ${blocked.blockers[0]}`)
+    if (result.previewToken !== previewToken) throw new ApiError(409, 'Data berubah sejak pratinjau. Tinjau ulang sebelum menerapkan perubahan.')
+    const requestId = `SHIFT-BACKDATE-${randomUUID()}`
+    const results = []
+    const invalidatedSites = new Set<number>()
+    for (const item of result.contexts) {
+      results.push(await applyPlannedAssignment(conn, item.input, item.context, auth, req as Request, requestId, reason, invalidatedSites))
+    }
+    await conn.commit()
+    res.status(201).json({ createdCount: results.length, invalidatedFinalizationCount: results.reduce((sum, item) => sum + item.invalidatedFinalizationCount, 0) })
+  } catch (error) {
+    if (conn) await conn.rollback()
+    next(error)
+  } finally { conn?.release() }
+})
 
 attendanceShiftHistoryRouter.post(
   '/shift-assignment-plans/preview',

@@ -220,6 +220,163 @@ describe('Attendance historical shift API', () => {
     mocks.writeAudit.mockReset().mockResolvedValue(undefined)
   })
 
+  const batch = { shiftUid: body.shiftUid, employeeUids: [body.employeeUid], effectiveFrom: body.effectiveFrom, effectiveTo: body.effectiveTo, workDays: [1, 3, 5] }
+  function batchQuery(sqlValue: unknown) {
+    const sql = String(sqlValue)
+    if (sql.includes('SELECT run.id') || sql.includes('SELECT correction.id') || sql.includes('SELECT detail.id')) return [[]]
+    return queryResult(sql)
+  }
+  function batchConnection(query = vi.fn().mockImplementation(batchQuery)) {
+    return {
+      query, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(),
+      execute: vi.fn().mockImplementation(async (sql: unknown, _values?: unknown[]) => [{ insertId: String(sql).includes('INSERT INTO employee_shift_assignments') ? 100 : 0, affectedRows: 0 }]),
+    }
+  }
+
+  it('backdate memeriksa permission dan mewajibkan preview sebelum apply', async () => {
+    expect((await post('/shift-assignments/backdate/preview', batch, false)).status).toBe(403)
+    expect(mocks.query).not.toHaveBeenCalled()
+    expect((await post('/shift-assignments/backdate/apply', { ...batch, reason: 'Perubahan hari kerja.' })).status).toBe(422)
+    expect(mocks.getConnection).not.toHaveBeenCalled()
+  })
+
+  it('backdate tiga hari kerja memakai preview dan alasan tanpa mengubah hari menjadi lima', async () => {
+    mocks.query.mockImplementation(batchQuery)
+    const preview = await post('/shift-assignments/backdate/preview', batch)
+    expect(preview.status).toBe(200)
+    const data = await preview.json() as { previewToken: string; canApply: boolean }
+    expect(data.canApply).toBe(true)
+    const conn = batchConnection()
+    mocks.getConnection.mockResolvedValue(conn)
+    const response = await post('/shift-assignments/backdate/apply', { ...batch, previewToken: data.previewToken, reason: 'Perubahan jadwal menjadi tiga hari kerja.' })
+    expect(response.status).toBe(201)
+    expect(conn.commit).toHaveBeenCalledOnce()
+    expect(conn.rollback).not.toHaveBeenCalled()
+    const insert = conn.execute.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO employee_shift_assignments'))
+    expect(insert?.[1]).toContain(JSON.stringify([1, 3, 5]))
+    expect(mocks.writeAudit).toHaveBeenCalledWith(expect.objectContaining({ reason: 'Perubahan jadwal menjadi tiga hari kerja.' }), conn)
+  })
+
+  it.each([false, true])('batch dua karyawan menjaga atomisitas saat gagal tulis: %s', async failSecond => {
+    const secondUid = '33333333-3333-4333-8333-333333333333'
+    const input = { ...batch, employeeUids: [body.employeeUid, secondUid] }
+    const query = (sql: unknown, values: unknown[]) => String(sql).includes('FROM employees e WHERE e.uid=')
+      ? [[{ id: values[0] === secondUid ? 12 : 11, uid: values[0], employeeNumber: String(values[0]), fullName: 'Karyawan Uji' }]]
+      : batchQuery(sql)
+    mocks.query.mockImplementation(query)
+    const preview = await post('/shift-assignments/backdate/preview', input)
+    const data = await preview.json() as { previewToken: string; canApply: boolean }
+    expect(data.canApply).toBe(true)
+    const conn = batchConnection(vi.fn().mockImplementation(query))
+    let insertCount = 0
+    conn.execute.mockImplementation(async (sql: unknown) => {
+      if (String(sql).includes('INSERT INTO employee_shift_assignments')) {
+        insertCount += 1
+        if (failSecond && insertCount === 2) throw new Error('Simulasi gagal menyimpan karyawan kedua')
+        return [{ insertId: 100 + insertCount, affectedRows: 1 }]
+      }
+      return [{ insertId: 0, affectedRows: String(sql).includes('INSERT INTO attendance_daily_finalization_runs') ? 4 : 0 }]
+    })
+    mocks.getConnection.mockResolvedValue(conn)
+    const response = await post('/shift-assignments/backdate/apply', { ...input, previewToken: data.previewToken, reason: 'Perubahan jadwal massal tiga hari kerja.' })
+    expect(response.status).toBe(failSecond ? 500 : 201)
+    if (failSecond) {
+      expect(conn.rollback).toHaveBeenCalledOnce()
+      expect(conn.commit).not.toHaveBeenCalled()
+    } else {
+      expect(await response.json()).toMatchObject({ createdCount: 2, invalidatedFinalizationCount: 4 })
+      expect(conn.commit).toHaveBeenCalledOnce()
+      expect(conn.rollback).not.toHaveBeenCalled()
+      expect(conn.execute.mock.calls.filter(([sql]) => String(sql).includes('INSERT INTO attendance_daily_finalization_runs'))).toHaveLength(1)
+    }
+  })
+
+  it.each([0, 1])('backdate tidak menghapus Attendance hari libur yang punya referensi: %s', async hasLinkedRecord => {
+    mocks.query.mockImplementation(batchQuery)
+    const preview = await post('/shift-assignments/backdate/preview', batch)
+    const data = await preview.json() as { previewToken: string }
+    const query = vi.fn().mockImplementation((sqlValue: unknown) => {
+      const sql = String(sqlValue)
+      if (sql.includes('SELECT ar.id,ar.attendance_status')) {
+        expect(sql).toContain('FROM production_transactions production')
+        expect(sql).toContain('FROM payroll_time_details payroll_time')
+        expect(sql).toContain('FROM payroll_monthly_daily_details payroll_daily')
+        return [[{ id: 91, attendanceStatus: 'HOLIDAY', businessDate: '2026-08-04', hasRawScan: 0, hasCorrection: 0, hasClassification: 0, hasLinkedRecord }]]
+      }
+      if (sql.includes('FROM attendance_calendar_events')) return [[]]
+      return batchQuery(sql)
+    })
+    const conn = batchConnection(query)
+    mocks.getConnection.mockResolvedValue(conn)
+    const response = await post('/shift-assignments/backdate/apply', { ...batch, previewToken: data.previewToken, reason: 'Perubahan jadwal tiga hari kerja.' })
+    expect(response.status).toBe(201)
+    const deleted = conn.execute.mock.calls.filter(([sql]) => String(sql).includes('DELETE FROM attendance_records'))
+    const updated = conn.execute.mock.calls.filter(([sql]) => String(sql).includes('UPDATE attendance_records'))
+    expect(deleted).toHaveLength(hasLinkedRecord ? 0 : 1)
+    expect(updated).toHaveLength(hasLinkedRecord ? 1 : 0)
+    if (hasLinkedRecord) expect(updated[0]?.[1]?.[2]).toBe('ABSENT')
+  })
+
+  it.each(['production', 'payroll', 'snapshot', 'finalization', 'processing', 'pending'])('backdate preview dan apply mempertahankan blocker: %s', async blocker => {
+    const guardedQuery = (sqlValue: unknown) => {
+      const sql = String(sqlValue)
+      if ((blocker === 'processing' && sql.includes('SELECT run.id')) || (blocker === 'pending' && sql.includes('SELECT correction.id'))) return [[{ id: 99 }]]
+      if ((blocker === 'production' && sql.includes('SELECT id FROM production_transactions')) ||
+        (blocker === 'payroll' && sql.includes('SELECT id FROM payroll_periods')) ||
+        (blocker === 'snapshot' && sql.includes('SELECT pas.id'))) return [[{ id: 99 }]]
+      if (blocker === 'finalization' && sql.includes('SELECT id,status FROM attendance_daily_finalization_runs')) return [[{ id: 99, status: 'RUNNING' }]]
+      const result = batchQuery(sql)
+      if (sql.includes('SELECT\n       (SELECT COUNT(*) FROM attendance_records')) {
+        Object.assign(result[0][0], { postedProduction: blocker === 'production' ? 1 : 0, lockedPayrollPeriods: blocker === 'payroll' ? 1 : 0, payrollAttendanceSnapshots: blocker === 'snapshot' ? 1 : 0, runningFinalizations: blocker === 'finalization' ? 1 : 0 })
+      }
+      return result
+    }
+    mocks.query.mockImplementation(guardedQuery)
+    const preview = await post('/shift-assignments/backdate/preview', batch)
+    const data = await preview.json() as { previewToken: string; canApply: boolean }
+    expect(data.canApply).toBe(false)
+    const conn = batchConnection(vi.fn().mockImplementation(guardedQuery))
+    mocks.getConnection.mockResolvedValue(conn)
+    expect((await post('/shift-assignments/backdate/apply', { ...batch, previewToken: data.previewToken, reason: 'Perubahan jadwal tiga hari kerja.' })).status).toBe(409)
+    expect(conn.execute).not.toHaveBeenCalled()
+    expect(conn.rollback).toHaveBeenCalledOnce()
+    expect(conn.commit).not.toHaveBeenCalled()
+  })
+
+  it('menolak preview lama bila assignment berubah sebelum apply', async () => {
+    mocks.query.mockImplementation(batchQuery)
+    const preview = await post('/shift-assignments/backdate/preview', batch)
+    const data = await preview.json() as { previewToken: string }
+    const conn = batchConnection(vi.fn().mockImplementation((sql: unknown) => String(sql).includes('FROM employee_shift_assignments esa') ? [[{ id: 55, uid: 'assignment', shiftId: 22, shiftUid: body.shiftUid, shiftName: 'Shift Pagi', effectiveFrom: '2026-08-01', effectiveTo: null, workDays: '[1,2,3,4,5]' }]] : batchQuery(sql)))
+    mocks.getConnection.mockResolvedValue(conn)
+    const response = await post('/shift-assignments/backdate/apply', { ...batch, previewToken: data.previewToken, reason: 'Perubahan jadwal tiga hari kerja.' })
+    expect(response.status).toBe(409)
+    expect(((await response.json()) as { message: string }).message).toContain('Data berubah')
+    expect(conn.execute).not.toHaveBeenCalled()
+    expect(conn.rollback).toHaveBeenCalledOnce()
+  })
+
+  it('seluruh batch batal jika satu karyawan baru eligible setelah tanggal pilihan', async () => {
+    const secondUid = '33333333-3333-4333-8333-333333333333'
+    let employeeId = 11
+    const query = vi.fn().mockImplementation((sqlValue: unknown, values: unknown[]) => {
+      const sql = String(sqlValue)
+      if (sql.includes('FROM employees e WHERE e.uid=')) {
+        employeeId = values[0] === secondUid ? 12 : 11
+        return [[{ id: employeeId, uid: values[0], employeeNumber: `EMP-${employeeId}`, fullName: 'Karyawan Uji' }]]
+      }
+      if (employeeId === 12 && sql.includes('FROM employee_employment_histories eh')) return [[{ id: 32, siteId: 1, status: 'ACTIVE', allowsAttendance: 1, effectiveFrom: '2026-08-05', effectiveTo: null }]]
+      return batchQuery(sql)
+    })
+    const conn = batchConnection(query)
+    mocks.getConnection.mockResolvedValue(conn)
+    const response = await post('/shift-assignments/backdate/apply', { ...batch, employeeUids: [body.employeeUid, secondUid], previewToken: 'a'.repeat(64), reason: 'Perubahan jadwal tiga hari kerja.' })
+    expect(response.status).toBe(409)
+    expect(((await response.json()) as { message: string }).message).toContain('EMP-12')
+    expect(conn.execute).not.toHaveBeenCalled()
+    expect(conn.rollback).toHaveBeenCalledOnce()
+  })
+
   it('menolak preview tanpa permission sebelum mengakses database', async () => {
     const response = await post(
       '/shift-assignments/history/preview',

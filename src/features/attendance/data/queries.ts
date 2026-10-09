@@ -5,6 +5,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import { apiClient } from '@/lib/api-client'
 import type {
   ShiftAssignmentBatchInput,
   ShiftAssignmentCandidateListParams,
@@ -47,6 +48,44 @@ import type {
   ShiftAssignmentPlanPreviewInput,
 } from '../domain'
 import { httpAttendanceRepository } from './http-attendance-repository'
+
+export type ShiftBackdatePreview = {
+  previewToken: string
+  canApply: boolean
+  items: {
+    employeeUid: string
+    employeeNumber: string
+    employeeName: string
+    canApply: boolean
+    blockers: string[]
+    attendanceCount: number
+  }[]
+}
+export const usePreviewShiftBackdate = () =>
+  useMutation({
+    mutationFn: async (input: ShiftAssignmentBatchInput) =>
+      (
+        await apiClient.post<ShiftBackdatePreview>(
+          '/attendance/shift-assignments/backdate/preview',
+          input
+        )
+      ).data,
+  })
+export const useApplyShiftBackdate = () =>
+  useAttendanceMutation(
+    async (
+      input: ShiftAssignmentBatchInput & {
+        reason: string
+        previewToken: string
+      }
+    ) =>
+      (
+        await apiClient.post<{
+          createdCount: number
+          invalidatedFinalizationCount: number
+        }>('/attendance/shift-assignments/backdate/apply', input)
+      ).data
+  )
 
 export const attendanceKeys = {
   all: ['attendance'] as const,
@@ -172,6 +211,12 @@ const useAttendanceMutation = <TInput, TResult = void>(
     onSuccess: () => client.invalidateQueries({ queryKey: attendanceKeys.all }),
   })
 }
+
+export const useSelectShiftCandidates = () =>
+  useMutation({
+    mutationFn: (input: ShiftAssignmentCandidateListParams) =>
+      httpAttendanceRepository.listShiftAssignmentCandidates(input),
+  })
 
 export const useSaveShift = () =>
   useAttendanceMutation(({ input, uid }: { input: ShiftInput; uid?: string }) =>

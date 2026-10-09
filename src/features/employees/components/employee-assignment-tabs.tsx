@@ -146,6 +146,7 @@ export function EmployeeShiftAssignments({ employee }: { employee: Employee }) {
         <ShiftAssignmentDialog
           open
           onOpenChange={setAssignOpen}
+          backdateGoLiveDate={foundation.data?.configuration.goLiveDate}
           shifts={shifts.data?.items ?? []}
           siteOptions={siteOptions}
           productionModules={foundation.data?.lookups.productionModules ?? []}

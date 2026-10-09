@@ -110,6 +110,17 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   kontrak oleh Mutasi Site; assignment lanjutan yang identik boleh diselaraskan ke awal
   kontrak. Default tidak boleh dipakai untuk menutupi histori yang ambigu.
 - Penugasan Shift pertama boleh dimundurkan paling awal ke tanggal terbesar antara go-live Attendance dan awal histori employment `ACTIVE` yang eligible pada site Shift. Karyawan yang pernah memiliki assignment hanya dapat memakai form penugasan biasa mulai hari ini atau masa depan.
+- Action Atur/Ganti Shift operasional juga mendukung backdate massal, maksimal
+  500 karyawan dengan satu tanggal mulai, Shift, dan pola hari kerja. Backdate
+  wajib memakai preview terbaru dan alasan 10-500 karakter. Setiap tanggal harus
+  memiliki tepat satu histori kerja aktif eligible pada site Shift; tanggal
+  tidak digeser otomatis. Seluruh batch dibatalkan jika satu karyawan terblokir
+  atau data dampak berubah sejak preview. Histori dan Attendance direkonsiliasi
+  melalui mekanisme historis, scan mentah dipertahankan, dan finalisasi terdampak
+  ditandai untuk diulang. Produksi POSTED, periode/snapshot Payroll, Payroll
+  PROCESSING, finalisasi RUNNING, serta koreksi/klasifikasi Attendance PENDING
+  tetap memblokir. Onboarding dan endpoint penugasan batch biasa tetap memakai
+  aturan sebelumnya; dukungan backdate operasional bukan perubahan onboarding.
 - Kesalahan assignment Shift yang sudah berlaku diperbaiki melalui Koreksi Penugasan Shift historis, bukan dengan menimpa atau menghapus histori. Koreksi diterapkan langsung oleh pengguna berizin `attendance.manage_shift`, wajib memiliki alasan dan preview dampak, menyusun ulang timeline tanpa overlap, merekonsiliasi snapshot Attendance tanpa mengubah scan mentah, serta menginvalidasi finalisasi terdampak. Koreksi diblokir untuk setoran produksi `POSTED`, payroll yang sudah dihitung/disetujui/ditutup, atau finalisasi yang sedang berjalan.
 - Koreksi Penugasan Shift dapat dibuat berlaku seterusnya hanya untuk assignment paling akhir. Karyawan wajib masih `ACTIVE`, eligible Attendance, dan tetap berada pada site Shift; tidak boleh ada assignment, mutasi, atau perubahan status terjadwal setelahnya. Rentang terbuka disimpan dengan `effective_to=NULL`, sedangkan rekonsiliasi Attendance dan invalidasi finalisasi hanya diproses sampai tanggal hari ini.
 - Laporan Penugasan Shift merupakan snapshot baca-saja per tanggal acuan untuk
