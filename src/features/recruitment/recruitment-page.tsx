@@ -13,6 +13,7 @@ import {
   UserPlus,
 } from 'lucide-react'
 import { currentListReturnTo } from '@/lib/list-return-to'
+import { useKpiVisibility } from '@/hooks/use-kpi-visibility'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -26,6 +27,7 @@ import {
 } from '@/components/ui/table'
 import { DataTablePagination, DataTableToolbar } from '@/components/data-table'
 import { DatePicker } from '@/components/date-picker'
+import { KpiVisibilityMenu } from '@/components/kpi-visibility-menu'
 import { Main } from '@/components/layout/main'
 import { useRecruitmentCandidates, useRecruitmentMeta } from './data'
 import { dateOnlyFromInput, dateOnlyToInput } from './date-only'
@@ -58,6 +60,7 @@ export function RecruitmentPage({
   search: RecruitmentSearch
   navigate: NavigateFn
 }) {
+  const { showKpi, setShowKpi } = useKpiVisibility('recruitment')
   const params = buildRecruitmentListParams(search)
   const result = useRecruitmentCandidates(params)
   const meta = useRecruitmentMeta()
@@ -148,22 +151,27 @@ export function RecruitmentPage({
             Periksa data pelamar dan lanjutkan proses rekrutmen per site.
           </p>
         </div>
-        <RecruitmentPublicLinksDialog />
+        <div className='flex flex-wrap items-center gap-2'>
+          <RecruitmentPublicLinksDialog />
+          <KpiVisibilityMenu showKpi={showKpi} onCheckedChange={setShowKpi} />
+        </div>
       </div>
 
-      <div className='mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3'>
-        <SummaryCard label='Baru' value={summary?.new} icon={UserPlus} />
-        <SummaryCard
-          label='Diproses'
-          value={summary?.inProgress}
-          icon={Clock3}
-        />
-        <SummaryCard
-          label='Lolos, belum menjadi karyawan'
-          value={summary?.passedNotConverted}
-          icon={UserCheck}
-        />
-      </div>
+      {showKpi && (
+        <div className='mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3'>
+          <SummaryCard label='Baru' value={summary?.new} icon={UserPlus} />
+          <SummaryCard
+            label='Diproses'
+            value={summary?.inProgress}
+            icon={Clock3}
+          />
+          <SummaryCard
+            label='Lolos, belum menjadi karyawan'
+            value={summary?.passedNotConverted}
+            icon={UserCheck}
+          />
+        </div>
+      )}
 
       <div className='space-y-4'>
         <div>

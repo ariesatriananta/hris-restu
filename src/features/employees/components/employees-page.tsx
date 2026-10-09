@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { ChevronDown, Plus, RefreshCcw } from 'lucide-react'
 import { currentListReturnTo } from '@/lib/list-return-to'
+import { useKpiVisibility } from '@/hooks/use-kpi-visibility'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Button } from '@/components/ui/button'
 import {
@@ -10,6 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { KpiVisibilityMenu } from '@/components/kpi-visibility-menu'
 import { Main } from '@/components/layout/main'
 import {
   useEmployeeKpiSummary,
@@ -40,6 +42,7 @@ export function EmployeesPage({
   search: Record<string, unknown>
   navigate: NavigateFn
 }) {
+  const { showKpi, setShowKpi } = useKpiVisibility('employees-list')
   const params: EmployeeListParams = {
     query: typeof search.filter === 'string' ? search.filter : undefined,
     site: Array.isArray(search.site) ? search.site : undefined,
@@ -107,29 +110,34 @@ export function EmployeesPage({
             Master karyawan aktif dan histori dasar tiga site.
           </p>
         </div>
-        <DropdownMenu modal={false}>
-          <DropdownMenuTrigger asChild>
-            <Button>
-              <Plus /> Tambah karyawan <ChevronDown className='size-4' />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align='end' className='w-52'>
-            <DropdownMenuItem asChild>
-              <Link to='/karyawan/tambah-karyawan' search={{ returnTo }}>
-                Single Karyawan
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setImportOpen(true)}>
-              Import Excel
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className='flex flex-wrap items-center gap-2'>
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button>
+                <Plus /> Tambah karyawan <ChevronDown className='size-4' />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end' className='w-52'>
+              <DropdownMenuItem asChild>
+                <Link to='/karyawan/tambah-karyawan' search={{ returnTo }}>
+                  Single Karyawan
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setImportOpen(true)}>
+                Import Excel
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <KpiVisibilityMenu showKpi={showKpi} onCheckedChange={setShowKpi} />
+        </div>
       </div>
-      <EmployeeKpiCards
-        data={employeeKpis.data}
-        isPending={employeeKpis.isPending}
-        isError={employeeKpis.isError}
-      />
+      {showKpi && (
+        <EmployeeKpiCards
+          data={employeeKpis.data}
+          isPending={employeeKpis.isPending}
+          isError={employeeKpis.isError}
+        />
+      )}
       {onboardingReadiness.data && (
         <div className='mb-4'>
           <EmployeeOnboardingBanner

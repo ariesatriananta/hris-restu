@@ -34,6 +34,8 @@ const jepara = '11111111-1111-4111-8111-111111111111'
 const klaten = '22222222-2222-4222-8222-222222222222'
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.restoreAllMocks()
+  localStorage.removeItem('hris-rsia-production-transactions-kpi-visible-v1')
   modules.mockReturnValue({
     data: {
       items: [
@@ -62,6 +64,81 @@ beforeEach(() => {
     isPending: false,
     isError: false,
     isFetching: false,
+  })
+})
+
+describe('production table KPI preference', () => {
+  const key = 'hris-rsia-production-transactions-kpi-visible-v1'
+
+  it('defaults to visible and persists hide/show without granting batch access', async () => {
+    const first = await render(
+      <ProductionTransactionsPage search={{}} navigate={navigate} />
+    )
+    await expect
+      .element(first.getByText('Nilai Bruto', { exact: true }))
+      .toBeInTheDocument()
+    await first.getByRole('button', { name: 'Opsi tabel Produksi' }).click()
+    await expect
+      .element(first.getByRole('menuitem', { name: 'Import Excel' }))
+      .not.toBeInTheDocument()
+    await expect
+      .element(first.getByRole('menuitem', { name: 'Hapus Transaksi Batch' }))
+      .not.toBeInTheDocument()
+    const toggle = first.getByRole('menuitemcheckbox', {
+      name: 'Tampilkan KPI',
+    })
+    await expect.element(toggle).toHaveAttribute('aria-checked', 'true')
+    await toggle.click()
+    await expect.element(toggle).toHaveAttribute('aria-checked', 'false')
+    await expect
+      .element(first.getByText('Nilai Bruto', { exact: true }))
+      .not.toBeInTheDocument()
+    expect(localStorage.getItem(key)).toBe('false')
+    await first.unmount()
+
+    const second = await render(
+      <ProductionTransactionsPage search={{}} navigate={navigate} />
+    )
+    await expect
+      .element(second.getByText('Nilai Bruto', { exact: true }))
+      .not.toBeInTheDocument()
+    await second.getByRole('button', { name: 'Opsi tabel Produksi' }).click()
+    await second
+      .getByRole('menuitemcheckbox', { name: 'Tampilkan KPI' })
+      .click()
+    await expect
+      .element(second.getByText('Nilai Bruto', { exact: true }))
+      .toBeInTheDocument()
+    expect(localStorage.getItem(key)).toBe('true')
+  })
+
+  it('defaults to show for an invalid preference', async () => {
+    localStorage.setItem(key, '{invalid')
+    const screen = await render(
+      <ProductionTransactionsPage search={{}} navigate={navigate} />
+    )
+    await expect
+      .element(screen.getByText('Nilai Bruto', { exact: true }))
+      .toBeInTheDocument()
+  })
+
+  it('keeps the toggle working when browser storage is blocked', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('Storage blocked')
+    })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('Storage blocked')
+    })
+    const screen = await render(
+      <ProductionTransactionsPage search={{}} navigate={navigate} />
+    )
+    await screen.getByRole('button', { name: 'Opsi tabel Produksi' }).click()
+    await screen
+      .getByRole('menuitemcheckbox', { name: 'Tampilkan KPI' })
+      .click()
+    await expect
+      .element(screen.getByText('Nilai Bruto', { exact: true }))
+      .not.toBeInTheDocument()
   })
 })
 describe('site-scoped production module filter', () => {

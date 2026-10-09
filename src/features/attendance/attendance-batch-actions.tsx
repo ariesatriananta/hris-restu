@@ -25,6 +25,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
@@ -62,11 +63,13 @@ export function AttendanceBatchActions({
   goLiveDate,
   sites,
   initialSite,
+  menuFooter,
 }: {
   businessDate: string
   goLiveDate: string
   sites: AttendanceSite[]
   initialSite?: AttendanceBatchSite
+  menuFooter?: ReactNode
 }) {
   const [inputOpen, setInputOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -99,6 +102,12 @@ export function AttendanceBatchActions({
           <DropdownMenuItem onSelect={() => setDeleteOpen(true)}>
             <Trash2 /> Hapus Attendance Batch
           </DropdownMenuItem>
+          {menuFooter && (
+            <>
+              <DropdownMenuSeparator />
+              {menuFooter}
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

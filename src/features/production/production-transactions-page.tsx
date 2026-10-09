@@ -51,6 +51,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
@@ -68,6 +69,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { Switch } from '@/components/ui/switch'
 import {
   Table,
   TableBody,
@@ -136,6 +138,16 @@ import {
 } from './production-terminal-policy'
 
 const allProductionSites: ProductionSite[] = ['JEPARA', 'SEMARANG', 'KLATEN']
+const kpiVisibleKey = 'hris-rsia-production-transactions-kpi-visible-v1'
+
+function readKpiVisible() {
+  if (typeof window === 'undefined') return true
+  try {
+    return localStorage.getItem(kpiVisibleKey) !== 'false'
+  } catch {
+    return true
+  }
+}
 
 export function ProductionTransactionsPage({
   search,
@@ -177,6 +189,15 @@ export function ProductionTransactionsPage({
     })
   }, [modules.data, search.moduleUid, navigate])
   const [detailUid, setDetailUid] = useState<string>()
+  const [showKpi, setShowKpi] = useState(readKpiVisible)
+  const changeKpiVisible = (visible: boolean) => {
+    setShowKpi(visible)
+    try {
+      localStorage.setItem(kpiVisibleKey, JSON.stringify(visible))
+    } catch {
+      // Browser storage restrictions must not interrupt the table.
+    }
+  }
   const canCorrect = hasPermission(session, 'production.correct')
   const canDeleteBatch =
     session?.user.role === 'SUPER_ADMIN' ||
@@ -228,22 +249,25 @@ export function ProductionTransactionsPage({
               onChange={(value) => setDate('dateTo', value)}
             />
           </div>
-          {(canCorrect || canDeleteBatch) && (
-            <div className='flex items-center gap-1'>
+          <div className='flex items-center gap-1'>
+            {(canCorrect || canDeleteBatch) && (
               <HistoricalProductionDialog sites={accessibleSites} />
-              <ProductionBatchActions
-                canDeleteBatch={canDeleteBatch}
-                dateFrom={dateFrom}
-                dateTo={dateTo}
-              />
-            </div>
-          )}
+            )}
+            <ProductionBatchActions
+              canUseBatch={canCorrect || canDeleteBatch}
+              canDeleteBatch={canDeleteBatch}
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              showKpi={showKpi}
+              onKpiVisibleChange={changeKpiVisible}
+            />
+          </div>
         </div>
       </div>
 
-      <TransactionSummary data={result.data} />
+      {showKpi && <TransactionSummary data={result.data} />}
 
-      <div className='mt-5'>
+      <div className={showKpi ? 'mt-5' : undefined}>
         <TransactionTable
           data={result.data}
           search={search}
@@ -276,13 +300,19 @@ export function ProductionTransactionsPage({
 }
 
 function ProductionBatchActions({
+  canUseBatch,
   canDeleteBatch,
   dateFrom,
   dateTo,
+  showKpi,
+  onKpiVisibleChange,
 }: {
+  canUseBatch: boolean
   canDeleteBatch: boolean
   dateFrom: string
   dateTo: string
+  showKpi: boolean
+  onKpiVisibleChange: (visible: boolean) => void
 }) {
   const [importOpen, setImportOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -296,27 +326,52 @@ function ProductionBatchActions({
                 type='button'
                 size='icon'
                 variant='outline'
-                aria-label='Aksi batch Produksi'
+                aria-label='Opsi tabel Produksi'
               >
                 <MoreHorizontal />
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Aksi batch Produksi</TooltipContent>
+          <TooltipContent>Opsi tabel Produksi</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align='end' className='w-56'>
-          <DropdownMenuItem onSelect={() => setImportOpen(true)}>
-            <FileSpreadsheet /> Import Excel
-          </DropdownMenuItem>
+          {canUseBatch && (
+            <DropdownMenuItem onSelect={() => setImportOpen(true)}>
+              <FileSpreadsheet /> Import Excel
+            </DropdownMenuItem>
+          )}
           {canDeleteBatch && (
             <DropdownMenuItem onSelect={() => setDeleteOpen(true)}>
               <Trash2 /> Hapus Transaksi Batch
             </DropdownMenuItem>
           )}
+          {canUseBatch && <DropdownMenuSeparator />}
+          <DropdownMenuItem
+            role='menuitemcheckbox'
+            aria-checked={showKpi}
+            className='justify-between'
+            onSelect={(event) => {
+              event.preventDefault()
+              onKpiVisibleChange(!showKpi)
+            }}
+          >
+            <span>Tampilkan KPI</span>
+            <Switch
+              checked={showKpi}
+              tabIndex={-1}
+              aria-hidden='true'
+              className='pointer-events-none'
+            />
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <ProductionImportDialog open={importOpen} onOpenChange={setImportOpen} />
+      {canUseBatch && (
+        <ProductionImportDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+        />
+      )}
       {canDeleteBatch && deleteOpen && (
         <ProductionBatchDeleteDialog
           open={deleteOpen}

@@ -27,6 +27,7 @@ import {
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 import { cn } from '@/lib/utils'
+import { useKpiVisibility } from '@/hooks/use-kpi-visibility'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -72,6 +73,7 @@ import {
   DataTableToolbar,
 } from '@/components/data-table'
 import { DatePicker } from '@/components/date-picker'
+import { KpiVisibilityMenu } from '@/components/kpi-visibility-menu'
 import { Main } from '@/components/layout/main'
 import { MonthPicker } from '@/components/month-picker'
 import { hasPermission } from '@/features/auth/permissions'
@@ -166,6 +168,7 @@ export function PayrollPeriodsPage({
   navigate: NavigateFn
 }) {
   const session = useAuthStore((state) => state.session)
+  const { showKpi, setShowKpi } = useKpiVisibility('payroll-periods')
   const canCalculate = hasPermission(session, 'payroll.calculate')
   const canReset =
     session?.user.role === 'SUPER_ADMIN' ||
@@ -202,11 +205,14 @@ export function PayrollPeriodsPage({
               melalui tiga tahap yang jelas.
             </p>
           </div>
-          {canCalculate && (
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus /> Buat periode
-            </Button>
-          )}
+          <div className='flex items-center gap-2'>
+            {canCalculate && (
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus /> Buat periode
+              </Button>
+            )}
+            <KpiVisibilityMenu showKpi={showKpi} onCheckedChange={setShowKpi} />
+          </div>
         </header>
 
         <PayrollProcessNav active='PERIOD' periodUid={detailUid} />
@@ -220,7 +226,9 @@ export function PayrollPeriodsPage({
           </AlertDescription>
         </Alert>
 
-        <PayrollKpis data={periods.data} pending={periods.isPending} />
+        {showKpi && (
+          <PayrollKpis data={periods.data} pending={periods.isPending} />
+        )}
         {periods.isError ? (
           <ErrorState onRetry={() => void periods.refetch()} />
         ) : (

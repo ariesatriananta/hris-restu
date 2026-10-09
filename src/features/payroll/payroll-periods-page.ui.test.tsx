@@ -54,6 +54,7 @@ function renderPage(items: PayrollPeriodSummary[] = []) {
 
 describe('Payroll periods page', () => {
   beforeEach(() => {
+    localStorage.removeItem('hris-rsia-payroll-periods-kpi-visible-v1')
     useAuthStore.setState({
       session: {
         user: {
@@ -93,6 +94,34 @@ describe('Payroll periods page', () => {
     await expect
       .element(screen.getByRole('button', { name: 'Buat periode' }))
       .not.toBeInTheDocument()
+  })
+
+  it('menyimpan pilihan KPI bagi viewer tanpa membuka izin mutasi Payroll', async () => {
+    const first = await renderPage()
+    await expect
+      .element(first.getByText('Total periode', { exact: true }))
+      .toBeInTheDocument()
+    await first.getByRole('button', { name: 'Opsi tampilan' }).click()
+    await first.getByRole('menuitemcheckbox', { name: 'Tampilkan KPI' }).click()
+    await expect
+      .element(first.getByText('Total periode', { exact: true }))
+      .not.toBeInTheDocument()
+    await expect
+      .element(first.getByRole('button', { name: 'Buat periode' }))
+      .not.toBeInTheDocument()
+    expect(
+      localStorage.getItem('hris-rsia-payroll-periods-kpi-visible-v1')
+    ).toBe('false')
+    await first.unmount()
+    const second = await renderPage()
+    await expect
+      .element(second.getByText('Total periode', { exact: true }))
+      .not.toBeInTheDocument()
+    await expect
+      .element(
+        second.getByText('Belum ada periode yang sesuai filter.').first()
+      )
+      .toBeInTheDocument()
   })
 
   it('menyediakan tombol buat periode untuk Super Admin', async () => {

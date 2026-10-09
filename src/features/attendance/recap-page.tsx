@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
+import { useKpiVisibility } from '@/hooks/use-kpi-visibility'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -34,6 +35,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { DatePicker } from '@/components/date-picker'
+import { KpiVisibilityMenu } from '@/components/kpi-visibility-menu'
 import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
 import {
@@ -68,6 +70,7 @@ export function AttendanceRecapPage({
   navigate: NavigateFn
 }) {
   const routerNavigate = useNavigate()
+  const { showKpi, setShowKpi } = useKpiVisibility('attendance-recap-summary')
   const defaults = defaultPeriod()
   const dateFrom = stringValue(search.dateFrom) ?? defaults.dateFrom
   const dateTo = stringValue(search.dateTo) ?? defaults.dateTo
@@ -263,6 +266,9 @@ export function AttendanceRecapPage({
               </p>
             )}
           </div>
+          {view === 'summary' && (
+            <KpiVisibilityMenu showKpi={showKpi} onCheckedChange={setShowKpi} />
+          )}
         </div>
       </div>
 
@@ -327,7 +333,7 @@ export function AttendanceRecapPage({
             />
           </TabsContent>
           <TabsContent value='summary' className='space-y-5'>
-            <Summary data={result.data?.summary} />
+            {showKpi && <Summary data={result.data?.summary} />}
             <AttendanceRecapTable
               data={result.data}
               search={search}

@@ -17,6 +17,7 @@ import {
 import { toast } from 'sonner'
 import { SHOW_APP_LOGO } from '@/lib/app-branding'
 import { cn } from '@/lib/utils'
+import { useKpiVisibility } from '@/hooks/use-kpi-visibility'
 import { type NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -38,6 +39,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
+import { KpiVisibilityMenu } from '@/components/kpi-visibility-menu'
 import { Main } from '@/components/layout/main'
 import {
   useIssuePayrollPayslips,
@@ -77,6 +79,7 @@ export function PayrollPayslipsPage({
   search: SearchState
   navigate: NavigateFn
 }) {
+  const { showKpi, setShowKpi } = useKpiVisibility('payroll-payslips')
   const periodUid = typeof search.periodUid === 'string' ? search.periodUid : ''
   const query = typeof search.query === 'string' ? search.query : ''
   const detailUid =
@@ -178,26 +181,29 @@ export function PayrollPayslipsPage({
               ditutup.
             </p>
           </div>
-          {canPrint && bundle.data?.employees.length ? (
-            <div className='flex flex-wrap gap-2'>
-              <Button
-                variant='outline'
-                disabled={!selected.length || issue.isPending}
-                onClick={() => print(selected)}
-              >
-                <Printer className='mr-2 size-4' />
-                Cetak dipilih ({selected.length})
-              </Button>
-              <Button disabled={issue.isPending} onClick={() => print()}>
-                {issue.isPending ? (
-                  <LoaderCircle className='mr-2 size-4 animate-spin' />
-                ) : (
+          <div className='flex flex-wrap items-center gap-2'>
+            {canPrint && bundle.data?.employees.length ? (
+              <>
+                <Button
+                  variant='outline'
+                  disabled={!selected.length || issue.isPending}
+                  onClick={() => print(selected)}
+                >
                   <Printer className='mr-2 size-4' />
-                )}
-                Cetak massal
-              </Button>
-            </div>
-          ) : null}
+                  Cetak dipilih ({selected.length})
+                </Button>
+                <Button disabled={issue.isPending} onClick={() => print()}>
+                  {issue.isPending ? (
+                    <LoaderCircle className='mr-2 size-4 animate-spin' />
+                  ) : (
+                    <Printer className='mr-2 size-4' />
+                  )}
+                  Cetak massal
+                </Button>
+              </>
+            ) : null}
+            <KpiVisibilityMenu showKpi={showKpi} onCheckedChange={setShowKpi} />
+          </div>
         </header>
 
         <Alert className='border-sky-200 bg-sky-50/70 text-sky-950 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100'>
@@ -248,7 +254,7 @@ export function PayrollPayslipsPage({
           </div>
         </section>
 
-        {selectedPeriod && selectedRun && (
+        {showKpi && selectedPeriod && selectedRun && (
           <section
             className='grid grid-cols-2 gap-2 lg:grid-cols-4'
             aria-label='Ringkasan slip Payroll'

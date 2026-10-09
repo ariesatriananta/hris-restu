@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -13,7 +13,7 @@ import {
   Download,
   Eye,
   FileClock,
-  Info,
+  MoreHorizontal,
   ListChecks,
   LoaderCircle,
   RefreshCcw,
@@ -29,6 +29,12 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -36,6 +42,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import {
   Table,
   TableBody,
@@ -92,6 +99,17 @@ import {
   productionRecapRangeError,
 } from './production-recap-policy'
 
+const kpiVisibleKey = 'hris-rsia-production-recap-kpi-visible-v1'
+
+function readKpiVisible() {
+  if (typeof window === 'undefined') return true
+  try {
+    return localStorage.getItem(kpiVisibleKey) !== 'false'
+  } catch {
+    return true
+  }
+}
+
 export function ProductionRecapPage({
   search,
   navigate,
@@ -125,6 +143,15 @@ export function ProductionRecapPage({
   const session = useAuthStore((state) => state.session)
   const exportMutation = useExportProductionRecaps()
   const canExport = hasPermission(session, 'production.export')
+  const [showKpi, setShowKpi] = useState(readKpiVisible)
+  const changeKpiVisible = (visible: boolean) => {
+    setShowKpi(visible)
+    try {
+      localStorage.setItem(kpiVisibleKey, JSON.stringify(visible))
+    } catch {
+      // Browser storage restrictions must not interrupt the recap.
+    }
+  }
   const view =
     search.view === 'employees'
       ? 'employees'
@@ -313,6 +340,38 @@ export function ProductionRecapPage({
               Ekspor Excel
             </Button>
           )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type='button'
+                size='icon'
+                variant='outline'
+                className='h-9 w-9 shrink-0'
+                aria-label='Opsi Rekap Produksi'
+              >
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end' className='w-56'>
+              <DropdownMenuItem
+                role='menuitemcheckbox'
+                aria-checked={showKpi}
+                className='justify-between'
+                onSelect={(event) => {
+                  event.preventDefault()
+                  changeKpiVisible(!showKpi)
+                }}
+              >
+                <span>Tampilkan KPI</span>
+                <Switch
+                  checked={showKpi}
+                  tabIndex={-1}
+                  aria-hidden='true'
+                  className='pointer-events-none'
+                />
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </section>
       </header>
 
@@ -324,12 +383,9 @@ export function ProductionRecapPage({
         </Alert>
       ) : (
         <>
-          <LiveDataNotice />
-          <RecapSummary data={result.data} isPending={result.isPending} />
-          <QuantityStrip
-            items={result.data?.quantityTotals}
-            isPending={result.isPending}
-          />
+          {showKpi && (
+            <RecapSummary data={result.data} isPending={result.isPending} />
+          )}
 
           <Tabs
             value={view}
@@ -433,18 +489,6 @@ export function ProductionRecapPage({
         }}
       />
     </Main>
-  )
-}
-
-function LiveDataNotice() {
-  return (
-    <div className='mb-3 flex items-start gap-2 rounded-lg border border-sky-500/20 bg-sky-500/[0.05] px-3 py-2 text-xs sm:text-sm'>
-      <Info className='mt-0.5 size-4 shrink-0 text-sky-700 dark:text-sky-400' />
-      <p>
-        Hanya transaksi <strong>POSTED</strong> yang dihitung. Transaksi VOID
-        dikecualikan dan nilai bruto di halaman ini belum merupakan gaji bersih.
-      </p>
-    </div>
   )
 }
 

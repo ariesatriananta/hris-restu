@@ -28,6 +28,7 @@ import {
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 import { cn } from '@/lib/utils'
+import { useKpiVisibility } from '@/hooks/use-kpi-visibility'
 import { type NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -89,6 +90,7 @@ import {
   DataTablePagination,
   DataTableToolbar,
 } from '@/components/data-table'
+import { KpiVisibilityMenu } from '@/components/kpi-visibility-menu'
 import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
 import { formatIdAmountInput, normalizeIdAmount } from './amount-input'
@@ -157,6 +159,7 @@ export function PayrollSimulationPage({
   navigate: NavigateFn
 }) {
   const session = useAuthStore((state) => state.session)
+  const { showKpi, setShowKpi } = useKpiVisibility('payroll-simulation')
   const canCalculate = hasPermission(session, 'payroll.calculate')
   const periodUid = typeof search.periodUid === 'string' ? search.periodUid : ''
   const selectedRunUid = typeof search.runUid === 'string' ? search.runUid : ''
@@ -288,6 +291,7 @@ export function PayrollSimulationPage({
                 {run.data?.status === 'COMPLETED' ? 'Hitung ulang' : 'Hitung'}
               </Button>
             )}
+            <KpiVisibilityMenu showKpi={showKpi} onCheckedChange={setShowKpi} />
           </div>
         </header>
 
@@ -402,11 +406,13 @@ export function PayrollSimulationPage({
                     </a>
                   </Button>
                 </div>
-                <SimulationKpis
-                  run={run.data}
-                  payrollBasis={payrollBasis}
-                  payFrequency={payFrequency}
-                />
+                {showKpi && (
+                  <SimulationKpis
+                    run={run.data}
+                    payrollBasis={payrollBasis}
+                    payFrequency={payFrequency}
+                  />
+                )}
                 <EmployeeResults
                   data={employees.data?.data ?? []}
                   total={employees.data?.meta.total ?? 0}

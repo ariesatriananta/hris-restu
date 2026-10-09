@@ -15,6 +15,7 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import { currentListReturnTo } from '@/lib/list-return-to'
+import { useKpiVisibility } from '@/hooks/use-kpi-visibility'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -35,6 +36,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { KpiVisibilityMenu } from '@/components/kpi-visibility-menu'
 import { Main } from '@/components/layout/main'
 import {
   useContractConflicts,
@@ -63,6 +65,7 @@ export function ContractsDocumentsPage({
   search: Record<string, unknown>
   navigate: NavigateFn
 }) {
+  const { showKpi, setShowKpi } = useKpiVisibility('contracts-list')
   const returnTo = currentListReturnTo()
   const routerNavigate = useNavigate()
   const [activeTab, setActiveTab] = useState<'contracts' | 'status-changes'>(
@@ -138,6 +141,9 @@ export function ContractsDocumentsPage({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+          {activeTab === 'contracts' && (
+            <KpiVisibilityMenu showKpi={showKpi} onCheckedChange={setShowKpi} />
+          )}
         </div>
       </div>
       {activeTab === 'contracts' && conflicts.isError ? (
@@ -211,11 +217,13 @@ export function ContractsDocumentsPage({
           </TabsTrigger>
         </TabsList>
         <TabsContent value='contracts' className='mt-4'>
-          <ContractKpiCards
-            data={contractKpis.data}
-            isPending={contractKpis.isPending}
-            isError={contractKpis.isError}
-          />
+          {showKpi && (
+            <ContractKpiCards
+              data={contractKpis.data}
+              isPending={contractKpis.isPending}
+              isError={contractKpis.isError}
+            />
+          )}
           <RecordsTable
             data={contractRows}
             search={search}

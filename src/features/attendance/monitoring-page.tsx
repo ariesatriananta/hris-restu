@@ -24,6 +24,7 @@ import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 import { currentListReturnTo } from '@/lib/list-return-to'
 import { cn } from '@/lib/utils'
+import { useKpiVisibility } from '@/hooks/use-kpi-visibility'
 import {
   siteScopeLabel,
   useSiteScopeFilter,
@@ -69,6 +70,10 @@ import {
   DataTableToolbar,
 } from '@/components/data-table'
 import { DatePicker } from '@/components/date-picker'
+import {
+  KpiVisibilityMenu,
+  KpiVisibilityMenuItem,
+} from '@/components/kpi-visibility-menu'
 import { Main } from '@/components/layout/main'
 import { hasPermission } from '@/features/auth/permissions'
 import { AttendanceBatchActions } from './attendance-batch-actions'
@@ -113,6 +118,7 @@ export function AttendanceMonitoringPage({
 }) {
   const session = useAuthStore((state) => state.session)
   const routerNavigate = useNavigate()
+  const { showKpi, setShowKpi } = useKpiVisibility('attendance-monitoring')
   const canCorrect = hasPermission(session, 'attendance.correct')
   const canApprove = hasPermission(session, 'attendance.approve')
   const isAttendanceHr =
@@ -241,7 +247,7 @@ export function AttendanceMonitoringPage({
             >
               Hari ini
             </Button>
-            {goLiveDate && foundation.data?.configuration.batchToolsEnabled && (
+            {goLiveDate && foundation.data?.configuration.batchToolsEnabled ? (
               <AttendanceBatchActions
                 businessDate={businessDate}
                 goLiveDate={goLiveDate}
@@ -249,6 +255,17 @@ export function AttendanceMonitoringPage({
                 initialSite={
                   effectiveSites.length === 1 ? effectiveSites[0] : 'ALL'
                 }
+                menuFooter={
+                  <KpiVisibilityMenuItem
+                    showKpi={showKpi}
+                    onCheckedChange={setShowKpi}
+                  />
+                }
+              />
+            ) : (
+              <KpiVisibilityMenu
+                showKpi={showKpi}
+                onCheckedChange={setShowKpi}
               />
             )}
           </div>
@@ -309,11 +326,13 @@ export function AttendanceMonitoringPage({
         canOpenCorrections={canCorrect || canApprove}
         canOpenClassifications={(canCorrect || canApprove) && isAttendanceHr}
       />
-      <Summary
-        data={result.data?.summary}
-        search={search}
-        navigate={navigate}
-      />
+      {showKpi && (
+        <Summary
+          data={result.data?.summary}
+          search={search}
+          navigate={navigate}
+        />
+      )}
       <div className='mt-5'>
         <MonitoringTable
           result={result}

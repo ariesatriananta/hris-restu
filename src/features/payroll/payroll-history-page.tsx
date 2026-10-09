@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { useKpiVisibility } from '@/hooks/use-kpi-visibility'
 import { useSiteScopeFilter } from '@/hooks/use-site-scope-filter'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -53,6 +54,7 @@ import {
   DataTableToolbar,
 } from '@/components/data-table'
 import { DatePicker } from '@/components/date-picker'
+import { KpiVisibilityMenu } from '@/components/kpi-visibility-menu'
 import { Main } from '@/components/layout/main'
 import {
   exportPayrollRun,
@@ -128,6 +130,7 @@ export function PayrollHistoryPage({
   search: SearchState
   navigate: NavigateFn
 }) {
+  const { showKpi, setShowKpi } = useKpiVisibility('payroll-history')
   const query = typeof search.query === 'string' ? search.query : ''
   const requestedSiteCode =
     typeof search.siteCode === 'string' ? search.siteCode : ''
@@ -392,46 +395,51 @@ export function PayrollHistoryPage({
   return (
     <Main>
       <div className='space-y-4'>
-        <header>
-          <p className='text-sm font-medium text-primary'>Payroll</p>
-          <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
-            Riwayat Payroll
-          </h1>
-          <p className='text-sm text-muted-foreground'>
-            Telusuri periode, histori perhitungan, perubahan nominal, dan hasil
-            yang telah disahkan.
-          </p>
+        <header className='flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
+          <div>
+            <p className='text-sm font-medium text-primary'>Payroll</p>
+            <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
+              Riwayat Payroll
+            </h1>
+            <p className='text-sm text-muted-foreground'>
+              Telusuri periode, histori perhitungan, perubahan nominal, dan
+              hasil yang telah disahkan.
+            </p>
+          </div>
+          <KpiVisibilityMenu showKpi={showKpi} onCheckedChange={setShowKpi} />
         </header>
 
-        <div
-          className='grid grid-cols-2 gap-2 lg:grid-cols-4'
-          aria-label='Ringkasan riwayat Payroll'
-        >
-          <Kpi
-            icon={CalendarDays}
-            label='Periode ditemukan'
-            value={summary.periods}
-            tone='blue'
-          />
-          <Kpi
-            icon={CheckCircle2}
-            label='Ditutup di halaman ini'
-            value={summary.closed}
-            tone='green'
-          />
-          <Kpi
-            icon={FileClock}
-            label='Perhitungan di halaman ini'
-            value={summary.runs}
-            tone='violet'
-          />
-          <Kpi
-            icon={AlertCircle}
-            label='Perhitungan gagal'
-            value={summary.failed}
-            tone='amber'
-          />
-        </div>
+        {showKpi && (
+          <div
+            className='grid grid-cols-2 gap-2 lg:grid-cols-4'
+            aria-label='Ringkasan riwayat Payroll'
+          >
+            <Kpi
+              icon={CalendarDays}
+              label='Periode ditemukan'
+              value={summary.periods}
+              tone='blue'
+            />
+            <Kpi
+              icon={CheckCircle2}
+              label='Ditutup di halaman ini'
+              value={summary.closed}
+              tone='green'
+            />
+            <Kpi
+              icon={FileClock}
+              label='Perhitungan di halaman ini'
+              value={summary.runs}
+              tone='violet'
+            />
+            <Kpi
+              icon={AlertCircle}
+              label='Perhitungan gagal'
+              value={summary.failed}
+              tone='amber'
+            />
+          </div>
+        )}
 
         <DataTableToolbar
           table={table}
