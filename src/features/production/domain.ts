@@ -285,6 +285,7 @@ export type ProductionTransaction = {
   deductionQuantity?: string
   payableQuantity?: string
   productionSection?: { uid: string; code: string; name: string } | null
+  productionModule?: { uid: string; code?: string; name: string } | null
   rateSnapshot: string
   grossAmount: string
   qc?: ProductionQcSnapshot | null

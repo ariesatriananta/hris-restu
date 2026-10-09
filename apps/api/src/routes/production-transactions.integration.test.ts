@@ -1363,6 +1363,36 @@ describe('Production transactions API', () => {
     } else expect(qcHeader).toBeUndefined()
   })
 
+  it.each(['legacy', 'status'])('enriches list QC snapshots and unique historic module without changing totals: %s', async variant => {
+    mocks.query
+      .mockResolvedValueOnce([[{transactionCount:2,employeeCount:1,totalGrossAmount:'3525.00'}]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[transactionRow(),{...transactionRow(),id:22,uid:jobUid}]])
+      .mockResolvedValueOnce([[{id:81,transactionId:21,brandUid:employeeUid,brandCode:'BR-OLD',brandName:'Snapshot brand',weight1Grams:'71.29',weight2Grams:null}]])
+      .mockResolvedValueOnce([[{qcId:81,uid:jobUid,code:'DF-OLD',name:'Snapshot defect',sortOrder:3,quantity:9}]])
+      .mockResolvedValueOnce([[{hasHistoryStatus:variant==='status' ? 1 : 0}]])
+      .mockResolvedValueOnce([[{transactionId:21,uid:jobUid,code:'MOD-OLD',name:'Historical module'}]])
+    const response = await request('/transactions?site=JEPARA')
+    expect(response.status).toBe(200)
+    const body = await response.json() as {
+      total: number
+      summary: { totalGrossAmount: string }
+      items: Array<Record<string, unknown>>
+    }
+    expect(body.total).toBe(2)
+    expect(body.summary.totalGrossAmount).toBe('3525.00')
+    expect(body.items[0]).toMatchObject({productionModule:{uid:jobUid,code:'MOD-OLD',name:'Historical module'},qc:{brand:{code:'BR-OLD',name:'Snapshot brand'},weight1Grams:'71.29',defects:[{name:'Snapshot defect',quantity:9}]}})
+    expect(body.items[1]).toMatchObject({productionModule:null,qc:null})
+    expect(body.items[0]).not.toHaveProperty('id')
+    expect(mocks.query).toHaveBeenCalledTimes(7)
+    const moduleSql = String(mocks.query.mock.calls[6][0])
+    expect(moduleSql).toContain('module_history.site_id=pt.site_id')
+    expect(moduleSql).toContain('module_history.effective_from<=pt.business_date')
+    expect(moduleSql).toContain('conflicting_history.id<>module_history.id')
+    expect(moduleSql.includes("module_history.status='ACTIVE'")).toBe(variant==='status')
+    expect(mocks.query.mock.calls[6][1]).toEqual([21,22])
+  })
+
   it('membatasi list ke site user dan menghitung KPI hanya dari POSTED', async () => {
     mocks.query
       .mockResolvedValueOnce([[
@@ -1378,6 +1408,10 @@ describe('Production transactions API', () => {
         },
       ]])
       .mockResolvedValueOnce([[transactionRow()]])
+
+      .mockResolvedValueOnce([[]]) // No QC on legacy transactions.
+      .mockResolvedValueOnce([[{hasHistoryStatus:1}]])
+      .mockResolvedValueOnce([[]]) // No unique historical module placement.
 
     const response = await request(
       `/transactions?site=JEPARA&jobUid=${jobUid}&status=POSTED&pageSize=500`

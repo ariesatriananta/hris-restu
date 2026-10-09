@@ -14,7 +14,7 @@ import { writeAudit } from '../lib/audit.js'
 import { businessDate } from '../lib/contract-lifecycle.js'
 import { ApiError } from '../lib/errors.js'
 import { productionTerminalSummaryAttendanceSql, productionTerminalSummaryPostedSql } from '../lib/production-terminal-summary.js'
-import { assertProductionQcReplay, loadProductionQcOptions, lastProductionDeviceBrand, resolveProductionQc, saveProductionQc, readProductionQc, cloneProductionQc, loadProductionImportQcMasters, resolveProductionImportQc, saveProductionImportQc, assertProductionImportQcReplay, type ProductionImportQc, type ResolvedProductionQc } from '../lib/production-qc-storage.js'
+import { assertProductionQcReplay, loadProductionQcOptions, lastProductionDeviceBrand, resolveProductionQc, saveProductionQc, readProductionQc, readProductionQcBatch, cloneProductionQc, loadProductionImportQcMasters, resolveProductionImportQc, saveProductionImportQc, assertProductionImportQcReplay, type ProductionImportQc, type ResolvedProductionQc } from '../lib/production-qc-storage.js'
 import { priceProductionTiers, type ProductionRateTier } from '../lib/production-tier-pricing.js'
 import {
   allocateDailyQuantityDeduction,
@@ -4029,6 +4029,7 @@ productionTransactionsRouter.get(
       }
       const moduleUids = csvValues(req.query.moduleUid)
       const employeeTypes = csvValues(req.query.employeeType)
+      let hasHistoryStatus: boolean | undefined
       if (employeeTypes.some(type => !['BORONGAN','HARIAN','BULANAN','TRAINING'].includes(type))) {
         throw new ApiError(422, 'Filter jenis karyawan tidak valid.')
       }
@@ -4041,6 +4042,7 @@ productionTransactionsRouter.get(
             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='employee_employment_histories' AND COLUMN_NAME='status'`
         )
         const hasStatus = Number(columns[0]?.hasHistoryStatus)>0
+        hasHistoryStatus = hasStatus
         // Historical placement, not the employee's current module. EXISTS
         // avoids duplicating transaction totals when joining employment data.
         where.push(`EXISTS (
@@ -4109,7 +4111,7 @@ productionTransactionsRouter.get(
         payableQuantity: normalizeStoredDecimal(row.payableQuantity),
       }))
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT pt.uid,pt.transaction_number transactionNumber,
+        `SELECT pt.id,pt.uid,pt.transaction_number transactionNumber,
                 DATE_FORMAT(pt.business_date,'%Y-%m-%d') businessDate,
                 DATE_FORMAT(pt.transaction_at,'%Y-%m-%dT%H:%i:%s+07:00') transactionAt,
                 pt.quantity,pt.quantity_deduction_percentage deductionPercentage,
@@ -4126,6 +4128,38 @@ productionTransactionsRouter.get(
           ORDER BY pt.transaction_at DESC,pt.id DESC LIMIT ? OFFSET ?`,
         [...values, pageSize, (page - 1) * pageSize]
       )
+      const transactionIds = rows.map(row => Number(row.id))
+      const qcByTransaction = await readProductionQcBatch(pool, transactionIds)
+      const modulesByTransaction = new Map<number, {uid:string;code:string;name:string}>()
+      if (transactionIds.length) {
+        if (hasHistoryStatus === undefined) {
+          const [columns] = await pool.query<RowDataPacket[]>(
+            `SELECT COUNT(*) hasHistoryStatus FROM INFORMATION_SCHEMA.COLUMNS
+              WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='employee_employment_histories' AND COLUMN_NAME='status'`
+          )
+          hasHistoryStatus = Number(columns[0]?.hasHistoryStatus)>0
+        }
+        const [moduleRows] = await pool.query<RowDataPacket[]>(
+          `SELECT pt.id transactionId,module.uid,module.code,module.name
+           FROM production_transactions pt
+           JOIN employee_employment_histories module_history ON module_history.employee_id=pt.employee_id
+             AND module_history.site_id=pt.site_id AND module_history.effective_from<=pt.business_date
+             AND (module_history.effective_to IS NULL OR module_history.effective_to>=pt.business_date)
+             ${hasHistoryStatus ? "AND module_history.status='ACTIVE'" : ''}
+           JOIN production_module_sections module_mapping ON module_mapping.id=module_history.production_module_section_id
+           JOIN production_modules module ON module.id=module_mapping.production_module_id
+           WHERE pt.id IN (${transactionIds.map(() => '?').join(',')})
+             AND NOT EXISTS (
+               SELECT 1 FROM employee_employment_histories conflicting_history
+               WHERE conflicting_history.employee_id=module_history.employee_id AND conflicting_history.id<>module_history.id
+                 AND conflicting_history.effective_from<=pt.business_date
+                 AND (conflicting_history.effective_to IS NULL OR conflicting_history.effective_to>=pt.business_date)
+                 ${hasHistoryStatus ? "AND conflicting_history.status='ACTIVE'" : ''}
+             )`,
+          transactionIds
+        )
+        for (const row of moduleRows) modulesByTransaction.set(Number(row.transactionId), {uid:String(row.uid),code:String(row.code),name:String(row.name)})
+      }
       res.json({
         items: rows.map((row) => ({
           uid: row.uid,
@@ -4133,6 +4167,8 @@ productionTransactionsRouter.get(
           businessDate: row.businessDate,
           transactionAt: row.transactionAt,
           status: row.status,
+          productionModule: modulesByTransaction.get(Number(row.id)) ?? null,
+          qc: qcByTransaction.get(Number(row.id)) ?? null,
           quantity: normalizeStoredDecimal(row.quantity),
           deductionPercentage: normalizeStoredDecimal(row.deductionPercentage),
           deductionQuantity: normalizeStoredDecimal(row.deductionQuantity),

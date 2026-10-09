@@ -212,6 +212,44 @@ export async function assertProductionQcReplay(
 }
 
 // Read snapshot labels, not mutable master names/status/order.
+export async function readProductionQcBatch(conn: Executor, transactionIds: number[]) {
+  const result = new Map<number, NonNullable<Awaited<ReturnType<typeof readProductionQc>>>>()
+  if (!transactionIds.length) return result
+  const [headers] = await conn.query<RowDataPacket[]>(
+    `SELECT qc.id,qc.production_transaction_id transactionId,brand.uid brandUid,
+      qc.brand_code_snapshot brandCode,qc.brand_name_snapshot brandName,
+      CAST(qc.weight_1_grams AS CHAR) weight1Grams,CAST(qc.weight_2_grams AS CHAR) weight2Grams
+     FROM production_transaction_qc qc LEFT JOIN production_brands brand ON brand.id=qc.brand_id
+     WHERE qc.production_transaction_id IN (${transactionIds.map(() => '?').join(',')})`,
+    transactionIds
+  )
+  if (!headers.length) return result
+  const [items] = await conn.query<RowDataPacket[]>(
+    `SELECT detail.production_transaction_qc_id qcId,defect.uid,
+      detail.defect_code_snapshot code,detail.defect_name_snapshot name,
+      detail.sort_order_snapshot sortOrder,detail.quantity
+     FROM production_transaction_qc_defects detail JOIN production_defects defect ON defect.id=detail.defect_id
+     WHERE detail.production_transaction_qc_id IN (${headers.map(() => '?').join(',')})
+     ORDER BY detail.sort_order_snapshot,detail.id`,
+    headers.map(header => header.id)
+  )
+  const defectsByHeader = new Map<number, NonNullable<Awaited<ReturnType<typeof readProductionQc>>>['defects']>()
+  for (const item of items) {
+    const defects = defectsByHeader.get(Number(item.qcId)) ?? []
+    defects.push({uid:String(item.uid),code:String(item.code),name:String(item.name),sortOrder:Number(item.sortOrder),quantity:Number(item.quantity)})
+    defectsByHeader.set(Number(item.qcId), defects)
+  }
+  for (const header of headers) {
+    result.set(Number(header.transactionId), {
+      brand: header.brandUid ? {uid:String(header.brandUid),code:String(header.brandCode),name:String(header.brandName)} : null,
+      weight1Grams: header.weight1Grams ?? null,
+      weight2Grams: header.weight2Grams ?? null,
+      defects: defectsByHeader.get(Number(header.id)) ?? [],
+    })
+  }
+  return result
+}
+
 export async function readProductionQc(conn: Executor, transactionId: number) {
   const [headers] = await conn.query<RowDataPacket[]>(
     `SELECT qc.id,brand.uid brandUid,qc.brand_code_snapshot brandCode,qc.brand_name_snapshot brandName,

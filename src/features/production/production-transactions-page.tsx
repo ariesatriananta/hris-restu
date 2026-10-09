@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -10,6 +17,8 @@ import {
   Ban,
   Boxes,
   CalendarPlus,
+  ChevronLeft,
+  ChevronRight,
   Eye,
   FileSpreadsheet,
   FileClock,
@@ -17,14 +26,17 @@ import {
   Loader2,
   LockKeyhole,
   MoreHorizontal,
+  Minus,
   PackageCheck,
   PencilLine,
+  Plus,
   RefreshCcw,
   Trash2,
   Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
+import { cn } from '@/lib/utils'
 import { type NavigateFn, useTableUrlState } from '@/hooks/use-table-url-state'
 import {
   AlertDialog,
@@ -790,13 +802,70 @@ function TransactionTable({
   onRetry: () => void
   onOpenDetail: (item: ProductionTransaction) => void
 }) {
+  const [showDefects, setShowDefects] = useState(false)
+  const [renderDefects, setRenderDefects] = useState(false)
+  const defectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  )
+  const tableWrapper = useRef<HTMLDivElement>(null)
+  useEffect(() => () => clearTimeout(defectTimer.current), [])
+  const toggleDefects = useCallback(() => {
+    clearTimeout(defectTimer.current)
+    if (showDefects) {
+      const duration = window.matchMedia('(prefers-reduced-motion: reduce)')
+        .matches
+        ? 0
+        : 600
+      defectTimer.current = setTimeout(() => setRenderDefects(false), duration)
+    } else {
+      setRenderDefects(true)
+    }
+    setShowDefects(!showDefects)
+  }, [showDefects])
+  const scrollTable = (direction: number) => {
+    const container = tableWrapper.current?.querySelector<HTMLElement>(
+      '[data-slot="table-container"]'
+    )
+    if (!container) return
+    container.scrollBy({
+      left: direction * Math.max(160, container.clientWidth * 0.6),
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ? 'auto'
+        : 'smooth',
+    })
+  }
+  const defectAnimation = showDefects
+    ? 'animate-in fade-in slide-in-from-left-2 duration-[600ms] motion-reduce:animate-none'
+    : 'animate-out fade-out slide-out-to-left-2 duration-[600ms] fill-mode-forwards motion-reduce:animate-none'
+  const [tableHeader, setTableHeader] =
+    useState<HTMLTableSectionElement | null>(null)
+  const [pinnedColumnSizes, setPinnedColumnSizes] = useState<
+    Record<string, number>
+  >({})
+  const defects = useMemo(() => {
+    const known = new Map<
+      string,
+      NonNullable<ProductionTransaction['qc']>['defects'][number]
+    >()
+    for (const item of data?.items ?? []) {
+      for (const defect of item.qc?.defects ?? []) {
+        if (!known.has(defect.uid)) known.set(defect.uid, defect)
+      }
+    }
+    return [...known.values()].sort(
+      (left, right) =>
+        left.sortOrder - right.sortOrder ||
+        left.name.localeCompare(right.name, 'id') ||
+        left.uid.localeCompare(right.uid)
+    )
+  }, [data?.items])
   const columns = useMemo<ColumnDef<ProductionTransaction>[]>(
     () => [
       {
         id: 'time',
         header: 'Waktu',
         cell: ({ row }) => (
-          <div className='min-w-0'>
+          <div className='max-w-[5.25rem] min-w-0'>
             <p>{formatShortDate(row.original.businessDate)}</p>
             <p className='text-[11px] leading-4 text-muted-foreground'>
               {formatTime(row.original.transactionAt)}
@@ -809,13 +878,13 @@ function TransactionTable({
               )}
           </div>
         ),
-        size: 105,
+        size: 100,
       },
       {
         id: 'employee',
         header: 'Karyawan',
         cell: ({ row }) => (
-          <div className='min-w-0'>
+          <div className='max-w-[11rem] min-w-0'>
             <p
               className='truncate font-medium'
               title={row.original.employee.fullName}
@@ -828,7 +897,7 @@ function TransactionTable({
             </p>
           </div>
         ),
-        size: 220,
+        size: 190,
       },
       {
         id: 'site',
@@ -843,14 +912,33 @@ function TransactionTable({
         accessorFn: (row) => row.job.uid,
         header: 'Pekerjaan',
         cell: ({ row }) => (
-          <div className='min-w-0'>
-            <p className='truncate font-medium'>{row.original.job.name}</p>
-            <p className='truncate text-[11px] leading-4 text-muted-foreground'>
-              {row.original.job.code}
+          <div className='max-w-[10rem] min-w-0'>
+            <p
+              className='truncate font-medium'
+              title={row.original.productionModule?.name}
+            >
+              {row.original.productionModule?.name ?? '-'}
+            </p>
+            <p
+              className='truncate text-[11px] leading-4 text-muted-foreground'
+              title={row.original.job.name}
+            >
+              {row.original.job.name}
             </p>
           </div>
         ),
-        size: 180,
+        size: 160,
+      },
+      {
+        id: 'brand',
+        header: 'Brand',
+        meta: { label: 'Brand' },
+        cell: ({ row }) => (
+          <p className='truncate' title={row.original.qc?.brand?.name}>
+            {row.original.qc?.brand?.name ?? '-'}
+          </p>
+        ),
+        size: 130,
       },
       {
         id: 'result',
@@ -865,6 +953,68 @@ function TransactionTable({
           </p>
         ),
         size: 125,
+      },
+      {
+        id: 'qc',
+        meta: { label: 'QC' },
+        header: () => (
+          <div className='flex items-center gap-1.5'>
+            <span>QC</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='icon'
+                  className='size-6 rounded-full'
+                  aria-label='Detail Defect'
+                  aria-expanded={showDefects}
+                  onClick={toggleDefects}
+                >
+                  {showDefects ? (
+                    <Minus className='size-3' />
+                  ) : (
+                    <Plus className='size-3' />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Detail Defect</TooltipContent>
+            </Tooltip>
+          </div>
+        ),
+        cell: ({ row }) => <TransactionQcSummary item={row.original} />,
+        size: 150,
+      },
+      ...(renderDefects
+        ? defects.map<ColumnDef<ProductionTransaction>>((defect) => ({
+            id: `defect-${defect.uid}`,
+            meta: { label: defect.name },
+            header: () => (
+              <span className='block truncate' title={defect.name}>
+                {defect.name}
+              </span>
+            ),
+            cell: ({ row }) => {
+              const quantity = row.original.qc?.defects.find(
+                (item) => item.uid === defect.uid
+              )?.quantity
+              return (
+                <span className='tabular-nums'>
+                  {quantity && quantity > 0 ? formatNumber(quantity, 0) : '-'}
+                </span>
+              )
+            },
+            size: 100,
+          }))
+        : []),
+      {
+        id: 'adjustment',
+        header: 'Adjustment',
+        meta: { label: 'Adjustment' },
+        cell: ({ row }) => (
+          <span className='tabular-nums'>{formatAdjustment(row.original)}</span>
+        ),
+        size: 95,
       },
       {
         id: 'payableResult',
@@ -889,9 +1039,12 @@ function TransactionTable({
         id: 'amount',
         header: 'Nilai Bruto',
         cell: ({ row }) => (
-          <p className='truncate font-semibold'>
-            {formatCurrency(row.original.grossAmount)}
-          </p>
+          <div className='space-y-0.5'>
+            <p className='truncate font-semibold'>
+              {formatCurrency(row.original.grossAmount)}
+            </p>
+            <TransactionStatus value={row.original.status} />
+          </div>
         ),
         size: 145,
       },
@@ -899,8 +1052,7 @@ function TransactionTable({
         id: 'status',
         accessorFn: (row) => row.status,
         header: 'Status',
-        cell: ({ row }) => <TransactionStatus value={row.original.status} />,
-        size: 88,
+        enableHiding: false,
       },
       {
         id: 'actions',
@@ -919,7 +1071,7 @@ function TransactionTable({
         enableHiding: false,
       },
     ],
-    [onOpenDetail]
+    [onOpenDetail, defects, showDefects, renderDefects, toggleDefects]
   )
   const url = useTableUrlState({
     search,
@@ -941,9 +1093,16 @@ function TransactionTable({
       globalFilter: url.globalFilter,
       columnFilters: url.columnFilters,
       pagination: url.pagination,
+      columnSizing: pinnedColumnSizes,
     },
     initialState: {
-      columnVisibility: { site: false, moduleUid: false, employeeType: false },
+      columnVisibility: {
+        site: false,
+        moduleUid: false,
+        employeeType: false,
+        status: false,
+      },
+      columnPinning: { left: ['time', 'employee', 'jobUid'] },
     },
     pageCount: Math.max(
       1,
@@ -956,11 +1115,58 @@ function TransactionTable({
     onPaginationChange: url.onPaginationChange,
     getCoreRowModel: getCoreRowModel(),
   })
+  const visibleColumnIds = table
+    .getVisibleLeafColumns()
+    .map((column) => column.id)
+    .join('|')
+  useEffect(() => {
+    if (!tableHeader) return
+    const headers = [
+      ...tableHeader.querySelectorAll<HTMLElement>('[data-pinned-column]'),
+    ]
+    const measure = () => {
+      const sizes = Object.fromEntries(
+        headers.map((header) => [
+          header.dataset.pinnedColumn!,
+          header.getBoundingClientRect().width,
+        ])
+      )
+      setPinnedColumnSizes((previous) =>
+        Object.keys(sizes).every((key) => previous[key] === sizes[key])
+          ? previous
+          : sizes
+      )
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    headers.forEach((header) => observer.observe(header))
+    return () => observer.disconnect()
+  }, [tableHeader, visibleColumnIds])
 
   return (
     <div className='space-y-3'>
       <DataTableToolbar
         table={table}
+        viewOptionsPrefix={
+          !isPending &&
+          !isError &&
+          !!data?.items.length && (
+            <div className='hidden items-center gap-1 xl:flex'>
+              <DataTableActionButton
+                label='Geser tabel ke kiri'
+                onClick={() => scrollTable(-1)}
+              >
+                <ChevronLeft className='size-4' />
+              </DataTableActionButton>
+              <DataTableActionButton
+                label='Geser tabel ke kanan'
+                onClick={() => scrollTable(1)}
+              >
+                <ChevronRight className='size-4' />
+              </DataTableActionButton>
+            </div>
+          )
+        }
         searchPlaceholder='Cari nomor transaksi, nama, atau nomor karyawan...'
         searchDebounceMs={400}
         filters={[
@@ -1012,42 +1218,83 @@ function TransactionTable({
         </div>
       ) : (
         <>
-          <div className='hidden rounded-md border xl:block'>
-            <Table className='table-fixed'>
-              <TableHeader>
-                {table.getHeaderGroups().map((group) => (
-                  <TableRow key={group.id}>
-                    {group.headers.map((header) => (
-                      <TableHead
-                        key={header.id}
-                        style={{ width: header.getSize() }}
-                      >
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(
-                              header.column.columnDef.header,
-                              header.getContext()
-                            )}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableHeader>
-              <TableBody>
-                {table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className='whitespace-normal'>
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          <div ref={tableWrapper} className='hidden xl:block'>
+            <div className='rounded-md border'>
+              <Table className='w-max table-auto'>
+                <TableHeader ref={setTableHeader}>
+                  {table.getHeaderGroups().map((group) => (
+                    <TableRow key={group.id}>
+                      {group.headers.map((header) => (
+                        <TableHead
+                          key={header.id}
+                          data-pinned-column={
+                            header.column.getIsPinned()
+                              ? header.column.id
+                              : undefined
+                          }
+                          className={cn(
+                            header.column.id.startsWith('defect-') &&
+                              defectAnimation,
+                            header.column.getIsPinned() &&
+                              'sticky z-20 bg-background',
+                            header.column.getIsLastColumn('left') && 'border-r'
+                          )}
+                          style={{
+                            width: header.column.getIsPinned()
+                              ? undefined
+                              : header.getSize(),
+                            left:
+                              header.column.getIsPinned() === 'left'
+                                ? header.column.getStart('left')
+                                : undefined,
+                          }}
+                        >
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(
+                                header.column.columnDef.header,
+                                header.getContext()
+                              )}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody>
+                  {table.getRowModel().rows.map((row) => (
+                    <TableRow key={row.id} className='group hover:bg-muted'>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          className={cn(
+                            'whitespace-normal',
+                            cell.column.id.startsWith('defect-') &&
+                              defectAnimation,
+                            cell.column.getIsPinned() &&
+                              'sticky z-10 bg-background group-hover:bg-muted',
+                            cell.column.getIsLastColumn('left') && 'border-r'
+                          )}
+                          style={{
+                            width: cell.column.getIsPinned()
+                              ? undefined
+                              : cell.column.getSize(),
+                            left:
+                              cell.column.getIsPinned() === 'left'
+                                ? cell.column.getStart('left')
+                                : undefined,
+                          }}
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </div>
           <div className='grid gap-2 xl:hidden'>
             {data.items.map((item) => (
@@ -1068,6 +1315,28 @@ function TransactionTable({
   )
 }
 
+function formatAdjustment(item: ProductionTransaction) {
+  return `${formatNumber(100 - Number(item.deductionPercentage ?? 0), 4)}%`
+}
+
+function TransactionQcSummary({ item }: { item: ProductionTransaction }) {
+  if (!item.qc || !isLintingJob(item.job.code)) return <span>-</span>
+  const reject = item.qc.defects.reduce(
+    (total, defect) => total + Math.max(0, defect.quantity),
+    0
+  )
+  const weight = (value: string | null) =>
+    value === null ? '-' : `${formatNumber(value, 2)} gr`
+  return (
+    <div className='tabular-nums'>
+      <p>Reject: {formatNumber(reject, 0)}</p>
+      <p className='text-[11px] leading-4 text-muted-foreground'>
+        {weight(item.qc.weight1Grams)} / {weight(item.qc.weight2Grams)}
+      </p>
+    </div>
+  )
+}
+
 function MobileTransaction({
   item,
   onOpen,
@@ -1076,7 +1345,7 @@ function MobileTransaction({
   onOpen: () => void
 }) {
   return (
-    <article className='space-y-3 rounded-lg border p-3'>
+    <article className='space-y-2 rounded-lg border p-2.5 text-xs'>
       <div className='flex items-start justify-between gap-2'>
         <div className='min-w-0'>
           <p className='truncate font-medium'>{item.employee.fullName}</p>
@@ -1093,10 +1362,19 @@ function MobileTransaction({
           )}
         </div>
       </div>
-      <div className='grid grid-cols-2 gap-3 text-sm'>
+      <div className='grid grid-cols-2 gap-x-2 gap-y-1.5'>
         <div className='min-w-0'>
           <p className='text-xs text-muted-foreground'>Pekerjaan</p>
-          <p className='truncate'>{item.job.name}</p>
+          <p className='truncate font-medium'>
+            {item.productionModule?.name ?? '-'}
+          </p>
+          <p className='truncate text-[11px] text-muted-foreground'>
+            {item.job.name}
+          </p>
+        </div>
+        <div className='min-w-0'>
+          <p className='text-xs text-muted-foreground'>Brand</p>
+          <p className='truncate'>{item.qc?.brand?.name ?? '-'}</p>
         </div>
         <div>
           <p className='text-xs text-muted-foreground'>Hasil Setoran</p>
@@ -1104,6 +1382,10 @@ function MobileTransaction({
             {formatNumber(item.quantity, item.unit.decimalPrecision)}{' '}
             {item.unit.code}
           </p>
+        </div>
+        <div>
+          <p className='text-xs text-muted-foreground'>QC</p>
+          <TransactionQcSummary item={item} />
         </div>
         <div className='min-w-0'>
           <p className='text-xs text-muted-foreground'>

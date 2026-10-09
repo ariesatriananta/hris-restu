@@ -24,6 +24,7 @@ type DataTableToolbarProps<TData> = {
   controlsClassName?: string
   searchInputClassName?: string
   showViewOptions?: boolean
+  viewOptionsPrefix?: React.ReactNode
   filters?: {
     columnId: string
     title: string
@@ -49,6 +50,7 @@ export function DataTableToolbar<TData>({
   controlsClassName,
   searchInputClassName,
   showViewOptions = true,
+  viewOptionsPrefix,
   filters = [],
 }: DataTableToolbarProps<TData>) {
   const tableGlobalFilter = (table.getState().globalFilter as string) ?? ''
@@ -194,7 +196,14 @@ export function DataTableToolbar<TData>({
           </Button>
         )}
       </div>
-      {showViewOptions && <DataTableViewOptions table={table} />}
+      {viewOptionsPrefix ? (
+        <div className='flex shrink-0 items-center gap-1'>
+          {viewOptionsPrefix}
+          {showViewOptions && <DataTableViewOptions table={table} />}
+        </div>
+      ) : (
+        showViewOptions && <DataTableViewOptions table={table} />
+      )}
     </div>
   )
 }
