@@ -255,7 +255,7 @@ export function ProductionTerminalSummaryDialog({
                     {table.getHeaderGroups().map((group) => (
                       <TableRow key={group.id}>
                         {group.headers.map((header) => (
-                          <TableHead key={header.id} scope='col' className='px-3'>
+                          <TableHead key={header.id} scope='col'>
                             {flexRender(
                               header.column.columnDef.header,
                               header.getContext()
@@ -270,7 +270,7 @@ export function ProductionTerminalSummaryDialog({
                       table.getRowModel().rows.map((row) => (
                         <TableRow key={row.id}>
                           {row.getVisibleCells().map((cell) => (
-                            <TableCell key={cell.id} className='px-3 py-2'>
+                            <TableCell key={cell.id}>
                               {flexRender(
                                 cell.column.columnDef.cell,
                                 cell.getContext()

@@ -738,6 +738,25 @@ function TransactionTable({
   const columns = useMemo<ColumnDef<ProductionTransaction>[]>(
     () => [
       {
+        id: 'time',
+        header: 'Waktu',
+        cell: ({ row }) => (
+          <div className='min-w-0'>
+            <p>{formatShortDate(row.original.businessDate)}</p>
+            <p className='text-[11px] leading-4 text-muted-foreground'>
+              {formatTime(row.original.transactionAt)}
+            </p>
+            {row.original.entrySource &&
+              row.original.entrySource !== 'TERMINAL' && (
+                <p className='text-[11px] font-medium text-primary'>
+                  {productionEntrySourceLabel(row.original.entrySource)}
+                </p>
+              )}
+          </div>
+        ),
+        size: 105,
+      },
+      {
         id: 'employee',
         header: 'Karyawan',
         cell: ({ row }) => (
@@ -748,7 +767,7 @@ function TransactionTable({
             >
               {row.original.employee.fullName}
             </p>
-            <p className='truncate text-xs text-muted-foreground'>
+            <p className='truncate text-[11px] leading-4 text-muted-foreground'>
               {siteLabel(row.original.site)} ·{' '}
               {row.original.employee.employeeNumber}
             </p>
@@ -771,7 +790,7 @@ function TransactionTable({
         cell: ({ row }) => (
           <div className='min-w-0'>
             <p className='truncate font-medium'>{row.original.job.name}</p>
-            <p className='truncate text-xs text-muted-foreground'>
+            <p className='truncate text-[11px] leading-4 text-muted-foreground'>
               {row.original.job.code}
             </p>
           </div>
@@ -804,7 +823,7 @@ function TransactionTable({
               )}{' '}
               {row.original.unit.code}
             </p>
-            <p className='truncate text-xs text-muted-foreground'>
+            <p className='truncate text-[11px] leading-4 text-muted-foreground'>
               Tarif dasar {formatCurrency(row.original.rateSnapshot)}
             </p>
           </div>
@@ -827,25 +846,6 @@ function TransactionTable({
         header: 'Status',
         cell: ({ row }) => <TransactionStatus value={row.original.status} />,
         size: 88,
-      },
-      {
-        id: 'time',
-        header: 'Waktu',
-        cell: ({ row }) => (
-          <div className='min-w-0 text-sm'>
-            <p>{formatShortDate(row.original.businessDate)}</p>
-            <p className='text-xs text-muted-foreground'>
-              {formatTime(row.original.transactionAt)}
-            </p>
-            {row.original.entrySource &&
-              row.original.entrySource !== 'TERMINAL' && (
-                <p className='text-[11px] font-medium text-primary'>
-                  {productionEntrySourceLabel(row.original.entrySource)}
-                </p>
-              )}
-          </div>
-        ),
-        size: 105,
       },
       {
         id: 'actions',

@@ -128,7 +128,7 @@ export function ShiftTable({
           <DataTableColumnHeader column={column} title='Toleransi' />
         ),
         cell: ({ row }) => (
-          <span className='text-sm'>
+          <span>
             Terlambat {row.original.lateToleranceMinutes} mnt · Pulang awal{' '}
             {row.original.earlyLeaveToleranceMinutes} mnt
           </span>

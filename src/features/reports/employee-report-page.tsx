@@ -400,7 +400,7 @@ function employeeColumns(returnTo?: string): ColumnDef<EmployeeReportItem>[] {
         <DataTableColumnHeader column={column} title='Masa Berlaku' />
       ),
       cell: ({ row }) => (
-        <span className='text-sm whitespace-nowrap'>
+        <span className='whitespace-nowrap'>
           {dateLabel(row.original.effectiveFrom)} -{' '}
           {row.original.effectiveTo
             ? dateLabel(row.original.effectiveTo)

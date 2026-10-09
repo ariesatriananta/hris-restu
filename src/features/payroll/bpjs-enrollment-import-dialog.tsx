@@ -386,7 +386,7 @@ function ImportPreview({
                       <CheckCircle2 /> Valid
                     </Badge>
                   ) : (
-                    <div className='flex items-start gap-2 text-sm text-destructive'>
+                    <div className='flex items-start gap-2 text-destructive'>
                       <XCircle className='mt-0.5 size-4 shrink-0' />
                       <span>{row.issues.join(' ')}</span>
                     </div>

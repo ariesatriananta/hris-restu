@@ -234,7 +234,7 @@ function UsersTab({
           <DataTableColumnHeader column={column} title='Akses Site' />
         ),
         cell: ({ row }) => (
-          <span className='text-sm'>
+          <span>
             {row.original.siteAccess.map((site) => site.name).join(', ') || '-'}
           </span>
         ),

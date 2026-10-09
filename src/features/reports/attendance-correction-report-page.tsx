@@ -499,7 +499,7 @@ function correctionColumns(
         <DataTableColumnHeader column={column} title='Pengajuan' />
       ),
       cell: ({ row }) => (
-        <div className='min-w-40 text-sm'>
+        <div className='min-w-40'>
           <p>{row.original.requestedByName}</p>
           <p className='text-xs text-muted-foreground'>
             {dateTimeLabel(row.original.requestedAt)}

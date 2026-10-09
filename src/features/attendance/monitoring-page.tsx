@@ -818,7 +818,7 @@ function MonitoringTable({
         id: 'clock',
         header: 'Masuk / Pulang',
         cell: ({ row }) => (
-          <div className='text-sm whitespace-nowrap'>
+          <div className='whitespace-nowrap'>
             <span>{timeLabel(row.original.clockInAt)}</span>
             <span className='text-muted-foreground'> / </span>
             <span>{timeLabel(row.original.clockOutAt)}</span>
@@ -853,15 +853,14 @@ function MonitoringTable({
             >
               <Eye />
             </DataTableActionButton>
-            {canApprove &&
-              row.original.availableActions.approveCorrection && (
+            {canApprove && row.original.availableActions.approveCorrection && (
               <DataTableActionButton
                 label='Review koreksi menunggu'
                 onClick={() => onReviewCorrection(row.original)}
               >
                 <ClipboardCheck />
               </DataTableActionButton>
-              )}
+            )}
             {canApproveClassification &&
               row.original.availableActions.approveClassification && (
                 <DataTableActionButton

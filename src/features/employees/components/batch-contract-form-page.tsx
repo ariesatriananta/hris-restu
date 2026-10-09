@@ -1132,11 +1132,11 @@ function BatchContractTableRow({
 }) {
   return (
     <TableRow className={error ? 'bg-destructive/5' : undefined}>
-      <TableCell className='py-2 text-center align-top text-[11px] text-muted-foreground tabular-nums'>
+      <TableCell className='py-1 text-center align-top text-[11px] text-muted-foreground tabular-nums'>
         {rowNumber}
       </TableCell>
-      <TableCell className='min-w-0 py-2 align-top whitespace-normal'>
-        <p className='text-sm leading-4 font-medium break-words'>
+      <TableCell className='min-w-0 py-1 align-top whitespace-normal'>
+        <p className='leading-4 font-medium break-words'>
           {row.employee.fullName}
         </p>
         <p className='text-[10px] leading-3 break-words text-muted-foreground'>
@@ -1148,7 +1148,7 @@ function BatchContractTableRow({
           {row.employee.position ?? '-'}
         </p>
       </TableCell>
-      <TableCell className='py-2 align-top'>
+      <TableCell className='py-1 align-top'>
         <select
           aria-label='Jenis kontrak'
           className='h-8 w-full rounded-md border bg-background px-2 text-xs'
@@ -1165,7 +1165,7 @@ function BatchContractTableRow({
           <option value='PKWTT'>PKWTT</option>
         </select>
       </TableCell>
-      <TableCell className='py-2 align-top'>
+      <TableCell className='py-1 align-top'>
         <DatePicker
           selected={dateFromInput(row.input.startDate)}
           disabledDates={(date) => dateToInput(date) < row.employee.joinDate}
@@ -1173,7 +1173,7 @@ function BatchContractTableRow({
           triggerClassName='h-8 px-2 text-xs'
         />
       </TableCell>
-      <TableCell className='py-2 align-top'>
+      <TableCell className='py-1 align-top'>
         <DatePicker
           selected={dateFromInput(row.input.endDate)}
           disabledDates={(date) =>
@@ -1185,7 +1185,7 @@ function BatchContractTableRow({
           triggerClassName='h-8 px-2 text-xs'
         />
       </TableCell>
-      <TableCell className='py-2 align-top'>
+      <TableCell className='py-1 align-top'>
         <div className='grid gap-1.5'>
           <Textarea
             aria-label='Catatan kontrak'
@@ -1203,7 +1203,7 @@ function BatchContractTableRow({
           )}
         </div>
       </TableCell>
-      <TableCell className='py-2 align-top'>
+      <TableCell className='py-1 align-top'>
         <Button
           type='button'
           variant='ghost'

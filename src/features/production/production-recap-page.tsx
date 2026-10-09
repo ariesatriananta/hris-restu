@@ -781,7 +781,7 @@ function EmployeeLedger({
       ) : (
         <>
           <div className='hidden max-w-full overflow-hidden rounded-lg border xl:block'>
-            <Table className='w-full table-fixed [&_td]:px-2 [&_td]:py-2.5 [&_th]:px-2 [&_th]:leading-4 [&_th]:whitespace-normal'>
+            <Table className='w-full table-fixed [&_th]:leading-4 [&_th]:whitespace-normal'>
               <TableHeader>
                 {table.getHeaderGroups().map((group) => (
                   <TableRow key={group.id}>

@@ -115,7 +115,7 @@ export function PayrollProductionDailySummaryDialog({
             </Alert>
           ) : summary.data?.rows.length ? (
             <div className='overflow-hidden rounded-md border'>
-              <Table className='text-sm'>
+              <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Tanggal</TableHead>
@@ -129,24 +129,24 @@ export function PayrollProductionDailySummaryDialog({
                 <TableBody>
                   {summary.data.rows.map((row) => (
                     <TableRow key={row.businessDate}>
-                      <TableCell className='py-2 font-medium'>
+                      <TableCell className='font-medium'>
                         {format(parseISO(row.businessDate), 'd MMM yyyy', {
                           locale: id,
                         })}
                       </TableCell>
-                      <TableCell className='py-2 text-right tabular-nums'>
+                      <TableCell className='text-right tabular-nums'>
                         {quantity(row.totalQuantity)}
                       </TableCell>
-                      <TableCell className='py-2 text-right tabular-nums'>
+                      <TableCell className='text-right tabular-nums'>
                         {quantity(row.deductionQuantity)}
                       </TableCell>
-                      <TableCell className='py-2 text-right font-medium tabular-nums'>
+                      <TableCell className='text-right font-medium tabular-nums'>
                         {quantity(row.payableQuantity)}
                       </TableCell>
-                      <TableCell className='py-2 text-right tabular-nums'>
+                      <TableCell className='text-right tabular-nums'>
                         {money(row.totalAmount)}
                       </TableCell>
-                      <TableCell className='py-2 text-right tabular-nums'>
+                      <TableCell className='text-right tabular-nums'>
                         {row.employeeCount.toLocaleString('id-ID')}
                       </TableCell>
                     </TableRow>

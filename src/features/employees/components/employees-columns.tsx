@@ -99,7 +99,7 @@ export function createEmployeeColumns(
         <DataTableColumnHeader column={column} title='Join Date' />
       ),
       cell: ({ row }) => (
-        <span className='text-sm whitespace-nowrap tabular-nums'>
+        <span className='whitespace-nowrap tabular-nums'>
           {formatDate(row.original.joinDate)}
         </span>
       ),

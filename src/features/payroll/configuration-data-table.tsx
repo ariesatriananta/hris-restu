@@ -134,12 +134,12 @@ export function ConfigurationDataTable<TData>({
       ) : (
         <>
           <div className='hidden overflow-x-auto rounded-md border md:block'>
-            <Table className='text-sm'>
+            <Table>
               <TableHeader>
                 {table.getHeaderGroups().map((group) => (
                   <TableRow key={group.id}>
                     {group.headers.map((header) => (
-                      <TableHead key={header.id} className='h-10'>
+                      <TableHead key={header.id}>
                         {header.isPlaceholder
                           ? null
                           : flexRender(
@@ -155,7 +155,7 @@ export function ConfigurationDataTable<TData>({
                 {table.getRowModel().rows.map((row) => (
                   <TableRow key={row.id}>
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className='py-2.5'>
+                      <TableCell key={cell.id}>
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext()

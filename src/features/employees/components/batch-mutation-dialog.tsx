@@ -387,7 +387,7 @@ function BatchMutationTableRow({
         {rowNumber}
       </TableCell>
       <TableCell className='min-w-0 py-1 align-top whitespace-normal'>
-        <p className='text-sm leading-4 font-medium break-words'>
+        <p className='leading-4 font-medium break-words'>
           {row.employee.fullName}
         </p>
         <p className='text-[10px] leading-3 break-words text-muted-foreground'>

@@ -475,9 +475,7 @@ function shiftColumns(
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title='Hari kerja' />
       ),
-      cell: ({ row }) => (
-        <span className='text-sm'>{workDaysLabel(row.original.workDays)}</span>
-      ),
+      cell: ({ row }) => <span>{workDaysLabel(row.original.workDays)}</span>,
       meta: { label: 'Hari kerja' },
     },
     {
