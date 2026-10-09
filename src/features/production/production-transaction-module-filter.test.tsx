@@ -5,11 +5,14 @@ import { page } from 'vitest/browser'
 import type { ProductionTransaction } from './domain'
 import { ProductionTransactionsPage } from './production-transactions-page'
 
-const { modules, transactions, navigate } = vi.hoisted(() => ({
-  modules: vi.fn(),
-  transactions: vi.fn(),
-  navigate: vi.fn(),
-}))
+const { modules, transactions, navigate, exportMutation, permissionState } =
+  vi.hoisted(() => ({
+    modules: vi.fn(),
+    transactions: vi.fn(),
+    navigate: vi.fn(),
+    exportMutation: { mutate: vi.fn(), isPending: false },
+    permissionState: { values: ['production.view'] },
+  }))
 vi.mock('@/stores/auth-store', () => ({
   useAuthStore: (selector: (state: unknown) => unknown) =>
     selector({
@@ -19,7 +22,7 @@ vi.mock('@/stores/auth-store', () => ({
           roles: ['PRODUCTION_ADMIN'],
           siteAccess: ['JEPARA', 'KLATEN', 'SEMARANG'],
         },
-        permissions: ['production.view'],
+        permissions: permissionState.values,
       },
     }),
 }))
@@ -29,6 +32,7 @@ vi.mock('@/features/production/data/queries', async () => ({
   )),
   useProductionTransactionModuleOptions: modules,
   useProductionTransactions: transactions,
+  useExportProductionTransactions: () => exportMutation,
   useProductionJobs: () => ({ data: { items: [] } }),
   useProductionTransaction: () => ({ data: undefined, isPending: false }),
 }))
@@ -41,6 +45,8 @@ afterEach(async () => {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.restoreAllMocks()
+  permissionState.values = ['production.view']
+  exportMutation.isPending = false
   localStorage.removeItem('hris-rsia-production-transactions-kpi-visible-v1')
   modules.mockReturnValue({
     data: {
@@ -287,6 +293,96 @@ describe('compact production QC table', () => {
     )
     await screen.getByRole('button', { name: 'Geser tabel ke kiri' }).click()
     await expect.poll(() => container.scrollLeft).toBe(0)
+  })
+})
+
+describe('production transaction Excel export', () => {
+  it('exports every matching transaction with the active filters and downloads the supplied filename', async () => {
+    permissionState.values.push('production.export')
+    const search = {
+      dateFrom: '2026-10-01',
+      dateTo: '2026-10-09',
+      filter: 'Karyawan Uji',
+      site: ['JEPARA'],
+      moduleUid: [jepara],
+      jobUid: ['job-linting'],
+      employeeType: ['BORONGAN'],
+      status: ['VOID'],
+      page: 9,
+      pageSize: 50,
+    }
+    setDeposits([deposit()])
+    const screen = await render(
+      <ProductionTransactionsPage search={search} navigate={navigate} />
+    )
+    await screen.getByRole('button', { name: 'Opsi tabel Produksi' }).click()
+    await screen
+      .getByRole('menuitem', { name: 'Ekspor Excel', exact: true })
+      .click()
+    expect(exportMutation.mutate).toHaveBeenCalledOnce()
+    expect(exportMutation.mutate.mock.calls[0][0]).toEqual({
+      dateFrom: search.dateFrom,
+      dateTo: search.dateTo,
+      query: search.filter,
+      site: search.site,
+      moduleUid: search.moduleUid,
+      jobUid: search.jobUid,
+      employeeType: search.employeeType,
+      status: search.status,
+    })
+    const blob = new Blob(['test-workbook'], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test-export')
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    let downloadedName = ''
+    let downloadedUrl = ''
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement
+    ) {
+      downloadedName = this.download
+      downloadedUrl = this.href
+    })
+    exportMutation.mutate.mock.calls[0][1].onSuccess({
+      blob,
+      fileName: 'transaksi-produksi-jepara.xlsx',
+    })
+    expect(downloadedName).toBe('transaksi-produksi-jepara.xlsx')
+    expect(downloadedUrl).toBe('blob:test-export')
+    await expect.poll(() => revoke.mock.calls.length).toBe(1)
+  })
+
+  it('hides export without its permission and keeps batch actions restricted', async () => {
+    const screen = await render(
+      <ProductionTransactionsPage search={{}} navigate={navigate} />
+    )
+    await screen.getByRole('button', { name: 'Opsi tabel Produksi' }).click()
+    await expect
+      .element(
+        screen.getByRole('menuitem', { name: 'Ekspor Excel', exact: true })
+      )
+      .not.toBeInTheDocument()
+    await expect
+      .element(
+        screen.getByRole('menuitem', { name: 'Import Excel', exact: true })
+      )
+      .not.toBeInTheDocument()
+    expect(exportMutation.mutate).not.toHaveBeenCalled()
+  })
+
+  it('prevents another export while a download is being prepared', async () => {
+    permissionState.values.push('production.export')
+    exportMutation.isPending = true
+    setDeposits([deposit()])
+    const screen = await render(
+      <ProductionTransactionsPage search={{}} navigate={navigate} />
+    )
+    await screen.getByRole('button', { name: 'Opsi tabel Produksi' }).click()
+    const item = screen
+      .getByRole('menuitem')
+      .filter({ hasText: /Ekspor|Mengekspor/ })
+    await expect.element(item).toHaveAttribute('data-disabled')
+    expect(exportMutation.mutate).not.toHaveBeenCalled()
   })
 })
 

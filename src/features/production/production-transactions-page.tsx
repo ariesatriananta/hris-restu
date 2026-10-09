@@ -17,6 +17,7 @@ import {
   Ban,
   Boxes,
   CalendarPlus,
+  Download,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -110,6 +111,7 @@ import {
 import { hasPermission } from '@/features/auth/permissions'
 import {
   useCreateHistoricalProduction,
+  useExportProductionTransactions,
   useProductionQcOptions,
   useCorrectProductionTransaction,
   usePreviewHistoricalProduction,
@@ -129,6 +131,7 @@ import {
   type ProductionEligibleEmployee,
   type ProductionSite,
   type ProductionTransaction,
+  type ProductionTransactionListParams,
   type ProductionTransactionRevision,
   type ProductionTransactionResult,
 } from './domain'
@@ -171,7 +174,10 @@ export function ProductionTransactionsPage({
   const session = useAuthStore((state) => state.session)
   const dateFrom = stringValue(search.dateFrom) ?? today()
   const dateTo = stringValue(search.dateTo) ?? today()
-  const result = useProductionTransactions({
+  const transactionFilters: Omit<
+    ProductionTransactionListParams,
+    'page' | 'pageSize'
+  > = {
     dateFrom,
     dateTo,
     query: stringValue(search.filter),
@@ -180,9 +186,13 @@ export function ProductionTransactionsPage({
     moduleUid: arrayValue(search.moduleUid),
     employeeType: arrayValue(search.employeeType),
     status: arrayValue(search.status),
+  }
+  const result = useProductionTransactions({
+    ...transactionFilters,
     page: numberValue(search.page, 1),
     pageSize: numberValue(search.pageSize, 50),
   })
+  const exportMutation = useExportProductionTransactions()
   const jobs = useProductionJobs()
   const modules = useProductionTransactionModuleOptions(arrayValue(search.site))
   useEffect(() => {
@@ -211,6 +221,7 @@ export function ProductionTransactionsPage({
     }
   }
   const canCorrect = hasPermission(session, 'production.correct')
+  const canExport = hasPermission(session, 'production.export')
   const canDeleteBatch =
     session?.user.role === 'SUPER_ADMIN' ||
     session?.user.roles.includes('SUPER_ADMIN') === true
@@ -233,6 +244,35 @@ export function ProductionTransactionsPage({
     if (key === 'dateFrom' && value > other) patch.dateTo = value
     if (key === 'dateTo' && value < other) patch.dateFrom = value
     navigate({ search: (previous) => ({ ...previous, ...patch }) })
+  }
+  const exportTransactions = () => {
+    if (
+      !canExport ||
+      exportMutation.isPending ||
+      result.isPending ||
+      result.isFetching ||
+      result.isError
+    )
+      return
+    exportMutation.mutate(transactionFilters, {
+      onSuccess: ({ blob, fileName }) => {
+        const url = URL.createObjectURL(blob)
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = fileName
+        document.body.appendChild(anchor)
+        anchor.click()
+        anchor.remove()
+        window.setTimeout(() => URL.revokeObjectURL(url), 0)
+        toast.success('Setoran Produksi berhasil diekspor.')
+      },
+      onError: (error) =>
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : 'Ekspor Setoran Produksi gagal.'
+        ),
+    })
   }
 
   return (
@@ -272,6 +312,12 @@ export function ProductionTransactionsPage({
               dateTo={dateTo}
               showKpi={showKpi}
               onKpiVisibleChange={changeKpiVisible}
+              canExport={canExport}
+              exportPending={exportMutation.isPending}
+              exportDisabled={
+                result.isPending || result.isFetching || result.isError
+              }
+              onExport={exportTransactions}
             />
           </div>
         </div>
@@ -318,6 +364,10 @@ function ProductionBatchActions({
   dateTo,
   showKpi,
   onKpiVisibleChange,
+  canExport,
+  exportPending,
+  exportDisabled,
+  onExport,
 }: {
   canUseBatch: boolean
   canDeleteBatch: boolean
@@ -325,6 +375,10 @@ function ProductionBatchActions({
   dateTo: string
   showKpi: boolean
   onKpiVisibleChange: (visible: boolean) => void
+  canExport: boolean
+  exportPending: boolean
+  exportDisabled: boolean
+  onExport: () => void
 }) {
   const [importOpen, setImportOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -358,6 +412,22 @@ function ProductionBatchActions({
             </DropdownMenuItem>
           )}
           {canUseBatch && <DropdownMenuSeparator />}
+          {canExport && (
+            <>
+              <DropdownMenuItem
+                disabled={exportPending || exportDisabled}
+                onSelect={onExport}
+              >
+                {exportPending ? (
+                  <Loader2 className='animate-spin' />
+                ) : (
+                  <Download />
+                )}
+                {exportPending ? 'Mengekspor...' : 'Ekspor Excel'}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuItem
             role='menuitemcheckbox'
             aria-checked={showKpi}

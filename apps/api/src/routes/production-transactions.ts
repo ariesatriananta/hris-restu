@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Router, type Request } from 'express'
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { Pool, PoolConnection } from 'mysql2/promise'
@@ -13,6 +13,7 @@ import {
 import { writeAudit } from '../lib/audit.js'
 import { businessDate } from '../lib/contract-lifecycle.js'
 import { ApiError } from '../lib/errors.js'
+import { buildProductionTransactionWorkbook, PRODUCTION_TRANSACTION_EXPORT_MAX_ROWS } from '../lib/production-transaction-export.js'
 import { productionTerminalSummaryAttendanceSql, productionTerminalSummaryPostedSql } from '../lib/production-terminal-summary.js'
 import { assertProductionQcReplay, loadProductionQcOptions, lastProductionDeviceBrand, resolveProductionQc, saveProductionQc, readProductionQc, readProductionQcBatch, cloneProductionQc, loadProductionImportQcMasters, resolveProductionImportQc, saveProductionImportQc, assertProductionImportQcReplay, type ProductionImportQc, type ResolvedProductionQc } from '../lib/production-qc-storage.js'
 import { priceProductionTiers, type ProductionRateTier } from '../lib/production-tier-pricing.js'
@@ -3986,10 +3987,14 @@ productionTransactionsRouter.get('/transactions/module-options', requirePermissi
 })
 
 productionTransactionsRouter.get(
-  '/transactions',
+  ['/transactions', '/transactions/export'],
   requirePermission('production.view'),
+  (req, res, next) => req.path === '/transactions/export'
+    ? requirePermission('production.export')(req, res, next)
+    : next(),
   async (req, res, next) => {
     try {
+      const exporting = req.path === '/transactions/export'
       const auth = res.locals.auth as AuthContext
       const today = businessDate()
       const dateFrom = validDate(req.query.dateFrom, today)
@@ -4089,6 +4094,9 @@ productionTransactionsRouter.get(
         values
       )
       const summary = summaryRows[0] ?? {}
+      if (exporting && Number(summary.transactionCount ?? 0)>PRODUCTION_TRANSACTION_EXPORT_MAX_ROWS) {
+        throw new ApiError(422, 'Ekspor Setoran Produksi maksimal 100.000 baris. Persempit filter tanggal atau site lalu coba lagi.')
+      }
       const [quantityRows] = await pool.query<RowDataPacket[]>(
         `SELECT u.uid,u.code,u.name,u.decimal_precision decimalPrecision,
                 COALESCE(SUM(pt.quantity),0) quantity,
@@ -4125,12 +4133,18 @@ productionTransactionsRouter.get(
                 u.decimal_precision decimalPrecision,
                 d.uid deviceUid,d.code deviceCode,d.name deviceName
            ${from} WHERE ${clause}
-          ORDER BY pt.transaction_at DESC,pt.id DESC LIMIT ? OFFSET ?`,
-        [...values, pageSize, (page - 1) * pageSize]
+          ORDER BY pt.transaction_at DESC,pt.id DESC ${exporting ? `LIMIT ${PRODUCTION_TRANSACTION_EXPORT_MAX_ROWS+1}` : 'LIMIT ? OFFSET ?'}`,
+        exporting ? values : [...values, pageSize, (page - 1) * pageSize]
       )
-      const transactionIds = rows.map(row => Number(row.id))
-      const qcByTransaction = await readProductionQcBatch(pool, transactionIds)
+      if (exporting && rows.length>PRODUCTION_TRANSACTION_EXPORT_MAX_ROWS) {
+        throw new ApiError(422, 'Ekspor Setoran Produksi maksimal 100.000 baris. Persempit filter tanggal atau site lalu coba lagi.')
+      }
+      const qcByTransaction = new Map<number,NonNullable<Awaited<ReturnType<typeof readProductionQc>>>>()
       const modulesByTransaction = new Map<number, {uid:string;code:string;name:string}>()
+      for (let offset=0;offset<rows.length;offset+=500) {
+      const transactionIds = rows.slice(offset,offset+500).map(row => Number(row.id))
+      const qcChunk = await readProductionQcBatch(pool, transactionIds)
+      for (const [id,qc] of qcChunk) qcByTransaction.set(id,qc)
       if (transactionIds.length) {
         if (hasHistoryStatus === undefined) {
           const [columns] = await pool.query<RowDataPacket[]>(
@@ -4159,6 +4173,46 @@ productionTransactionsRouter.get(
           transactionIds
         )
         for (const row of moduleRows) modulesByTransaction.set(Number(row.transactionId), {uid:String(row.uid),code:String(row.code),name:String(row.name)})
+      }
+      }
+      if (exporting) {
+        const workbook = await buildProductionTransactionWorkbook(rows.map(row => ({
+          transactionAt: String(row.transactionAt),transactionNumber:String(row.transactionNumber),
+          employeeNumber:String(row.employeeNumber),fullName:String(row.fullName),siteName:String(row.siteName),
+          moduleName:modulesByTransaction.get(Number(row.id))?.name ?? null,
+          jobName:String(row.jobName),jobCode:String(row.jobCode),unitCode:String(row.unitCode),
+          quantity:normalizeStoredDecimal(row.quantity),payableQuantity:normalizeStoredDecimal(row.payableQuantity ?? row.quantity),
+          deductionPercentage:normalizeStoredDecimal(row.deductionPercentage),rateSnapshot:normalizeStoredDecimal(row.rateSnapshot),
+          grossAmount:normalizeStoredDecimal(row.grossAmount,2),status:String(row.status),qc:qcByTransaction.get(Number(row.id)) ?? null,
+        })),auth.name)
+        const checksumSha256 = createHash('sha256').update(workbook).digest('hex')
+        const filename = `Setoran-Produksi-${dateFrom}-${dateTo}.xlsx`
+        const suppliedRequestId = req.get('x-request-id')
+        const requestId = suppliedRequestId && /^[A-Za-z0-9._:-]{1,100}$/.test(suppliedRequestId) ? suppliedRequestId : randomUUID()
+        const auditSites = sites.length ? sites : isGlobalViewer(auth) ? [] : auth.siteAccess
+        const [auditSiteRows] = await pool.query<RowDataPacket[]>(
+          `SELECT id,code FROM sites ${auditSites.length ? `WHERE code IN (${auditSites.map(() => '?').join(',')})` : isGlobalViewer(auth) ? '' : 'WHERE 1=0'} ORDER BY id`,
+          auditSites
+        )
+        const conn = await pool.getConnection()
+        try {
+          await conn.beginTransaction()
+          for (const site of auditSiteRows) {
+            await writeAudit({auth,request:req,requestId,module:'PRODUCTION',siteId:Number(site.id),action:'EXPORT',table:'production_transactions',
+              description:`Mengekspor Setoran Produksi ${site.code} periode ${dateFrom} sampai ${dateTo}.`,
+              afterData:{dateFrom,dateTo,filters:{site:sites,jobUid:jobUids,moduleUid:moduleUids,employeeType:employeeTypes,status:statuses,query},transactionRows:rows.filter(row => row.site===site.code).length,filename,checksumSha256},
+            },conn)
+          }
+          await conn.commit()
+        } catch (error) {
+          await conn.rollback()
+          throw error
+        } finally { conn.release() }
+        res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        res.setHeader('Content-Disposition',`attachment; filename="${filename}"`)
+        res.setHeader('X-Request-ID',requestId)
+        res.send(workbook)
+        return
       }
       res.json({
         items: rows.map((row) => ({

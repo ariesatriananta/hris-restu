@@ -1,3 +1,4 @@
+import { isAxiosError } from 'axios'
 import {
   keepPreviousData,
   useMutation,
@@ -476,6 +477,47 @@ export function useProductionTransactions(
         )
       ).data,
     placeholderData: keepPreviousData,
+  })
+}
+
+export function useExportProductionTransactions() {
+  return useMutation({
+    mutationFn: async (
+      input: Omit<ProductionTransactionListParams, 'page' | 'pageSize'>
+    ) => {
+      try {
+        const response = await apiClient.get<Blob>(
+          `/production/transactions/export?${params(input)}`,
+          { responseType: 'blob' }
+        )
+        const disposition = response.headers['content-disposition'] as
+          | string
+          | undefined
+        const encodedName = disposition?.match(
+          /filename\*=UTF-8''([^;]+)/i
+        )?.[1]
+        const plainName = disposition?.match(/filename="?([^";]+)"?/i)?.[1]
+        return {
+          blob: response.data,
+          fileName: encodedName
+            ? decodeURIComponent(encodedName)
+            : (plainName ?? 'setoran-produksi.xlsx'),
+        }
+      } catch (error) {
+        if (isAxiosError(error) && error.response?.data instanceof Blob) {
+          let message: unknown
+          try {
+            const payload = JSON.parse(await error.response.data.text())
+            message = payload.message
+          } catch {
+            // Non-JSON responses retain the original request error.
+          }
+          if (typeof message === 'string' && message)
+            throw Object.assign(new Error(message), { cause: error })
+        }
+        throw error
+      }
+    },
   })
 }
 
