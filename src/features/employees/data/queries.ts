@@ -27,6 +27,10 @@ import type {
   ContractConflictListParams,
   ScheduledStatusChangeAction,
   EmployeeDeletionResult,
+  EmployeeBatchDeletionFilters,
+  EmployeeBatchDeletionPreview,
+  EmployeeBatchDeletionInput,
+  EmployeeBatchDeletionResult,
   EmployeeOnboardingReadiness,
 } from '../domain'
 import {
@@ -336,6 +340,30 @@ export function useDeleteEmployeePermanently() {
         confirmation,
         reason,
       }),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+export function usePreviewEmployeeBatchDelete() {
+  return useMutation({
+    mutationFn: async (input: EmployeeBatchDeletionFilters) =>
+      (
+        await apiClient.post<EmployeeBatchDeletionPreview>(
+          '/employees/batch-delete/preview',
+          input
+        )
+      ).data,
+  })
+}
+export function useDeleteEmployeeBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: EmployeeBatchDeletionInput) =>
+      (
+        await apiClient.post<EmployeeBatchDeletionResult>(
+          '/employees/batch-delete',
+          input
+        )
+      ).data,
     onSuccess: () => invalidate(queryClient),
   })
 }

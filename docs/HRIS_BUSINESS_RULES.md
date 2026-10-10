@@ -43,6 +43,16 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   seluruh histori administratif karyawan dihapus dalam urutan relasi yang aman;
   arsip kandidat Rekrutmen dan dokumen hasil generate tetap dipertahankan tetapi
   relasinya ke karyawan dilepas. Hasil akhir wajib tercatat pada Audit Trail.
+- Hapus batch Master Karyawan mengikuti pengaman hapus permanen individual,
+  khusus `SUPER_ADMIN` dengan izin `employees.manage`. Target dipilih eksplisit
+  dari preview berhalaman berdasarkan site, jenis, status, dan pencarian;
+  maksimal 200 UID unik per eksekusi, bukan seluruh hasil filter secara otomatis.
+  Alasan dan konfirmasi `HAPUS` wajib. Seluruh target diperiksa ulang dan dihapus
+  dalam satu transaksi; satu target hilang atau terblokir membatalkan semuanya.
+  Proses Payroll atau finalisasi Attendance yang sedang berjalan pada site
+  terkait memblokir batch. Histori administratif, termasuk kontrak aktif,
+  ikut dibersihkan bila aman; arsip rekrutmen, dokumen hasil generate, dan audit
+  dipertahankan. File fisik dan sequence nomor karyawan tidak direset.
 - Data pelamar disimpan terpisah dari Master Karyawan. Pengiriman Form Data
   Pelamar tidak boleh membuat nomor karyawan, histori kerja, kontrak, maupun
   data operasional karyawan.

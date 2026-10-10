@@ -994,6 +994,60 @@ function assertEmployeePermanentDeleteAccess(auth: AuthContext) {
   }
 }
 
+const employeeBatchDeletePreviewInput = z.object({
+  site: z.enum(['ALL', 'KLATEN', 'JEPARA', 'SEMARANG']).default('ALL'),
+  employeeType: z.enum(['ALL', 'BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING']).default('ALL'),
+  employeeStatus: z.enum(['ALL', 'ACTIVE', 'RESIGNED', 'INACTIVE', 'LEAVE']).default('ALL'),
+  search: z.string().trim().max(150).default(''),
+  page: z.number().int().min(1).max(1000000).default(1),
+  pageSize: z.number().int().min(1).max(200).default(100),
+}).strict()
+const employeeBatchDeleteInput = z.object({
+  employeeUids: z.array(z.string().uuid()).min(1).max(200)
+    .refine((uids) => new Set(uids).size === uids.length, 'Karyawan pilihan tidak boleh duplikat.'),
+  reason: z.string().trim().min(5).max(500),
+  confirmation: z.literal('HAPUS'),
+}).strict()
+
+// Include historical placement: a transferred employee can still be selected
+// by a Payroll run or Attendance finalization at their previous site.
+const employeeBatchPayrollCoverageSql = `EXISTS (
+  SELECT 1 FROM employees target JOIN employee_types target_type ON target_type.id=target.employee_type_id
+  WHERE target.id=? AND (
+    (target.current_site_id=pp.site_id AND target_type.code=pp.employee_type_code AND target.join_date<=pp.period_end)
+    OR EXISTS (SELECT 1 FROM employee_employment_histories h JOIN employee_types ht ON ht.id=h.employee_type_id
+      WHERE h.employee_id=target.id AND h.site_id=pp.site_id AND ht.code=pp.employee_type_code
+        AND h.effective_from<=pp.period_end AND (h.effective_to IS NULL OR h.effective_to>=pp.period_start))
+  ))`
+
+async function employeeBatchProcessBlockers(executor: Pick<typeof pool, 'query'> | PoolConnection, employeeId: number, lock = false) {
+  const [payroll] = await executor.query<RowDataPacket[]>(
+    `SELECT pr.id FROM payroll_runs pr JOIN payroll_periods pp ON pp.id=pr.payroll_period_id
+       WHERE pr.status='PROCESSING' AND ${employeeBatchPayrollCoverageSql} ${lock ? 'FOR UPDATE' : ''}`, [employeeId]
+  )
+  const [finalizations] = await executor.query<RowDataPacket[]>(
+    `SELECT afr.id FROM attendance_daily_finalization_runs afr
+       WHERE afr.status='RUNNING' AND EXISTS (SELECT 1 FROM employees target WHERE target.id=? AND (
+         (target.current_site_id=afr.site_id AND target.join_date<=afr.business_date)
+         OR EXISTS (SELECT 1 FROM employee_employment_histories h WHERE h.employee_id=target.id
+           AND h.site_id=afr.site_id AND h.effective_from<=afr.business_date
+           AND (h.effective_to IS NULL OR h.effective_to>=afr.business_date))
+       )) ${lock ? 'FOR UPDATE' : ''}`,
+    [employeeId]
+  )
+  return [
+    ...(payroll.length ? ['Payroll terkait sedang diproses. Tunggu proses selesai.'] : []),
+    ...(finalizations.length ? ['Finalisasi Attendance terkait sedang berjalan. Tunggu proses selesai.'] : []),
+  ]
+}
+
+async function employeeBatchDeletionPreview(executor: Pick<typeof pool, 'query'> | PoolConnection, employee: EmployeeDeletionRow, lock = false) {
+  const preview = employeeDeletionPreviewDto(employee, await employeeDeletionMetrics(executor, Number(employee.id)))
+  preview.blockers.push(...await employeeBatchProcessBlockers(executor, Number(employee.id), lock))
+  preview.canDelete = preview.blockers.length === 0
+  return preview
+}
+
 type EmployeeDeletionRow = RowDataPacket & {
   id: number
   uid: string
@@ -2786,6 +2840,113 @@ employeesRouter.post(
     }
   }
 )
+
+employeesRouter.post('/batch-delete/preview', requirePermission('employees.manage'), async (req, res, next) => {
+  try {
+    assertEmployeePermanentDeleteAccess(res.locals.auth as AuthContext)
+    const input = employeeBatchDeletePreviewInput.parse(req.body)
+    const clauses: string[] = []
+    const params: string[] = []
+    if (input.site !== 'ALL') { clauses.push('s.code=?'); params.push(input.site) }
+    if (input.employeeType !== 'ALL') { clauses.push('et.code=?'); params.push(input.employeeType) }
+    if (input.employeeStatus !== 'ALL') { clauses.push('es.code=?'); params.push(input.employeeStatus) }
+    if (input.search) {
+      clauses.push('(e.employee_number LIKE ? OR e.full_name LIKE ?)')
+      params.push(`%${input.search}%`, `%${input.search}%`)
+    }
+    const from = `FROM employees e JOIN sites s ON s.id=e.current_site_id
+      JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id
+      WHERE ${clauses.join(' AND ') || '1=1'}`
+    const [counts] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) total ${from}`, params)
+    const [employees] = await pool.query<EmployeeDeletionRow[]>(
+      `SELECT e.id,e.uid,e.employee_number employeeNumber,e.full_name fullName,s.id siteId,s.code siteCode
+       ${from} ORDER BY e.employee_number,e.id LIMIT ? OFFSET ?`,
+      [...params, input.pageSize, (input.page - 1) * input.pageSize]
+    )
+    const rows = []
+    for (const employee of employees) rows.push(await employeeBatchDeletionPreview(pool, employee))
+    res.json({ rows, total: Number(counts[0]?.total ?? 0), page: input.page, pageSize: input.pageSize })
+  } catch (error) { next(error) }
+})
+
+employeesRouter.post('/batch-delete', requirePermission('employees.manage'), async (req, res, next) => {
+  let conn: PoolConnection | undefined
+  let lifecycleLock = false
+  let transactionStarted = false
+  try {
+    const auth = res.locals.auth as AuthContext
+    assertEmployeePermanentDeleteAccess(auth)
+    const input = employeeBatchDeleteInput.parse(req.body)
+    conn = await pool.getConnection()
+    const [locks] = await conn.query<RowDataPacket[]>('SELECT GET_LOCK(?,0) acquired', ['hris:contracts:reconcile'])
+    lifecycleLock = Number(locks[0]?.acquired) === 1
+    if (!lifecycleLock) throw new ApiError(409, 'Rekonsiliasi lifecycle sedang berjalan. Tunggu proses selesai.')
+    // Current committed facts must be visible after waiting for Payroll/employee locks.
+    await conn.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED')
+    await conn.beginTransaction()
+    transactionStarted = true
+    const placeholders = input.employeeUids.map(() => '?').join(',')
+    const [targets] = await conn.query<EmployeeDeletionRow[]>(
+      `SELECT e.id,e.uid,e.employee_number employeeNumber,e.full_name fullName,s.id siteId,s.code siteCode
+       FROM employees e JOIN sites s ON s.id=e.current_site_id WHERE e.uid IN (${placeholders}) ORDER BY e.id`, input.employeeUids
+    )
+    if (targets.length !== input.employeeUids.length) throw new ApiError(409, 'Sebagian karyawan pilihan sudah tidak tersedia. Muat ulang preview.')
+    // Payroll prepares PROCESSING under the period lock; take the same locks first.
+    const [lockedPeriods] = await conn.query<RowDataPacket[]>(
+      `SELECT pp.id FROM payroll_periods pp WHERE ${targets.map(() => employeeBatchPayrollCoverageSql).join(' OR ')} ORDER BY pp.id FOR UPDATE`,
+      targets.map((employee) => employee.id)
+    )
+    const siteIds = [...new Set(targets.map((employee) => Number(employee.siteId)))].sort((left, right) => left - right)
+    await conn.query('SELECT id FROM sites WHERE id IN (' + siteIds.map(() => '?').join(',') + ') ORDER BY id FOR UPDATE', siteIds)
+    // Do not rely on the unlocked candidate snapshot for placement or existence.
+    const employees: EmployeeDeletionRow[] = []
+    for (const target of targets) employees.push(await loadEmployeeForPermanentDelete(conn, target.uid, true))
+    const [currentPeriods] = await conn.query<RowDataPacket[]>(
+      `SELECT pp.id FROM payroll_periods pp WHERE ${employees.map(() => employeeBatchPayrollCoverageSql).join(' OR ')} ORDER BY pp.id`,
+      employees.map((employee) => employee.id)
+    )
+    const lockedPeriodIds = new Set(lockedPeriods.map((period) => Number(period.id)))
+    if (currentPeriods.some((period) => !lockedPeriodIds.has(Number(period.id)))) {
+      throw new ApiError(409, 'Penempatan atau histori karyawan berubah. Muat ulang preview sebelum menghapus batch.')
+    }
+    const previews = []
+    for (const employee of employees) previews.push(await employeeBatchDeletionPreview(conn, employee, true))
+    const blocked = previews.filter((preview) => !preview.canDelete)
+    if (blocked.length) throw new ApiError(409, `Batch dibatalkan. ${blocked.map((preview) => `${preview.employee.employeeNumber}: ${preview.blockers.join(' ')}`).join(' ')}`)
+    let deletedRecords = 0
+    let unlinkedRecords = 0
+    const batchUid = randomUUID()
+    for (let index = 0; index < employees.length; index++) {
+      const employee = employees[index]
+      const cleanup = await deleteEmployeeAdministrativeData(conn, Number(employee.id), auth.id)
+      const [deleted] = await conn.execute<ResultSetHeader>('DELETE FROM employees WHERE id=?', [employee.id])
+      if (deleted.affectedRows !== 1) throw new ApiError(409, 'Batch dibatalkan: karyawan gagal dihapus tepat satu baris.')
+      deletedRecords += cleanup.deletedRecords + 1
+      unlinkedRecords += cleanup.unlinkedRecords
+      await writeAudit({ auth, request: req, module: 'EMPLOYEES', siteId: Number(employee.siteId),
+        action: 'DELETE', table: 'employees', recordId: Number(employee.id), recordUid: employee.uid,
+        description: `Menghapus permanen karyawan ${employee.employeeNumber} melalui batch.`, reason: input.reason,
+        beforeData: { batchUid, employeeNumber: employee.employeeNumber, fullName: employee.fullName, site: employee.siteCode, dependencies: previews[index].dependencies },
+        afterData: { batchUid, employeeDeleted: true, deletedRecords: cleanup.deletedRecords + 1, unlinkedRecords: cleanup.unlinkedRecords },
+      }, conn)
+    }
+    await writeAudit({ auth, request: req, module: 'EMPLOYEES', action: 'DELETE', table: 'employees', recordUid: batchUid,
+      description: `Menghapus permanen ${employees.length} karyawan melalui batch.`, reason: input.reason,
+      afterData: { batchUid, employeeUids: employees.map((employee) => employee.uid), deletedEmployees: employees.length, deletedRecords, unlinkedRecords },
+    }, conn)
+    await conn.commit()
+    transactionStarted = false
+    res.json({ deleted: true, deletedEmployees: employees.length, deletedRecords, unlinkedRecords })
+  } catch (error) {
+    if (conn && transactionStarted) await conn.rollback()
+    next(error)
+  } finally {
+    if (conn) {
+      try { if (lifecycleLock) await conn.query('SELECT RELEASE_LOCK(?)', ['hris:contracts:reconcile']) }
+      finally { conn.release() }
+    }
+  }
+})
 
 employeesRouter.get(
   '/:uid/deletion-preview',

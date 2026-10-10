@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { ChevronDown, Plus, RefreshCcw } from 'lucide-react'
+import {
+  ChevronDown,
+  Plus,
+  RefreshCcw,
+  MoreHorizontal,
+  Trash2,
+} from 'lucide-react'
+import { useAuthStore } from '@/stores/auth-store'
 import { currentListReturnTo } from '@/lib/list-return-to'
 import { useKpiVisibility } from '@/hooks/use-kpi-visibility'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
@@ -9,10 +16,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { KpiVisibilityMenu } from '@/components/kpi-visibility-menu'
+import { KpiVisibilityMenuItem } from '@/components/kpi-visibility-menu'
 import { Main } from '@/components/layout/main'
+import { hasPermission } from '@/features/auth/permissions'
 import {
   useEmployeeKpiSummary,
   useEmployeeList,
@@ -24,6 +33,7 @@ import type {
   EmployeeListParams,
   EmployeeOnboardingReadinessItem,
 } from '../domain'
+import { EmployeeBatchDeleteDialog } from './employee-batch-delete-dialog'
 import { EmployeeImportDialog } from './employee-import-dialog'
 import { EmployeeKpiCards } from './employee-kpi-cards'
 import { continueEmployeeOnboarding } from './employee-onboarding-navigation'
@@ -43,6 +53,12 @@ export function EmployeesPage({
   navigate: NavigateFn
 }) {
   const { showKpi, setShowKpi } = useKpiVisibility('employees-list')
+  const session = useAuthStore((state) => state.session)
+  const canDeleteBatch =
+    hasPermission(session, 'employees.manage') &&
+    (session?.user.role === 'SUPER_ADMIN' ||
+      session?.user.roles.includes('SUPER_ADMIN') === true)
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
   const params: EmployeeListParams = {
     query: typeof search.filter === 'string' ? search.filter : undefined,
     site: Array.isArray(search.site) ? search.site : undefined,
@@ -128,7 +144,35 @@ export function EmployeesPage({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <KpiVisibilityMenu showKpi={showKpi} onCheckedChange={setShowKpi} />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type='button'
+                size='icon'
+                variant='outline'
+                aria-label='Opsi tampilan'
+              >
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end' className='w-56'>
+              {canDeleteBatch && (
+                <>
+                  <DropdownMenuItem
+                    variant='destructive'
+                    onSelect={() => setBatchDeleteOpen(true)}
+                  >
+                    <Trash2 /> Hapus Karyawan Batch
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              <KpiVisibilityMenuItem
+                showKpi={showKpi}
+                onCheckedChange={setShowKpi}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
       {showKpi && (
@@ -191,6 +235,12 @@ export function EmployeesPage({
         </>
       )}
       <EmployeeImportDialog open={importOpen} onOpenChange={setImportOpen} />
+      {canDeleteBatch && (
+        <EmployeeBatchDeleteDialog
+          open={batchDeleteOpen}
+          onOpenChange={setBatchDeleteOpen}
+        />
+      )}
       {onboardingReadiness.data && (
         <EmployeeOnboardingDialog
           open={onboardingOpen}

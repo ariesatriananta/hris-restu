@@ -149,6 +149,30 @@ export interface EmployeeDeletionResult {
   deletedRecords: number
   unlinkedRecords: number
 }
+export interface EmployeeBatchDeletionFilters {
+  site: SiteCode | 'ALL'
+  employeeType: EmployeeTypeCode | 'ALL'
+  employeeStatus: EmployeeStatusCode | 'ALL'
+  search?: string
+  page: number
+  pageSize: number
+}
+export interface EmployeeBatchDeletionPreview {
+  rows: EmployeeDeletionPreview[]
+  total: number
+  page: number
+  pageSize: number
+}
+export interface EmployeeBatchDeletionInput {
+  employeeUids: string[]
+  reason: string
+  confirmation: 'HAPUS'
+}
+export interface EmployeeBatchDeletionResult {
+  deletedEmployees: number
+  deletedRecords: number
+  unlinkedRecords: number
+}
 export type ContractLifecycleAction =
   | 'schedule'
   | 'activate'
