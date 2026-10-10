@@ -274,6 +274,7 @@ export type ProductionTerminalLookup = {
 export type ProductionTransactionStatus = 'POSTED' | 'VOID'
 
 export type ProductionTransaction = {
+  pair?: ProductionTransactionPair | null
   uid: string
   transactionNumber: string
   businessDate: string
@@ -330,6 +331,18 @@ export type ProductionTransaction = {
   replacementTransaction?: ProductionTransactionLink | null
   replacedTransaction?: ProductionTransactionLink | null
   revisions?: ProductionTransactionRevision[]
+}
+
+export type ProductionTransactionPair = {
+  uid: string
+  role: 'LINTING' | 'BATIL'
+  partner: {
+    uid: string
+    transactionNumber: string
+    employee: ProductionTransaction['employee']
+    job: { uid: string; code: string; name: string }
+    status: ProductionTransactionStatus
+  }
 }
 
 export type ProductionTransactionActor = {
@@ -394,6 +407,7 @@ export type ProductionPayrollLock = {
 }
 
 export type ProductionCorrectionContext = {
+  affectedTransactions?: ProductionTransaction[]
   transaction: ProductionTransaction
   jobs: ProductionCorrectionJob[]
   payrollLock: ProductionPayrollLock
@@ -402,6 +416,12 @@ export type ProductionCorrectionContext = {
 }
 
 export type ProductionCorrectionPreview = {
+  pairDelta?: { quantity: string; grossAmount: string }
+  affectedTransactions?: ProductionTransaction[]
+  pairProposal?: {
+    source: ProductionTransaction
+    proposed: ProductionCorrectionPreview['proposed']
+  }
   source: ProductionTransaction
   targetEmployee?: ProductionTransaction['employee']
   proposed: {
@@ -560,6 +580,8 @@ export type ProductionRateCancellationPreview = {
 }
 
 export type ProductionVoidPreview = {
+  pairImpact?: { quantity: string; grossAmount: string }
+  affectedTransactions?: ProductionTransaction[]
   source: ProductionTransaction
   impact: {
     quantity: string
@@ -578,6 +600,7 @@ export type ProductionRevisionResult = {
 }
 
 export type ProductionPostResult = {
+  pairedTransaction?: ProductionTransaction
   duplicate: boolean
   message: string
   transaction: ProductionTransaction
@@ -688,6 +711,11 @@ export type ProductionTransactionResult =
       employeeCount: number
       totalQuantity: string | null
       quantityTotals?: ProductionRecapQuantity[]
+      quantityTotalsByJob?: Array<
+        ProductionRecapQuantity & {
+          job: { uid: string; code: string; name: string }
+        }
+      >
       totalGrossAmount: string
     }
   }

@@ -8,6 +8,8 @@ import { productionTransactionsRouter } from './production-transactions.js'
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
+  pairQuery: vi.fn(),
+  jobSummaryQuery: vi.fn(),
   execute: vi.fn(),
   beginTransaction: vi.fn(),
   commit: vi.fn(),
@@ -17,7 +19,11 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('../db.js', () => ({
   pool: {
-    query: mocks.query,
+    query: (sql: string, values?: unknown) => {
+      if (sql.includes('FROM production_transaction_pairs')) return mocks.pairQuery(sql, values)
+      if (sql.includes('SELECT j.uid jobUid,j.code jobCode,j.name jobName,u.uid')) return mocks.jobSummaryQuery(sql, values)
+      return mocks.query(sql, values)
+    },
     execute: mocks.execute,
     getConnection: vi.fn(async () => mocks),
   },
@@ -100,6 +106,8 @@ const transaction = {
 describe('all-filtered production transaction Excel export', () => {
   beforeEach(() => {
     Object.values(mocks).forEach((mock) => mock.mockReset())
+    mocks.pairQuery.mockResolvedValue([[]])
+    mocks.jobSummaryQuery.mockResolvedValue([[]])
   })
   it.each([
     { permissions: [] },

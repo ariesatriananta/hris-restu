@@ -900,3 +900,286 @@ describe('compact production deposit form', () => {
     expect(post.mock.calls[1][0].input.idempotencyKey).toBe(firstKey)
   })
 })
+
+function useKlatenPairLookup() {
+  const saved = JSON.parse(
+    localStorage.getItem('hris-rsia-production-device-v1')!
+  )
+  saved.device.site = 'KLATEN'
+  saved.device.siteName = 'Klaten'
+  localStorage.setItem('hris-rsia-production-device-v1', JSON.stringify(saved))
+  const linting = {
+    ...result,
+    employee: { ...result.employee, site: 'KLATEN' },
+  }
+  const batil = {
+    ...linting,
+    employee: {
+      ...linting.employee,
+      uid: 'batil-worker',
+      fullName: 'Pekerja Batil Uji',
+      employeeNumber: 'TEST-BATIL',
+    },
+    defaultJobUid: 'batil',
+    jobs: [
+      {
+        ...result.jobs[0],
+        uid: 'batil',
+        code: 'BORONGAN-BATIL',
+        name: 'Batil',
+      },
+    ],
+  }
+  lookup.mockImplementation(async ({ barcode }) =>
+    barcode === 'TEST-001' ? linting : batil
+  )
+  return { linting, batil }
+}
+
+async function fillLintingDeposit(screen: Awaited<ReturnType<typeof render>>) {
+  await screen.getByLabelText('Barcode karyawan').fill('TEST-001')
+  await screen.getByRole('button', { name: 'Cek', exact: true }).click()
+  await screen.getByLabelText('Jumlah (PCS)').fill('500')
+  await screen.getByLabelText('Berat 1 (gram) *').fill('71,29')
+  await screen.getByLabelText('Berat 2 (gram) *').fill('70,05')
+}
+
+describe('Klaten paired Linting and Batil deposits', () => {
+  it('checks the Batil barcode on blur and skips rechecking a confirmed partner', async () => {
+    useKlatenPairLookup()
+    const screen = await render(<ProductionTerminalPage />)
+    await fillLintingDeposit(screen)
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('TEST-BATIL')
+    await screen.getByLabelText('Jumlah (PCS)').click()
+    await expect.element(screen.getByText('Di Batil Oleh:')).toBeInTheDocument()
+    expect(
+      lookup.mock.calls.filter(([input]) => input.barcode === 'TEST-BATIL')
+    ).toHaveLength(1)
+    await screen.getByLabelText('Pekerja Batil (opsional)').click()
+    await screen.getByLabelText('Jumlah (PCS)').click()
+    expect(
+      lookup.mock.calls.filter(([input]) => input.barcode === 'TEST-BATIL')
+    ).toHaveLength(1)
+    await screen.getByRole('button', { name: 'Simpan Setoran' }).click()
+    expect(post.mock.calls[0][0].input.batilBarcode).toBe('TEST-BATIL')
+  })
+  it('blocks a Batil-first standalone deposit in Klaten with compact guidance', async () => {
+    useKlatenPairLookup()
+    const screen = await render(<ProductionTerminalPage />)
+    await screen.getByLabelText('Barcode karyawan').fill('TEST-BATIL')
+    await screen.getByRole('button', { name: 'Cek', exact: true }).click()
+    await screen.getByLabelText('Jumlah (PCS)').fill('500')
+    await expect
+      .element(screen.getByRole('alert'))
+      .toHaveTextContent('Batil harus berpasangan dengan Linting.')
+    await expect
+      .element(screen.getByRole('button', { name: 'Simpan Setoran' }))
+      .toBeDisabled()
+    const quantityInput = screen
+      .getByLabelText('Jumlah (PCS)')
+      .element() as HTMLInputElement
+    quantityInput.form!.dispatchEvent(
+      new Event('submit', { bubbles: true, cancelable: true })
+    )
+    await expect.poll(() => post.mock.calls.length).toBe(0)
+  })
+  it('clears partner when switching jobs and leaves a non-Linting Klaten job unchanged', async () => {
+    const { linting, batil } = useKlatenPairLookup()
+    const main = {
+      ...linting,
+      jobs: [
+        ...linting.jobs,
+        {
+          ...linting.jobs[0],
+          uid: 'packing',
+          code: 'BORONGAN-PACKING',
+          name: 'Packing',
+        },
+      ],
+    }
+    lookup.mockImplementation(async ({ barcode }) =>
+      barcode === 'TEST-001' ? main : batil
+    )
+    const screen = await render(<ProductionTerminalPage />)
+    await fillLintingDeposit(screen)
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('TEST-BATIL')
+    await screen.getByRole('button', { name: 'Cek', exact: true }).click()
+    await screen.getByLabelText('Pekerjaan', { exact: true }).click()
+    await screen.getByRole('option', { name: 'Packing · PCS · Utama' }).click()
+    await expect
+      .element(screen.getByLabelText('Pekerja Batil (opsional)'))
+      .not.toBeInTheDocument()
+    await screen.getByLabelText('Jumlah (PCS)').fill('500')
+    await screen.getByRole('button', { name: 'Simpan Setoran' }).click()
+    expect(post.mock.calls[0][0].input).not.toHaveProperty('batilBarcode')
+    await screen.getByLabelText('Pekerjaan', { exact: true }).click()
+    await screen.getByRole('option', { name: 'Linting · PCS · Utama' }).click()
+    await expect
+      .element(screen.getByLabelText('Pekerja Batil (opsional)'))
+      .toHaveValue('')
+  })
+  it.each(['JEPARA', 'SEMARANG'])(
+    'preserves the single-worker scanner for %s',
+    async (site) => {
+      const saved = JSON.parse(
+        localStorage.getItem('hris-rsia-production-device-v1')!
+      )
+      saved.device.site = site
+      localStorage.setItem(
+        'hris-rsia-production-device-v1',
+        JSON.stringify(saved)
+      )
+      const screen = await render(<ProductionTerminalPage />)
+      await fillLintingDeposit(screen)
+      await expect
+        .element(screen.getByLabelText('Pekerja Batil (opsional)'))
+        .not.toBeInTheDocument()
+      await screen.getByRole('button', { name: 'Simpan Setoran' }).click()
+      expect(post.mock.calls[0][0].input).not.toHaveProperty('batilBarcode')
+    }
+  )
+  it('allows Klaten Linting alone and retains paired context and key after failed post', async () => {
+    useKlatenPairLookup()
+    const screen = await render(<ProductionTerminalPage />)
+    await fillLintingDeposit(screen)
+    await expect
+      .element(screen.getByRole('button', { name: 'Simpan Setoran' }))
+      .toBeEnabled()
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('TEST-BATIL')
+    await expect
+      .element(screen.getByRole('button', { name: 'Simpan Setoran' }))
+      .toBeDisabled()
+    const field = screen
+      .getByLabelText('Pekerja Batil (opsional)')
+      .element() as HTMLInputElement
+    field.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Enter',
+        bubbles: true,
+        cancelable: true,
+      })
+    )
+    await expect
+      .element(screen.getByText('Pekerja Batil Uji · TEST-BATIL · Batil siap'))
+      .toBeVisible()
+    expect(post).not.toHaveBeenCalled()
+    await expect
+      .element(screen.getByLabelText('Jumlah (PCS)'))
+      .toHaveValue('500')
+    await screen.getByRole('button', { name: 'Simpan Setoran' }).click()
+    const input = post.mock.calls[0][0].input
+    expect(input).toMatchObject({
+      barcode: 'TEST-001',
+      batilBarcode: 'TEST-BATIL',
+      jobUid: 'linting',
+      quantity: '500',
+      qc: { brandUid: 'brand-a', weight1Grams: '71.29', weight2Grams: '70.05' },
+    })
+    await screen.getByRole('button', { name: 'Simpan Setoran' }).click()
+    expect(post.mock.calls[1][0].input.idempotencyKey).toBe(
+      input.idempotencyKey
+    )
+    await expect
+      .element(screen.getByLabelText('Pekerja Batil (opsional)'))
+      .toHaveValue('TEST-BATIL')
+  })
+  it.each(['same-worker', 'missing-assignment'])(
+    'blocks %s without dropping the scanned partner barcode',
+    async (condition) => {
+      const { linting, batil } = useKlatenPairLookup()
+      lookup.mockImplementation(async ({ barcode }) =>
+        barcode === 'TEST-001'
+          ? linting
+          : condition === 'same-worker'
+            ? linting
+            : { ...batil, jobs: [] }
+      )
+      const screen = await render(<ProductionTerminalPage />)
+      await fillLintingDeposit(screen)
+      await screen.getByLabelText('Pekerja Batil (opsional)').fill('TEST-BATIL')
+      await screen.getByRole('button', { name: 'Cek', exact: true }).click()
+      await expect
+        .element(screen.getByRole('alert'))
+        .toHaveTextContent(
+          condition === 'same-worker'
+            ? 'Pekerja Batil harus berbeda'
+            : 'Penugasan dan tarif Batil'
+        )
+      await expect
+        .element(screen.getByRole('button', { name: 'Simpan Setoran' }))
+        .toBeDisabled()
+      await expect
+        .element(screen.getByLabelText('Pekerja Batil (opsional)'))
+        .toHaveValue('TEST-BATIL')
+      expect(post).not.toHaveBeenCalled()
+      await screen.getByLabelText('Pekerja Batil (opsional)').fill('')
+      await expect
+        .element(screen.getByRole('button', { name: 'Simpan Setoran' }))
+        .toBeEnabled()
+    }
+  )
+  it('ignores stale lookup results after barcode edits and blocks while the latest check is pending', async () => {
+    const { linting, batil } = useKlatenPairLookup()
+    let resolveFirst!: (value: typeof batil) => void
+    let resolveSecond!: (value: typeof batil) => void
+    lookup.mockImplementation(({ barcode }) =>
+      barcode === 'TEST-001'
+        ? Promise.resolve(linting)
+        : new Promise((resolve) => {
+            if (barcode === 'BATIL-OLD') resolveFirst = resolve
+            else resolveSecond = resolve
+          })
+    )
+    const screen = await render(<ProductionTerminalPage />)
+    await fillLintingDeposit(screen)
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('BATIL-OLD')
+    await screen.getByRole('button', { name: 'Cek', exact: true }).click()
+    await expect
+      .element(screen.getByRole('button', { name: 'Simpan Setoran' }))
+      .toBeDisabled()
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('BATIL-NEW')
+    await screen.getByRole('button', { name: 'Cek', exact: true }).click()
+    resolveSecond(batil)
+    await expect
+      .element(screen.getByText('Pekerja Batil Uji · TEST-BATIL · Batil siap'))
+      .toBeVisible()
+    resolveFirst({
+      ...batil,
+      employee: { ...batil.employee, fullName: 'Stale partner' },
+    })
+    await vi.waitFor(() => expect(lookup).toHaveBeenCalledTimes(3))
+    await expect
+      .element(screen.getByText('Stale partner'))
+      .not.toBeInTheDocument()
+    await screen.getByRole('button', { name: 'Simpan Setoran' }).click()
+    expect(post.mock.calls[0][0].input.batilBarcode).toBe('BATIL-NEW')
+    await screen
+      .getByLabelText('Pekerja Batil (opsional)')
+      .fill('BATIL-UNCONFIRMED')
+    await expect
+      .element(screen.getByRole('button', { name: 'Simpan Setoran' }))
+      .toBeDisabled()
+  })
+  it('clears partner after replacing the Linting worker and after a successful paired deposit', async () => {
+    useKlatenPairLookup()
+    const screen = await render(<ProductionTerminalPage />)
+    await fillLintingDeposit(screen)
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('TEST-BATIL')
+    await screen.getByRole('button', { name: 'Cek', exact: true }).click()
+    await screen.getByRole('button', { name: 'Ganti', exact: true }).click()
+    await fillLintingDeposit(screen)
+    await expect
+      .element(screen.getByLabelText('Pekerja Batil (opsional)'))
+      .toHaveValue('')
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('TEST-BATIL')
+    await screen.getByRole('button', { name: 'Cek', exact: true }).click()
+    post.mockResolvedValue({ duplicate: false, message: 'Pasangan tersimpan.' })
+    await screen.getByRole('button', { name: 'Simpan Setoran' }).click()
+    await expect
+      .element(screen.getByLabelText('Barcode karyawan'))
+      .toHaveValue('')
+    await expect
+      .element(screen.getByLabelText('Pekerja Batil (opsional)'))
+      .not.toBeInTheDocument()
+  })
+})

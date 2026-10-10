@@ -16,6 +16,7 @@ export const productionTerminalLookupInput = z
 export const productionTerminalPostInput = z
   .object({
     barcode: z.string().trim().min(1).max(100),
+    batilBarcode: z.string().trim().min(1).max(100).optional(),
     jobUid: z.string().uuid(),
     quantity: decimalInput,
     idempotencyKey: z.string().uuid(),

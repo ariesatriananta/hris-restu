@@ -10,6 +10,7 @@ import {
   hashDeviceActivationCode,
   hashDeviceSecret,
 } from '../lib/attendance-device-policy.js'
+import { assertLintingBatilScope, BATIL_JOB_CODE, readProductionPairs, saveProductionPair } from '../lib/production-transaction-pairs.js'
 import { writeAudit } from '../lib/audit.js'
 import { businessDate } from '../lib/contract-lifecycle.js'
 import { ApiError } from '../lib/errors.js'
@@ -1231,6 +1232,48 @@ export async function writeProductionImportAudits(
   }
 }
 
+async function createBatilDeposit(
+  conn: PoolConnection, barcode: string, lintingId: number, device: RowDataPacket,
+  time: RowDataPacket, inputQuantity: string, qc: ResolvedProductionQc | null,
+  auth: AuthContext, request: Request
+) {
+  const { employee, history } = await employeeContext(conn, barcode, String(time.businessDate), Number(device.siteId), true)
+  const attendance = await attendanceContext(conn, Number(employee.id), Number(device.siteId), String(time.businessDate), true)
+  const { jobs } = await availableJobs(conn, Number(employee.id), Number(device.siteId), String(time.businessDate), true)
+  const batil = jobs.find(job => job.code === BATIL_JOB_CODE)
+  if (!batil) throw new ApiError(422, 'Karyawan Batil belum memiliki penugasan dan tarif Batil aktif.')
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT job.id jobId,rate.id rateId,unit.id unitId,unit.code unitCode,unit.decimal_precision decimalPrecision,rate.rate_amount rateAmount
+     FROM production_jobs job JOIN production_job_rates rate ON rate.production_job_id=job.id
+     JOIN work_units unit ON unit.id=rate.unit_id AND unit.is_active=1
+     WHERE job.uid=? AND rate.site_id=? AND rate.status='ACTIVE' AND rate.effective_from<=?
+       AND (rate.effective_to IS NULL OR rate.effective_to>=?) FOR UPDATE`,
+    [batil.uid,device.siteId,time.businessDate,time.businessDate])
+  if (rows.length !== 1 || rows[0].unitCode !== 'PCS') throw new ApiError(422, 'Tarif Batil harus tunggal dengan satuan PCS.')
+  const rate = rows[0]
+  const [linting] = await conn.query<RowDataPacket[]>('SELECT employee_id,unit_id FROM production_transactions WHERE id=?',[lintingId])
+  if (Number(linting[0]?.employee_id) === Number(employee.id)) throw new ApiError(422,'Karyawan Linting dan Batil harus berbeda.')
+  const quantity = normalizeQuantity(inputQuantity, Number(rate.decimalPrecision))
+  const uid = randomUUID()
+  const transactionNumber = `PRD-${String(time.businessDate).replaceAll('-', '')}-KLATEN-${randomUUID().replaceAll('-', '').slice(0,12).toUpperCase()}`
+  const [result] = await conn.execute<ResultSetHeader>(
+    `INSERT INTO production_transactions(uid,transaction_number,employee_id,site_id,work_group_id,production_section_id,
+      production_job_id,unit_id,job_rate_id,attendance_record_id,scan_device_id,business_date,transaction_at,
+      quantity,rate_snapshot,payable_quantity,gross_amount,status,created_by,updated_by)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'POSTED',?,?)`,
+    [uid,transactionNumber,employee.id,device.siteId,history.workGroupId ?? null,history.productionSectionId ?? null,
+      rate.jobId,rate.unitId,rate.rateId,attendance.id,device.id,time.businessDate,time.transactionTimestamp,
+      quantity,normalizeStoredDecimal(rate.rateAmount),quantity,calculateGrossAmount(quantity,normalizeStoredDecimal(rate.rateAmount)),auth.id,auth.id])
+  const id = Number(result.insertId)
+  await saveProductionQc(conn,id,qc?.brand ? {...qc,weight1Grams:null,weight2Grams:null,defects:[]} : null,auth.id)
+  await saveProductionPair(conn,lintingId,id,auth.id)
+  await repriceProductionDay(conn,{employeeId:Number(employee.id),siteId:Number(device.siteId),jobId:Number(rate.jobId),businessDate:String(time.businessDate)},auth,request,
+    {lockedEmployees:new Set(),tiersByRate:new Map(),newTransactionIds:new Set([id])})
+  await writeAudit({auth,request,module:'PRODUCTION',siteId:Number(device.siteId),action:'CREATE',table:'production_transactions',recordId:id,recordUid:uid,
+    description:`Mencatat setoran Batil pasangan ${transactionNumber}.`,afterData:{transactionNumber,employeeUid:employee.uid,quantity,pairedWith:(await transactionResponse(conn,lintingId)).uid}},conn)
+  return id
+}
+
 async function transactionResponse(conn: PoolConnection | Pool, transactionId: number) {
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT pt.id,pt.uid,pt.transaction_number transactionNumber,
@@ -1274,6 +1317,7 @@ async function transactionResponse(conn: PoolConnection | Pool, transactionId: n
   return {
     uid: row.uid,
     qc: await readProductionQc(conn, transactionId),
+    pair: (await readProductionPairs(conn, [transactionId])).get(transactionId) ?? null,
     transactionNumber: row.transactionNumber,
     businessDate: row.businessDate,
     transactionAt: row.transactionAt,
@@ -1342,6 +1386,21 @@ async function managedTransaction(
   lock = false
 ) {
   const scope = scopeWhere(auth)
+  if (lock) {
+    // Lock both daily worker groups in a stable order before either member row.
+    const [members] = await conn.query<RowDataPacket[]>(
+      `SELECT pair_member.id,pair_member.employee_id employeeId FROM production_transaction_pairs pair
+       JOIN production_transactions pair_source ON pair_source.id IN (pair.linting_transaction_id,pair.batil_transaction_id)
+       JOIN production_transactions pair_member ON pair_member.id IN (pair.linting_transaction_id,pair.batil_transaction_id)
+       JOIN sites s ON s.id=pair_source.site_id WHERE pair_source.uid=? AND ${scope.sql} ORDER BY pair_member.id`,
+      [uid,...scope.params])
+    if (members.length) {
+      const ids = members.map(row => Number(row.id))
+      const employees = [...new Set(members.map(row => Number(row.employeeId)))].sort((a,b)=>a-b)
+      await conn.query(`SELECT id FROM employees WHERE id IN (${employees.map(()=>'?').join(',')}) ORDER BY id FOR UPDATE`,employees)
+      await conn.query(`SELECT id FROM production_transactions WHERE id IN (${ids.map(()=>'?').join(',')}) ORDER BY id FOR UPDATE`,ids)
+    }
+  }
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT pt.*,
             DATE_FORMAT(pt.business_date,'%Y-%m-%d') businessDateKey,
@@ -1775,7 +1834,8 @@ async function payrollDateLockContext(
 async function payrollLockContext(
   conn: SqlExecutor,
   transaction: RowDataPacket,
-  lock = false
+  lock = false,
+  includePair = true
 ): Promise<PayrollLock> {
   const reasons: string[] = []
   if (transaction.payroll_locked_at) {
@@ -1787,6 +1847,19 @@ async function payrollLockContext(
     [transaction.id]
   )
   if (snapshots[0]) reasons.push('Transaksi telah masuk snapshot Payroll.')
+  if (includePair) {
+    const [pairs] = await conn.query<RowDataPacket[]>(
+      `SELECT peer.* , DATE_FORMAT(peer.business_date,'%Y-%m-%d') businessDateKey
+       FROM production_transaction_pairs pair JOIN production_transactions peer
+       ON peer.id=IF(pair.linting_transaction_id=?,pair.batil_transaction_id,pair.linting_transaction_id)
+       WHERE pair.linting_transaction_id=? OR pair.batil_transaction_id=? ${lock ? 'FOR UPDATE' : ''}`,
+      [transaction.id,transaction.id,transaction.id])
+    if (pairs[0]) {
+      if (pairs[0].status !== transaction.status) reasons.push('Status pasangan Linting/Batil tidak konsisten.')
+      const peerLock = await payrollLockContext(conn,pairs[0],lock,false)
+      reasons.push(...peerLock.reasons.map(reason => `Pasangan Linting/Batil: ${reason}`))
+    }
+  }
 
   const periodLock = await payrollDateLockContext(
     conn,
@@ -2017,6 +2090,72 @@ async function correctionJobOptions(
     current,
     ...jobs.filter((job) => String(job.uid) !== String(transaction.jobUid)),
   ]
+}
+
+async function pairedManagedTransaction(conn: PoolConnection, source: RowDataPacket, auth: AuthContext, lock = false) {
+  const pair = (await readProductionPairs(conn,[Number(source.id)])).get(Number(source.id))
+  if (!pair) return null
+  const peer = await managedTransaction(conn,pair.partner.uid,auth,lock)
+  if (String(source.site) !== 'KLATEN' || Number(peer.site_id) !== Number(source.site_id)
+    || String(peer.businessDateKey) !== String(source.businessDateKey)
+    || Number(peer.employee_id) === Number(source.employee_id)
+    || String(source.unitCode) !== 'PCS' || String(peer.unitCode) !== 'PCS'
+    || normalizeStoredDecimal(peer.quantity) !== normalizeStoredDecimal(source.quantity)
+    || source.jobCode !== (pair.role === 'LINTING' ? LINTING_JOB_CODE : BATIL_JOB_CODE)
+    || peer.jobCode !== (pair.role === 'LINTING' ? BATIL_JOB_CODE : LINTING_JOB_CODE))
+    throw new ApiError(409,'Relasi pasangan Linting/Batil tidak konsisten.')
+  return {pair,peer}
+}
+
+async function revisePairedPeer(conn: PoolConnection, peer: RowDataPacket, quantity: string | null,
+  sourceEmployeeChanged: boolean, reason: string, auth: AuthContext, request: Request) {
+  assertPostedAndUnlocked(peer,await payrollLockContext(conn,peer,true))
+  const before = transactionSnapshot(peer)
+  let replacementId: number | null = null
+  let after: Record<string,unknown> = {...before,status:'VOID'}
+  if (quantity !== null) {
+    // An employee-only correction still replaces the unchanged partner, preserving the pair lineage.
+    const proposal = sourceEmployeeChanged && normalizeStoredDecimal(peer.quantity) === quantity
+      ? {quantity,rateSnapshot:normalizeStoredDecimal(peer.rate_snapshot),grossAmount:normalizeStoredDecimal(peer.gross_amount,2)}
+      : (await correctionProposal(conn,peer,String(peer.jobUid),quantity.replace(/\.0+$/,''),true)).proposed
+    const uid = randomUUID()
+    const number = `PRD-COR-${String(peer.businessDateKey).replaceAll('-','')}-KLATEN-${randomUUID().replaceAll('-','').slice(0,8).toUpperCase()}`
+    const [result] = await conn.execute<ResultSetHeader>(
+      `INSERT INTO production_transactions(uid,transaction_number,employee_id,site_id,work_group_id,production_section_id,
+        production_job_id,unit_id,job_rate_id,attendance_record_id,scan_device_id,business_date,transaction_at,
+        quantity,rate_snapshot,payable_quantity,gross_amount,status,entry_source,notes,created_by,updated_by)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'POSTED','CORRECTION',?,?,?)`,
+      [uid,number,peer.employee_id,peer.site_id,peer.work_group_id ?? null,peer.production_section_id ?? null,
+        peer.production_job_id,peer.unit_id,peer.job_rate_id,peer.attendance_record_id,peer.scan_device_id ?? null,
+        peer.businessDateKey,peer.transactionTimestamp,proposal.quantity,proposal.rateSnapshot,proposal.quantity,proposal.grossAmount,
+        `Koreksi pasangan dari ${peer.transaction_number}: ${reason}`,auth.id,auth.id])
+    replacementId = Number(result.insertId)
+    await cloneProductionQc(conn,Number(peer.id),replacementId,String(peer.jobCode),auth.id)
+    after = {...before,uid,transactionNumber:number,quantity:proposal.quantity,status:'POSTED'}
+  }
+  const [revisionRows] = await conn.query<RowDataPacket[]>(
+    'SELECT COALESCE(MAX(revision_number),0)+1 revisionNumber FROM production_transaction_revisions WHERE production_transaction_id=? FOR UPDATE',[peer.id])
+  const revisionUid = randomUUID()
+  await conn.execute(`INSERT INTO production_transaction_revisions(uid,production_transaction_id,replacement_transaction_id,
+    revision_number,revision_type,before_data,after_data,reason,revised_by,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+    [revisionUid,peer.id,replacementId,Number(revisionRows[0]?.revisionNumber ?? 1),quantity === null ? 'VOID':'CORRECTION',
+      JSON.stringify(before),JSON.stringify(after),reason,auth.id,auth.id,auth.id])
+  const [updated] = await conn.execute<ResultSetHeader>(
+    "UPDATE production_transactions SET status='VOID',voided_at=NOW(3),voided_by=?,void_reason=?,updated_by=? WHERE id=? AND status='POSTED'",
+    [auth.id,reason,auth.id,peer.id])
+  if (updated.affectedRows !== 1) throw new ApiError(409,'Status pasangan berubah saat revisi diproses.')
+  await repriceProductionDay(conn,{employeeId:Number(peer.employee_id),siteId:Number(peer.site_id),jobId:Number(peer.production_job_id),businessDate:String(peer.businessDateKey)},auth,request,
+    replacementId ? {lockedEmployees:new Set(),tiersByRate:new Map(),newTransactionIds:new Set([replacementId]),
+      deductionSnapshot:storedDeduction({productionSectionId:peer.production_section_id,deductionPolicyId:peer.quantity_deduction_policy_id,deductionPercentage:peer.quantity_deduction_percentage} as RowDataPacket)} : undefined)
+  if (replacementId) {
+    const priced = await transactionResponse(conn,replacementId)
+    after = {...after,grossAmount:priced.grossAmount,deductionPercentage:priced.deductionPercentage,
+      deductionQuantity:priced.deductionQuantity,payableQuantity:priced.payableQuantity}
+    await conn.execute('UPDATE production_transaction_revisions SET after_data=? WHERE uid=?',[JSON.stringify(after),revisionUid])
+  }
+  await writeAudit({auth,request,module:'PRODUCTION',siteId:Number(peer.site_id),action:'UPDATE',table:'production_transactions',
+    recordId:Number(peer.id),recordUid:String(peer.uid),description:`Merevisi pasangan setoran ${peer.transaction_number}.`,reason,beforeData:before,afterData:after},conn)
+  return replacementId
 }
 
 function transactionSnapshot(row: RowDataPacket) {
@@ -2356,7 +2495,7 @@ productionTransactionsRouter.get('/terminal/recent', requirePermission('producti
     const device = await getDevice(conn, deviceToken(req))
     enforceSite(auth, String(device.site))
     const [rows] = await conn.query<RowDataPacket[]>(
-      `SELECT pt.uid,pt.transaction_number transactionNumber,
+      `SELECT pt.id,pt.uid,pt.transaction_number transactionNumber,
               DATE_FORMAT(pt.transaction_at,'%Y-%m-%dT%H:%i:%s+07:00') transactionAt,
               CAST(pt.quantity AS CHAR) quantity,e.uid employeeUid,e.full_name fullName,
               e.employee_number employeeNumber,j.uid jobUid,j.code jobCode,j.name jobName,
@@ -2375,7 +2514,9 @@ productionTransactionsRouter.get('/terminal/recent', requirePermission('producti
         ORDER BY pt.transaction_at DESC,pt.id DESC LIMIT 5`,
       [device.id, device.siteId]
     )
+    const pairs = await readProductionPairs(conn, rows.map(row => Number(row.id)))
     res.json({ items: rows.map(row => ({
+      pair: pairs.get(Number(row.id)) ?? null,
       uid: row.uid,transactionNumber: row.transactionNumber,transactionAt: row.transactionAt,quantity: row.quantity,
       employee: { uid:row.employeeUid,fullName:row.fullName,employeeNumber:row.employeeNumber },
       job: { uid:row.jobUid,code:row.jobCode,name:row.jobName },
@@ -2411,6 +2552,7 @@ productionTransactionsRouter.get('/terminal/transactions/:uid', requirePermissio
     res.json({ transaction: {
       uid:row.uid,transactionNumber:row.transactionNumber,businessDate:row.businessDate,transactionAt:row.transactionAt,
       status:row.status,entrySource:row.entrySource,quantity:row.quantity,siteName:device.siteName,
+      pair:(await readProductionPairs(conn,[Number(row.id)])).get(Number(row.id)) ?? null,
       device:{uid:device.uid,code:device.code,name:device.name},
       employee:{uid:row.employeeUid,fullName:row.fullName,employeeNumber:row.employeeNumber},
       job:{uid:row.jobUid,code:row.jobCode,name:row.jobName},
@@ -2618,6 +2760,12 @@ productionTransactionsRouter.post(
         ) {
           throw new ApiError(409, 'Idempotency key sudah dipakai untuk setoran lain.')
         }
+        const existingPair = (await readProductionPairs(conn, [Number(existing.id)])).get(Number(existing.id))
+        const [partnerRows] = input.batilBarcode ? await conn.query<RowDataPacket[]>('SELECT uid FROM employees WHERE barcode=?', [input.batilBarcode]) : [[]]
+        if ((existingPair?.partner.employee.uid ?? null) !== (partnerRows[0]?.uid ?? null)
+          || Boolean(existingPair) !== Boolean(input.batilBarcode)) {
+          throw new ApiError(409, 'Idempotency key sudah dipakai dengan pasangan Batil berbeda.')
+        }
         await assertProductionQcReplay(conn,Number(existing.id),input.qc)
         await conn.execute(
           'UPDATE scan_devices SET last_seen_at=NOW(3),updated_by=? WHERE id=?',
@@ -2631,6 +2779,10 @@ productionTransactionsRouter.post(
         })
       }
 
+      if (input.batilBarcode) {
+        if (input.batilBarcode === input.barcode) throw new ApiError(422, 'Karyawan Linting dan Batil harus berbeda.')
+        await conn.query('SELECT id FROM employees WHERE barcode IN (?,?) ORDER BY id FOR UPDATE', [input.barcode, input.batilBarcode])
+      }
       const { employee, history } = await employeeContext(
         conn,
         input.barcode,
@@ -2708,6 +2860,7 @@ productionTransactionsRouter.post(
         )
       }
       const rate = rates[0]
+      if (input.batilBarcode && rate.unitCode !== 'PCS') throw new ApiError(422,'Linting berpasangan harus menggunakan satuan PCS.')
       const quantity = normalizeQuantity(input.quantity, Number(rate.decimalPrecision))
       const rateSnapshot = normalizeStoredDecimal(rate.rateAmount)
       const grossAmount = calculateGrossAmount(quantity, rateSnapshot)
@@ -2755,6 +2908,12 @@ productionTransactionsRouter.post(
         (insertResult as { insertId?: number }).insertId ?? 0
       )
       await saveProductionQc(conn,transactionId,qc,auth.id)
+      let pairedTransactionId: number | undefined
+      if (input.batilBarcode) {
+        assertLintingBatilScope(String(device.site), String(assignment.jobCode))
+        pairedTransactionId = await createBatilDeposit(conn, input.batilBarcode, transactionId, device, time,
+          input.quantity, qc, auth, req)
+      }
       await repriceProductionDay(conn, {
         employeeId: Number(employee.id), siteId: Number(device.siteId),
         jobId: Number(assignment.jobId), businessDate: String(time.businessDate),
@@ -2793,6 +2952,7 @@ productionTransactionsRouter.post(
         duplicate: false,
         message: 'Setoran Produksi berhasil dicatat.',
         transaction: await transactionResponse(conn, transactionId),
+        pairedTransaction: pairedTransactionId ? await transactionResponse(conn, pairedTransactionId) : undefined,
       })
     } catch (error) {
       await conn.rollback()
@@ -2941,6 +3101,17 @@ productionTransactionsRouter.post(
           'Reset dibatalkan: transaksi koreksi terhubung ke transaksi di luar tanggal atau site yang dipilih.'
         )
       }
+      const [pairs] = await conn.query<RowDataPacket[]>(
+        `SELECT pair.linting_transaction_id lintingId,pair.batil_transaction_id batilId
+         FROM production_transaction_pairs pair JOIN production_transactions transaction
+         ON transaction.id IN (pair.linting_transaction_id,pair.batil_transaction_id)
+         JOIN sites site ON site.id=transaction.site_id
+         WHERE transaction.business_date IN (${placeholders})${siteFilter} FOR UPDATE`, targetValues)
+      if (pairs.some(pair => !targetIds.has(String(pair.lintingId)) || !targetIds.has(String(pair.batilId))))
+        throw new ApiError(409, 'Reset dibatalkan: pasangan Linting/Batil berada di luar batch yang dipilih.')
+      if (pairs.length) await conn.execute(`DELETE pair FROM production_transaction_pairs pair JOIN production_transactions transaction
+        ON transaction.id=pair.linting_transaction_id JOIN sites site ON site.id=transaction.site_id
+        WHERE transaction.business_date IN (${placeholders})${siteFilter}`, targetValues)
       await conn.execute(
         `DELETE revision FROM production_transaction_revisions revision
            JOIN production_transactions transaction
@@ -3506,10 +3677,12 @@ productionTransactionsRouter.get(
       const auth = res.locals.auth as AuthContext
       const source = await managedTransaction(conn, uid, auth)
       const payrollLock = await payrollLockContext(conn, source, false)
-      const jobs = await correctionJobOptions(conn, source)
+      const paired = await pairedManagedTransaction(conn,source,auth)
+      const jobs = (await correctionJobOptions(conn, source)).filter(job => !paired || job.code === source.jobCode)
       res.json({
         transaction: await transactionResponse(conn, Number(source.id)),
         jobs,
+        affectedTransactions: paired ? [await transactionResponse(conn,Number(paired.peer.id))] : [],
         payrollLock,
         canCorrect: source.status === 'POSTED' && !payrollLock.locked,
         canVoid: source.status === 'POSTED' && !payrollLock.locked,
@@ -3538,6 +3711,9 @@ productionTransactionsRouter.post(
       const payrollLock = await payrollLockContext(conn, source, false)
       assertPostedAndUnlocked(source, payrollLock)
       const target = await correctionTarget(conn, source, input.employeeUid, false)
+      const paired = await pairedManagedTransaction(conn,source,auth,false)
+      if (paired && (input.jobUid !== source.jobUid || target.employeeChanged))
+        throw new ApiError(422,'Koreksi pasangan hanya mengubah kuantitas; untuk mengganti karyawan lakukan void dan scan ulang.')
       const { proposed, targetIds } = await correctionProposal(
         conn,
         target.transaction,
@@ -3546,6 +3722,10 @@ productionTransactionsRouter.post(
         false,
         target.employeeChanged
       )
+      const pairProposal = paired ? {
+        source:await transactionResponse(conn,Number(paired.peer.id)),
+        proposed:(await correctionProposal(conn,paired.peer,String(paired.peer.jobUid),proposed.quantity.replace(/\.0+$/,''),false)).proposed
+      } : undefined
       const sourceKey = {
         employeeId:Number(source.employee_id),siteId:Number(source.site_id),
         jobId:Number(source.production_job_id),businessDate:String(source.businessDateKey),
@@ -3568,6 +3748,13 @@ productionTransactionsRouter.post(
         : await previewDailyRepricing(conn,targetKey,undefined,replacement)
       const grossDelta=sourceImpact.after-sourceImpact.before
         +(targetImpact ? targetImpact.after-targetImpact.before : 0n)
+      const peerImpact = paired ? await previewDailyRepricing(conn,{
+        employeeId:Number(paired.peer.employee_id),siteId:Number(paired.peer.site_id),
+        jobId:Number(paired.peer.production_job_id),businessDate:String(paired.peer.businessDateKey),
+      },Number(paired.peer.id),{
+        id:Number.MAX_SAFE_INTEGER,rateId:Number(paired.peer.job_rate_id),quantity:proposed.quantity,
+        transactionAt:String(paired.peer.transactionTimestamp),jobCode:String(paired.peer.jobCode),decimalPrecision:Number(paired.peer.decimalPrecision),
+      }) : null
       res.json({
         source: await transactionResponse(conn, Number(source.id)),
         targetEmployee: {
@@ -3576,6 +3763,12 @@ productionTransactionsRouter.post(
           fullName: target.transaction.fullName,
         },
         proposed,
+        pairProposal,
+        affectedTransactions: pairProposal ? [pairProposal.source] : [],
+        pairDelta: peerImpact ? {
+          quantity:subtractDecimal(proposed.quantity,normalizeStoredDecimal(paired!.peer.quantity),4),
+          grossAmount:centsAmount(peerImpact.after-peerImpact.before),
+        } : undefined,
         delta: {
           quantity: subtractDecimal(
             proposed.quantity,
@@ -3610,12 +3803,19 @@ productionTransactionsRouter.post(
       const source = await managedTransaction(conn, uid, auth)
       const payrollLock = await payrollLockContext(conn, source, false)
       assertPostedAndUnlocked(source, payrollLock)
+      const paired = await pairedManagedTransaction(conn,source,auth)
       const impact = await previewDailyRepricing(conn,{
         employeeId:Number(source.employee_id),siteId:Number(source.site_id),
         jobId:Number(source.production_job_id),businessDate:String(source.businessDateKey),
       },Number(source.id))
+      const peerImpact = paired ? await previewDailyRepricing(conn,{
+        employeeId:Number(paired.peer.employee_id),siteId:Number(paired.peer.site_id),
+        jobId:Number(paired.peer.production_job_id),businessDate:String(paired.peer.businessDateKey),
+      },Number(paired.peer.id)) : null
       res.json({
         source: await transactionResponse(conn, Number(source.id)),
+        affectedTransactions: paired ? [await transactionResponse(conn,Number(paired.peer.id))] : [],
+        pairImpact: peerImpact ? {quantity:`-${normalizeStoredDecimal(paired!.peer.quantity)}`,grossAmount:centsAmount(peerImpact.after-peerImpact.before)} : undefined,
         impact: {
           quantity: `-${normalizeStoredDecimal(source.quantity)}`,
           grossAmount: centsAmount(impact.after-impact.before),
@@ -3677,6 +3877,9 @@ productionTransactionsRouter.post(
       const payrollLock = await payrollLockContext(conn, source, true)
       assertPostedAndUnlocked(source, payrollLock)
       const target = await correctionTarget(conn, source, input.employeeUid, true)
+      const paired = await pairedManagedTransaction(conn,source,auth,true)
+      if (paired && (input.jobUid !== source.jobUid || target.employeeChanged))
+        throw new ApiError(422,'Koreksi pasangan hanya mengubah kuantitas; untuk mengganti karyawan lakukan void dan scan ulang.')
       const { proposed, targetIds } = await correctionProposal(
         conn,
         target.transaction,
@@ -3721,6 +3924,10 @@ productionTransactionsRouter.post(
         (insertResult as { insertId?: number }).insertId ?? 0
       )
       await cloneProductionQc(conn, Number(source.id), replacementId, String(proposed.job.code), auth.id)
+      const peerReplacementId = paired ? await revisePairedPeer(conn,paired.peer,proposed.quantity,false,input.reason,auth,req) : null
+      if (paired && peerReplacementId) await saveProductionPair(conn,
+        paired.pair.role === 'LINTING' ? replacementId : peerReplacementId,
+        paired.pair.role === 'LINTING' ? peerReplacementId : replacementId,auth.id)
       const before = transactionSnapshot(source)
       const after = {
         ...before,
@@ -3885,6 +4092,8 @@ productionTransactionsRouter.post(
       }
       const payrollLock = await payrollLockContext(conn, source, true)
       assertPostedAndUnlocked(source, payrollLock)
+      const paired = await pairedManagedTransaction(conn,source,auth,true)
+      if (paired) await revisePairedPeer(conn,paired.peer,null,false,input.reason,auth,req)
       const before = transactionSnapshot(source)
       const after = {
         ...before,
@@ -4118,6 +4327,15 @@ productionTransactionsRouter.get(
         deductionQuantity: normalizeStoredDecimal(row.deductionQuantity),
         payableQuantity: normalizeStoredDecimal(row.payableQuantity),
       }))
+      const [jobQuantityRows] = await pool.query<RowDataPacket[]>(
+        `SELECT j.uid jobUid,j.code jobCode,j.name jobName,u.uid,u.code,u.name,u.decimal_precision decimalPrecision,
+                SUM(pt.quantity) quantity ${from} WHERE ${clause} AND pt.status='POSTED'
+         GROUP BY j.id,j.uid,j.code,j.name,u.id,u.uid,u.code,u.name,u.decimal_precision ORDER BY j.name,u.code`,values)
+      const quantityTotalsByJob = jobQuantityRows.map(row => ({
+        job:{uid:row.jobUid,code:row.jobCode,name:row.jobName},
+        unit:{uid:row.uid,code:row.code,name:row.name,decimalPrecision:Number(row.decimalPrecision)},
+        quantity:normalizeStoredDecimal(row.quantity),
+      }))
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT pt.id,pt.uid,pt.transaction_number transactionNumber,
                 DATE_FORMAT(pt.business_date,'%Y-%m-%d') businessDate,
@@ -4141,6 +4359,7 @@ productionTransactionsRouter.get(
       }
       const qcByTransaction = new Map<number,NonNullable<Awaited<ReturnType<typeof readProductionQc>>>>()
       const modulesByTransaction = new Map<number, {uid:string;code:string;name:string}>()
+      const pairsByTransaction = await readProductionPairs(pool,rows.map(row => Number(row.id)))
       for (let offset=0;offset<rows.length;offset+=500) {
       const transactionIds = rows.slice(offset,offset+500).map(row => Number(row.id))
       const qcChunk = await readProductionQcBatch(pool, transactionIds)
@@ -4221,6 +4440,7 @@ productionTransactionsRouter.get(
           businessDate: row.businessDate,
           transactionAt: row.transactionAt,
           status: row.status,
+          pair: pairsByTransaction.get(Number(row.id)) ?? null,
           productionModule: modulesByTransaction.get(Number(row.id)) ?? null,
           qc: qcByTransaction.get(Number(row.id)) ?? null,
           quantity: normalizeStoredDecimal(row.quantity),
@@ -4260,6 +4480,7 @@ productionTransactionsRouter.get(
               ? quantityTotals[0]?.quantity ?? '0'
               : null,
           quantityTotals,
+          quantityTotalsByJob,
           totalGrossAmount: normalizeStoredDecimal(summary.totalGrossAmount, 2),
         },
       })

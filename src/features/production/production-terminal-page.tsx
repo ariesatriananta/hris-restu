@@ -108,6 +108,7 @@ export function ProductionTerminalPage() {
 
   return (
     <ProductionTerminal
+      key={`${activeSession.device.uid}:${activeSession.device.site}`}
       session={activeSession}
       onDeactivate={() => {
         localStorage.removeItem(storageKey)
@@ -200,6 +201,11 @@ function ProductionTerminal({
 }) {
   const [barcode, setBarcode] = useState('')
   const [lookup, setLookup] = useState<ProductionTerminalLookup>()
+  const [batilBarcode, setBatilBarcode] = useState('')
+  const [batilLookup, setBatilLookup] = useState<ProductionTerminalLookup>()
+  const [batilError, setBatilError] = useState<string>()
+  const [batilPending, setBatilPending] = useState(false)
+  const [confirmedBatilBarcode, setConfirmedBatilBarcode] = useState<string>()
   const [jobUid, setJobUid] = useState('')
   const [quantity, setQuantity] = useState('')
   const [qc, setQc] = useState(emptyProductionQc)
@@ -217,10 +223,26 @@ function ProductionTerminal({
   const barcodeRef = useRef<HTMLInputElement>(null)
   const quantityRef = useRef<HTMLInputElement>(null)
   const idempotencyKey = useRef<string | undefined>(undefined)
+  const lookupRequest = useRef(0)
+  const batilRequest = useRef(0)
+  const latestBarcode = useRef('')
+  const latestBatilBarcode = useRef('')
   const lookupMutation = useProductionTerminalLookup()
+  const batilLookupMutation = useProductionTerminalLookup()
   const postMutation = usePostProductionTransaction()
   const selectedJob = lookup?.jobs.find((job) => job.uid === jobUid)
   const linting = isLintingJob(selectedJob?.code)
+  const canPairBatil = session.device.site === 'KLATEN' && linting
+  const standaloneBatilBlocked =
+    session.device.site === 'KLATEN' && selectedJob?.code === 'BORONGAN-BATIL'
+  const standaloneBatilMessage =
+    'Batil harus berpasangan dengan Linting. Scan pekerja Linting terlebih dahulu, lalu isi pekerja Batil pada field pasangan.'
+  const batilReady = Boolean(
+    batilLookup && confirmedBatilBarcode === batilBarcode.trim()
+  )
+  const batilBlocked =
+    canPairBatil &&
+    Boolean(batilPending || (batilBarcode.trim() && !batilReady))
   const qcError = selectedJob
     ? validateProductionQc(qc, lookup?.qcOptions, linting)
     : undefined
@@ -240,8 +262,28 @@ function ProductionTerminal({
       50
     )
   }, [lookup])
+  useEffect(
+    () => () => {
+      lookupRequest.current += 1
+      batilRequest.current += 1
+    },
+    []
+  )
 
+  const clearBatil = () => {
+    batilRequest.current += 1
+    latestBatilBarcode.current = ''
+    setConfirmedBatilBarcode(undefined)
+    setBatilBarcode('')
+    setBatilLookup(undefined)
+    setBatilError(undefined)
+    setBatilPending(false)
+    batilLookupMutation.reset()
+  }
   const clearLookup = () => {
+    lookupRequest.current += 1
+    latestBarcode.current = ''
+    clearBatil()
     setLookup(undefined)
     setJobUid('')
     setQuantity('')
@@ -262,11 +304,18 @@ function ProductionTerminal({
   const submitLookup = async () => {
     const value = barcode.trim()
     if (!value || lookupMutation.isPending || !online) return
+    const request = ++lookupRequest.current
+    clearBatil()
     try {
       const result = await lookupMutation.mutateAsync({
         barcode: value,
         deviceToken: session.deviceToken,
       })
+      if (
+        request !== lookupRequest.current ||
+        latestBarcode.current.trim() !== value
+      )
+        return
       setLookup(result)
       setJobUid(result.defaultJobUid)
       setQuantity('')
@@ -275,6 +324,11 @@ function ProductionTerminal({
       )
       idempotencyKey.current = undefined
     } catch (error) {
+      if (
+        request !== lookupRequest.current ||
+        latestBarcode.current.trim() !== value
+      )
+        return
       if (!handleDeviceAuthError(error)) {
         toast.error(apiMessage(error, 'Karyawan tidak siap menerima setoran.'))
         window.setTimeout(() => barcodeRef.current?.focus(), 50)
@@ -282,8 +336,74 @@ function ProductionTerminal({
     }
   }
 
+  const submitBatilLookup = async () => {
+    const value = batilBarcode.trim()
+    if (
+      !canPairBatil ||
+      !lookup ||
+      !value ||
+      batilPending ||
+      !online ||
+      postMutation.isPending
+    )
+      return
+    const request = ++batilRequest.current
+    setBatilPending(true)
+    setBatilError(undefined)
+    setBatilLookup(undefined)
+    setConfirmedBatilBarcode(undefined)
+    const current = () =>
+      request === batilRequest.current &&
+      latestBatilBarcode.current.trim() === value
+    try {
+      const result = await batilLookupMutation.mutateAsync({
+        barcode: value,
+        deviceToken: session.deviceToken,
+      })
+      if (!current()) return
+      if (result.employee.uid === lookup.employee.uid) {
+        setBatilError('Pekerja Batil harus berbeda dari pekerja Linting.')
+      } else if (
+        result.employee.site !== 'KLATEN' ||
+        result.businessDate !== lookup.businessDate
+      ) {
+        setBatilError(
+          'Pekerja Batil harus siap di Klaten pada tanggal kerja yang sama.'
+        )
+      } else if (
+        result.jobs.filter(
+          (job) => job.code === 'BORONGAN-BATIL' && job.unit.code === 'PCS'
+        ).length !== 1
+      ) {
+        setBatilError('Penugasan dan tarif Batil (PCS) belum siap.')
+      } else {
+        setConfirmedBatilBarcode(value)
+        setBatilLookup(result)
+        quantityRef.current?.focus()
+      }
+    } catch (error) {
+      if (!current()) return
+      if (!handleDeviceAuthError(error))
+        setBatilError(
+          apiMessage(error, 'Pekerja Batil belum siap menerima setoran.')
+        )
+    } finally {
+      if (current()) setBatilPending(false)
+    }
+  }
+
   const submitTransaction = async () => {
     if (!lookup || !selectedJob || postMutation.isPending) return
+    if (standaloneBatilBlocked) {
+      toast.error(standaloneBatilMessage)
+      return
+    }
+    if (batilBlocked) {
+      toast.error(
+        batilError ?? 'Periksa barcode pekerja Batil sebelum menyimpan.'
+      )
+      return
+    }
     if (qcError) {
       toast.error(qcError)
       return
@@ -303,6 +423,9 @@ function ProductionTerminal({
         deviceToken: session.deviceToken,
         input: {
           barcode: barcode.trim(),
+          ...(canPairBatil && batilBarcode.trim()
+            ? { batilBarcode: batilBarcode.trim() }
+            : {}),
           jobUid: selectedJob.uid,
           quantity: normalizeProductionQuantity(quantity),
           ...(lookup.qcOptions
@@ -410,7 +533,10 @@ function ProductionTerminal({
                       id='production-barcode'
                       className='h-14 text-center text-lg font-semibold tracking-wide'
                       value={barcode}
-                      onChange={(event) => setBarcode(event.target.value)}
+                      onChange={(event) => {
+                        latestBarcode.current = event.target.value
+                        setBarcode(event.target.value)
+                      }}
                       placeholder='Scan atau ketik nomor karyawan'
                       autoComplete='off'
                       disabled={!online || lookupMutation.isPending}
@@ -487,6 +613,7 @@ function ProductionTerminal({
                       value={jobUid}
                       disabled={postMutation.isPending}
                       onValueChange={(value) => {
+                        clearBatil()
                         setJobUid(value)
                         setQuantity('')
                         setQc(
@@ -536,6 +663,98 @@ function ProductionTerminal({
                   </div>
                 </div>
 
+                {canPairBatil && (
+                  <div className='grid gap-1 rounded-md border bg-muted/20 p-2'>
+                    <Label
+                      htmlFor='production-batil-barcode'
+                      className='text-xs'
+                    >
+                      Pekerja Batil (opsional)
+                    </Label>
+                    <div className='flex gap-1.5'>
+                      <Input
+                        id='production-batil-barcode'
+                        className='h-9 min-w-0 text-sm'
+                        value={batilBarcode}
+                        placeholder='Scan barcode pekerja Batil'
+                        autoComplete='off'
+                        disabled={!online || postMutation.isPending}
+                        onBlur={(event) => {
+                          if (
+                            event.relatedTarget?.id ===
+                              'production-batil-check' ||
+                            batilReady
+                          )
+                            return
+                          void submitBatilLookup()
+                        }}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          latestBatilBarcode.current = value
+                          batilRequest.current += 1
+                          setConfirmedBatilBarcode(undefined)
+                          setBatilBarcode(value)
+                          setBatilLookup(undefined)
+                          setBatilError(undefined)
+                          setBatilPending(false)
+                          idempotencyKey.current = undefined
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Enter') return
+                          event.preventDefault()
+                          void submitBatilLookup()
+                        }}
+                      />
+                      <Button
+                        id='production-batil-check'
+                        type='button'
+                        size='sm'
+                        variant='outline'
+                        className='h-9 shrink-0'
+                        disabled={
+                          !batilBarcode.trim() ||
+                          batilPending ||
+                          !online ||
+                          postMutation.isPending
+                        }
+                        onClick={() => void submitBatilLookup()}
+                      >
+                        {batilPending ? (
+                          <LoaderCircle className='animate-spin' />
+                        ) : (
+                          <ScanBarcode />
+                        )}
+                        Cek
+                      </Button>
+                    </div>
+                    {batilLookup ? (
+                      <div className='flex min-w-0 items-center gap-2 rounded-lg border border-primary/30 bg-gradient-to-br from-primary via-primary/90 to-primary/75 px-2.5 py-2 text-primary-foreground shadow-sm'>
+                        <ShieldCheck className='size-3.5 shrink-0' />
+                        <div className='min-w-0'>
+                          <p className='text-[10px] leading-tight text-primary-foreground/85'>
+                            Di Batil Oleh:
+                          </p>
+                          <p className='mt-0.5 text-xs leading-snug break-words'>
+                            <span className='font-semibold'>
+                              {batilLookup.employee.fullName}
+                            </span>{' '}
+                            · {batilLookup.employee.employeeNumber} · Batil siap
+                          </p>
+                        </div>
+                      </div>
+                    ) : batilError ? (
+                      <p role='alert' className='text-xs text-destructive'>
+                        {batilError}
+                      </p>
+                    ) : (
+                      <p className='text-[11px] text-muted-foreground'>
+                        Kosongkan untuk Linting saja. Jumlah PCS dan Brand
+                        digunakan bersama.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {selectedJob && (
                   <ProductionQcFields
                     linting={linting}
@@ -565,11 +784,18 @@ function ProductionTerminal({
                     )}
                   </p>
                 )}
+                {standaloneBatilBlocked && (
+                  <p role='alert' className='text-xs text-destructive'>
+                    {standaloneBatilMessage}
+                  </p>
+                )}
                 <Button
                   className='h-11 w-full text-base'
                   disabled={
                     !selectedJob ||
+                    standaloneBatilBlocked ||
                     Boolean(qcError) ||
+                    batilBlocked ||
                     Boolean(
                       validateProductionQuantity(
                         quantity,

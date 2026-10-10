@@ -783,6 +783,7 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
 
 function TransactionSummary({ data }: { data?: ProductionTransactionResult }) {
   const quantityTotals = data?.summary.quantityTotals ?? []
+  const quantityTotalsByJob = data?.summary.quantityTotalsByJob ?? []
   const items = [
     {
       label: 'Transaksi',
@@ -799,18 +800,31 @@ function TransactionSummary({ data }: { data?: ProductionTransactionResult }) {
       tone: 'border-sky-500/20 bg-sky-500/[0.05]',
     },
     {
-      label: 'Hasil per Satuan',
-      value: quantityTotals.length
-        ? quantityTotals
-            .map(
-              (item) =>
-                `${formatNumber(item.quantity, item.unit.decimalPrecision)} ${item.unit.code}`
-            )
-            .join(' · ')
-        : '-',
+      label:
+        quantityTotalsByJob.length > 1
+          ? 'Hasil per Pekerjaan'
+          : 'Hasil per Satuan',
+      value:
+        quantityTotalsByJob.length > 1
+          ? quantityTotalsByJob
+              .map(
+                (item) =>
+                  `${item.job.name}: ${formatNumber(item.quantity, item.unit.decimalPrecision)} ${item.unit.code}`
+              )
+              .join(' · ')
+          : quantityTotals.length
+            ? quantityTotals
+                .map(
+                  (item) =>
+                    `${formatNumber(item.quantity, item.unit.decimalPrecision)} ${item.unit.code}`
+                )
+                .join(' · ')
+            : '-',
       icon: Boxes,
       description:
-        'Akumulasi hasil dipisahkan per satuan agar PCS, KG, BOX, dan satuan lain tidak tercampur.',
+        quantityTotalsByJob.length > 1
+          ? 'Hasil dipisahkan per pekerjaan. PCS Linting dan Batil menghitung hasil kerja masing-masing, bukan tambahan jumlah barang fisik.'
+          : 'Akumulasi hasil dipisahkan per satuan agar PCS, KG, BOX, dan satuan lain tidak tercampur.',
       tone: 'border-emerald-500/20 bg-emerald-500/[0.05]',
     },
     {
@@ -1540,6 +1554,26 @@ function TransactionDetailSheet({
             </div>
           ) : (
             <div className='space-y-4'>
+              {item.pair && (
+                <div className='rounded-md border bg-muted/30 px-3 py-2 text-xs'>
+                  <p className='font-medium'>
+                    Setoran berpasangan Linting + Batil
+                  </p>
+                  <button
+                    type='button'
+                    className='mt-0.5 text-left text-primary underline underline-offset-2'
+                    onClick={() => onOpenTransaction(item.pair!.partner.uid)}
+                  >
+                    {item.pair.partner.employee.fullName} ·{' '}
+                    {item.pair.partner.job.name} ·{' '}
+                    {item.pair.partner.transactionNumber}
+                  </button>
+                  <p className='mt-0.5 text-muted-foreground'>
+                    Koreksi jumlah dan pembatalan berlaku untuk kedua setoran.
+                    Payroll salah satu pekerja mengunci keduanya.
+                  </p>
+                </div>
+              )}
               <div className='rounded-lg border bg-muted/30 p-4'>
                 <div className='flex items-start justify-between gap-2'>
                   <div>
@@ -1875,7 +1909,7 @@ function CorrectionDialog({
     if (!canSubmit) return
     try {
       const output = await correction.mutateAsync({
-        employeeUid: employee?.uid,
+        employeeUid: transaction.pair ? undefined : employee?.uid,
         jobUid: effectiveJobUid,
         quantity: normalizedQuantity,
         reason: reason.trim(),
@@ -1908,31 +1942,46 @@ function CorrectionDialog({
           />
         ) : (
           <div className='space-y-4'>
+            {transaction.pair && (
+              <p className='rounded-md border bg-muted/30 px-3 py-2 text-xs'>
+                Koreksi jumlah berlaku untuk kedua pekerja:{' '}
+                {transaction.employee.fullName} dan{' '}
+                {transaction.pair.partner.employee.fullName}. Pekerja dan
+                pekerjaan tetap mengikuti pasangan awal.
+              </p>
+            )}
             {context.data.payrollLock.locked && (
               <LockedPanel reasons={context.data.payrollLock.reasons} />
             )}
             <label className='grid gap-1.5 text-sm'>
               <span className='font-medium'>Karyawan pengganti</span>
-              <ProductionEmployeePicker
-                site={transaction.site}
-                asOf={transaction.businessDate}
-                value={employee?.uid ?? transaction.employee.uid}
-                selected={employee}
-                onChange={(item) => {
-                  setEmployee(item)
-                  const primary = item.assignments.find(
-                    (assignment) => assignment.isPrimary
-                  )
-                  setJobUid(
-                    primary?.jobUid ?? item.assignments[0]?.jobUid ?? ''
-                  )
-                  setIdempotencyKey(createIdempotencyKey())
-                  resetPreview()
-                }}
-              />
+              {transaction.pair ? (
+                <p className='rounded-md border px-3 py-2 text-sm'>
+                  {transaction.employee.fullName}
+                </p>
+              ) : (
+                <ProductionEmployeePicker
+                  site={transaction.site}
+                  asOf={transaction.businessDate}
+                  value={employee?.uid ?? transaction.employee.uid}
+                  selected={employee}
+                  onChange={(item) => {
+                    setEmployee(item)
+                    const primary = item.assignments.find(
+                      (assignment) => assignment.isPrimary
+                    )
+                    setJobUid(
+                      primary?.jobUid ?? item.assignments[0]?.jobUid ?? ''
+                    )
+                    setIdempotencyKey(createIdempotencyKey())
+                    resetPreview()
+                  }}
+                />
+              )}
               <span className='text-xs text-muted-foreground'>
-                Biarkan tetap sama jika kesalahan hanya pada pekerjaan atau
-                kuantitas.
+                {transaction.pair
+                  ? 'Pasangan Linting + Batil hanya mendukung koreksi jumlah.'
+                  : 'Biarkan tetap sama jika kesalahan hanya pada pekerjaan atau kuantitas.'}
               </span>
             </label>
             <div className='grid gap-4 sm:grid-cols-2'>
@@ -1945,7 +1994,9 @@ function CorrectionDialog({
                     setIdempotencyKey(createIdempotencyKey())
                     resetPreview()
                   }}
-                  disabled={!context.data.canCorrect}
+                  disabled={
+                    !context.data.canCorrect || Boolean(transaction.pair)
+                  }
                 >
                   <SelectTrigger className='w-full'>
                     <SelectValue placeholder='Pilih pekerjaan' />
@@ -2000,7 +2051,7 @@ function CorrectionDialog({
               onClick={() =>
                 preview.mutate(
                   {
-                    employeeUid: employee?.uid,
+                    employeeUid: transaction.pair ? undefined : employee?.uid,
                     jobUid: effectiveJobUid,
                     quantity: normalizedQuantity,
                   },
@@ -2109,6 +2160,35 @@ function CorrectionPreviewPanel({
           </p>
         </div>
       </div>
+      {preview.pairProposal && (
+        <div className='mt-2 rounded-md border bg-background px-3 py-2 text-xs'>
+          <p className='font-medium'>
+            Pasangan ikut dikoreksi:{' '}
+            {preview.pairProposal.source.employee.fullName} ·{' '}
+            {preview.pairProposal.source.job.name}
+          </p>
+          {preview.pairDelta && (
+            <p className='mt-0.5 text-muted-foreground'>
+              Dampak bruto pasangan hari ini:{' '}
+              {formatSignedCurrency(preview.pairDelta.grossAmount)}
+            </p>
+          )}
+          <p className='mt-0.5 tabular-nums'>
+            {formatNumber(
+              preview.pairProposal.source.quantity,
+              preview.pairProposal.source.unit.decimalPrecision
+            )}{' '}
+            →{' '}
+            {formatNumber(
+              preview.pairProposal.proposed.quantity,
+              preview.pairProposal.proposed.unit.decimalPrecision
+            )}{' '}
+            {preview.pairProposal.proposed.unit.code} · Bruto{' '}
+            {formatCurrency(preview.pairProposal.source.grossAmount)} →{' '}
+            {formatCurrency(preview.pairProposal.proposed.grossAmount)}
+          </p>
+        </div>
+      )}
       {preview.payrollLock.locked && (
         <div className='mt-3'>
           <LockedPanel reasons={preview.payrollLock.reasons} />
@@ -2220,6 +2300,24 @@ function VoidDialog({
               <LockedPanel reasons={preview.data.payrollLock.reasons} />
             )}
             <div className='rounded-lg border bg-muted/30 p-3 text-sm'>
+              {preview.data.source.pair && (
+                <p className='mb-2 text-xs font-medium'>
+                  Pasangan ikut dibatalkan:{' '}
+                  {preview.data.source.pair.partner.employee.fullName} ·{' '}
+                  {preview.data.source.pair.partner.transactionNumber}
+                </p>
+              )}
+              {preview.data.pairImpact && (
+                <p className='mb-2 text-xs tabular-nums'>
+                  Dampak pasangan:{' '}
+                  {formatSignedNumber(
+                    preview.data.pairImpact.quantity,
+                    preview.data.source.unit.decimalPrecision
+                  )}{' '}
+                  {preview.data.source.unit.code} · Bruto hari ini{' '}
+                  {formatSignedCurrency(preview.data.pairImpact.grossAmount)}
+                </p>
+              )}
               <p className='font-medium'>{preview.data.source.job.name}</p>
               <p className='text-muted-foreground'>
                 {formatNumber(

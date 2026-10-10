@@ -188,6 +188,32 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   tidak perlu mengetiknya berulang kali.
 - Pekerja borongan dibayar berdasarkan hasil produksi, bukan durasi kerja.
 - Satu karyawan dapat melakukan setoran produksi lebih dari satu kali dalam sehari.
+- Pasangan setoran Linting–Batil sementara **dihardcode hanya untuk site
+  `KLATEN` dan pekerjaan `BORONGAN-LINTING`**, dengan pasangan pekerjaan
+  `BORONGAN-BATIL`. Ini bukan konfigurasi master dan tidak berlaku pada
+  Jepara/Semarang. Jika cakupan diperluas, ubah aturan di API dan UI bersamaan;
+  jangan hanya membuka field pada frontend. Rincian ada di
+  `docs/PRODUCTION_LINTING_BATIL.md`.
+- Pada Scanner Klaten, scan Batil bersifat opsional dan pasangan dipilih per
+  setoran. Satu input 500 PCS menghasilkan setoran Linting 500 PCS dan Batil
+  500 PCS yang terhubung, disimpan atomik. Karyawan harus berbeda; keduanya
+  wajib memenuhi eligibility Produksi, Attendance, penugasan pekerjaan, tarif,
+  dan site yang sama. Tidak ada penugasan pekerjaan otomatis.
+- Masing-masing anggota pasangan mempertahankan snapshot tarif, hasil dibayar,
+  dan bruto sendiri. Potongan Linting tidak diwariskan ke Batil. Brand yang
+  dicatat pada Linting dibawa ke Batil sebagai snapshot; berat dan defect hanya
+  berada pada Linting. Payroll tetap mengambil transaksi masing-masing karyawan.
+- Koreksi kuantitas dan void pasangan diproses bersama dalam satu transaksi;
+  kuncian Payroll pada salah satu anggota memblokir keseluruhan aksi. Koreksi
+  membuat transaksi pengganti dan relasi pasangan baru tanpa mengubah histori
+  lama. Implementasi awal hanya mendukung koreksi jumlah; untuk mengganti partner
+  lakukan void pasangan lalu scan ulang selama belum terkunci Payroll.
+  Reset batch wajib mencakup seluruh pasangan/rantai revisi dan membersihkan
+  relasi sebelum transaksi induk. Setoran lama tidak dipasangkan secara otomatis.
+- Hasil kerja pasangan wajib dibedakan per pekerjaan: Linting 500 PCS dan Batil
+  500 PCS merupakan dua hasil kerja pada 500 batang yang sama, bukan 1.000
+  batang produk fisik. Total kuantitas per karyawan/pekerjaan tetap dipertahankan;
+  total lintas pekerjaan adalah total hasil kerja, bukan total produk fisik.
 - QC hasil Linting merupakan informasi terpisah dari kuantitas, tarif,
   potongan standar, dan Payroll. Defect tidak mengurangi hasil setoran atau
   upah; satu batang boleh memiliki beberapa defect sehingga total defect

@@ -14,6 +14,8 @@ import {
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
+  pairsQuery: vi.fn(),
+  jobSummaryQuery: vi.fn(),
   execute: vi.fn(),
   beginTransaction: vi.fn(),
   commit: vi.fn(),
@@ -22,8 +24,17 @@ const mocks = vi.hoisted(() => ({
   audit: vi.fn(),
 }))
 
+function databaseQuery(...args: unknown[]) {
+  const sql = String(args[0])
+  if (sql.includes('production_transaction_pairs')) return mocks.pairsQuery(...args)
+  if (/GROUP BY j\.id,j\.uid,j\.code,j\.name,u\.id/.test(sql)) {
+    return mocks.jobSummaryQuery(...args)
+  }
+  return mocks.query(...args)
+}
+
 const connection = {
-  query: mocks.query,
+  query: databaseQuery,
   execute: mocks.execute,
   beginTransaction: mocks.beginTransaction,
   commit: mocks.commit,
@@ -33,7 +44,7 @@ const connection = {
 
 vi.mock('../db.js', () => ({
   pool: {
-    query: mocks.query,
+    query: databaseQuery,
     execute: mocks.execute,
     getConnection: vi.fn(async () => connection),
   },
@@ -204,6 +215,8 @@ function managedTransactionRow(overrides: Record<string, unknown> = {}) {
 describe('Production transactions API', () => {
   beforeEach(() => {
     Object.values(mocks).forEach((mock) => mock.mockReset())
+    mocks.pairsQuery.mockResolvedValue([[]])
+    mocks.jobSummaryQuery.mockResolvedValue([[]])
     mocks.beginTransaction.mockResolvedValue(undefined)
     mocks.commit.mockResolvedValue(undefined)
     mocks.rollback.mockResolvedValue(undefined)
@@ -1925,7 +1938,12 @@ describe('Production transactions API', () => {
     ])
   })
 
-  it.each(['success', 'without-revisions', 'revision-delete-failure', 'qc-delete-failure', 'outside-source', 'outside-replacement'])('menghapus transaksi beserta rantai koreksi/void secara atomik dan menulis audit: %s', async variant => {
+  it.each(['success', 'without-revisions', 'full-pair', 'outside-pair', 'revision-delete-failure', 'qc-delete-failure', 'outside-source', 'outside-replacement'])('menghapus transaksi beserta rantai koreksi/void secara atomik dan menulis audit: %s', async variant => {
+    if (variant === 'full-pair' || variant === 'outside-pair') {
+      mocks.pairsQuery.mockResolvedValueOnce([[
+        { lintingId: 1, batilId: variant === 'outside-pair' ? 99 : 2 },
+      ]])
+    }
     mocks.query
       .mockResolvedValueOnce([[{ id: 1 }, { id: 2 }, { id: 3 }]])
       .mockResolvedValueOnce([[]])
@@ -1963,6 +1981,7 @@ describe('Production transactions API', () => {
         { id: 12, sourceId: 2, replacementId: variant === 'outside-replacement' ? 99 : 3 },
         { id: 13, sourceId: 3, replacementId: null },
       ]])
+    if (variant === 'full-pair') mocks.execute.mockResolvedValueOnce([{ affectedRows: 1 }])
     mocks.execute
       .mockResolvedValueOnce([{ affectedRows: 3 }])
       .mockResolvedValueOnce([{ affectedRows: 3 }])
@@ -1988,7 +2007,7 @@ describe('Production transactions API', () => {
       },
       auth: { ...auth({ permissions: [] }), roles: ['SUPER_ADMIN'], siteAccess: [] },
     })
-    if (variant !== 'success' && variant !== 'without-revisions') {
+    if (variant !== 'success' && variant !== 'without-revisions' && variant !== 'full-pair') {
       const outsideBatch = variant.startsWith('outside-')
       expect(response.status).toBe(outsideBatch ? 409 : 500)
       if (outsideBatch) {
@@ -2019,14 +2038,20 @@ describe('Production transactions API', () => {
     )
     expect(String(deleteCall?.[0])).toContain('site.code=?')
     const deletionStatements = mocks.execute.mock.calls.map(call => String(call[0]))
-    expect(deletionStatements[0]).toContain('DELETE revision FROM production_transaction_revisions')
-    expect(deletionStatements[0]).toContain('transaction.id=revision.replacement_transaction_id')
-    expect(deletionStatements[0]).toContain('site.code=?')
+    const revisionIndex = variant === 'full-pair' ? 1 : 0
+    if (variant === 'full-pair') {
+      expect(deletionStatements[0]).toContain('DELETE pair FROM production_transaction_pairs')
+      expect(mocks.pairsQuery).toHaveBeenCalledTimes(1)
+      expect(String(mocks.pairsQuery.mock.calls[0]?.[0])).toContain('FOR UPDATE')
+    }
+    expect(deletionStatements[revisionIndex]).toContain('DELETE revision FROM production_transaction_revisions')
+    expect(deletionStatements[revisionIndex]).toContain('transaction.id=revision.replacement_transaction_id')
+    expect(deletionStatements[revisionIndex]).toContain('site.code=?')
     expect(mocks.execute.mock.calls[0]?.[1]).toEqual(['2026-08-21', '2026-08-22', 'JEPARA'])
-    expect(deletionStatements[1]).toContain('production_transaction_qc_defects')
-    expect(deletionStatements[2]).toContain('DELETE header FROM production_transaction_qc')
-    expect(deletionStatements[3]).toContain('production_transaction_rate_details')
-    expect(deletionStatements[4]).toContain('DELETE transaction')
+    expect(deletionStatements[revisionIndex + 1]).toContain('production_transaction_qc_defects')
+    expect(deletionStatements[revisionIndex + 2]).toContain('DELETE header FROM production_transaction_qc')
+    expect(deletionStatements[revisionIndex + 3]).toContain('production_transaction_rate_details')
+    expect(deletionStatements[revisionIndex + 4]).toContain('DELETE transaction')
     expect(deleteCall?.[1]).toEqual([
       '2026-08-21',
       '2026-08-22',

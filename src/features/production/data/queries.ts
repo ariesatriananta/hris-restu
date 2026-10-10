@@ -404,6 +404,7 @@ export function usePostProductionTransaction() {
     }: {
       input: {
         barcode: string
+        batilBarcode?: string
         jobUid: string
         quantity: string
         qc?: ProductionQcInput

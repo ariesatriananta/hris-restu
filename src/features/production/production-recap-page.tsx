@@ -576,9 +576,11 @@ function RecapSummary({
 function QuantityStrip({
   items,
   isPending,
+  mixedJobs = false,
 }: {
   items?: ProductionRecapQuantity[]
   isPending: boolean
+  mixedJobs?: boolean
 }) {
   return (
     <section
@@ -591,7 +593,7 @@ function QuantityStrip({
           className='flex items-center gap-2 text-xs font-medium text-muted-foreground'
         >
           <Boxes className='size-4 text-emerald-700 dark:text-emerald-400' />{' '}
-          Hasil per satuan
+          Hasil kerja per satuan
         </p>
         {isPending ? (
           <>
@@ -618,6 +620,11 @@ function QuantityStrip({
           </span>
         )}
       </div>
+      {mixedJobs && (
+        <p className='mt-1 text-xs text-muted-foreground'>
+          Hasil lintas pekerjaan, bukan jumlah produk fisik.
+        </p>
+      )}
     </section>
   )
 }
@@ -1314,7 +1321,11 @@ function EmployeeDetail({ data }: { data: ProductionEmployeeRecapDetail }) {
             ['Transaksi POSTED', formatNumber(data.summary.transactionCount)],
           ]}
         />
-        <QuantityStrip items={data.summary.quantityTotals} isPending={false} />
+        <QuantityStrip
+          items={data.summary.quantityTotals}
+          isPending={false}
+          mixedJobs={data.summary.jobs.length > 1}
+        />
         {data.placementTimeline.length > 1 && (
           <PlacementTimeline items={data.placementTimeline} />
         )}

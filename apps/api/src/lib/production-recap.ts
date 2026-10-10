@@ -513,6 +513,12 @@ export async function buildProductionRecapWorkbook(input: {
   )
 
   const quantityMatrix = workbook.addWorksheet('Hasil per Tanggal')
+  quantityMatrix.headerFooter.oddHeader = 'Hasil kerja per satuan'
+  const klatenJobs = new Set(
+    input.transactions
+      .filter((row) => row.site.code === 'KLATEN')
+      .map((row) => row.job.code)
+  )
   quantityMatrix.addRow([
     'No',
     'NIK',
@@ -521,6 +527,10 @@ export async function buildProductionRecapWorkbook(input: {
     'Jenis Karyawan',
     ...matrixDates.map(matrixDateHeader),
   ])
+  if (klatenJobs.has('BORONGAN-LINTING') && klatenJobs.has('BORONGAN-BATIL')) {
+    quantityMatrix.getCell('A1').note =
+      'Linting dan Batil dihitung sesuai pekerjaan; tidak mewakili total produk fisik.'
+  }
   matrixRows.forEach((row, index) => {
     const excelRow = quantityMatrix.addRow([
       index + 1,
