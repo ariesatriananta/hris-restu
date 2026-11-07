@@ -1,7 +1,9 @@
 import { create } from 'zustand'
+import { expireSession, onSessionExpired } from '@/lib/session-lifecycle'
 import type { AuthSession, SignInCredentials } from '@/features/auth/domain'
 import {
   httpAuthRepository,
+  clearHttpSession,
   restoreHttpSession,
 } from '@/features/auth/http-auth-repository'
 
@@ -26,8 +28,14 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
   signOut: async () => {
-    await httpAuthRepository.signOut()
+    expireSession()
+    clearHttpSession()
     set({ session: null })
+    try {
+      await httpAuthRepository.signOut()
+    } catch {
+      // Local logout must finish even when the server is unavailable.
+    }
   },
   refreshSession: async () => {
     const session = await restoreHttpSession()
@@ -35,3 +43,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     return session
   },
 }))
+
+onSessionExpired(() => {
+  clearHttpSession()
+  useAuthStore.setState({ session: null })
+})

@@ -23,7 +23,12 @@ export async function authenticate(
   try {
     const token = req.cookies?.[ACCESS_COOKIE] as string | undefined
     if (!token) throw new ApiError(401, 'Sesi tidak tersedia.')
-    const verified = await verifyAccessToken(token)
+    let verified: Awaited<ReturnType<typeof verifyAccessToken>>
+    try {
+      verified = await verifyAccessToken(token)
+    } catch {
+      throw new ApiError(401, 'Sesi tidak valid atau kedaluwarsa.')
+    }
     const sessionUid = verified.payload.sid
     if (!verified.payload.sub || typeof sessionUid !== 'string')
       throw new ApiError(401, 'Sesi tidak valid.')
@@ -62,11 +67,8 @@ export async function authenticate(
     }
     next()
   } catch (error) {
-    next(
-      error instanceof ApiError
-        ? error
-        : new ApiError(401, 'Sesi tidak valid atau kedaluwarsa.')
-    )
+    // Database/service failures are handled as 5xx, not as expired credentials.
+    next(error)
   }
 }
 export const requirePermission =

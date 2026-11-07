@@ -1,5 +1,10 @@
 import { apiClient } from '@/lib/api-client'
 import {
+  isSessionExpired,
+  sessionGeneration,
+  startSession,
+} from '@/lib/session-lifecycle'
+import {
   InvalidCredentialsError,
   type AuthRepository,
   type AuthSession,
@@ -28,6 +33,7 @@ const persist = (session: AuthSession | null) => {
   if (session) localStorage.setItem(key, JSON.stringify(session))
   else localStorage.removeItem(key)
 }
+export const clearHttpSession = () => persist(null)
 async function me(): Promise<AuthSession> {
   const { data } = await apiClient.get<{
     user: AuthSession['user']
@@ -42,8 +48,15 @@ async function me(): Promise<AuthSession> {
   return session
 }
 export async function restoreHttpSession() {
+  if (isSessionExpired()) return null
+  const generation = sessionGeneration()
   try {
-    return await me()
+    const session = await me()
+    if (isSessionExpired() || generation !== sessionGeneration()) {
+      persist(null)
+      return null
+    }
+    return session
   } catch {
     persist(null)
     return null
@@ -54,7 +67,9 @@ export const httpAuthRepository: AuthRepository = {
   async signIn(credentials: SignInCredentials) {
     try {
       await apiClient.post('/auth/sign-in', credentials)
-      return await me()
+      const session = await me()
+      startSession()
+      return session
     } catch (error) {
       if (
         (error as { response?: { status?: number } }).response?.status === 401
@@ -64,8 +79,9 @@ export const httpAuthRepository: AuthRepository = {
     }
   },
   async signOut() {
+    persist(null)
     try {
-      await apiClient.post('/auth/sign-out')
+      await apiClient.post('/auth/sign-out', undefined, { timeout: 15_000 })
     } finally {
       persist(null)
     }

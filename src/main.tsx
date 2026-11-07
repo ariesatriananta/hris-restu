@@ -9,6 +9,7 @@ import {
 import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
+import { expireSession } from '@/lib/session-lifecycle'
 import { DirectionProvider } from './context/direction-provider'
 import { FontProvider } from './context/font-provider'
 import { ThemeProvider } from './context/theme-provider'
@@ -16,6 +17,11 @@ import { ThemeProvider } from './context/theme-provider'
 import { routeTree } from './routeTree.gen'
 // Styles
 import './styles/index.css'
+
+let sessionRedirectStarted = false
+useAuthStore.subscribe((state) => {
+  if (state.session) sessionRedirectStarted = false
+})
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -51,12 +57,23 @@ const queryClient = new QueryClient({
     onError: (error) => {
       if (error instanceof AxiosError) {
         if (error.response?.status === 401) {
+          if (
+            error.response.data?.code === 'DEVICE_SESSION_INVALID' ||
+            sessionRedirectStarted
+          )
+            return
+          sessionRedirectStarted = true
+          expireSession()
           toast.error('Sesi telah berakhir. Silakan masuk kembali.', {
             id: 'query-session-expired',
           })
-          void useAuthStore.getState().signOut()
           const redirect = `${router.history.location.href}`
-          router.navigate({ to: '/sign-in', search: { redirect } })
+          void queryClient.cancelQueries()
+          void router.navigate({
+            to: '/sign-in',
+            search: { redirect },
+            replace: true,
+          })
         }
         if (error.response?.status === 500) {
           toast.error('Terjadi gangguan pada layanan.', {

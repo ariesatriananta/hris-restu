@@ -368,12 +368,91 @@ describe('import Excel mutasi site', () => {
     expect(mocks.rollback).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    ['SCHEDULED', 'RESIGN'],
+    ['FAILED', 'RESIGN'],
+    ['SCHEDULED', 'TERMINATE'],
+    ['FAILED', 'TERMINATE'],
+  ])(
+    'membatalkan seluruh batch sebelum menulis jika karyawan kedua punya status %s untuk %s',
+    async (status, action) => {
+      const secondEmployee = {
+        ...employeeRow(),
+        id: 11,
+        uid: '55555555-5555-4555-8555-555555555555',
+        employeeNumber: 'TEST-SECOND',
+      }
+      const originalQuery = mocks.query.getMockImplementation()!
+      mocks.query.mockImplementation(
+        async (sqlValue: unknown, values: unknown[] = []) => {
+          const sql = String(sqlValue)
+          if (sql.includes('FROM scheduled_employee_status_changes')) {
+            return [[{ employeeId: secondEmployee.id, status, action }]]
+          }
+          if (sql.includes('WHERE e.uid IN'))
+            return [[employeeRow(), secondEmployee]]
+          if (sql.includes('WHERE e.uid=?') && values[0] === secondEmployee.uid)
+            return [[secondEmployee]]
+          if (
+            sql.includes('FROM employee_employment_histories') &&
+            sql.includes('employee_id IN')
+          ) {
+            return [
+              [
+                {
+                  id: 31,
+                  employeeId: 10,
+                  statusId: 15,
+                  effectiveFrom: '2026-01-01',
+                },
+                {
+                  id: 32,
+                  employeeId: 11,
+                  statusId: 15,
+                  effectiveFrom: '2026-01-01',
+                },
+              ],
+            ]
+          }
+          return originalQuery(sqlValue)
+        }
+      )
+      const input = {
+        site: 'SEMARANG',
+        department: 'Produksi',
+        position: 'Operator',
+        productionModuleSectionUid: '44444444-4444-4444-8444-444444444444',
+        employeeType: 'BORONGAN',
+        effectiveFrom: tomorrow().iso,
+        changeType: 'TRANSFER',
+        reason: 'Kebutuhan operasional site.',
+      }
+      const response = await request('/mutations/batch', {
+        items: [
+          { employeeUid, input },
+          { employeeUid: secondEmployee.uid, input },
+        ],
+      })
+      expect(response.status, await response.clone().text()).toBe(409)
+      expect(await response.json()).toMatchObject({
+        message: expect.stringContaining('TEST-SECOND'),
+      })
+      expect(mocks.execute).not.toHaveBeenCalled()
+      expect(mocks.audit).not.toHaveBeenCalled()
+      expect(mocks.commit).not.toHaveBeenCalled()
+      expect(mocks.rollback).toHaveBeenCalledOnce()
+      expect(mocks.query).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /FROM scheduled_employee_status_changes[\s\S]*status IN \('SCHEDULED','FAILED'\)[\s\S]*FOR UPDATE/
+        ),
+        [10, 11]
+      )
+    }
+  )
+
   it('menerapkan tanggal lampau langsung pada import dan batch mutasi', async () => {
     const effectiveFrom = yesterday()
-    const imported = await request(
-      '/mutations/import',
-      payload(effectiveFrom)
-    )
+    const imported = await request('/mutations/import', payload(effectiveFrom))
     expect(imported.status).toBe(201)
     expect(await imported.json()).toEqual({ applied: 1, scheduled: 0 })
 
@@ -385,8 +464,7 @@ describe('import Excel mutasi site', () => {
             site: 'SEMARANG',
             department: 'Produksi',
             position: 'Operator',
-            productionModuleSectionUid:
-              '44444444-4444-4444-8444-444444444444',
+            productionModuleSectionUid: '44444444-4444-4444-8444-444444444444',
             employeeType: 'BORONGAN',
             effectiveFrom,
             changeType: 'TRANSFER',
@@ -439,10 +517,7 @@ describe('import Excel mutasi site', () => {
       },
     ]
 
-    const response = await request(
-      '/mutations/import',
-      payload('2026-09-19')
-    )
+    const response = await request('/mutations/import', payload('2026-09-19'))
 
     expect(response.status).toBe(201)
     expect(await response.json()).toEqual({ applied: 1, scheduled: 0 })

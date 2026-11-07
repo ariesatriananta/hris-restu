@@ -87,6 +87,14 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
 - Kombinasi jenis kontrak dan jenis karyawan berlaku ketat: kontrak `TRAINING`
   hanya untuk jenis karyawan `TRAINING`, sedangkan `PKWT`/`PKWTT` hanya untuk
   `BORONGAN`, `HARIAN`, atau `BULANAN`.
+- Mutasi yang benar-benar mengubah jenis karyawan wajib ditolak selama masih
+  ada kontrak `DRAFT`, `SCHEDULED`, atau `ACTIVE`, termasuk bila label mutasinya
+  `OTHER` atau `GROUP_CHANGE`. Pemeriksaan yang sama berlaku pada mutasi
+  individual, batch, pembuatan jadwal, dan pengubahan jadwal.
+- Mutasi massal memeriksa ulang seluruh karyawan dalam transaksi dan ditolak
+  bila salah satunya memiliki perubahan status kerja terjadwal `SCHEDULED`
+  atau `FAILED`, termasuk resign maupun terminasi. Konflik membatalkan seluruh
+  batch sebelum histori, penempatan, atau jadwal mutasi baru ditulis.
 - Perpanjangan kontrak massal menerima maksimal 50 kontrak terakhir berstatus
   `EXPIRED`. Sistem wajib menampilkan preview per karyawan, memblokir konflik
   kontrak atau perubahan terjadwal, lalu membuat seluruh kontrak baru sebagai

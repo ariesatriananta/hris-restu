@@ -57,6 +57,20 @@ describe('authenticate wajib ganti password', () => {
     })
     expect(ctx.next).not.toHaveBeenCalled()
   })
+  it('preserves database failures for the service error handler instead of returning 401', async () => {
+    const failure = new Error('Synthetic unavailable database')
+    mocks.query.mockRejectedValueOnce(failure)
+    const ctx = context('GET', '/api/employees')
+    await authenticate(ctx.req, ctx.res, ctx.next)
+    expect(ctx.next).toHaveBeenCalledWith(failure)
+  })
+  it('still rejects expired or malformed JWTs as 401 without querying the database', async () => {
+    mocks.verify.mockRejectedValueOnce(new Error('Synthetic expired token'))
+    const ctx = context('GET', '/api/employees')
+    await authenticate(ctx.req, ctx.res, ctx.next)
+    expect(ctx.next).toHaveBeenCalledWith(expect.objectContaining({ status: 401 }))
+    expect(mocks.query).not.toHaveBeenCalled()
+  })
 
   it.each([
     ['GET', '/api/auth/me'],

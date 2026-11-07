@@ -3567,7 +3567,7 @@ employeesRouter.post('/:uid/mutations', requirePermission('employees.manage'), a
   try {
     const input = mutationInput.parse(req.body); const today = businessDate(); if (input.effectiveFrom < today) throw new ApiError(422, 'Tanggal efektif mutasi tidak boleh lampau.'); if (input.effectiveFrom > today) throw new ApiError(422, 'Gunakan jadwalkan mutasi untuk tanggal masa depan.'); const auth = res.locals.auth as AuthContext; const employee = await employeeAccess(routeParam(req.params.uid), auth); validateMutationChange(input, employee); enforceSite(auth, input.site); const refs = await references(input, employee.employeeStatus); const uid = randomUUID(); const conn = await pool.getConnection()
     try {
-      await conn.beginTransaction(); const [openSchedules] = await conn.query<RowDataPacket[]>("SELECT id FROM scheduled_employee_mutations WHERE employee_id=? AND status IN ('SCHEDULED','FAILED') FOR UPDATE", [employee.id]); if (openSchedules[0]) throw new ApiError(409, 'Karyawan masih memiliki mutasi terjadwal yang belum diselesaikan.'); const [openStatusChanges] = await conn.query<RowDataPacket[]>("SELECT id FROM scheduled_employee_status_changes WHERE employee_id=? AND status IN ('SCHEDULED','FAILED') FOR UPDATE", [employee.id]); if (openStatusChanges[0]) throw new ApiError(409, 'Karyawan masih memiliki status kerja terjadwal yang belum diselesaikan.'); if (input.changeType === 'TYPE_CHANGE') await assertTypeChangeHasNoOpenContract(conn, employee.id); const [active] = await conn.query<RowDataPacket[]>("SELECT id,employee_status_id statusId,DATE_FORMAT(effective_from, '%Y-%m-%d') effectiveFrom FROM employee_employment_histories WHERE employee_id=? AND effective_to IS NULL FOR UPDATE", [employee.id])
+      await conn.beginTransaction(); const [openSchedules] = await conn.query<RowDataPacket[]>("SELECT id FROM scheduled_employee_mutations WHERE employee_id=? AND status IN ('SCHEDULED','FAILED') FOR UPDATE", [employee.id]); if (openSchedules[0]) throw new ApiError(409, 'Karyawan masih memiliki mutasi terjadwal yang belum diselesaikan.'); const [openStatusChanges] = await conn.query<RowDataPacket[]>("SELECT id FROM scheduled_employee_status_changes WHERE employee_id=? AND status IN ('SCHEDULED','FAILED') FOR UPDATE", [employee.id]); if (openStatusChanges[0]) throw new ApiError(409, 'Karyawan masih memiliki status kerja terjadwal yang belum diselesaikan.'); if (input.employeeType !== employee.employeeType) await assertTypeChangeHasNoOpenContract(conn, employee.id); const [active] = await conn.query<RowDataPacket[]>("SELECT id,employee_status_id statusId,DATE_FORMAT(effective_from, '%Y-%m-%d') effectiveFrom FROM employee_employment_histories WHERE employee_id=? AND effective_to IS NULL FOR UPDATE", [employee.id])
       if (!active[0]) throw new ApiError(409, 'Histori penempatan aktif karyawan tidak ditemukan.')
       if (active[0] && input.effectiveFrom <= active[0].effectiveFrom) throw new ApiError(422, 'Tanggal efektif harus setelah histori aktif.')
       if (active[0]) await conn.execute('UPDATE employee_employment_histories SET effective_to=DATE_SUB(?,INTERVAL 1 DAY),updated_by=? WHERE id=?', [input.effectiveFrom,auth.id,active[0].id])
@@ -3640,8 +3640,25 @@ employeesRouter.post('/mutations/batch', requirePermission('employees.manage'), 
           `Karyawan ${blocked?.employeeNumber ?? ''} masih memiliki mutasi terjadwal yang belum diselesaikan.`
         )
       }
+      const [openStatusChanges] = await conn.query<RowDataPacket[]>(
+        `SELECT employee_id employeeId
+         FROM scheduled_employee_status_changes
+         WHERE employee_id IN (${employeeIdPlaceholders})
+           AND status IN ('SCHEDULED','FAILED')
+         ORDER BY employee_id FOR UPDATE`,
+        employeeIds
+      )
+      if (openStatusChanges[0]) {
+        const blocked = employees.find(
+          (employee) => Number(employee.id) === Number(openStatusChanges[0].employeeId)
+        )
+        throw new ApiError(
+          409,
+          `Karyawan ${blocked?.employeeNumber ?? ''} masih memiliki status kerja terjadwal yang belum diselesaikan.`
+        )
+      }
       const typeChangeEmployeeIds = prepared
-        .filter((item) => item.input.changeType === 'TYPE_CHANGE')
+        .filter((item) => item.input.employeeType !== item.employee.employeeType)
         .map((item) => Number(employeeByUid.get(item.employeeUid)?.id))
       if (typeChangeEmployeeIds.length) {
         const [openContracts] = await conn.query<RowDataPacket[]>(
@@ -3847,7 +3864,7 @@ employeesRouter.post(
             409,
             'Karyawan masih memiliki status kerja terjadwal yang belum diselesaikan.'
           )
-        if (input.changeType === 'TYPE_CHANGE')
+        if (input.employeeType !== employee.employeeType)
           await assertTypeChangeHasNoOpenContract(conn, employee.id)
         const [active] = await conn.query<RowDataPacket[]>(
           "SELECT id,DATE_FORMAT(effective_from,'%Y-%m-%d') effectiveFrom FROM employee_employment_histories WHERE employee_id=? AND effective_to IS NULL FOR UPDATE",
@@ -3945,7 +3962,7 @@ employeesRouter.patch(
         )
         if (!locked[0] || !['SCHEDULED', 'FAILED'].includes(locked[0].status))
           throw new ApiError(409, 'Mutasi terjadwal ini tidak dapat diubah.')
-        if (input.changeType === 'TYPE_CHANGE')
+        if (input.employeeType !== employee.employeeType)
           await assertTypeChangeHasNoOpenContract(conn, existing.employeeId)
         const [active] = await conn.query<RowDataPacket[]>(
           "SELECT id,DATE_FORMAT(effective_from,'%Y-%m-%d') effectiveFrom FROM employee_employment_histories WHERE employee_id=? AND effective_to IS NULL FOR UPDATE",
