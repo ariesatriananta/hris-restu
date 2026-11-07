@@ -5,6 +5,8 @@ import { pool } from '../db.js'
 import { writeSystemAudit } from './audit.js'
 import { reconcileProductionAssignmentsAtEmploymentBoundary } from './production-assignment-lifecycle.js'
 import { businessDate } from './contract-lifecycle.js'
+import { reconcileShiftAssignmentsAtSiteBoundary } from './employee-shift-site-boundary.js'
+import { ApiError } from './errors.js'
 
 type ApplyResult =
   | { status: 'APPLIED'; uid: string }
@@ -17,7 +19,10 @@ async function failMutation(conn: PoolConnection, schedule: RowDataPacket, reaso
   return { status: 'FAILED', uid: schedule.uid, employeeUid: schedule.employeeUid, employeeNumber: schedule.employeeNumber, fullName: schedule.fullName, site: schedule.site, reason }
 }
 
-async function failUnexpectedMutation(uid: string): Promise<ApplyResult | undefined> {
+async function failUnexpectedMutation(
+  uid: string,
+  reason = 'Proses cron gagal sebelum mutasi diterapkan. Periksa log eksekusi cron.'
+): Promise<ApplyResult | undefined> {
   const conn = await pool.getConnection()
   try {
     await conn.beginTransaction()
@@ -36,7 +41,7 @@ async function failUnexpectedMutation(uid: string): Promise<ApplyResult | undefi
     const result = await failMutation(
       conn,
       schedule,
-      'Proses cron gagal sebelum mutasi diterapkan. Periksa log eksekusi cron.'
+      reason
     )
     await conn.commit()
     return result
@@ -87,7 +92,7 @@ export async function applyScheduledMutation(uid: string): Promise<ApplyResult> 
   try {
     await conn.beginTransaction()
     const [rows] = await conn.query<RowDataPacket[]>(`
-      SELECT sm.*,DATE_FORMAT(sm.effective_from,'%Y-%m-%d') effectiveFrom,e.uid employeeUid,e.employee_number employeeNumber,e.full_name fullName,s.code site,
+      SELECT sm.*,DATE_FORMAT(sm.effective_from,'%Y-%m-%d') effectiveFrom,e.uid employeeUid,e.employee_number employeeNumber,e.full_name fullName,s.code site,e.current_site_id currentSiteId,
         et.code target_employee_type,currentType.code current_employee_type
       FROM scheduled_employee_mutations sm
       JOIN employees e ON e.id=sm.employee_id
@@ -114,7 +119,7 @@ export async function applyScheduledMutation(uid: string): Promise<ApplyResult> 
       await conn.commit()
       return result
     }
-    if (schedule.change_type === 'TYPE_CHANGE') {
+    if (schedule.target_employee_type !== schedule.current_employee_type) {
       const [openContracts] = await conn.query<RowDataPacket[]>(
         "SELECT contract_number FROM employee_contracts WHERE employee_id=? AND status IN ('DRAFT','SCHEDULED','ACTIVE') FOR UPDATE",
         [schedule.employee_id]
@@ -124,6 +129,15 @@ export async function applyScheduledMutation(uid: string): Promise<ApplyResult> 
         await conn.commit()
         return result
       }
+    }
+
+    if (Number(schedule.currentSiteId) !== Number(schedule.target_site_id)) {
+      await reconcileShiftAssignmentsAtSiteBoundary(conn, {
+        employeeId: Number(schedule.employee_id),
+        targetSiteId: Number(schedule.target_site_id),
+        effectiveFrom: String(schedule.effectiveFrom),
+        actorUserId: null,
+      })
     }
 
     const historyUid = randomUUID()
@@ -160,9 +174,12 @@ export async function reconcileScheduledMutations() {
       if (result.status === 'APPLIED') applied++
       else if (result.status === 'FAILED') { failed++; if (failures.length < 50) failures.push(result) }
       else skipped++
-    } catch {
+    } catch (error) {
       try {
-        const result = await failUnexpectedMutation(String(row.uid))
+        const result = await failUnexpectedMutation(
+          String(row.uid),
+          error instanceof ApiError ? error.message : undefined
+        )
         if (result?.status === 'FAILED') {
           failed++
           if (failures.length < 50) failures.push(result)

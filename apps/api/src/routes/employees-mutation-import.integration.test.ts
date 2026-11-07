@@ -128,6 +128,7 @@ function employeeRow() {
     employeeNumber: 'PKDS-2509-16001',
     employeeName: 'BUDI OPERASIONAL',
     currentSiteId: 1,
+    siteId: 1,
     currentDepartmentId: 11,
     currentPositionId: 12,
     currentWorkGroupId: null,
@@ -245,6 +246,72 @@ describe('import Excel mutasi site', () => {
       return [[]]
     })
   })
+
+  it('menutup shift site lama pada transfer individual tepat sejak tanggal mutasi', async () => {
+    const effectiveFrom = yesterday()
+    const today = new Date(`${effectiveFrom}T00:00:00Z`)
+    today.setUTCDate(today.getUTCDate() + 1)
+    const date = today.toISOString().slice(0, 10)
+    const response = await request(`/${employeeUid}/mutations`, {
+      site: 'SEMARANG',
+      department: 'Produksi',
+      position: 'Operator',
+      productionModuleSectionUid: '44444444-4444-4444-8444-444444444444',
+      employeeType: 'BORONGAN',
+      effectiveFrom: date,
+      changeType: 'TRANSFER',
+    })
+    expect(response.status, await response.clone().text()).toBe(201)
+    expect(mocks.execute).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE employee_shift_assignments assignment'),
+      [date, 7, 10, 2, date, date]
+    )
+    expect(mocks.commit).toHaveBeenCalledOnce()
+    expect(
+      mocks.execute.mock.calls.some(([sql]) =>
+        /UPDATE attendance_records|DELETE FROM employee_shift_assignments/.test(
+          String(sql)
+        )
+      )
+    ).toBe(false)
+  })
+
+  it.each(['assignment-conflict', 'shift-write-failure'])(
+    'membatalkan transfer individual beserta histori bila rekonsiliasi shift gagal: %s',
+    async (failure) => {
+      const originalQuery = mocks.query.getMockImplementation()!
+      if (failure === 'assignment-conflict') {
+        mocks.query.mockImplementation(async (sql: unknown) =>
+          String(sql).includes('SELECT assignment.id')
+            ? [[{ id: 99 }]]
+            : originalQuery(sql)
+        )
+      } else {
+        mocks.execute.mockImplementation(async (sql: unknown) => {
+          if (String(sql).includes('UPDATE employee_shift_assignments'))
+            throw new Error('Synthetic shift update failure')
+          return [{ affectedRows: 1 }]
+        })
+      }
+      const today = new Date(`${tomorrow().iso}T00:00:00Z`)
+      today.setUTCDate(today.getUTCDate() - 1)
+      const response = await request(`/${employeeUid}/mutations`, {
+        site: 'SEMARANG',
+        department: 'Produksi',
+        position: 'Operator',
+        productionModuleSectionUid: '44444444-4444-4444-8444-444444444444',
+        employeeType: 'BORONGAN',
+        effectiveFrom: today.toISOString().slice(0, 10),
+        changeType: 'TRANSFER',
+      })
+      expect(response.status, await response.clone().text()).toBe(
+        failure === 'assignment-conflict' ? 409 : 500
+      )
+      expect(mocks.rollback).toHaveBeenCalledOnce()
+      expect(mocks.commit).not.toHaveBeenCalled()
+      expect(mocks.audit).not.toHaveBeenCalled()
+    }
+  )
 
   it('preview menerima tanggal DD/MM/YYYY dan memakai nama karyawan dari master', async () => {
     const date = tomorrow()

@@ -113,12 +113,13 @@ export const httpEmployeeRepository: EmployeeRepository = {
       })
     ).data
   },
-  async save(input, uid) {
+  async save(input, uid, onPersisted) {
     const { photo, ...employee } = input
     const body = { ...employee, photoUid: photo?.uid || undefined }
     const response = uid
       ? await apiClient.patch(`/employees/${uid}`, body)
       : await apiClient.post<{ uid: string }>('/employees', body)
+    onPersisted?.(uid ?? response.data.uid)
     return uid
       ? (await apiClient.get<Employee>(`/employees/${uid}`)).data
       : (await apiClient.get<Employee>(`/employees/${response.data.uid}`)).data

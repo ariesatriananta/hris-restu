@@ -319,8 +319,15 @@ function invalidate(queryClient: ReturnType<typeof useQueryClient>) {
 export function useSaveEmployee() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ input, uid }: { input: EmployeeInput; uid?: string }) =>
-      httpEmployeeRepository.save(input, uid),
+    mutationFn: ({
+      input,
+      uid,
+      onPersisted,
+    }: {
+      input: EmployeeInput
+      uid?: string
+      onPersisted?: (uid: string) => void
+    }) => httpEmployeeRepository.save(input, uid, onPersisted),
     onSuccess: () => invalidate(queryClient),
   })
 }

@@ -637,7 +637,11 @@ export interface EmployeeRepository {
     uid: string,
     input: { confirmation: string; reason: string }
   ): Promise<EmployeeDeletionResult>
-  save(input: EmployeeInput, uid?: string): Promise<Employee>
+  save(
+    input: EmployeeInput,
+    uid?: string,
+    onPersisted?: (uid: string) => void
+  ): Promise<Employee>
   histories(employeeUid?: string): Promise<EmploymentHistory[]>
   historyList(
     params: EmployeeRecordListParams

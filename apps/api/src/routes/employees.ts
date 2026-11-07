@@ -44,6 +44,7 @@ import {
 } from '../lib/employee-number.js'
 import { ApiError } from '../lib/errors.js'
 import { reconcileProductionAssignmentsAtEmploymentBoundary } from '../lib/production-assignment-lifecycle.js'
+import { reconcileShiftAssignmentsAtSiteBoundary } from '../lib/employee-shift-site-boundary.js'
 import {
   authenticate,
   requirePermission,
@@ -437,34 +438,6 @@ async function assertHistoricalMutationSafe(
       `Mutasi mundur ${input.employeeNumber} diblokir karena sejak ${input.effectiveFrom} sudah ada ${blockers.join(', ')}.`
     )
   }
-}
-
-async function reconcileShiftAssignmentsAtSiteBoundary(
-  conn: PoolConnection,
-  input: {
-    employeeId: number
-    targetSiteId: number
-    effectiveFrom: string
-    actorUserId: number
-  }
-) {
-  await conn.execute(
-    `UPDATE employee_shift_assignments assignment
-       JOIN shifts shift_row ON shift_row.id=assignment.shift_id
-        SET assignment.effective_to=DATE_SUB(?,INTERVAL 1 DAY),
-            assignment.updated_by=?
-     WHERE assignment.employee_id=? AND shift_row.site_id<>?
-       AND assignment.effective_from<?
-       AND (assignment.effective_to IS NULL OR assignment.effective_to>=?)`,
-    [
-      input.effectiveFrom,
-      input.actorUserId,
-      input.employeeId,
-      input.targetSiteId,
-      input.effectiveFrom,
-      input.effectiveFrom,
-    ]
-  )
 }
 
 const mutationImportRowInput = z
@@ -3574,6 +3547,14 @@ employeesRouter.post('/:uid/mutations', requirePermission('employees.manage'), a
       await conn.execute(`INSERT INTO employee_employment_histories(uid,employee_id,site_id,department_id,position_id,work_group_id,production_module_section_id,employee_type_id,employee_status_id,effective_from,change_type,reference_number,reason,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [uid,employee.id,refs.siteId,refs.departmentId,refs.positionId,refs.workGroupId,refs.productionModuleSectionId,refs.typeId,active[0].statusId,input.effectiveFrom,input.changeType,empty(input.referenceNumber),empty(input.reason),empty(input.notes),auth.id,auth.id])
       await conn.execute('UPDATE employees SET employee_type_id=?,current_site_id=?,current_department_id=?,current_position_id=?,current_work_group_id=?,current_production_module_section_id=?,updated_by=? WHERE id=?', [refs.typeId,refs.siteId,refs.departmentId,refs.positionId,refs.workGroupId,refs.productionModuleSectionId,auth.id,employee.id])
       await reconcileProductionAssignmentsAtEmploymentBoundary(conn, employee.id, input.effectiveFrom, auth.id)
+      if (Number(refs.siteId) !== Number(employee.siteId)) {
+        await reconcileShiftAssignmentsAtSiteBoundary(conn, {
+          employeeId: Number(employee.id),
+          targetSiteId: Number(refs.siteId),
+          effectiveFrom: input.effectiveFrom,
+          actorUserId: auth.id,
+        })
+      }
       await writeAudit({ auth, request: req, siteId: refs.siteId, action: 'CREATE', table: 'employee_employment_histories', recordUid: uid, description: `Mencatat mutasi ${input.changeType}.` }, conn); await conn.commit()
     } catch (error) { await conn.rollback(); throw error } finally { conn.release() }
     res.status(201).json({ uid })

@@ -26,6 +26,14 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
 - Import Master Karyawan boleh memakai Employee ID dari sistem lama. Jika
   Employee ID kosong, sistem membuat nomor otomatis; jika diisi, nilainya wajib
   valid dan belum digunakan karyawan lain.
+- Registrasi individual mengingat UID segera setelah simpan data utama
+  berhasil, sebelum baca ulang detail dan upload lampiran. Jika foto/KTP/KK
+  gagal, retry pada form yang sama melanjutkan UID tersebut melalui update,
+  bukan registrasi baru. Upload dan dokumen yang sudah berhasil dipakai kembali;
+  mengganti file atau nomor identitas memperbarui dokumen yang sama. Progres
+  ini hanya berada di memori form, tidak menyimpan file pribadi di localStorage.
+  Jika halaman ditutup/dimuat ulang, lanjutkan melalui detail/ubah karyawan yang
+  sudah dibuat, bukan tambah karyawan baru.
 - Tanggal bergabung karyawan yang sudah tersimpan tidak boleh diubah melalui
   form Edit Karyawan biasa. Selama data registrasi masih memenuhi syarat
   Koreksi Data Registrasi, perubahan tanggal wajib sekaligus memperbarui
@@ -90,11 +98,21 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
 - Mutasi yang benar-benar mengubah jenis karyawan wajib ditolak selama masih
   ada kontrak `DRAFT`, `SCHEDULED`, atau `ACTIVE`, termasuk bila label mutasinya
   `OTHER` atau `GROUP_CHANGE`. Pemeriksaan yang sama berlaku pada mutasi
-  individual, batch, pembuatan jadwal, dan pengubahan jadwal.
+  individual, batch, pembuatan jadwal, pengubahan jadwal, dan pemeriksaan ulang
+  saat cron mengeksekusi jadwal (termasuk jadwal lama).
 - Mutasi massal memeriksa ulang seluruh karyawan dalam transaksi dan ditolak
   bila salah satunya memiliki perubahan status kerja terjadwal `SCHEDULED`
   atau `FAILED`, termasuk resign maupun terminasi. Konflik membatalkan seluruh
   batch sebelum histori, penempatan, atau jadwal mutasi baru ditulis.
+- Mutasi yang berpindah site menutup penugasan Shift site lama yang melintasi
+  tanggal efektif pada H-1, konsisten pada individual, batch, import, dan
+  eksekusi mutasi terjadwal. Cron terlambat tetap memakai tanggal efektif
+  mutasi, bukan tanggal eksekusi. Penugasan site tujuan dan histori yang sudah
+  berakhir dipertahankan; tidak ada penugasan baru atau perubahan fakta
+  Attendance otomatis. Bila ada penugasan beda site yang mulai tepat pada atau
+  setelah tanggal efektif, mutasi ditolak agar tidak menghasilkan rentang
+  tanggal terbalik atau menghapus histori. Rekonsiliasi Shift, perubahan
+  penempatan, histori mutasi, dan status jadwal memakai transaksi yang sama.
 - Perpanjangan kontrak massal menerima maksimal 50 kontrak terakhir berstatus
   `EXPIRED`. Sistem wajib menampilkan preview per karyawan, memblokir konflik
   kontrak atau perubahan terjadwal, lalu membuat seluruh kontrak baru sebagai

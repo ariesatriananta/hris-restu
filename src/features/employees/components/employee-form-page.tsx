@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
@@ -11,17 +12,30 @@ import {
   useSaveDocument,
   useSaveEmployee,
 } from '../data/queries'
-import type { EmployeeDocument } from '../domain'
+import type { Employee, EmployeeDocument } from '../domain'
 import { EmployeeForm } from './employee-form'
+import {
+  saveEmployeeRegistration,
+  type EmployeeSaveProgress,
+} from './employee-registration-save'
 
-export function EmployeeFormPage({
+type EmployeeFormPageProps = { employeeUid?: string; returnTo?: string }
+
+export function EmployeeFormPage(props: EmployeeFormPageProps) {
+  return <EmployeeFormPageContent key={props.employeeUid ?? 'new'} {...props} />
+}
+
+function EmployeeFormPageContent({
   employeeUid,
   returnTo,
-}: {
-  employeeUid?: string
-  returnTo?: string
-}) {
+}: EmployeeFormPageProps) {
   const navigate = useNavigate()
+  const progress = useRef<EmployeeSaveProgress>({ employeeUid, documents: {} })
+  const submitting = useRef(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [savedUid, setSavedUid] = useState(employeeUid)
+  const [partialFailure, setPartialFailure] = useState(false)
+  const [savedEmployee, setSavedEmployee] = useState<Employee>()
   const employee = useEmployee(employeeUid ?? '')
   const documents = useDocuments(employeeUid)
   const save = useSaveEmployee()
@@ -43,59 +57,80 @@ export function EmployeeFormPage({
     <Main className='max-w-5xl'>
       <Button asChild variant='ghost' className='mb-3 -ml-3'>
         <Link
-          to={
-            isEdit
-              ? '/karyawan/data-karyawan/$employeeUid'
-              : listReturnTo
-          }
-          params={isEdit ? { employeeUid: employeeUid! } : undefined}
-          search={isEdit ? { returnTo: listReturnTo } : undefined}
+          to={savedUid ? '/karyawan/data-karyawan/$employeeUid' : listReturnTo}
+          params={savedUid ? { employeeUid: savedUid } : undefined}
+          search={savedUid ? { returnTo: listReturnTo } : undefined}
         >
-          <ArrowLeft /> {isEdit ? 'Detail karyawan' : 'Data Karyawan'}
+          <ArrowLeft /> {savedUid ? 'Detail karyawan' : 'Data Karyawan'}
         </Link>
       </Button>
       <div className='mb-6'>
         <h1 className='text-2xl font-bold'>
-          {isEdit ? 'Ubah data karyawan' : 'Tambah karyawan'}
+          {isEdit
+            ? 'Ubah data karyawan'
+            : savedUid
+              ? 'Lengkapi data karyawan'
+              : 'Tambah karyawan'}
         </h1>
       </div>
+      {partialFailure && (
+        <p
+          role='alert'
+          className='mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs'
+        >
+          Data karyawan sudah tersimpan, tetapi penyimpanan belum selesai. Coba
+          simpan kembali untuk melanjutkan pada karyawan yang sama.
+        </p>
+      )}
       <EmployeeForm
-        employee={isEdit ? (employee.data ?? undefined) : undefined}
+        employee={
+          savedEmployee ?? (isEdit ? (employee.data ?? undefined) : undefined)
+        }
         identityDocuments={identityDocuments}
-        isPending={save.isPending || saveDocument.isPending}
+        isPending={isSaving || save.isPending || saveDocument.isPending}
+        submitLabel={savedUid && !isEdit ? 'Lanjutkan penyimpanan' : undefined}
         onSubmit={async (input, files) => {
-          const result = await save.mutateAsync({ input, uid: employeeUid })
-          if (files.photo) {
-            const photo = await uploadEmployeeFile(files.photo, result.uid)
-            await save.mutateAsync({
-              input: { ...input, photo },
-              uid: result.uid,
+          if (submitting.current) return
+          submitting.current = true
+          setIsSaving(true)
+          setPartialFailure(false)
+          try {
+            const result = await saveEmployeeRegistration({
+              input,
+              files,
+              progress: progress.current,
+              documents: identityDocuments,
+              saveEmployee: async (value) => {
+                const saved = await save.mutateAsync(value)
+                setSavedEmployee(saved)
+                return saved
+              },
+              saveDocument: saveDocument.mutateAsync,
+              upload: uploadEmployeeFile,
+              onPersisted: setSavedUid,
             })
+            toast.success(
+              isEdit ? 'Data karyawan diperbarui.' : 'Karyawan ditambahkan.'
+            )
+            await navigate({
+              to: '/karyawan/data-karyawan/$employeeUid',
+              params: { employeeUid: result.uid },
+              search: { returnTo: listReturnTo },
+              ignoreBlocker: true,
+            })
+          } catch (error) {
+            setPartialFailure(Boolean(progress.current.employeeUid))
+            throw error
+          } finally {
+            submitting.current = false
+            setIsSaving(false)
           }
-          await saveIdentityDocuments({
-            employeeUid: result.uid,
-            nationalIdFile: files.nationalId,
-            familyCardFile: files.familyCard,
-            nationalIdNumber: input.nationalIdNumber,
-            familyCardNumber: input.familyCardNumber,
-            documents: identityDocuments,
-            save: saveDocument.mutateAsync,
-          })
-          toast.success(
-            isEdit ? 'Data karyawan diperbarui.' : 'Karyawan ditambahkan.'
-          )
-          await navigate({
-            to: '/karyawan/data-karyawan/$employeeUid',
-            params: { employeeUid: result.uid },
-            search: { returnTo: listReturnTo },
-            ignoreBlocker: true,
-          })
         }}
         onCancel={() =>
-          isEdit
+          savedUid
             ? navigate({
                 to: '/karyawan/data-karyawan/$employeeUid',
-                params: { employeeUid: employeeUid! },
+                params: { employeeUid: savedUid! },
                 search: { returnTo: listReturnTo },
               })
             : navigate({ to: listReturnTo })
@@ -109,59 +144,5 @@ function byIdentityType(documents?: EmployeeDocument[]) {
   return {
     KTP: documents?.find((document) => document.documentType === 'KTP'),
     KK: documents?.find((document) => document.documentType === 'KK'),
-  }
-}
-
-async function saveIdentityDocuments({
-  employeeUid,
-  nationalIdFile,
-  familyCardFile,
-  nationalIdNumber,
-  familyCardNumber,
-  documents,
-  save,
-}: {
-  employeeUid: string
-  nationalIdFile?: File
-  familyCardFile?: File
-  nationalIdNumber?: string
-  familyCardNumber?: string
-  documents: ReturnType<typeof byIdentityType>
-  save: ReturnType<typeof useSaveDocument>['mutateAsync']
-}) {
-  const entries = [
-    {
-      type: 'KTP' as const,
-      file: nationalIdFile,
-      number: nationalIdNumber,
-      name: 'Foto KTP',
-      current: documents.KTP,
-    },
-    {
-      type: 'KK' as const,
-      file: familyCardFile,
-      number: familyCardNumber,
-      name: 'Foto Kartu Keluarga',
-      current: documents.KK,
-    },
-  ]
-
-  for (const entry of entries) {
-    if (!entry.file) continue
-    const attachment = await uploadEmployeeFile(entry.file, employeeUid)
-    await save({
-      uid: entry.current?.uid,
-      input: {
-        employeeUid,
-        documentType: entry.type,
-        name: entry.name,
-        documentNumber: entry.number,
-        issuedDate: entry.current?.issuedDate,
-        expiryDate: entry.current?.expiryDate,
-        status: entry.current?.status ?? 'ACTIVE',
-        notes: entry.current?.notes,
-        file: attachment,
-      },
-    })
   }
 }
