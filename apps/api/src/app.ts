@@ -19,6 +19,7 @@ import { payrollHandoverRouter } from './routes/payroll-handover.js'
 import { payrollPeriodsRouter } from './routes/payroll-periods.js'
 import { payrollSimulationsRouter } from './routes/payroll-simulations.js'
 import { productionFoundationRouter } from './routes/production-foundation.js'
+import { productionDailySummaryRouter } from './routes/production-daily-summary.js'
 import { productionQcRouter } from './routes/production-qc.js'
 import { productionRecapsRouter } from './routes/production-recaps.js'
 import { productionStructureRouter } from './routes/production-structure.js'
@@ -48,6 +49,7 @@ app.use('/api/internal', internalRouter)
 app.use('/api/production-structure', productionFoundationRouter)
 app.use('/api/production-structure', productionStructureRouter)
 app.use('/api/production-structure', productionQcRouter)
+app.use('/api/production', productionDailySummaryRouter)
 app.use('/api/production', productionTransactionsRouter)
 app.use('/api/production', productionRecapsRouter)
 app.use('/api/reports', reportsRouter)

@@ -788,3 +788,11 @@ jumlah hari Alpha/Izin`. Kalkulasi dibulatkan `HALF_UP` ke Rp1 per komponen
 - Tarif, rincian tarif bertingkat, bruto/upah dan dampak koreksi dalam Rupiah hanya tersedia untuk HR_OFFICER atau SUPER_ADMIN di seluruh UI/API Produksi. Role lain tetap dapat melihat kuantitas operasional sesuai permission dan scope, tetapi respons tidak mengandung field nominal, termasuk histori/replay/snapshot. Tarif dan ekspor bernominal dibatasi dengan role tersebut sekaligus permission yang sudah berlaku.
 - Koreksi dan void transaksi sebelum hari ini hanya boleh dilakukan HR_OFFICER atau SUPER_ADMIN, termasuk preview dan replay. Hari ini mengikuti tanggal bisnis server Asia/Jakarta. Transaksi lama tetap dapat dibaca sesuai scope; permission koreksi, pasangan dan penguncian Payroll tetap wajib dipenuhi.
 - Aturan ini tidak memberi permission tambahan otomatis, tidak mengubah perhitungan/snapshot/audit, tidak mengubah akses modul Payroll, dan tidak mengubah alur input susulan/import. Detail scope dan skenario uji: [PRODUCTION_ACCESS_M1.md](PRODUCTION_ACCESS_M1.md).
+
+
+## Ringkasan Produksi harian (M2)
+
+- Ringkasan harian membutuhkan production.view tanpa token perangkat. Tanggal default mengikuti server Asia/Jakarta; hanya HR_OFFICER/SUPER_ADMIN boleh memilih tanggal selain hari ini. Pembatasan tanggal ini khusus API Ringkasan, tidak mempersempit filter pembacaan transaksi lama.
+- Tab pekerjaan, ringkasan, daftar karyawan dan rincian hanya memakai transaksi POSTED dengan scope site serta snapshot modul QC yang sama. VOID dikecualikan; kuantitas dipisahkan per satuan dan per pekerjaan (Linting/Batil tidak dijumlah sebagai batang fisik).
+- Baris ringkasan per karyawan/site/pekerjaan/satuan. Total berasal dari agregasi database sebelum pagination. Jumlah defect adalah kejadian defect, bukan jumlah batang rusak unik; join detail defect tidak boleh menggandakan kuantitas/setoran/upah.
+- Nilai nominal mengikuti pembatasan M1. Ringkasan tidak mengedit hasil agregat; koreksi/void tetap melalui transaksi individual dan seluruh validasi lama. Kontrak dan rencana UI: [PRODUCTION_DAILY_SUMMARY.md](PRODUCTION_DAILY_SUMMARY.md).
