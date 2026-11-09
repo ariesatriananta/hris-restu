@@ -151,6 +151,25 @@ describe('Dashboard overview API', () => {
     expect(mocks.query.mock.calls[0]?.[1]).toEqual(['JEPARA'])
   })
 
+  it.each(['PRODUCTION_ADMIN', 'DIRECTOR'])(
+    'hides monetary free text in production audit activity for %s', async (role) => {
+      mocks.query.mockImplementation(async (query: unknown) => {
+        const sql = String(query ?? '')
+        if (sql.includes('FROM sites')) return [[{ id: 11, uid: 'site-jepara', code: 'JEPARA', name: 'Jepara' }]]
+        if (sql.includes('FROM audit_logs')) return [[{
+          uid: 'audit-money', module: 'PRODUCTION', action: 'CREATE',
+          description: 'Tarif Rp1.200 diperbarui.', occurredAt: '2026-09-08T09:30:00+07:00', siteName: 'Jepara',
+        }]]
+        return [[]]
+      })
+      const response = await request('/overview', auth({ roles: [role], permissions: ['production.view'] }))
+      expect(response.status).toBe(200)
+      const payload = await response.json() as { data: { activities: Array<{ detail: string }> } }
+      expect(payload.data.activities[0].detail).toBe('Aktivitas Produksi dicatat.')
+      expect(JSON.stringify(payload)).not.toContain('1.200')
+    }
+  )
+
   it('tidak menjalankan query domain yang tidak diizinkan', async () => {
     mocks.query.mockResolvedValueOnce([
       [{ id: 11, uid: 'site-jepara', code: 'JEPARA', name: 'Jepara' }],

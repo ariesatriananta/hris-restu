@@ -781,3 +781,10 @@ jumlah hari Alpha/Izin`. Kalkulasi dibulatkan `HALF_UP` ke Rp1 per komponen
 - Transaksi menyimpan snapshot modul saat dibuat. Mutasi atau perubahan histori karyawan tidak mengubah cakupan transaksi lama. Koreksi pekerja sama mempertahankan snapshot sumber; pergantian pekerja memakai modul historis pekerja tujuan pada tanggal transaksi.
 - Pasangan Linting-Batil dan transaksi koreksi terkait wajib seluruhnya dapat diakses QC. Jika hitung ulang grup harian menyentuh transaksi di luar akses QC, operasi ditolak untuk ditangani admin Produksi. Penguncian Payroll tetap berlaku.
 - Perubahan akses membatalkan sesi pengguna. Backfill snapshot transaksi lama hanya dari satu histori ACTIVE yang pasti sesuai site/tanggal; data ambigu tetap NULL dan tersembunyi dari QC. Detail implementasi dan uji Owner: [QC_MODULE_ACCESS.md](QC_MODULE_ACCESS.md).
+
+
+## Pembatasan upah dan koreksi Produksi (M1)
+
+- Tarif, rincian tarif bertingkat, bruto/upah dan dampak koreksi dalam Rupiah hanya tersedia untuk HR_OFFICER atau SUPER_ADMIN di seluruh UI/API Produksi. Role lain tetap dapat melihat kuantitas operasional sesuai permission dan scope, tetapi respons tidak mengandung field nominal, termasuk histori/replay/snapshot. Tarif dan ekspor bernominal dibatasi dengan role tersebut sekaligus permission yang sudah berlaku.
+- Koreksi dan void transaksi sebelum hari ini hanya boleh dilakukan HR_OFFICER atau SUPER_ADMIN, termasuk preview dan replay. Hari ini mengikuti tanggal bisnis server Asia/Jakarta. Transaksi lama tetap dapat dibaca sesuai scope; permission koreksi, pasangan dan penguncian Payroll tetap wajib dipenuhi.
+- Aturan ini tidak memberi permission tambahan otomatis, tidak mengubah perhitungan/snapshot/audit, tidak mengubah akses modul Payroll, dan tidak mengubah alur input susulan/import. Detail scope dan skenario uji: [PRODUCTION_ACCESS_M1.md](PRODUCTION_ACCESS_M1.md).

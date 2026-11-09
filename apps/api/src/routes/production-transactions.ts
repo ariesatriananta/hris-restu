@@ -1,3 +1,4 @@
+import { canViewProductionWages, canReviseProductionDate, assertProductionRevisionDate, redactProductionFinancials } from '../lib/production-access-policy.js'
 import { isQcUser, assertQcEmployeeModule, qcModulePredicate, qcTransactionPredicate, assertQcTransactionAccess, assertQcDailyGroupAccess, snapshotTransactionModule, snapshotTransactionModules } from '../lib/production-transaction-module.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { Router, type Request } from 'express'
@@ -2107,6 +2108,7 @@ async function pairedManagedTransaction(conn: PoolConnection, source: RowDataPac
   const pair = (await readProductionPairs(conn,[Number(source.id)])).get(Number(source.id))
   if (!pair) return null
   const peer = await managedTransaction(conn,pair.partner.uid,auth,lock)
+  assertProductionRevisionDate(auth, String(peer.businessDateKey))
   await assertQcDailyGroupAccess(conn, peer, auth)
   if (String(source.site) !== 'KLATEN' || Number(peer.site_id) !== Number(source.site_id)
     || String(peer.businessDateKey) !== String(source.businessDateKey)
@@ -2253,7 +2255,8 @@ function publicRevision(row: RowDataPacket) {
 
 async function transactionLifecycle(
   conn: SqlExecutor,
-  transaction: RowDataPacket
+  transaction: RowDataPacket,
+  auth: AuthContext
 ) {
   const payrollLock = await payrollLockContext(conn, transaction, false)
   const [revisions] = await conn.query<RowDataPacket[]>(
@@ -2292,8 +2295,8 @@ async function transactionLifecycle(
   return {
     payrollLocked: payrollLock.locked,
     payrollLockReasons: payrollLock.reasons,
-    canCorrect: transaction.status === 'POSTED' && !payrollLock.locked,
-    canVoid: transaction.status === 'POSTED' && !payrollLock.locked,
+    canCorrect: transaction.status === 'POSTED' && !payrollLock.locked && canReviseProductionDate(auth, String(transaction.businessDateKey)),
+    canVoid: transaction.status === 'POSTED' && !payrollLock.locked && canReviseProductionDate(auth, String(transaction.businessDateKey)),
     revisions: revisions.map(publicRevision),
     replacementTransaction: outgoing
       ? { uid: outgoing.replacementUid, transactionNumber: outgoing.replacementNumber }
@@ -2398,6 +2401,13 @@ async function productionBatchDeleteSummary(
 
 export const productionTransactionsRouter = Router()
 productionTransactionsRouter.use(authenticate)
+// Redact only the HTTP response; pricing, revision snapshots and audit writes
+// keep their complete internal values. This covers replay and preview paths too.
+productionTransactionsRouter.use((_req, res, next) => {
+  const sendJson = res.json.bind(res)
+  res.json = (body) => sendJson(redactProductionFinancials(body, res.locals.auth as AuthContext))
+  next()
+})
 productionTransactionsRouter.use((req, res, next) => {
   if (!isQcUser(res.locals.auth as AuthContext)) return next()
   const path = req.path.replace(/\/$/, '').toLowerCase()
@@ -3716,6 +3726,7 @@ productionTransactionsRouter.get(
       }
       const auth = res.locals.auth as AuthContext
       const source = await managedTransaction(conn, uid, auth)
+      assertProductionRevisionDate(auth, String(source.businessDateKey))
       await assertQcDailyGroupAccess(conn, source, auth)
       const payrollLock = await payrollLockContext(conn, source, false)
       const paired = await pairedManagedTransaction(conn,source,auth)
@@ -3749,6 +3760,7 @@ productionTransactionsRouter.post(
       const input = productionCorrectionPreviewInput.parse(req.body)
       const auth = res.locals.auth as AuthContext
       const source = await managedTransaction(conn, uid, auth)
+      assertProductionRevisionDate(auth, String(source.businessDateKey))
       await assertQcDailyGroupAccess(conn, source, auth)
       const payrollLock = await payrollLockContext(conn, source, false)
       assertPostedAndUnlocked(source, payrollLock)
@@ -3844,6 +3856,7 @@ productionTransactionsRouter.post(
       }
       const auth = res.locals.auth as AuthContext
       const source = await managedTransaction(conn, uid, auth)
+      assertProductionRevisionDate(auth, String(source.businessDateKey))
       await assertQcDailyGroupAccess(conn, source, auth)
       const payrollLock = await payrollLockContext(conn, source, false)
       assertPostedAndUnlocked(source, payrollLock)
@@ -3889,6 +3902,7 @@ productionTransactionsRouter.post(
       const auth = res.locals.auth as AuthContext
       await conn.beginTransaction()
       const source = await managedTransaction(conn, uid, auth, true)
+      assertProductionRevisionDate(auth, String(source.businessDateKey))
       await assertQcDailyGroupAccess(conn, source, auth)
       const replayPayload = {
         employeeUid: input.employeeUid ?? String(source.employeeUid),
@@ -4114,6 +4128,7 @@ productionTransactionsRouter.post(
       const auth = res.locals.auth as AuthContext
       await conn.beginTransaction()
       const source = await managedTransaction(conn, uid, auth, true)
+      assertProductionRevisionDate(auth, String(source.businessDateKey))
       await assertQcDailyGroupAccess(conn, source, auth)
       const replayPayload = { reason: input.reason }
       const replay = await revisionReplay(
@@ -4247,12 +4262,13 @@ productionTransactionsRouter.get('/transactions/module-options', requirePermissi
 productionTransactionsRouter.get(
   ['/transactions', '/transactions/export'],
   requirePermission('production.view'),
-  (req, res, next) => req.path === '/transactions/export'
+  (req, res, next) => req.path.toLowerCase().replace(/\/$/, '') === '/transactions/export'
     ? requirePermission('production.export')(req, res, next)
     : next(),
   async (req, res, next) => {
     try {
-      const exporting = req.path === '/transactions/export'
+      const exporting = req.path.toLowerCase().replace(/\/$/, '') === '/transactions/export'
+      if (exporting && !canViewProductionWages(res.locals.auth as AuthContext)) throw new ApiError(403, 'Ekspor Produksi hanya boleh dilakukan HR atau Superadmin.')
       const auth = res.locals.auth as AuthContext
       const today = businessDate()
       const dateFrom = validDate(req.query.dateFrom, today)
@@ -4539,7 +4555,7 @@ productionTransactionsRouter.get(
       res.json({
         transaction: {
           ...transaction,
-          ...(await transactionLifecycle(pool, row)),
+          ...(await transactionLifecycle(pool, row, auth)),
         },
       })
     } catch (error) {

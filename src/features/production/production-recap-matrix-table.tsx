@@ -25,6 +25,7 @@ import {
   formatProductionRecapQuantity,
   productionRecapPayrollLabel,
 } from './production-recap-policy'
+import { ProductionWages } from './production-wages'
 
 export type ProductionRecapCellMode = 'quantity' | 'gross'
 
@@ -265,16 +266,19 @@ function CellModeSwitch({
       >
         <Boxes className='size-3.5' /> Hasil satuan
       </Button>
-      <Button
-        type='button'
-        size='sm'
-        variant={value === 'gross' ? 'secondary' : 'ghost'}
-        className='h-7 px-2.5 text-xs shadow-none'
-        aria-pressed={value === 'gross'}
-        onClick={() => onChange('gross')}
-      >
-        <Banknote className='size-3.5' /> Nilai bruto
-      </Button>
+      <ProductionWages>
+        {' '}
+        <Button
+          type='button'
+          size='sm'
+          variant={value === 'gross' ? 'secondary' : 'ghost'}
+          className='h-7 px-2.5 text-xs shadow-none'
+          aria-pressed={value === 'gross'}
+          onClick={() => onChange('gross')}
+        >
+          <Banknote className='size-3.5' /> Nilai bruto
+        </Button>
+      </ProductionWages>
     </div>
   )
 }
@@ -425,9 +429,11 @@ function MatrixCell({
           aria-label={cellAriaLabel(value, mode)}
         >
           {mode === 'gross' ? (
-            <span className='text-[10px] font-semibold whitespace-nowrap text-emerald-700 dark:text-emerald-400'>
-              {formatCompactRupiah(value.grossAmount)}
-            </span>
+            <ProductionWages>
+              <span className='text-[10px] font-semibold whitespace-nowrap text-emerald-700 dark:text-emerald-400'>
+                {formatCompactRupiah(value.grossAmount)}
+              </span>
+            </ProductionWages>
           ) : (
             <CompactQuantities items={value.quantityTotals} />
           )}
@@ -440,8 +446,11 @@ function MatrixCell({
         <div>
           <p className='font-semibold'>Rincian produksi</p>
           <p className='text-xs text-muted-foreground'>
-            {value.transactionCount} transaksi ·{' '}
-            {formatRupiah(value.grossAmount)}
+            {value.transactionCount} transaksi
+            <ProductionWages>
+              {' '}
+              · {formatRupiah(value.grossAmount)}
+            </ProductionWages>
           </p>
           <p className='text-[10px] text-muted-foreground'>
             Payroll: {productionRecapPayrollLabel(value.payrollStatus)}
@@ -453,7 +462,10 @@ function MatrixCell({
               <p className='font-medium'>{job.name}</p>
               <p className='text-muted-foreground'>
                 {job.transactionCount} trx · {quantityText(job.quantityTotals)}{' '}
-                · {formatRupiah(job.grossAmount)}
+                <ProductionWages>
+                  {' '}
+                  · {formatRupiah(job.grossAmount)}
+                </ProductionWages>
               </p>
             </div>
           ))}
@@ -520,7 +532,7 @@ function cellAriaLabel(
   return `${main}, ${value.transactionCount} transaksi`
 }
 
-function formatRupiah(value: string | number) {
+function formatRupiah(value: string | number | undefined) {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
     currency: 'IDR',
@@ -528,7 +540,7 @@ function formatRupiah(value: string | number) {
   }).format(Number(value))
 }
 
-function formatCompactRupiah(value: string | number) {
+function formatCompactRupiah(value: string | number | undefined) {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
     currency: 'IDR',

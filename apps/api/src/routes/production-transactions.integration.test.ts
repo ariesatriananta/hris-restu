@@ -1,6 +1,6 @@
 import express from 'express'
 import type { AddressInfo } from 'node:net'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { errorHandler } from '../lib/errors.js'
 import {
   productionImportPostInput,
@@ -28,7 +28,7 @@ function databaseQuery(...args: unknown[]) {
   const sql = String(args[0])
   if (sql.startsWith('SELECT pt.id FROM production_transactions pt WHERE pt.id=?')) return Promise.resolve([[{id:21}]])
   if (sql.startsWith('SELECT pt.id FROM production_transactions pt WHERE pt.employee_id=?')) return Promise.resolve([[]])
-  if (sql.includes('production_transaction_pairs')) return mocks.pairsQuery(...args)
+  if (sql.includes('production_transaction_pairs') && !sql.includes('qc_pair')) return mocks.pairsQuery(...args)
   if (/GROUP BY j\.id,j\.uid,j\.code,j\.name,u\.id/.test(sql)) {
     return mocks.jobSummaryQuery(...args)
   }
@@ -87,7 +87,7 @@ function auth(options: { permissions?: string[]; sites?: string[] } = {}): AuthC
     uid: 'production-user',
     name: 'Production User',
     email: null,
-    roles: ['PRODUCTION_ADMIN'],
+    roles: ['HR_OFFICER'],
     permissions: options.permissions ?? ['production.scan', 'production.view'],
     siteAccess: options.sites ?? ['JEPARA'],
   }
@@ -215,6 +215,7 @@ function managedTransactionRow(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Production transactions API', () => {
+  afterEach(() => vi.useRealTimers())
   beforeEach(() => {
     Object.values(mocks).forEach((mock) => mock.mockReset())
     mocks.pairsQuery.mockResolvedValue([[]])
@@ -1627,6 +1628,8 @@ describe('Production transactions API', () => {
   })
 
   it.each(['legacy', 'qc', 'qc-role', 'qc-write-failure'])('membuat koreksi atomik: original VOID, replacement POSTED, revision append-only QC %s', async qcCase => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-08-21T02:00:00Z'))
     const replacement = {
       ...transactionRow(),
       id: 22,
@@ -1716,6 +1719,11 @@ describe('Production transactions API', () => {
     }
     expect(body.sourceTransaction.status).toBe('VOID')
     expect(body.transaction).toMatchObject({ status: 'POSTED', quantity: '4.0000' })
+    if (qcCase==='qc-role') {
+      expect(body.transaction).not.toHaveProperty('grossAmount')
+      expect(body.transaction).not.toHaveProperty('rateSnapshot')
+      expect(mocks.audit.mock.calls[0][0].afterData.grossAmount).toBe('4700.00')
+    }
     if (qcCase==='qc' || qcCase==='qc-role') expect(body.transaction).toMatchObject({qc:{brand:{name:'Old snapshot'},defects:[{name:'Old defect',sortOrder:9}]}})
     else expect(body.transaction).toMatchObject({qc:null})
     expect(mocks.execute.mock.calls.some(([sql]) => String(sql).includes('detail.sort_order_snapshot'))).toBe(qcCase==='qc' || qcCase==='qc-role')
@@ -1742,6 +1750,8 @@ describe('Production transactions API', () => {
   })
 
   it.each(['admin','QC'])('mengembalikan hasil void lama untuk idempotency yang sama saat source sudah VOID: %s', async role => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-08-21T02:00:00Z'))
     mocks.query
       .mockResolvedValueOnce([[managedTransactionRow({ status: 'VOID' })]])
       .mockResolvedValueOnce([[
@@ -2102,4 +2112,73 @@ describe('Production transactions API', () => {
     expect(mocks.rollback).toHaveBeenCalledTimes(1)
     expect(mocks.commit).not.toHaveBeenCalled()
   })
+  it.each(['QC','DIRECTOR','PRODUCTION_ADMIN','SITE_SUPERVISOR'])('M1 blocks past-date correction and void for %s including previews/context/replay', async role => {
+    const actor = {...auth({permissions:['production.correct']}),roles:[role],productionModuleAccess:[jobUid]}
+    for (const action of ['correction-context','correction-preview','void-preview','correct','void']) {
+      mocks.query.mockResolvedValue([[managedTransactionRow({status: action==='void' ? 'VOID' : 'POSTED'})]])
+      const response = await request(`/transactions/${transactionUid}/${action}`, {
+        method: action==='correction-context' ? 'GET' : 'POST', auth: actor,
+        body: action==='correction-context' ? undefined : action==='correction-preview' ? {jobUid,quantity:'4'} : action==='void-preview' ? {} : { ...(action==='correct' ? {jobUid,quantity:'4'} : {}),reason:'Correction test',idempotencyKey:'68666666-6666-4666-8666-666666666666'},
+      })
+      expect(response.status, action).toBe(403)
+      expect(await response.json()).toMatchObject({message:expect.stringContaining('sebelum hari ini')})
+    }
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.commit).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
+  })
+
+  it.each(['QC','DIRECTOR','PRODUCTION_ADMIN','SITE_SUPERVISOR','HR_OFFICER','SUPER_ADMIN'])('M1 detail retains history and hides past revision controls plus financial values for %s', async role => {
+    mocks.query.mockImplementation(async sql => {
+      const statement = String(sql)
+      if (statement.includes('SELECT pt.*')) return [[managedTransactionRow()]]
+      if (statement.includes('SELECT pt.id,pt.uid')) return [[transactionRow()]]
+      if (statement.includes('FROM production_transaction_rate_details')) return [[{minQuantity:'1',quantity:'3',rateAmount:'1175',amount:'3525'}]]
+      if (statement.includes('pr.before_data beforeData')) return [[{uid:'revision',revisionNumber:1,revisionType:'CORRECTION',beforeData:{grossAmount:'3000',quantity:'2'},afterData:{rate_snapshot:'1175',gross_amount:'3525',quantity:'3'},reason:'Correction'}]]
+      return [[]]
+    })
+    const response = await request(`/transactions/${transactionUid}`, {auth:{...auth({permissions:['production.view']}),roles:[role],productionModuleAccess:[jobUid]}})
+    expect(response.status).toBe(200)
+    const body = await response.json() as {transaction: {canCorrect:boolean;canVoid:boolean;[key:string]:unknown}}
+    expect(body.transaction).toMatchObject({uid:transactionUid,quantity:'3.0000',employee:{fullName:'Ariel Peterpan'},revisions:[{before:{quantity:'2'},after:{quantity:'3'}}]})
+    const privileged = ['HR_OFFICER','SUPER_ADMIN'].includes(role)
+    expect(body.transaction.canCorrect).toBe(privileged)
+    expect(body.transaction.canVoid).toBe(privileged)
+    if (privileged) expect(body.transaction).toMatchObject({rateSnapshot:'1175.0000',grossAmount:'3525.00',revisions:[{before:{grossAmount:'3000'}}]})
+    else expect(JSON.stringify(body)).not.toMatch(/gross|rateSnapshot|rate_snapshot|rateDetails|1175|3525|3000/)
+  })
+
+  it.each(['QC','DIRECTOR','PRODUCTION_ADMIN','SITE_SUPERVISOR'])('M1 redacts list and summary financials for %s while keeping quantity', async role => {
+    mocks.query
+      .mockResolvedValueOnce([[{transactionCount:1,employeeCount:1,totalGrossAmount:'3525.00'}]])
+      .mockResolvedValueOnce([[{uid:jobUid,code:'PCS',name:'Pcs',decimalPrecision:0,quantity:'3.0000'}]])
+      .mockResolvedValueOnce([[transactionRow()]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+    const response = await request('/transactions?site=JEPARA', {auth:{...auth(),roles:[role],productionModuleAccess:[jobUid]}})
+    expect(response.status).toBe(200)
+    const body = await response.json() as {items: Array<Record<string,unknown>>;summary: Record<string,unknown>}
+    expect(body.items[0]).toMatchObject({quantity:'3.0000',employee:{fullName:'Ariel Peterpan'}})
+    expect(body.summary).toMatchObject({transactionCount:1,totalQuantity:'3.0000'})
+    expect(JSON.stringify(body)).not.toMatch(/gross|rateSnapshot|3525|1175/)
+  })
+
+  it.each(['QC','DIRECTOR','PRODUCTION_ADMIN','SITE_SUPERVISOR'])('M1 keeps today void preview available for %s with correction permission and redacts its money impact', async role => {
+    vi.useFakeTimers({toFake:['Date']}); vi.setSystemTime(new Date('2026-08-21T02:00:00Z'))
+    mocks.query.mockImplementation(async sql => {
+      const statement = String(sql)
+      if (statement.includes('SELECT pt.*')) return [[managedTransactionRow()]]
+      if (statement.includes('SELECT pt.id,pt.uid')) return [[transactionRow()]]
+      return [[]]
+    })
+    const response = await request(`/transactions/${transactionUid}/void-preview`, {
+      method:'POST',body:{},auth:{...auth({permissions:['production.correct']}),roles:[role],productionModuleAccess:[jobUid]},
+    })
+    expect(response.status).toBe(200)
+    const body = await response.json() as {impact: Record<string,unknown>;source: Record<string,unknown>}
+    expect(body).toMatchObject({canApply:true,impact:{quantity:'-3.0000'},source:{quantity:'3.0000'}})
+    expect(body.impact).not.toHaveProperty('grossAmount')
+    expect(body.source).not.toHaveProperty('rateSnapshot')
+  })
+
 })

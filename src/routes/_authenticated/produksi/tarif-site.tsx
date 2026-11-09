@@ -1,12 +1,14 @@
 import { z } from 'zod'
 import { createFileRoute } from '@tanstack/react-router'
 import { requirePermission } from '@/features/auth/permissions'
+import { requireProductionWagesRole } from '@/features/auth/production-access'
 import { requireNonQcRole } from '@/features/auth/qc-access'
 import { ProductionRatePage } from '@/features/production/production-rate-pages'
 
 export const Route = createFileRoute('/_authenticated/produksi/tarif-site')({
   beforeLoad: () => {
     requireNonQcRole()
+    requireProductionWagesRole()
     requirePermission('production.view')
   },
   validateSearch: z.object({

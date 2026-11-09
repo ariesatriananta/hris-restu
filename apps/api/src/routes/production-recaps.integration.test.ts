@@ -148,7 +148,8 @@ describe('Production recaps API', () => {
 
   it('mengembalikan rekap hybrid hanya dari transaksi POSTED dan site user', async () => {
     const response = await request(
-      '/recaps?dateFrom=2026-08-01&dateTo=2026-08-21&site=JEPARA'
+      '/recaps?dateFrom=2026-08-01&dateTo=2026-08-21&site=JEPARA',
+      { auth: auth({ roles: ['HR_OFFICER'] }) }
     )
     expect(response.status).toBe(200)
     const body = (await response.json()) as {
@@ -177,7 +178,8 @@ describe('Production recaps API', () => {
 
   it('mengembalikan matriks produksi per tanggal dengan pagination terpisah', async () => {
     const response = await request(
-      '/recaps/matrix?dateFrom=2026-08-21&dateTo=2026-08-22&site=JEPARA&page=1&pageSize=50'
+      '/recaps/matrix?dateFrom=2026-08-21&dateTo=2026-08-22&site=JEPARA&page=1&pageSize=50',
+      { auth: auth({ roles: ['HR_OFFICER'] }) }
     )
     expect(response.status).toBe(200)
     const body = (await response.json()) as {
@@ -203,6 +205,50 @@ describe('Production recaps API', () => {
     expect(body.items[0].days['2026-08-21']?.grossAmount).toBe('31450.00')
     expect(body.items[0].days['2026-08-22']).toBeNull()
     expect(body).toMatchObject({ total: 1, page: 1, pageSize: 50 })
+  })
+
+  it.each(['PRODUCTION_ADMIN', 'SITE_SUPERVISOR', 'DIRECTOR'])(
+    'keeps recap quantities but removes nested wages for %s',
+    async (role) => {
+      const response = await request('/recaps/matrix?dateFrom=2026-08-21&dateTo=2026-08-21', {
+        auth: auth({ roles: [role] }),
+      })
+      expect(response.status).toBe(200)
+      const result = await response.json() as { items: Array<{ days: Record<string, { quantityTotals: Array<{ quantity: string }> }> }> }
+      expect(result.items).toHaveLength(1)
+      const day = result.items[0].days['2026-08-21']
+      expect(day.quantityTotals[0].quantity).toBe('34')
+      expect(JSON.stringify(result)).not.toMatch(/grossAmount|totalGrossAmount|rateSnapshot/)
+    }
+  )
+
+  it('denies financial export even when a non-HR role has export permission', async () => {
+    const response = await request('/recaps/export', {
+      method: 'POST', auth: auth({ permissions: ['production.view', 'production.export'] }),
+      body: { dateFrom: '2026-08-21', dateTo: '2026-08-21' },
+    })
+    expect(response.status).toBe(403)
+    expect(mocks.query).not.toHaveBeenCalled()
+  })
+
+  it.each(['employees', 'jobs'])(
+    'redacts monetary fields from recap %s detail and its transactions', async (kind) => {
+      const uid = kind === 'employees' ? transactionRow.employeeUid : transactionRow.jobUid
+      const response = await request(`/recaps/${kind}/${uid}?dateFrom=2026-08-21&dateTo=2026-08-21&site=JEPARA`)
+      expect(response.status).toBe(200)
+      const result = await response.json() as { transactions: Array<{ quantity: string }> }
+      expect(Number(result.transactions[0].quantity)).toBe(34)
+      expect(JSON.stringify(result)).not.toMatch(/grossAmount|totalGrossAmount|rateSnapshot/)
+    }
+  )
+
+  it('still requires export permission for HR', async () => {
+    const response = await request('/recaps/export', {
+      method: 'POST', auth: auth({ roles: ['HR_OFFICER'] }),
+      body: { dateFrom: '2026-08-21', dateTo: '2026-08-21' },
+    })
+    expect(response.status).toBe(403)
+    expect(mocks.query).not.toHaveBeenCalled()
   })
 
   it('menolak periode di atas 31 hari sebelum query database', async () => {
@@ -268,6 +314,7 @@ describe('Production recaps API', () => {
     const exported = await request('/recaps/export', {
       method: 'POST',
       auth: auth({
+        roles: ['HR_OFFICER'],
         permissions: ['production.view', 'production.export'],
       }),
       body: {

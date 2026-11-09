@@ -69,6 +69,7 @@ import {
   dateOnlyToInput,
 } from '@/features/attendance/date-only'
 import { hasPermission } from '@/features/auth/permissions'
+import { canViewProductionWages } from '@/features/auth/production-access'
 import {
   useExportProductionRecaps,
   useProductionEmployeeRecap,
@@ -98,6 +99,7 @@ import {
   productionRecapPayrollLabel,
   productionRecapRangeError,
 } from './production-recap-policy'
+import { ProductionWages } from './production-wages'
 
 const kpiVisibleKey = 'hris-rsia-production-recap-kpi-visible-v1'
 
@@ -159,7 +161,9 @@ export function ProductionRecapPage({
         ? 'jobs'
         : 'matrix'
   const cellMode: ProductionRecapCellMode =
-    search.cellMode === 'gross' ? 'gross' : 'quantity'
+    canViewProductionWages(session) && search.cellMode === 'gross'
+      ? 'gross'
+      : 'quantity'
   const matrixParams: ProductionRecapParams = {
     ...params,
     page: numberValue(search.matrixPage, 1),
@@ -499,6 +503,9 @@ function RecapSummary({
   data?: { summary: ProductionRecapResult['summary'] }
   isPending: boolean
 }) {
+  const canViewWages = canViewProductionWages(
+    useAuthStore((state) => state.session)
+  )
   const items = [
     {
       label: 'Karyawan tercatat',
@@ -535,40 +542,42 @@ function RecapSummary({
   ]
   return (
     <div className='grid gap-2 sm:grid-cols-2 xl:grid-cols-4'>
-      {items.map((item) => (
-        <Tooltip key={item.label}>
-          <TooltipTrigger asChild>
-            <section
-              tabIndex={0}
-              className={cn(
-                'min-h-[68px] rounded-lg border px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-ring',
-                item.tone
-              )}
-            >
-              <div className='flex items-start justify-between gap-2'>
-                <div className='min-w-0'>
-                  <p className='truncate text-xs text-muted-foreground'>
-                    {item.label}
-                  </p>
-                  {isPending ? (
-                    <Skeleton className='mt-1 h-5 w-20' />
-                  ) : (
-                    <p className='truncate text-lg font-bold tracking-tight'>
-                      {typeof item.value === 'number'
-                        ? formatNumber(item.value)
-                        : item.value}
+      {items
+        .filter((item) => item.label !== 'Nilai bruto tercatat' || canViewWages)
+        .map((item) => (
+          <Tooltip key={item.label}>
+            <TooltipTrigger asChild>
+              <section
+                tabIndex={0}
+                className={cn(
+                  'min-h-[68px] rounded-lg border px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-ring',
+                  item.tone
+                )}
+              >
+                <div className='flex items-start justify-between gap-2'>
+                  <div className='min-w-0'>
+                    <p className='truncate text-xs text-muted-foreground'>
+                      {item.label}
                     </p>
-                  )}
+                    {isPending ? (
+                      <Skeleton className='mt-1 h-5 w-20' />
+                    ) : (
+                      <p className='truncate text-lg font-bold tracking-tight'>
+                        {typeof item.value === 'number'
+                          ? formatNumber(item.value)
+                          : item.value}
+                      </p>
+                    )}
+                  </div>
+                  <item.icon className='mt-0.5 size-4 shrink-0 text-primary' />
                 </div>
-                <item.icon className='mt-0.5 size-4 shrink-0 text-primary' />
-              </div>
-            </section>
-          </TooltipTrigger>
-          <TooltipContent className='max-w-72'>
-            {item.description}
-          </TooltipContent>
-        </Tooltip>
-      ))}
+              </section>
+            </TooltipTrigger>
+            <TooltipContent className='max-w-72'>
+              {item.description}
+            </TooltipContent>
+          </Tooltip>
+        ))}
     </div>
   )
 }
@@ -683,13 +692,15 @@ function EmployeeLedger({
       },
       {
         id: 'gross',
-        header: 'Bruto & Payroll',
+        header: 'Payroll',
         meta: { thClassName: 'w-[20%]', tdClassName: 'min-w-0' },
         cell: ({ row }) => (
           <div className='space-y-1'>
-            <p className='font-semibold'>
-              {formatCurrency(row.original.grossAmount)}
-            </p>
+            <ProductionWages>
+              <p className='font-semibold'>
+                {formatCurrency(row.original.grossAmount)}
+              </p>
+            </ProductionWages>
             <PayrollBadge value={row.original.payrollStatus} />
           </div>
         ),
@@ -1081,10 +1092,12 @@ function JobGrid({
               <div className='grid grid-cols-3 divide-x text-center'>
                 <Metric label='Pekerja' value={item.employeeCount} />
                 <Metric label='Transaksi' value={item.transactionCount} />
-                <Metric
-                  label='Bruto'
-                  value={formatCompactCurrency(item.grossAmount)}
-                />
+                <ProductionWages>
+                  <Metric
+                    label='Bruto'
+                    value={formatCompactCurrency(item.grossAmount)}
+                  />
+                </ProductionWages>
               </div>
               <Button
                 size='sm'
@@ -1137,7 +1150,11 @@ function EmployeeCard({
             <p className='text-xs text-muted-foreground'>
               {formatNumber(item.transactionCount)} transaksi POSTED
             </p>
-            <p className='font-semibold'>{formatCurrency(item.grossAmount)}</p>
+            <ProductionWages>
+              <p className='font-semibold'>
+                {formatCurrency(item.grossAmount)}
+              </p>
+            </ProductionWages>
           </div>
           <Button size='sm' variant='outline' onClick={onDetail}>
             <Eye /> Detail
@@ -1382,9 +1399,11 @@ function JobDetail({ data }: { data: ProductionJobRecapDetail }) {
                   <p className='font-semibold'>
                     {formatQuantityTotals(item.quantityTotals)}
                   </p>
-                  <p className='text-xs text-muted-foreground'>
-                    {formatCurrency(item.grossAmount)}
-                  </p>
+                  <ProductionWages>
+                    <p className='text-xs text-muted-foreground'>
+                      {formatCurrency(item.grossAmount)}
+                    </p>
+                  </ProductionWages>
                 </div>
               </div>
             ))}
@@ -1406,7 +1425,7 @@ function DetailHero({
 }: {
   title: string
   subtitle: string
-  gross: string
+  gross?: string
   payroll: ProductionPayrollSnapshotStatus
 }) {
   return (
@@ -1419,8 +1438,12 @@ function DetailHero({
         <PayrollBadge value={payroll} />
       </div>
       <div className='mt-4'>
-        <p className='text-xs text-muted-foreground'>Nilai bruto tercatat</p>
-        <p className='text-2xl font-bold'>{formatCurrency(gross)}</p>
+        <ProductionWages>
+          <p className='text-xs text-muted-foreground'>Nilai bruto tercatat</p>
+        </ProductionWages>
+        <ProductionWages>
+          <p className='text-2xl font-bold'>{formatCurrency(gross)}</p>
+        </ProductionWages>
       </div>
     </div>
   )
@@ -1486,9 +1509,11 @@ function BreakdownList({ jobs }: { jobs: ProductionRecapEmployee['jobs'] }) {
               <p className='font-semibold'>
                 {formatQuantityTotals(job.quantityTotals)}
               </p>
-              <p className='text-xs text-muted-foreground'>
-                {formatCurrency(job.grossAmount)}
-              </p>
+              <ProductionWages>
+                <p className='text-xs text-muted-foreground'>
+                  {formatCurrency(job.grossAmount)}
+                </p>
+              </ProductionWages>
             </div>
           </div>
         ))}
@@ -1540,10 +1565,14 @@ function TransactionTimeline({
                 {item.unit.code}
               </p>
             </div>
-            <div className='text-right'>
-              <p className='text-muted-foreground'>Bruto</p>
-              <p className='font-medium'>{formatCurrency(item.grossAmount)}</p>
-            </div>
+            <ProductionWages>
+              <div className='text-right'>
+                <p className='text-muted-foreground'>Bruto</p>
+                <p className='font-medium'>
+                  {formatCurrency(item.grossAmount)}
+                </p>
+              </div>
+            </ProductionWages>
           </div>
           {item.correctionSource && (
             <p className='mt-2 rounded bg-muted px-2 py-1 text-xs text-muted-foreground'>
@@ -1708,17 +1737,17 @@ function addDays(value: string, amount: number) {
   date.setDate(date.getDate() + amount)
   return date.toISOString().slice(0, 10)
 }
-function formatNumber(value: string | number) {
+function formatNumber(value: string | number | undefined) {
   return new Intl.NumberFormat('id-ID').format(Number(value))
 }
-function formatCurrency(value: string | number) {
+function formatCurrency(value: string | number | undefined) {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
     currency: 'IDR',
     maximumFractionDigits: 0,
   }).format(Number(value))
 }
-function formatCompactCurrency(value: string | number) {
+function formatCompactCurrency(value: string | number | undefined) {
   return new Intl.NumberFormat('id-ID', {
     notation: 'compact',
     maximumFractionDigits: 1,

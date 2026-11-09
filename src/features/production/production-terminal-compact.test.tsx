@@ -1005,7 +1005,9 @@ describe('Klaten paired Linting and Batil deposits', () => {
     await screen.getByLabelText('Pekerja Batil (opsional)').fill('TEST-BATIL')
     await screen.getByRole('button', { name: 'Cek', exact: true }).click()
     await screen.getByLabelText('Pekerjaan', { exact: true }).click()
-    await screen.getByRole('option', { name: 'Packing · PCS · Utama' }).click()
+    await screen
+      .getByRole('option', { name: 'Packing · PCS · Utama' })
+      .click()
     await expect
       .element(screen.getByLabelText('Pekerja Batil (opsional)'))
       .not.toBeInTheDocument()
@@ -1013,7 +1015,9 @@ describe('Klaten paired Linting and Batil deposits', () => {
     await screen.getByRole('button', { name: 'Simpan Setoran' }).click()
     expect(post.mock.calls[0][0].input).not.toHaveProperty('batilBarcode')
     await screen.getByLabelText('Pekerjaan', { exact: true }).click()
-    await screen.getByRole('option', { name: 'Linting · PCS · Utama' }).click()
+    await screen
+      .getByRole('option', { name: 'Linting · PCS · Utama' })
+      .click()
     await expect
       .element(screen.getByLabelText('Pekerja Batil (opsional)'))
       .toHaveValue('')
@@ -1060,7 +1064,9 @@ describe('Klaten paired Linting and Batil deposits', () => {
       })
     )
     await expect
-      .element(screen.getByText('Pekerja Batil Uji · TEST-BATIL · Batil siap'))
+      .element(
+        screen.getByText('Pekerja Batil Uji · TEST-BATIL · Batil siap')
+      )
       .toBeVisible()
     expect(post).not.toHaveBeenCalled()
     await expect
@@ -1141,7 +1147,9 @@ describe('Klaten paired Linting and Batil deposits', () => {
     await screen.getByRole('button', { name: 'Cek', exact: true }).click()
     resolveSecond(batil)
     await expect
-      .element(screen.getByText('Pekerja Batil Uji · TEST-BATIL · Batil siap'))
+      .element(
+        screen.getByText('Pekerja Batil Uji · TEST-BATIL · Batil siap')
+      )
       .toBeVisible()
     resolveFirst({
       ...batil,
@@ -1181,5 +1189,23 @@ describe('Klaten paired Linting and Batil deposits', () => {
     await expect
       .element(screen.getByLabelText('Pekerja Batil (opsional)'))
       .not.toBeInTheDocument()
+  })
+})
+
+describe('scanner with redacted production wages', () => {
+  it('accepts an eligible job without a rate container for QC', async () => {
+    authState.session.user.role = 'QC'
+    const redacted = structuredClone(result) as {
+      jobs: Array<{ rate?: unknown }>
+    }
+    delete redacted.jobs[0].rate
+    lookup.mockResolvedValueOnce(redacted)
+    const screen = await render(<ProductionTerminalPage />)
+    await screen.getByLabelText('Barcode karyawan').fill('TEST-001')
+    await screen.getByRole('button', { name: 'Cek', exact: true }).click()
+    await expect
+      .element(screen.getByText('Pekerja Uji', { exact: true }))
+      .toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/Rp|NaN/)
   })
 })

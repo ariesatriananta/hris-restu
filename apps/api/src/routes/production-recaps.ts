@@ -7,6 +7,7 @@ import { jakartaDateTime } from '../lib/attendance-finalization-policy.js'
 import { writeAudit } from '../lib/audit.js'
 import { businessDate } from '../lib/contract-lifecycle.js'
 import { ApiError } from '../lib/errors.js'
+import { canViewProductionWages, redactProductionFinancials } from '../lib/production-access-policy.js'
 import { isQc } from '../lib/production-module-access.js'
 import {
   aggregateProductionRecap,
@@ -518,6 +519,16 @@ async function loadRevisionRows(auth: AuthContext, input: RecapInput) {
 
 export const productionRecapsRouter = Router()
 productionRecapsRouter.use(authenticate)
+// Restrict monetary routes before queries and redact operational JSON at the boundary.
+productionRecapsRouter.use((req, res, next) => {
+  const auth = res.locals.auth as AuthContext
+  if (!canViewProductionWages(auth) && /^\/recaps\/export\/?$/i.test(req.path)) {
+    return next(new ApiError(403, 'Informasi upah Produksi hanya tersedia untuk HR dan Super Admin.'))
+  }
+  const sendJson = res.json.bind(res)
+  res.json = (body) => sendJson(redactProductionFinancials(body, auth))
+  next()
+})
 productionRecapsRouter.use('/recaps', (_req, res, next) => {
   if (isQc(res.locals.auth as AuthContext)) {
     return next(new ApiError(403, 'Role QC hanya dapat mengakses scanner dan transaksi Produksi.'))

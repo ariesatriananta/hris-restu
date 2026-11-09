@@ -95,7 +95,8 @@ export async function parseProductionWorkbook(
 }
 
 export function buildProductionValidationWorkbook(
-  preview: ProductionImportPreview
+  preview: ProductionImportPreview,
+  includeWages = false
 ) {
   const defectCodes = [
     ...new Set(
@@ -121,7 +122,7 @@ export function buildProductionValidationWorkbook(
     'KODE_PEKERJAAN',
     'PEKERJAAN_UTAMA',
     'SATUAN',
-    'ESTIMASI_BRUTO',
+    ...(includeWages ? ['ESTIMASI_BRUTO'] : []),
   ]
   const sheet = XLSX.utils.aoa_to_sheet([
     validationHeaders,
@@ -138,7 +139,7 @@ export function buildProductionValidationWorkbook(
       row.job?.code ?? '',
       row.job?.name ?? '',
       row.unit?.code ?? '',
-      row.estimatedGrossAmount ?? '',
+      ...(includeWages ? [row.estimatedGrossAmount ?? ''] : []),
     ]),
   ])
   sheet['!cols'] = [

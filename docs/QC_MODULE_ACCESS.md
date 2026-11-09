@@ -17,6 +17,10 @@ Pilihan pekerjaan, pencarian karyawan untuk koreksi, dan opsi brand/defect hanya
 
 Pembatasan berlaku di API dan UI, termasuk daftar, KPI, ringkasan scanner, transaksi terakhir, detail, preview, koreksi, dan void. Permission tambahan yang keliru diberikan pada role QC tidak membuka ekspor atau fitur lainnya.
 
+## Pembatasan tambahan M1
+
+QC tidak menerima nilai tarif/upah/bruto melalui UI maupun API Produksi. QC hanya dapat koreksi/void transaksi hari ini, berdasarkan tanggal WIB server, dengan permission dan seluruh validasi sebelumnya. Transaksi lama tetap dapat dibaca tanpa nominal. Rincian: [PRODUCTION_ACCESS_M1.md](PRODUCTION_ACCESS_M1.md).
+
 ## Modul transaksi dan penghitungan ulang
 
 `production_transactions.production_module_id` menyimpan modul saat transaksi dibuat. Pindah modul karyawan atau mengubah histori penempatan tidak memindahkan akses transaksi lama. Koreksi pekerja yang sama mempertahankan modul sumber; koreksi ke pekerja berbeda memakai modul historis pekerja tujuan pada tanggal transaksi.

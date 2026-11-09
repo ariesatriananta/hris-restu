@@ -53,14 +53,14 @@ const context: AuthContext = {
   uid: 'user',
   name: 'Bos',
   email: null,
-  roles: ['PRODUCTION_ADMIN'],
+  roles: ['HR_OFFICER'],
   permissions: ['production.view', 'production.export'],
   siteAccess: ['JEPARA'],
 }
-async function request(path: string, permissions = context.permissions) {
+async function request(path: string, permissions = context.permissions, roles = context.roles) {
   const app = express()
   app.use((_req, res, next) => {
-    res.locals.auth = { ...context, permissions }
+    res.locals.auth = { ...context, permissions, roles }
     next()
   })
   app.use('/production', productionTransactionsRouter)
@@ -104,6 +104,12 @@ const transaction = {
 }
 
 describe('all-filtered production transaction Excel export', () => {
+  it.each(['QC','PRODUCTION_ADMIN','DIRECTOR','SITE_SUPERVISOR'])('denies monetary export for %s even with export permission', async role => {
+    const response = await request('/transactions/export', context.permissions, [role])
+    expect(response.status).toBe(403)
+    expect(mocks.query).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
+  })
   beforeEach(() => {
     Object.values(mocks).forEach((mock) => mock.mockReset())
     mocks.pairQuery.mockResolvedValue([[]])
@@ -122,6 +128,10 @@ describe('all-filtered production transaction Excel export', () => {
       expect(mocks.query).not.toHaveBeenCalled()
     }
   )
+  it.each(['/transactions/export/', '/TRANSACTIONS/EXPORT'])('retains export permission checks for %s', async path => {
+    expect((await request(path, ['production.view'])).status).toBe(403)
+    expect(mocks.query).not.toHaveBeenCalled()
+  })
   it('rejects foreign sites before any data read', async () => {
     expect((await request('/transactions/export?site=SEMARANG')).status).toBe(
       403

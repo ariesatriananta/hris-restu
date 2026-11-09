@@ -332,3 +332,35 @@ describe('parser import hasil Produksi', () => {
     expect(matrix[2]).toContain('Karyawan tidak ditemukan.')
   })
 })
+
+describe('validation export wage visibility', () => {
+  it('requires an explicit financial allowance and otherwise excludes the financial column', () => {
+    const preview = {
+      total: 1,
+      valid: 1,
+      invalid: 0,
+      warnings: 0,
+      rows: [
+        {
+          rowNumber: 2,
+          businessDate: '2026-11-09',
+          employeeNumber: 'E1',
+          quantity: '500',
+          valid: true,
+          message: 'Valid',
+          estimatedGrossAmount: '123456',
+          warning: null,
+        },
+      ],
+    }
+    const restricted = buildProductionValidationWorkbook(preview)
+    expect(JSON.stringify(restricted.Sheets['Hasil Produksi'])).not.toMatch(
+      /ESTIMASI_BRUTO|123456/
+    )
+    const allowed = buildProductionValidationWorkbook(preview, true)
+    expect(JSON.stringify(allowed.Sheets['Hasil Produksi'])).toMatch(
+      /ESTIMASI_BRUTO/
+    )
+    expect(JSON.stringify(allowed.Sheets['Hasil Produksi'])).toMatch(/123456/)
+  })
+})

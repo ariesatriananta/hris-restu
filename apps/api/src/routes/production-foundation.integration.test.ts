@@ -418,7 +418,9 @@ describe('Production foundation API', () => {
       '2026-08-21',
       '2026-08-21',
     ])
-    await expect(response.json()).resolves.toMatchObject({
+    const result = await response.json() as { items: Array<{ assignments: Array<Record<string, unknown>> }> }
+    expect(result.items[0].assignments[0]).not.toHaveProperty('rate')
+    expect(result).toMatchObject({
       total: 1,
       items: [
         {
@@ -430,7 +432,6 @@ describe('Production foundation API', () => {
               jobCode: 'BORONGAN-LINTING',
               isPrimary: true,
               unit: { code: 'PCS', decimalPrecision: 0 },
-              rate: { amount: '925.0000', currency: 'IDR' },
             },
           ],
         },
@@ -958,6 +959,22 @@ describe('Production foundation API', () => {
     expect(mocks.execute).not.toHaveBeenCalled()
   })
 
+  it.each(['PRODUCTION_ADMIN', 'SITE_SUPERVISOR', 'DIRECTOR', 'QC'])(
+    'denies tariff reads and writes for %s regardless of granted permissions', async (role) => {
+      for (const [path, method] of [['/rates', 'GET'], ['/RATES/', 'POST'],
+        ['/rates/11111111-1111-4111-8111-111111111111/correction-preview', 'POST'],
+        ['/rates/11111111-1111-4111-8111-111111111111/activate', 'POST']]) {
+        const response = await request(path, {
+          method,
+          auth: auth({ roles: [role], permissions: ['production.view', 'production.manage_master'] }),
+        })
+        expect(response.status).toBe(403)
+      }
+      expect(mocks.query).not.toHaveBeenCalled()
+      expect(mocks.execute).not.toHaveBeenCalled()
+    }
+  )
+
   it('tarif baru selalu dibuat sebagai Draft walau user punya izin master', async () => {
     mocks.query.mockResolvedValueOnce([
       [{ siteId: 1, jobId: 2, defaultUnitId: 3, unitId: 3 }],
@@ -965,7 +982,7 @@ describe('Production foundation API', () => {
 
     const response = await request('/rates', {
       method: 'POST',
-      auth: auth({ permissions: ['production.manage_master'], sites: ['JEPARA'] }),
+      auth: auth({ roles: ['HR_OFFICER'], permissions: ['production.manage_master'], sites: ['JEPARA'] }),
       body: {
         site: 'JEPARA',
         jobUid: '11111111-1111-4111-8111-111111111111',
@@ -995,7 +1012,7 @@ describe('Production foundation API', () => {
   it('menolak ambang tarif yang tidak berurutan sebelum mengubah database', async () => {
     const response = await request('/rates', {
       method: 'POST',
-      auth: auth({ permissions: ['production.manage_master'], sites: ['JEPARA'] }),
+      auth: auth({ roles: ['HR_OFFICER'], permissions: ['production.manage_master'], sites: ['JEPARA'] }),
       body: {
         site: 'JEPARA',
         jobUid: '11111111-1111-4111-8111-111111111111',

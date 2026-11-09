@@ -1,9 +1,23 @@
+import type { ReactNode } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import '@/styles/index.css'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render } from 'vitest-browser-react'
+import { render as browserRender } from 'vitest-browser-react'
 import { page } from 'vitest/browser'
 import type { ProductionTransaction } from './domain'
 import { ProductionTransactionsPage } from './production-transactions-page'
+
+function render(element: ReactNode) {
+  return browserRender(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      {element}
+    </QueryClientProvider>
+  )
+}
 
 const { modules, transactions, navigate, exportMutation, permissionState } =
   vi.hoisted(() => ({
@@ -11,15 +25,15 @@ const { modules, transactions, navigate, exportMutation, permissionState } =
     transactions: vi.fn(),
     navigate: vi.fn(),
     exportMutation: { mutate: vi.fn(), isPending: false },
-    permissionState: { values: ['production.view'] },
+    permissionState: { values: ['production.view'], role: 'PRODUCTION_ADMIN' },
   }))
 vi.mock('@/stores/auth-store', () => ({
   useAuthStore: (selector: (state: unknown) => unknown) =>
     selector({
       session: {
         user: {
-          role: 'PRODUCTION_ADMIN',
-          roles: ['PRODUCTION_ADMIN'],
+          role: permissionState.role,
+          roles: [permissionState.role],
           siteAccess: ['JEPARA', 'KLATEN', 'SEMARANG'],
         },
         permissions: permissionState.values,
@@ -46,6 +60,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.restoreAllMocks()
   permissionState.values = ['production.view']
+  permissionState.role = 'PRODUCTION_ADMIN'
   exportMutation.isPending = false
   localStorage.removeItem('hris-rsia-production-transactions-kpi-visible-v1')
   modules.mockReturnValue({
@@ -195,8 +210,8 @@ describe('compact production QC table', () => {
       'Hasil Setoran',
       'QC',
       'Adjustment',
-      'Hasil Dibayar & Tarif Dasar',
-      'Nilai Bruto',
+      'Hasil Dibayar',
+      'Status',
       'Aksi',
     ])
     await expect
@@ -394,7 +409,7 @@ describe('production table KPI preference', () => {
       <ProductionTransactionsPage search={{}} navigate={navigate} />
     )
     await expect
-      .element(first.getByText('Nilai Bruto', { exact: true }))
+      .element(first.getByText('Pekerja', { exact: true }))
       .toBeInTheDocument()
     await first.getByRole('button', { name: 'Opsi tabel Produksi' }).click()
     await expect
@@ -410,7 +425,7 @@ describe('production table KPI preference', () => {
     await toggle.click()
     await expect.element(toggle).toHaveAttribute('aria-checked', 'false')
     await expect
-      .element(first.getByText('Nilai Bruto', { exact: true }))
+      .element(first.getByText('Pekerja', { exact: true }))
       .not.toBeInTheDocument()
     expect(localStorage.getItem(key)).toBe('false')
     await first.unmount()
@@ -419,14 +434,14 @@ describe('production table KPI preference', () => {
       <ProductionTransactionsPage search={{}} navigate={navigate} />
     )
     await expect
-      .element(second.getByText('Nilai Bruto', { exact: true }))
+      .element(second.getByText('Pekerja', { exact: true }))
       .not.toBeInTheDocument()
     await second.getByRole('button', { name: 'Opsi tabel Produksi' }).click()
     await second
       .getByRole('menuitemcheckbox', { name: 'Tampilkan KPI' })
       .click()
     await expect
-      .element(second.getByText('Nilai Bruto', { exact: true }))
+      .element(second.getByText('Pekerja', { exact: true }))
       .toBeInTheDocument()
     expect(localStorage.getItem(key)).toBe('true')
   })
@@ -437,7 +452,7 @@ describe('production table KPI preference', () => {
       <ProductionTransactionsPage search={{}} navigate={navigate} />
     )
     await expect
-      .element(screen.getByText('Nilai Bruto', { exact: true }))
+      .element(screen.getByText('Pekerja', { exact: true }))
       .toBeInTheDocument()
   })
 
@@ -456,7 +471,7 @@ describe('production table KPI preference', () => {
       .getByRole('menuitemcheckbox', { name: 'Tampilkan KPI' })
       .click()
     await expect
-      .element(screen.getByText('Nilai Bruto', { exact: true }))
+      .element(screen.getByText('Pekerja', { exact: true }))
       .not.toBeInTheDocument()
   })
 })
@@ -525,4 +540,41 @@ describe('site-scoped production module filter', () => {
     )
     expect(navigate).not.toHaveBeenCalled()
   })
+})
+
+describe('production financial visibility', () => {
+  it('keeps quantities, adjustment and status while omitting all wages for production admins', async () => {
+    await page.viewport(1440, 900)
+    setDeposits([deposit({ rateSnapshot: undefined, grossAmount: undefined })])
+    const screen = await render(
+      <ProductionTransactionsPage search={{}} navigate={navigate} />
+    )
+    const table = screen.getByRole('table')
+    await expect
+      .element(table.getByText('Tercatat', { exact: true }))
+      .toBeInTheDocument()
+    expect(table.element().textContent).toContain('97%')
+    expect(table.element().textContent).not.toMatch(
+      /Tarif dasar|Nilai Bruto|Rp|NaN/
+    )
+    await expect
+      .element(screen.getByText('Nilai Bruto', { exact: true }))
+      .not.toBeInTheDocument()
+  })
+  it.each(['HR_OFFICER', 'SUPER_ADMIN'])(
+    'preserves wage columns for %s',
+    async (role) => {
+      await page.viewport(1440, 900)
+      permissionState.role = role
+      setDeposits([deposit()])
+      const screen = await render(
+        <ProductionTransactionsPage search={{}} navigate={navigate} />
+      )
+      const table = screen.getByRole('table')
+      await expect
+        .element(table.getByText('Nilai Bruto', { exact: true }))
+        .toBeInTheDocument()
+      expect(table.element().textContent).toContain('Rp')
+    }
+  )
 })

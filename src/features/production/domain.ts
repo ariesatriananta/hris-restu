@@ -261,7 +261,7 @@ export type ProductionTerminalLookup = {
       name: string
       decimalPrecision: number
     }
-    rate: {
+    rate?: {
       uid: string
       amount: string
       currency: 'IDR'
@@ -287,8 +287,8 @@ export type ProductionTransaction = {
   payableQuantity?: string
   productionSection?: { uid: string; code: string; name: string } | null
   productionModule?: { uid: string; code?: string; name: string } | null
-  rateSnapshot: string
-  grossAmount: string
+  rateSnapshot?: string
+  grossAmount?: string
   qc?: ProductionQcSnapshot | null
   rateDetails?: Array<{
     minQuantity: string
@@ -394,7 +394,7 @@ export type ProductionCorrectionJob = {
     name: string
     decimalPrecision: number
   }
-  rate: {
+  rate?: {
     uid: string
     amount: string
     currency: 'IDR'
@@ -416,7 +416,7 @@ export type ProductionCorrectionContext = {
 }
 
 export type ProductionCorrectionPreview = {
-  pairDelta?: { quantity: string; grossAmount: string }
+  pairDelta?: { quantity: string; grossAmount?: string }
   affectedTransactions?: ProductionTransaction[]
   pairProposal?: {
     source: ProductionTransaction
@@ -432,12 +432,12 @@ export type ProductionCorrectionPreview = {
     deductionPercentage?: string
     deductionQuantity?: string
     payableQuantity?: string
-    rateSnapshot: string
-    grossAmount: string
+    rateSnapshot?: string
+    grossAmount?: string
   }
   delta: {
     quantity: string
-    grossAmount: string
+    grossAmount?: string
   }
   payrollLock: ProductionPayrollLock
   canApply: boolean
@@ -580,12 +580,12 @@ export type ProductionRateCancellationPreview = {
 }
 
 export type ProductionVoidPreview = {
-  pairImpact?: { quantity: string; grossAmount: string }
+  pairImpact?: { quantity: string; grossAmount?: string }
   affectedTransactions?: ProductionTransaction[]
   source: ProductionTransaction
   impact: {
     quantity: string
-    grossAmount: string
+    grossAmount?: string
   }
   payrollLock: ProductionPayrollLock
   canApply: boolean
@@ -716,7 +716,7 @@ export type ProductionTransactionResult =
           job: { uid: string; code: string; name: string }
         }
       >
-      totalGrossAmount: string
+      totalGrossAmount?: string
     }
   }
 
@@ -736,7 +736,7 @@ export type ProductionRecapJobBreakdown = {
   job: { uid: string; code: string; name: string }
   transactionCount: number
   quantityTotals: ProductionRecapQuantity[]
-  grossAmount: string
+  grossAmount?: string
 }
 
 export type ProductionRecapEmployee = {
@@ -752,7 +752,7 @@ export type ProductionRecapEmployee = {
   placementChanged: boolean
   transactionCount: number
   jobCount: number
-  grossAmount: string
+  grossAmount?: string
   payrollStatus: ProductionPayrollSnapshotStatus
   quantityTotals: ProductionRecapQuantity[]
   jobs: ProductionRecapJobBreakdown[]
@@ -792,7 +792,7 @@ export type ProductionRecapResult = {
     employeeCount: number
     transactionCount: number
     jobCount: number
-    totalGrossAmount: string
+    totalGrossAmount?: string
   }
   quantityTotals: ProductionRecapQuantity[]
   employees: PaginatedProductionResult<ProductionRecapEmployee>
@@ -809,14 +809,14 @@ export type ProductionRecapResult = {
 export type ProductionRecapMatrixCell = {
   transactionCount: number
   quantityTotals: ProductionRecapQuantity[]
-  grossAmount: string
+  grossAmount?: string
   jobs: Array<{
     uid: string
     code: string
     name: string
     transactionCount: number
     quantityTotals: ProductionRecapQuantity[]
-    grossAmount: string
+    grossAmount?: string
   }>
   payrollStatus: ProductionPayrollSnapshotStatus
 }

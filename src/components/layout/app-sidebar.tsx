@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/sidebar'
 import { AppBrand } from '@/components/app-brand'
 import { hasAnyPermission } from '@/features/auth/permissions'
+import { canViewProductionWages } from '@/features/auth/production-access'
 import { isQcSession } from '@/features/auth/qc-access'
 import { sidebarData } from './data/sidebar-data'
 import { NavGroup } from './nav-group'
@@ -70,9 +71,17 @@ export function AppSidebar() {
 }
 
 function canSeeItem(
-  item: Pick<NavItem, 'superAdminOnly' | 'anyOfPermissions' | 'excludeQc'>,
+  item: Pick<NavItem, 'superAdminOnly' | 'anyOfPermissions' | 'excludeQc'> & {
+    url?: string
+  },
   session: ReturnType<typeof useAuthStore.getState>['session']
 ) {
+  if (
+    'url' in item &&
+    item.url === '/produksi/tarif-site' &&
+    !canViewProductionWages(session)
+  )
+    return false
   if (item.excludeQc && isQcSession(session)) return false
   if (item.superAdminOnly && session?.user.role !== 'SUPER_ADMIN') return false
   if (item.anyOfPermissions?.length) {

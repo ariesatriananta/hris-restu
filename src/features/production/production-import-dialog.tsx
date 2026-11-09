@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import * as XLSX from 'xlsx'
+import { useAuthStore } from '@/stores/auth-store'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -52,6 +53,7 @@ import {
   dateOnlyFromInput,
   dateOnlyToInput,
 } from '@/features/attendance/date-only'
+import { canViewProductionWages } from '@/features/auth/production-access'
 import {
   fetchProductionImportTemplateEmployees,
   useImportProductionTransactions,
@@ -68,6 +70,7 @@ import {
   parseProductionWorkbook,
   productionImportMaxRows,
 } from './production-import-workbook'
+import { ProductionWages } from './production-wages'
 
 const productionImportPreviewColumns: ColumnDef<ProductionImportPreviewRow>[] =
   [{ accessorKey: 'rowNumber' }]
@@ -349,6 +352,9 @@ function ProductionImportPreviewTable({
 }: {
   preview: ProductionImportPreview
 }) {
+  const canViewWages = canViewProductionWages(
+    useAuthStore((state) => state.session)
+  )
   const [query, setQuery] = useState('')
   const [validationStatus, setValidationStatus] = useState<
     'ALL' | 'VALID' | 'WARNING' | 'INVALID'
@@ -412,7 +418,7 @@ function ProductionImportPreviewTable({
       String(now.getSeconds()).padStart(2, '0'),
     ].join('')
     XLSX.writeFile(
-      buildProductionValidationWorkbook(preview),
+      buildProductionValidationWorkbook(preview, canViewWages),
       `hasil-validasi-import-produksi-${timestamp}.xlsx`
     )
   }
@@ -553,9 +559,11 @@ function ProductionImportPreviewTable({
                           %
                         </p>
                       )}
-                      <p className='font-medium'>
-                        {formatCurrency(row.estimatedGrossAmount ?? '0')}
-                      </p>
+                      <ProductionWages>
+                        <p className='font-medium'>
+                          {formatCurrency(row.estimatedGrossAmount ?? '0')}
+                        </p>
+                      </ProductionWages>
                     </>
                   ) : (
                     row.quantity || '—'

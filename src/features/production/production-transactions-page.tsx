@@ -109,6 +109,10 @@ import {
   dateOnlyToInput,
 } from '@/features/attendance/date-only'
 import { hasPermission } from '@/features/auth/permissions'
+import {
+  canViewProductionWages,
+  canReviseProductionDate,
+} from '@/features/auth/production-access'
 import { isQcSession } from '@/features/auth/qc-access'
 import {
   useCreateHistoricalProduction,
@@ -152,6 +156,7 @@ import {
   normalizeProductionQuantity,
   validateProductionQuantity,
 } from './production-terminal-policy'
+import { ProductionWages } from './production-wages'
 
 const allProductionSites: ProductionSite[] = ['JEPARA', 'SEMARANG', 'KLATEN']
 const kpiVisibleKey = 'hris-rsia-production-transactions-kpi-visible-v1'
@@ -740,10 +745,12 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
                 label='Kuantitas dibayar'
                 value={`${formatNumber(preview.data.proposed.payableQuantity ?? preview.data.proposed.quantity, preview.data.proposed.unit.decimalPrecision)} ${preview.data.proposed.unit.code}`}
               />
-              <PreviewMetric
-                label='Estimasi bruto'
-                value={formatCurrency(preview.data.proposed.grossAmount)}
-              />
+              <ProductionWages>
+                <PreviewMetric
+                  label='Estimasi bruto'
+                  value={formatCurrency(preview.data.proposed.grossAmount)}
+                />
+              </ProductionWages>
             </div>
             {preview.data.payrollLock.locked && (
               <div className='mt-3'>
@@ -786,6 +793,9 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
 }
 
 function TransactionSummary({ data }: { data?: ProductionTransactionResult }) {
+  const canViewWages = canViewProductionWages(
+    useAuthStore((state) => state.session)
+  )
   const quantityTotals = data?.summary.quantityTotals ?? []
   const quantityTotalsByJob = data?.summary.quantityTotalsByJob ?? []
   const items = [
@@ -842,25 +852,27 @@ function TransactionSummary({ data }: { data?: ProductionTransactionResult }) {
   ]
   return (
     <div className='grid gap-2 sm:grid-cols-2 xl:grid-cols-4'>
-      {items.map(({ label, value, icon: Icon, description, tone }) => (
-        <Tooltip key={label}>
-          <TooltipTrigger asChild>
-            <section
-              tabIndex={0}
-              className={`min-h-[68px] rounded-lg border px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-ring ${tone}`}
-            >
-              <div className='flex items-start justify-between gap-2'>
-                <div className='min-w-0'>
-                  <p className='text-xs text-muted-foreground'>{label}</p>
-                  <p className='truncate text-lg font-bold'>{value}</p>
+      {items
+        .filter((item) => item.label !== 'Nilai Bruto' || canViewWages)
+        .map(({ label, value, icon: Icon, description, tone }) => (
+          <Tooltip key={label}>
+            <TooltipTrigger asChild>
+              <section
+                tabIndex={0}
+                className={`min-h-[68px] rounded-lg border px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-ring ${tone}`}
+              >
+                <div className='flex items-start justify-between gap-2'>
+                  <div className='min-w-0'>
+                    <p className='text-xs text-muted-foreground'>{label}</p>
+                    <p className='truncate text-lg font-bold'>{value}</p>
+                  </div>
+                  <Icon className='size-4 text-primary' />
                 </div>
-                <Icon className='size-4 text-primary' />
-              </div>
-            </section>
-          </TooltipTrigger>
-          <TooltipContent className='max-w-72'>{description}</TooltipContent>
-        </Tooltip>
-      ))}
+              </section>
+            </TooltipTrigger>
+            <TooltipContent className='max-w-72'>{description}</TooltipContent>
+          </Tooltip>
+        ))}
     </div>
   )
 }
@@ -947,6 +959,9 @@ function TransactionTable({
         left.uid.localeCompare(right.uid)
     )
   }, [data?.items])
+  const canViewWages = canViewProductionWages(
+    useAuthStore((state) => state.session)
+  )
   const columns = useMemo<ColumnDef<ProductionTransaction>[]>(
     () => [
       {
@@ -1106,7 +1121,7 @@ function TransactionTable({
       },
       {
         id: 'payableResult',
-        header: 'Hasil Dibayar & Tarif Dasar',
+        header: canViewWages ? 'Hasil Dibayar & Tarif Dasar' : 'Hasil Dibayar',
         cell: ({ row }) => (
           <div className='min-w-0'>
             <p className='font-medium whitespace-nowrap tabular-nums'>
@@ -1116,21 +1131,25 @@ function TransactionTable({
               )}{' '}
               {row.original.unit.code}
             </p>
-            <p className='truncate text-[11px] leading-4 text-muted-foreground'>
-              Tarif dasar {formatCurrency(row.original.rateSnapshot)}
-            </p>
+            <ProductionWages>
+              <p className='truncate text-[11px] leading-4 text-muted-foreground'>
+                Tarif dasar {formatCurrency(row.original.rateSnapshot)}
+              </p>
+            </ProductionWages>
           </div>
         ),
         size: 185,
       },
       {
         id: 'amount',
-        header: 'Nilai Bruto',
+        header: canViewWages ? 'Nilai Bruto' : 'Status',
         cell: ({ row }) => (
           <div className='space-y-0.5'>
-            <p className='truncate font-semibold'>
-              {formatCurrency(row.original.grossAmount)}
-            </p>
+            <ProductionWages>
+              <p className='truncate font-semibold'>
+                {formatCurrency(row.original.grossAmount)}
+              </p>
+            </ProductionWages>
             <TransactionStatus value={row.original.status} />
           </div>
         ),
@@ -1159,7 +1178,14 @@ function TransactionTable({
         enableHiding: false,
       },
     ],
-    [onOpenDetail, defects, showDefects, renderDefects, toggleDefects]
+    [
+      onOpenDetail,
+      defects,
+      showDefects,
+      renderDefects,
+      toggleDefects,
+      canViewWages,
+    ]
   )
   const url = useTableUrlState({
     search,
@@ -1476,9 +1502,7 @@ function MobileTransaction({
           <TransactionQcSummary item={item} />
         </div>
         <div className='min-w-0'>
-          <p className='text-xs text-muted-foreground'>
-            Hasil Dibayar & Tarif Dasar
-          </p>
+          <p className='text-xs text-muted-foreground'>Hasil Dibayar</p>
           <p className='tabular-nums'>
             {formatNumber(
               item.payableQuantity ?? item.quantity,
@@ -1486,13 +1510,19 @@ function MobileTransaction({
             )}{' '}
             {item.unit.code}
           </p>
-          <p className='text-xs text-muted-foreground'>
-            Tarif dasar {formatCurrency(item.rateSnapshot)}
-          </p>
+          <ProductionWages>
+            <p className='text-xs text-muted-foreground'>
+              Tarif dasar {formatCurrency(item.rateSnapshot)}
+            </p>
+          </ProductionWages>
         </div>
         <div>
-          <p className='text-xs text-muted-foreground'>Nilai bruto</p>
-          <p className='font-semibold'>{formatCurrency(item.grossAmount)}</p>
+          <ProductionWages>
+            <p className='text-xs text-muted-foreground'>Nilai bruto</p>
+          </ProductionWages>
+          <ProductionWages>
+            <p className='font-semibold'>{formatCurrency(item.grossAmount)}</p>
+          </ProductionWages>
         </div>
         <div>
           <p className='text-xs text-muted-foreground'>Waktu</p>
@@ -1523,7 +1553,9 @@ function TransactionDetailSheet({
   const result = useProductionTransaction(uid)
   const session = useAuthStore((state) => state.session)
   const item = result.data
-  const mayRevise = hasPermission(session, 'production.correct')
+  const mayRevise =
+    hasPermission(session, 'production.correct') &&
+    Boolean(item && canReviseProductionDate(session, item.businessDate))
   const canCorrect = item
     ? canOfferProductionRevision(item, mayRevise, item.canCorrect !== false)
     : false
@@ -1650,36 +1682,51 @@ function TransactionDetailSheet({
                     'Kuantitas dibayar',
                     `${formatNumber(item.payableQuantity ?? item.quantity, item.unit.decimalPrecision)} ${item.unit.code}`,
                   ],
-                  ['Tarif dasar snapshot', formatCurrency(item.rateSnapshot)],
-                  ['Nilai bruto', formatCurrency(item.grossAmount)],
+                  ...(canViewProductionWages(session)
+                    ? [
+                        [
+                          'Tarif dasar snapshot',
+                          formatCurrency(item.rateSnapshot),
+                        ] as [string, string],
+                        ['Nilai bruto', formatCurrency(item.grossAmount)] as [
+                          string,
+                          string,
+                        ],
+                      ]
+                    : []),
                 ]}
               />
-              {!!item.rateDetails?.length && (
-                <div className='rounded-lg border p-3 text-sm'>
-                  <p className='mb-2 font-medium'>Rincian tarif bertingkat</p>
-                  <div className='space-y-1.5'>
-                    {item.rateDetails.map((detail, index) => (
-                      <div
-                        key={`${detail.minQuantity}-${index}`}
-                        className='flex flex-wrap justify-between gap-x-3 gap-y-0.5 border-b pb-1.5 last:border-0 last:pb-0'
-                      >
-                        <span className='text-muted-foreground'>
-                          Mulai {formatNumber(detail.minQuantity, 0)}{' '}
-                          {item.unit.code}:{' '}
-                          {formatNumber(
-                            detail.quantity,
-                            item.unit.decimalPrecision
-                          )}{' '}
-                          x {formatCurrency(detail.rateAmount)}
-                        </span>
-                        <span className='font-medium'>
-                          {formatCurrency(detail.amount)}
-                        </span>
-                      </div>
-                    ))}
+              {canViewProductionWages(session) &&
+                !!item.rateDetails?.length && (
+                  <div className='rounded-lg border p-3 text-sm'>
+                    <p className='mb-2 font-medium'>Rincian tarif bertingkat</p>
+                    <div className='space-y-1.5'>
+                      {item.rateDetails.map((detail, index) => (
+                        <div
+                          key={`${detail.minQuantity}-${index}`}
+                          className='flex flex-wrap justify-between gap-x-3 gap-y-0.5 border-b pb-1.5 last:border-0 last:pb-0'
+                        >
+                          <ProductionWages>
+                            <span className='text-muted-foreground'>
+                              Mulai {formatNumber(detail.minQuantity, 0)}{' '}
+                              {item.unit.code}:{' '}
+                              {formatNumber(
+                                detail.quantity,
+                                item.unit.decimalPrecision
+                              )}{' '}
+                              x {formatCurrency(detail.rateAmount)}
+                            </span>
+                          </ProductionWages>
+                          <ProductionWages>
+                            <span className='font-medium'>
+                              {formatCurrency(detail.amount)}
+                            </span>
+                          </ProductionWages>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
               {item.qc ? (
                 <ProductionQcDetail
                   qc={item.qc}
@@ -1735,6 +1782,13 @@ function TransactionDetailSheet({
                 </section>
               )}
               <RevisionTimeline revisions={item.revisions ?? []} />
+              {hasPermission(session, 'production.correct') &&
+                !canReviseProductionDate(session, item.businessDate) && (
+                  <p className='rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground'>
+                    Koreksi dan void tanggal sebelumnya hanya tersedia untuk
+                    HR/Superadmin.
+                  </p>
+                )}
               {(canCorrect || canVoid) && (
                 <div className='sticky bottom-0 grid gap-2 border-t bg-background/95 py-3 backdrop-blur sm:grid-cols-2'>
                   {canCorrect && (
@@ -1788,6 +1842,9 @@ function RevisionTimeline({
 }: {
   revisions: ProductionTransactionRevision[]
 }) {
+  const canViewWages = canViewProductionWages(
+    useAuthStore((state) => state.session)
+  )
   if (!revisions.length) return null
   return (
     <section>
@@ -1823,7 +1880,7 @@ function RevisionTimeline({
                 {revision.after.quantity
                   ? ` · ${formatNumber(revision.after.quantity, 4)} ${revision.after.unit?.code ?? 'hasil'}`
                   : ''}
-                {revision.after.grossAmount
+                {revision.after.grossAmount && canViewWages
                   ? ` · ${formatCurrency(revision.after.grossAmount)}`
                   : ''}
               </p>
@@ -2156,12 +2213,16 @@ function CorrectionPreviewPanel({
           </p>
         </div>
         <div>
-          <p className='text-xs text-muted-foreground'>
-            Selisih bruto hari ini
-          </p>
-          <p className='font-semibold'>
-            {formatSignedCurrency(preview.delta.grossAmount)}
-          </p>
+          <ProductionWages>
+            <p className='text-xs text-muted-foreground'>
+              Selisih bruto hari ini
+            </p>
+          </ProductionWages>
+          <ProductionWages>
+            <p className='font-semibold'>
+              {formatSignedCurrency(preview.delta.grossAmount)}
+            </p>
+          </ProductionWages>
         </div>
       </div>
       {preview.pairProposal && (
@@ -2172,10 +2233,12 @@ function CorrectionPreviewPanel({
             {preview.pairProposal.source.job.name}
           </p>
           {preview.pairDelta && (
-            <p className='mt-0.5 text-muted-foreground'>
-              Dampak bruto pasangan hari ini:{' '}
-              {formatSignedCurrency(preview.pairDelta.grossAmount)}
-            </p>
+            <ProductionWages>
+              <p className='mt-0.5 text-muted-foreground'>
+                Dampak bruto pasangan hari ini:{' '}
+                {formatSignedCurrency(preview.pairDelta.grossAmount)}
+              </p>
+            </ProductionWages>
           )}
           <p className='mt-0.5 tabular-nums'>
             {formatNumber(
@@ -2187,9 +2250,14 @@ function CorrectionPreviewPanel({
               preview.pairProposal.proposed.quantity,
               preview.pairProposal.proposed.unit.decimalPrecision
             )}{' '}
-            {preview.pairProposal.proposed.unit.code} · Bruto{' '}
-            {formatCurrency(preview.pairProposal.source.grossAmount)} →{' '}
-            {formatCurrency(preview.pairProposal.proposed.grossAmount)}
+            {preview.pairProposal.proposed.unit.code}
+            <ProductionWages>
+              {' '}
+              · Bruto {formatCurrency(
+                preview.pairProposal.source.grossAmount
+              )}{' '}
+              → {formatCurrency(preview.pairProposal.proposed.grossAmount)}
+            </ProductionWages>
           </p>
         </div>
       )}
@@ -2215,7 +2283,7 @@ function PreviewColumn({
   job: string
   quantity: string
   rate: string
-  gross: string
+  gross?: string
 }) {
   return (
     <div className='rounded-md border bg-background p-3 text-sm'>
@@ -2227,10 +2295,12 @@ function PreviewColumn({
       )}
       <p className='font-medium'>{job}</p>
       <p>{quantity}</p>
-      <p className='text-xs text-muted-foreground'>
-        Tarif dasar {rate} / satuan
-      </p>
-      <p className='mt-1 font-semibold'>{gross}</p>
+      <ProductionWages>
+        <p className='text-xs text-muted-foreground'>
+          Tarif dasar {rate} / satuan
+        </p>
+        <p className='mt-1 font-semibold'>{gross}</p>
+      </ProductionWages>
     </div>
   )
 }
@@ -2318,8 +2388,12 @@ function VoidDialog({
                     preview.data.pairImpact.quantity,
                     preview.data.source.unit.decimalPrecision
                   )}{' '}
-                  {preview.data.source.unit.code} · Bruto hari ini{' '}
-                  {formatSignedCurrency(preview.data.pairImpact.grossAmount)}
+                  {preview.data.source.unit.code}
+                  <ProductionWages>
+                    {' '}
+                    · Bruto hari ini{' '}
+                    {formatSignedCurrency(preview.data.pairImpact.grossAmount)}
+                  </ProductionWages>
                 </p>
               )}
               <p className='font-medium'>{preview.data.source.job.name}</p>
@@ -2328,8 +2402,11 @@ function VoidDialog({
                   preview.data.source.quantity,
                   preview.data.source.unit.decimalPrecision
                 )}{' '}
-                {preview.data.source.unit.code} ·{' '}
-                {formatCurrency(preview.data.source.grossAmount)}
+                {preview.data.source.unit.code}
+                <ProductionWages>
+                  {' '}
+                  · {formatCurrency(preview.data.source.grossAmount)}
+                </ProductionWages>
               </p>
               <div className='mt-2 grid grid-cols-2 gap-2 border-t pt-2 text-xs'>
                 <div>
@@ -2342,10 +2419,16 @@ function VoidDialog({
                   </p>
                 </div>
                 <div>
-                  <p className='text-muted-foreground'>Dampak bruto hari ini</p>
-                  <p className='font-semibold text-destructive'>
-                    {formatSignedCurrency(preview.data.impact.grossAmount)}
-                  </p>
+                  <ProductionWages>
+                    <p className='text-muted-foreground'>
+                      Dampak bruto hari ini
+                    </p>
+                  </ProductionWages>
+                  <ProductionWages>
+                    <p className='font-semibold text-destructive'>
+                      {formatSignedCurrency(preview.data.impact.grossAmount)}
+                    </p>
+                  </ProductionWages>
                 </div>
               </div>
             </div>
@@ -2523,7 +2606,7 @@ function formatNumber(value: string | number, maximumFractionDigits = 0) {
   )
 }
 
-function formatCurrency(value: string | number) {
+function formatCurrency(value: string | number | undefined) {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
     currency: 'IDR',
@@ -2541,7 +2624,7 @@ function formatSignedNumber(value: string | number, maximumFractionDigits = 0) {
       : formatted
 }
 
-function formatSignedCurrency(value: string | number) {
+function formatSignedCurrency(value: string | number | undefined) {
   const numeric = Number(value)
   const formatted = formatCurrency(Math.abs(numeric))
   return numeric > 0

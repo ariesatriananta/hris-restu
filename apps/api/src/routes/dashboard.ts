@@ -5,6 +5,7 @@ import { env } from '../config.js'
 import { pool } from '../db.js'
 import { jakartaBusinessDate } from '../lib/attendance-shift-policy.js'
 import { ApiError } from '../lib/errors.js'
+import { canViewProductionWages } from '../lib/production-access-policy.js'
 import { isQc } from '../lib/production-module-access.js'
 import { authenticate, type AuthContext } from '../middleware/authenticate.js'
 
@@ -513,7 +514,9 @@ dashboardRouter.get('/overview', async (req, res, next) => {
           uid: String(row.uid),
           occurredAt: String(row.occurredAt),
           title: activityTitle(String(row.module), String(row.action)),
-          detail: String(row.description ?? 'Aktivitas operasional dicatat.'),
+          detail: row.module === 'PRODUCTION' && !canViewProductionWages(auth)
+            ? 'Aktivitas Produksi dicatat.'
+            : String(row.description ?? 'Aktivitas operasional dicatat.'),
           site: String(row.siteName),
         })),
       },

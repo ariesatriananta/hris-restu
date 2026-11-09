@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
 import { ApiError } from '../lib/errors.js'
+import { canViewProductionWages } from '../lib/production-access-policy.js'
 import { isQc } from '../lib/production-module-access.js'
 import {
   authenticate,
@@ -64,6 +65,12 @@ async function ensureUnused(
 
 export const productionStructureRouter = Router()
 productionStructureRouter.use(authenticate)
+productionStructureRouter.use((req, res, next) => {
+  if (/^\/rates(?:\/|$)/i.test(req.path) && !canViewProductionWages(res.locals.auth as AuthContext)) {
+    return next(new ApiError(403, 'Informasi upah Produksi hanya tersedia untuk HR dan Super Admin.'))
+  }
+  next()
+})
 // The three routers share a mount; allow scanner metadata to reach the QC router.
 productionStructureRouter.use((req, res, next) => {
   if (isQc(res.locals.auth as AuthContext) &&

@@ -7,6 +7,7 @@ import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
 import { businessDate } from '../lib/contract-lifecycle.js'
 import { ApiError } from '../lib/errors.js'
+import { canViewProductionWages, redactProductionFinancials } from '../lib/production-access-policy.js'
 import { isQc, productionModuleScope } from '../lib/production-module-access.js'
 import { qcTransactionPredicate } from '../lib/production-transaction-module.js'
 import {
@@ -289,6 +290,16 @@ async function activeRateContext(connection: PoolConnection, uid: string, lock: 
 
 export const productionFoundationRouter = Router()
 productionFoundationRouter.use(authenticate)
+// Restrict monetary routes before queries and redact operational JSON at the boundary.
+productionFoundationRouter.use((req, res, next) => {
+  const auth = res.locals.auth as AuthContext
+  if (!canViewProductionWages(auth) && /^\/rates(?:\/|$)/i.test(req.path)) {
+    return next(new ApiError(403, 'Informasi upah Produksi hanya tersedia untuk HR dan Super Admin.'))
+  }
+  const sendJson = res.json.bind(res)
+  res.json = (body) => sendJson(redactProductionFinancials(body, auth))
+  next()
+})
 // The three routers share a mount; allow scanner metadata to reach the QC router.
 productionFoundationRouter.use((req, res, next) => {
   if (isQc(res.locals.auth as AuthContext) &&
