@@ -1,6 +1,6 @@
-# Ringkasan Produksi harian - M2
+# Ringkasan Produksi harian - M2/M3
 
-M2 menyediakan API baca untuk halaman Ringkasan Produksi yang disepakati Bos. Menu, tab, daftar mobile dan panel rincian UI dikerjakan pada M3. Tidak ada tabel, migrasi, pengubahan data, atau kalkulasi ulang upah melalui API ini.
+M2 menyediakan API baca, dan M3 menyediakan halaman Ringkasan Produksi yang disepakati Bos. Tidak ada tabel, migrasi, pengubahan data, atau kalkulasi ulang upah melalui API ini.
 
 ## Aturan data dan akses
 
@@ -36,14 +36,30 @@ Rincian mengirim UID transaksi yang dapat dibuka melalui API detail transaksi la
 
 Total dan pagination dihitung di database, bukan dari sebagian baris yang sudah dimuat pada frontend. Pilihan tab dan daftar memakai urutan stabil. Data kosong menghasilkan daftar kosong; rincian karyawan tanpa transaksi dalam cakupan tidak membuka identitas dari luar akses.
 
-## Perilaku UI yang direncanakan pada M3
+## Halaman Ringkasan Produksi (M3)
 
-Menu sesudah Transaksi Produksi. Header ringkas berisi tanggal, site/modul, pencarian dan refresh. Tab pekerjaan bergeser horizontal pada HP. Ringkasan mengikuti pekerjaan aktif; daftar desktop berbentuk tabel dan mobile berupa kartu tipis. Ketuk karyawan membuka rincian setorannya.
+Menu **Produksi Borongan > Ringkasan Produksi**, sesudah Transaksi Produksi, pada `/produksi/ringkasan`. Header ringkas berisi tanggal, site/modul, pencarian dan refresh. Tab pekerjaan bergeser horizontal pada HP. Ringkasan mengikuti pekerjaan aktif; daftar desktop berbentuk tabel dan mobile berupa kartu tipis. Ketuk karyawan membuka rincian setorannya.
 
-Refresh otomatis moderat (rencana 60 detik) hanya ketika halaman aktif, berhenti saat browser tersembunyi, dengan indikator waktu pembaruan. Jangan memuat rincian seluruh pekerjaan/karyawan sekaligus.
+Refresh otomatis setiap 60 detik ketika halaman aktif, berhenti saat browser tersembunyi atau panel rincian/koreksi dibuka, dengan indikator waktu pembaruan. Rincian hanya dimuat saat karyawan dipilih, dengan pagination sendiri; tidak memuat seluruh pekerjaan/karyawan sekaligus.
+
+Tanggal, site, modul, pekerjaan terpilih, pencarian dan pagination tersimpan di URL. Pencarian ditunda singkat agar tidak mengirim request tiap penekanan tombol. Pilihan modul menyesuaikan site; modul yang sudah tidak tersedia dibersihkan. Pergantian tanggal efektif server menutup rincian dan mereset halaman/pekerjaan, sehingga data kemarin tidak tercampur dengan hari baru.
+
+Cache ringkasan, opsi modul dan detail yang dipakai halaman ini dipisahkan berdasarkan akun serta cakupan akses. Logout/login atau perubahan role/site/modul tidak memakai respons akun sebelumnya. Query ringkasan berada dalam cakupan invalidasi transaksi, sehingga koreksi/void dari rincian memperbarui ringkasan sesuai data server.
+
+### Uji halaman oleh Owner
+
+1. Login QC, buka Ringkasan Produksi. Tanggal berupa hari ini dan tidak dapat diubah. Nominal upah tidak tampil.
+2. Pilih site/modul yang diizinkan. Coba tab Linting dan Batil; jumlah orang/setoran serta satuan tetap terpisah.
+3. Cari nama/NIK dan ubah halaman; tab pekerjaan tetap ada. Ubah filter dan pastikan pagination kembali ke awal.
+4. Gunakan HP: daftar tampil sebagai kartu tipis tanpa scroll horizontal isi daftar. Tab pekerjaan boleh digeser.
+5. Ketuk pekerja, periksa jumlah setoran, brand dan QC per transaksi. Buka Detail untuk koreksi/void; aturan M1 dan Payroll tetap berlaku.
+6. Saat panel ditutup, periksa refresh manual dan waktu pembaruan. Beralih ke tab browser lain atau membuka rincian menjeda polling.
+7. Login HR dengan permission/site sesuai: pilihan tanggal tersedia dan nominal mengikuti akses. Berganti akun harus menghilangkan data akun sebelumnya.
 
 ## Verifikasi
 
 **Hasil M2:** 30 tes API lulus, ESLint file baru dan integrasi app lulus, serta `pnpm run build:api` lulus. SQL tidak dieksekusi dan tidak ada migrasi baru.
+
+**Hasil pengujian M3:** 8 tes browser halaman, 3 tes cache query, dan 54 tes regresi Produksi lulus. Build frontend lengkap (`pnpm run build:frontend`, TypeScript dan Vite) lulus. Tampilan mobile 390px diperiksa tanpa overflow daftar. Lint terarah tidak memiliki error; peringatan standar TanStack Table tetap ada. Route tree dibuat melalui generator TanStack, tidak diedit manual.
 
 Pengujian API memakai mock database untuk batas role/tanggal, scope site/modul, pengikatan parameter SQL, satuan terpisah, preagregasi defect, pagination dan redaksi nominal. Uji database nyata, konsistensi angka dengan transaksi lapangan dan `EXPLAIN` query tetap dilakukan setelah tersedia lingkungan Owner yang diizinkan. Tidak menambahkan indeks berdasarkan asumsi tanpa pengukuran.

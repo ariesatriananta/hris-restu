@@ -5,8 +5,13 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import { useAuthStore } from '@/stores/auth-store'
 import { apiClient } from '@/lib/api-client'
 import type {
+  ProductionDailyParams,
+  ProductionDailyTabs,
+  ProductionDailyEmployees,
+  ProductionDailyTransactions,
   ActivatedProductionDevice,
   PaginatedProductionResult,
   ProductionAssignment,
@@ -52,6 +57,24 @@ import type {
   ProductionVoidPreview,
   WorkUnit,
 } from '../domain'
+
+// Access changes must never reuse another account's monitoring/detail cache.
+function useProductionReadScope() {
+  const session = useAuthStore((state) => state.session)
+  return {
+    session,
+    scope: session
+      ? [
+          session.user.uid,
+          session.user.role,
+          session.user.roles,
+          session.permissions,
+          session.user.siteAccess,
+          session.user.productionModuleAccess ?? [],
+        ]
+      : null,
+  }
+}
 
 const keys = {
   all: ['production-foundation'] as const,
@@ -450,8 +473,10 @@ export function useProductionTerminalDetail(
 }
 
 export function useProductionTransactionModuleOptions(site?: string[]) {
+  const { session, scope } = useProductionReadScope()
   return useQuery({
-    queryKey: [...keys.all, 'transaction-module-options', site],
+    queryKey: [...keys.all, 'transaction-module-options', site, scope],
+    enabled: Boolean(session),
     queryFn: async () =>
       (
         await apiClient.get<{
@@ -614,28 +639,30 @@ export function useExportProductionRecaps() {
 }
 
 export function useProductionTransaction(uid?: string) {
+  const { session, scope } = useProductionReadScope()
   return useQuery({
-    queryKey: keys.transaction(uid ?? ''),
+    queryKey: [...keys.transaction(uid ?? ''), scope],
     queryFn: async () =>
       (
         await apiClient.get<{
           transaction: ProductionPostResult['transaction']
         }>(`/production/transactions/${uid}`)
       ).data.transaction,
-    enabled: Boolean(uid),
+    enabled: Boolean(uid && session),
   })
 }
 
 export function useProductionCorrectionContext(uid?: string, enabled = true) {
+  const { session, scope } = useProductionReadScope()
   return useQuery({
-    queryKey: keys.correctionContext(uid ?? ''),
+    queryKey: [...keys.correctionContext(uid ?? ''), scope],
     queryFn: async () =>
       (
         await apiClient.get<ProductionCorrectionContext>(
           `/production/transactions/${uid}/correction-context`
         )
       ).data,
-    enabled: Boolean(uid) && enabled,
+    enabled: Boolean(uid && session) && enabled,
   })
 }
 
@@ -917,4 +944,85 @@ export function useCorrectProductionRate(uid?: string) {
     },
     ProductionRateCorrectionPreview
   >(`/production-structure/rates/${uid}/correct`)
+}
+
+// Keep monitoring queries under transactions so scanner/correction invalidation also refreshes them.
+export function useProductionDailyTabs(
+  input: ProductionDailyParams,
+  polling: boolean
+) {
+  const { session, scope } = useProductionReadScope()
+  return useQuery({
+    queryKey: [
+      ...keys.all,
+      'transactions',
+      'daily-summary',
+      'tabs',
+      input,
+      scope,
+    ],
+    enabled: Boolean(session),
+    queryFn: async ({ signal }) =>
+      (
+        await apiClient.get<ProductionDailyTabs>(
+          `/production/daily-summary?${params(input)}`,
+          { signal }
+        )
+      ).data,
+    refetchInterval: polling ? 60_000 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: polling,
+  })
+}
+export function useProductionDailyEmployees(
+  input: ProductionDailyParams,
+  polling: boolean
+) {
+  const { session, scope } = useProductionReadScope()
+  return useQuery({
+    queryKey: [
+      ...keys.all,
+      'transactions',
+      'daily-summary',
+      'employees',
+      input,
+      scope,
+    ],
+    queryFn: async ({ signal }) =>
+      (
+        await apiClient.get<ProductionDailyEmployees>(
+          `/production/daily-summary/employees?${params(input)}`,
+          { signal }
+        )
+      ).data,
+    enabled: Boolean(session && input.jobUid),
+    refetchInterval: polling ? 60_000 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: polling,
+  })
+}
+export function useProductionDailyTransactions(
+  employeeUid: string | undefined,
+  input: ProductionDailyParams
+) {
+  const { session, scope } = useProductionReadScope()
+  return useQuery({
+    queryKey: [
+      ...keys.all,
+      'transactions',
+      'daily-summary',
+      'detail',
+      employeeUid,
+      input,
+      scope,
+    ],
+    queryFn: async ({ signal }) =>
+      (
+        await apiClient.get<ProductionDailyTransactions>(
+          `/production/daily-summary/employees/${employeeUid}/transactions?${params(input)}`,
+          { signal }
+        )
+      ).data,
+    enabled: Boolean(session && employeeUid && input.jobUid),
+  })
 }

@@ -25,6 +25,7 @@ import { Route as AuthenticatedLaporanIndexRouteImport } from './routes/_authent
 import { Route as AuthenticatedProduksiTransaksiRouteImport } from './routes/_authenticated/produksi/transaksi'
 import { Route as AuthenticatedProduksiTerminalSetoranRouteImport } from './routes/_authenticated/produksi/terminal-setoran'
 import { Route as AuthenticatedProduksiTarifSiteRouteImport } from './routes/_authenticated/produksi/tarif-site'
+import { Route as AuthenticatedProduksiRingkasanRouteImport } from './routes/_authenticated/produksi/ringkasan'
 import { Route as AuthenticatedProduksiRekapRouteImport } from './routes/_authenticated/produksi/rekap'
 import { Route as AuthenticatedProduksiMasterPekerjaanRouteImport } from './routes/_authenticated/produksi/master-pekerjaan'
 import { Route as AuthenticatedPayrollSlipGajiRouteImport } from './routes/_authenticated/payroll/slip-gaji'
@@ -168,6 +169,12 @@ const AuthenticatedProduksiTarifSiteRoute =
   AuthenticatedProduksiTarifSiteRouteImport.update({
     id: '/produksi/tarif-site',
     path: '/produksi/tarif-site',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedProduksiRingkasanRoute =
+  AuthenticatedProduksiRingkasanRouteImport.update({
+    id: '/produksi/ringkasan',
+    path: '/produksi/ringkasan',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedProduksiRekapRoute =
@@ -589,6 +596,7 @@ export interface FileRoutesByFullPath {
   '/payroll/slip-gaji': typeof AuthenticatedPayrollSlipGajiRoute
   '/produksi/master-pekerjaan': typeof AuthenticatedProduksiMasterPekerjaanRoute
   '/produksi/rekap': typeof AuthenticatedProduksiRekapRoute
+  '/produksi/ringkasan': typeof AuthenticatedProduksiRingkasanRoute
   '/produksi/tarif-site': typeof AuthenticatedProduksiTarifSiteRoute
   '/produksi/terminal-setoran': typeof AuthenticatedProduksiTerminalSetoranRoute
   '/produksi/transaksi': typeof AuthenticatedProduksiTransaksiRoute
@@ -665,6 +673,7 @@ export interface FileRoutesByTo {
   '/payroll/slip-gaji': typeof AuthenticatedPayrollSlipGajiRoute
   '/produksi/master-pekerjaan': typeof AuthenticatedProduksiMasterPekerjaanRoute
   '/produksi/rekap': typeof AuthenticatedProduksiRekapRoute
+  '/produksi/ringkasan': typeof AuthenticatedProduksiRingkasanRoute
   '/produksi/tarif-site': typeof AuthenticatedProduksiTarifSiteRoute
   '/produksi/terminal-setoran': typeof AuthenticatedProduksiTerminalSetoranRoute
   '/produksi/transaksi': typeof AuthenticatedProduksiTransaksiRoute
@@ -744,6 +753,7 @@ export interface FileRoutesById {
   '/_authenticated/payroll/slip-gaji': typeof AuthenticatedPayrollSlipGajiRoute
   '/_authenticated/produksi/master-pekerjaan': typeof AuthenticatedProduksiMasterPekerjaanRoute
   '/_authenticated/produksi/rekap': typeof AuthenticatedProduksiRekapRoute
+  '/_authenticated/produksi/ringkasan': typeof AuthenticatedProduksiRingkasanRoute
   '/_authenticated/produksi/tarif-site': typeof AuthenticatedProduksiTarifSiteRoute
   '/_authenticated/produksi/terminal-setoran': typeof AuthenticatedProduksiTerminalSetoranRoute
   '/_authenticated/produksi/transaksi': typeof AuthenticatedProduksiTransaksiRoute
@@ -823,6 +833,7 @@ export interface FileRouteTypes {
     | '/payroll/slip-gaji'
     | '/produksi/master-pekerjaan'
     | '/produksi/rekap'
+    | '/produksi/ringkasan'
     | '/produksi/tarif-site'
     | '/produksi/terminal-setoran'
     | '/produksi/transaksi'
@@ -899,6 +910,7 @@ export interface FileRouteTypes {
     | '/payroll/slip-gaji'
     | '/produksi/master-pekerjaan'
     | '/produksi/rekap'
+    | '/produksi/ringkasan'
     | '/produksi/tarif-site'
     | '/produksi/terminal-setoran'
     | '/produksi/transaksi'
@@ -977,6 +989,7 @@ export interface FileRouteTypes {
     | '/_authenticated/payroll/slip-gaji'
     | '/_authenticated/produksi/master-pekerjaan'
     | '/_authenticated/produksi/rekap'
+    | '/_authenticated/produksi/ringkasan'
     | '/_authenticated/produksi/tarif-site'
     | '/_authenticated/produksi/terminal-setoran'
     | '/_authenticated/produksi/transaksi'
@@ -1120,6 +1133,13 @@ declare module '@tanstack/react-router' {
       path: '/produksi/tarif-site'
       fullPath: '/produksi/tarif-site'
       preLoaderRoute: typeof AuthenticatedProduksiTarifSiteRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/produksi/ringkasan': {
+      id: '/_authenticated/produksi/ringkasan'
+      path: '/produksi/ringkasan'
+      fullPath: '/produksi/ringkasan'
+      preLoaderRoute: typeof AuthenticatedProduksiRingkasanRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/produksi/rekap': {
@@ -1742,6 +1762,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedPayrollSlipGajiRoute: typeof AuthenticatedPayrollSlipGajiRoute
   AuthenticatedProduksiMasterPekerjaanRoute: typeof AuthenticatedProduksiMasterPekerjaanRoute
   AuthenticatedProduksiRekapRoute: typeof AuthenticatedProduksiRekapRoute
+  AuthenticatedProduksiRingkasanRoute: typeof AuthenticatedProduksiRingkasanRoute
   AuthenticatedProduksiTarifSiteRoute: typeof AuthenticatedProduksiTarifSiteRoute
   AuthenticatedProduksiTerminalSetoranRoute: typeof AuthenticatedProduksiTerminalSetoranRoute
   AuthenticatedProduksiTransaksiRoute: typeof AuthenticatedProduksiTransaksiRoute
@@ -1805,6 +1826,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedProduksiMasterPekerjaanRoute:
     AuthenticatedProduksiMasterPekerjaanRoute,
   AuthenticatedProduksiRekapRoute: AuthenticatedProduksiRekapRoute,
+  AuthenticatedProduksiRingkasanRoute: AuthenticatedProduksiRingkasanRoute,
   AuthenticatedProduksiTarifSiteRoute: AuthenticatedProduksiTarifSiteRoute,
   AuthenticatedProduksiTerminalSetoranRoute:
     AuthenticatedProduksiTerminalSetoranRoute,

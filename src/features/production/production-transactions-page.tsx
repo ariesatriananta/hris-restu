@@ -1539,7 +1539,7 @@ function MobileTransaction({
   )
 }
 
-function TransactionDetailSheet({
+export function TransactionDetailSheet({
   uid,
   open,
   onOpenChange,

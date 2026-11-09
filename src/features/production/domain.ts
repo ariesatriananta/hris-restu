@@ -903,3 +903,88 @@ export function productionEntrySourceLabel(
   if (source === 'CORRECTION') return 'Hasil koreksi HR'
   return 'Terminal Produksi'
 }
+
+export type ProductionDailyMetadata = {
+  effectiveDate: string
+  serverToday: string
+  canChangeDate: boolean
+  canViewWages: boolean
+}
+export type ProductionDailyParams = {
+  date?: string
+  site?: string[]
+  moduleUid?: string[]
+  jobUid?: string
+  unitUid?: string
+  query?: string
+  page?: number
+  pageSize?: number
+}
+export type ProductionDailyTotals = {
+  quantity: string
+  payableQuantity: string
+  transactionCount: number
+  rejectOccurrences: number
+  grossAmount?: string
+}
+export type ProductionDailyTab = {
+  jobUid: string
+  jobCode: string
+  jobName: string
+  employeeCount: number
+  transactionCount: number
+  units: Array<
+    ProductionDailyTotals & {
+      unitUid: string
+      unitCode: string
+      unitName: string
+      decimalPrecision: number
+    }
+  >
+}
+export type ProductionDailyTabs = ProductionDailyMetadata & {
+  tabs: ProductionDailyTab[]
+}
+export type ProductionDailyEmployee = ProductionDailyTotals & {
+  employee: ProductionTransaction['employee']
+  site: { uid: string; code: string; name: string }
+  job: ProductionTransaction['job']
+  unit: ProductionTransaction['unit']
+  lastSubmittedAt: string
+  modules: Array<{ uid: string; code: string; name: string }>
+}
+export type ProductionDailyEmployees = ProductionDailyMetadata &
+  PaginatedProductionResult<ProductionDailyEmployee> & {
+    summary: {
+      units: Array<
+        ProductionDailyTotals & {
+          unit: ProductionTransaction['unit']
+          employeeCount: number
+        }
+      >
+    }
+  }
+export type ProductionDailyTransaction = Pick<
+  ProductionTransaction,
+  | 'uid'
+  | 'transactionNumber'
+  | 'transactionAt'
+  | 'businessDate'
+  | 'quantity'
+  | 'payableQuantity'
+  | 'deductionPercentage'
+  | 'grossAmount'
+  | 'rateSnapshot'
+  | 'payrollLockedAt'
+  | 'employee'
+  | 'job'
+  | 'unit'
+> & {
+  site: ProductionDailyEmployee['site']
+  module: { uid: string; code: string; name: string } | null
+  qc: ProductionQcSnapshot | null
+  rejectOccurrences: number
+  status: 'POSTED'
+}
+export type ProductionDailyTransactions = ProductionDailyMetadata &
+  PaginatedProductionResult<ProductionDailyTransaction>

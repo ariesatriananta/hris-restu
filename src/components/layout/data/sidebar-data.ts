@@ -128,6 +128,11 @@ export const sidebarData: SidebarData = {
               anyOfPermissions: ['production.view'],
             },
             {
+              title: 'Ringkasan Produksi',
+              url: '/produksi/ringkasan',
+              anyOfPermissions: ['production.view'],
+            },
+            {
               title: 'Rekap Produksi',
               excludeQc: true,
               url: '/produksi/rekap',
