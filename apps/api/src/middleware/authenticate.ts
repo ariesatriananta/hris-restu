@@ -3,6 +3,7 @@ import type { RowDataPacket } from 'mysql2'
 import { pool } from '../db.js'
 import { ACCESS_COOKIE, verifyAccessToken } from '../lib/auth.js'
 import { ApiError } from '../lib/errors.js'
+import { isQc, QC_PERMISSIONS } from '../lib/production-module-access.js'
 
 export type AuthContext = {
   id: number
@@ -12,6 +13,7 @@ export type AuthContext = {
   roles: string[]
   permissions: string[]
   siteAccess: string[]
+  productionModuleAccess?: string[]
   sessionUid?: string
   mustChangePassword?: boolean
 }
@@ -51,6 +53,18 @@ export async function authenticate(
       sessionUid,
       mustChangePassword: Boolean(rows[0].must_change_password),
     } satisfies AuthContext
+    if (isQc(res.locals.auth)) {
+      const [modules] = await pool.query<RowDataPacket[]>(
+        `SELECT pm.uid FROM user_production_module_access uma JOIN production_modules pm ON pm.id=uma.production_module_id JOIN user_site_access usa ON usa.user_id=uma.user_id AND usa.site_id=pm.site_id WHERE uma.user_id=?`,
+        [res.locals.auth.id]
+      )
+      res.locals.auth.productionModuleAccess = [
+        ...new Set(modules.map((row) => String(row.uid))),
+      ]
+      res.locals.auth.permissions = res.locals.auth.permissions.filter(
+        (permission: string) => QC_PERMISSIONS.includes(permission)
+      )
+    }
     if (res.locals.auth.mustChangePassword) {
       const requestPath = req.originalUrl.split('?')[0]?.replace(/\/$/, '')
       const allowed =
@@ -77,7 +91,8 @@ export const requirePermission =
     const auth = res.locals.auth as AuthContext
     if (
       !auth.roles.includes('SUPER_ADMIN') &&
-      !auth.permissions.includes(permission)
+      (!auth.permissions.includes(permission) ||
+        (isQc(auth) && !QC_PERMISSIONS.includes(permission)))
     )
       return next(new ApiError(403, 'Anda tidak memiliki izin untuk aksi ini.'))
     next()

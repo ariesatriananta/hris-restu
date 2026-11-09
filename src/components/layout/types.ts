@@ -6,6 +6,7 @@ type BaseNavItem = {
   badge?: string
   icon?: React.ElementType
   superAdminOnly?: boolean
+  excludeQc?: boolean
   anyOfPermissions?: PermissionCode[]
 }
 

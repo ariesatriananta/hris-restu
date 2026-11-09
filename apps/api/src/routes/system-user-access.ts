@@ -35,6 +35,7 @@ const userMutation = z.object({
   status: z.enum(['ACTIVE', 'INACTIVE', 'LOCKED']),
   roleUids: z.array(z.string().uuid()).min(1),
   siteUids: z.array(z.string().uuid()).default([]),
+  productionModuleUids: z.array(z.string().uuid()).default([]),
   defaultSiteUid: z.string().uuid().nullable().optional(),
 })
 const createUserInput = userMutation.extend({ initialPassword: password })
@@ -108,6 +109,7 @@ async function references(
   input: {
     roleUids: string[]
     siteUids: string[]
+    productionModuleUids?: string[]
     defaultSiteUid?: string | null
   }
 ) {
@@ -150,7 +152,43 @@ async function references(
       422,
       'Site utama harus termasuk dalam akses site pengguna.'
     )
-  return { roles, sites, defaultSiteUid: input.defaultSiteUid ?? null }
+  const isQcRole = roles.some((role) => role.code === 'QC')
+  if (isQcRole && roles.length !== 1)
+    throw new ApiError(422, 'Role QC tidak dapat digabung dengan role lain.')
+  const moduleUids = unique(input.productionModuleUids ?? [])
+  if (!isQcRole && moduleUids.length)
+    throw new ApiError(422, 'Akses modul produksi hanya berlaku untuk role QC.')
+  let modules: (RefRow & { siteUid: string })[] = []
+  if (isQcRole) {
+    if (!moduleUids.length)
+      throw new ApiError(
+        422,
+        'QC wajib memiliki minimal satu modul produksi pada setiap site.'
+      )
+    const [rows] = await conn.query<(RefRow & { siteUid: string })[]>(
+      `SELECT pm.id,pm.uid,pm.code,pm.name,s.uid siteUid FROM production_modules pm JOIN sites s ON s.id=pm.site_id WHERE pm.uid IN (${moduleUids.map(() => '?').join(',')}) AND pm.is_active=1 AND s.is_active=1`,
+      moduleUids
+    )
+    modules = rows
+    if (
+      modules.length !== moduleUids.length ||
+      modules.some((module) => !siteUids.includes(module.siteUid))
+    )
+      throw new ApiError(
+        422,
+        'Modul produksi harus aktif dan termasuk site yang dipilih.'
+      )
+    if (
+      siteUids.some(
+        (siteUid) => !modules.some((module) => module.siteUid === siteUid)
+      )
+    )
+      throw new ApiError(
+        422,
+        'QC wajib memiliki minimal satu modul produksi pada setiap site.'
+      )
+  }
+  return { roles, sites, modules, defaultSiteUid: input.defaultSiteUid ?? null }
 }
 
 async function assignments(conn: PoolConnection, userIds: number[]) {
@@ -159,9 +197,19 @@ async function assignments(conn: PoolConnection, userIds: number[]) {
     {
       roles: { uid: string; code: string; name: string }[]
       sites: { uid: string; code: string; name: string; isDefault: boolean }[]
+      productionModules: {
+        uid: string
+        code: string
+        name: string
+        siteUid: string
+        siteCode: string
+        isActive: boolean
+      }[]
     }
   >()
-  userIds.forEach((id) => result.set(id, { roles: [], sites: [] }))
+  userIds.forEach((id) =>
+    result.set(id, { roles: [], sites: [], productionModules: [] })
+  )
   if (!userIds.length) return result
   const placeholders = userIds.map(() => '?').join(',')
   const [roleRows] = await conn.query<RowDataPacket[]>(
@@ -185,6 +233,21 @@ async function assignments(conn: PoolConnection, userIds: number[]) {
       name: String(row.name),
       isDefault: Boolean(row.isDefault),
     })
+  const [moduleRows] = await conn.query<RowDataPacket[]>(
+    `SELECT uma.user_id userId,pm.uid,pm.code,pm.name,s.uid siteUid,s.code siteCode,pm.is_active isActive FROM user_production_module_access uma JOIN production_modules pm ON pm.id=uma.production_module_id JOIN sites s ON s.id=pm.site_id WHERE uma.user_id IN (${placeholders}) ORDER BY s.name,pm.name`,
+    userIds
+  )
+  for (const row of moduleRows)
+    result
+      .get(Number(row.userId))
+      ?.productionModules.push({
+        uid: String(row.uid),
+        code: String(row.code),
+        name: String(row.name),
+        siteUid: String(row.siteUid),
+        siteCode: String(row.siteCode),
+        isActive: Boolean(row.isActive),
+      })
   return result
 }
 
@@ -209,6 +272,7 @@ function publicUser(
     updatedAt: row.updatedAt,
     roles: access.roles,
     siteAccess: access.sites,
+    productionModuleAccess: access.productionModules,
   }
 }
 
@@ -236,6 +300,15 @@ async function replaceAccess(
   refs: Awaited<ReturnType<typeof references>>,
   actorId: number
 ) {
+  await conn.execute(
+    'DELETE FROM user_production_module_access WHERE user_id=?',
+    [userId]
+  )
+  for (const module of refs.modules)
+    await conn.execute(
+      'INSERT INTO user_production_module_access(uid,user_id,production_module_id,created_by,updated_by) VALUES(?,?,?,?,?)',
+      [randomUUID(), userId, module.id, actorId, actorId]
+    )
   await conn.execute('DELETE FROM user_roles WHERE user_id=?', [userId])
   for (const role of refs.roles)
     await conn.execute(
@@ -313,7 +386,7 @@ systemUserAccessRouter.use(authenticate, (_req, res, next) => {
 
 systemUserAccessRouter.get('/meta', async (_req, res, next) => {
   try {
-    const [roles, sites, permissions] = await Promise.all([
+    const [roles, sites, permissions, productionModules] = await Promise.all([
       pool.query<RowDataPacket[]>(
         'SELECT uid,code,name,description,is_system isSystem,is_active isActive FROM roles ORDER BY name'
       ),
@@ -322,6 +395,9 @@ systemUserAccessRouter.get('/meta', async (_req, res, next) => {
       ),
       pool.query<RowDataPacket[]>(
         'SELECT uid,code,module,name,description FROM permissions ORDER BY module,name'
+      ),
+      pool.query<RowDataPacket[]>(
+        'SELECT pm.uid,pm.code,pm.name,s.uid siteUid,s.code siteCode,pm.is_active isActive FROM production_modules pm JOIN sites s ON s.id=pm.site_id ORDER BY s.name,pm.name'
       ),
     ])
     res.json({
@@ -340,6 +416,10 @@ systemUserAccessRouter.get('/meta', async (_req, res, next) => {
         isActive: Boolean(row.isActive),
       })),
       permissions: permissions[0],
+      productionModules: productionModules[0].map((row) => ({
+        ...row,
+        isActive: Boolean(row.isActive),
+      })),
     })
   } catch (error) {
     next(error)
@@ -483,6 +563,7 @@ systemUserAccessRouter.post('/users', async (req, res, next) => {
           status: input.status,
           roleUids: unique(input.roleUids),
           siteUids: unique(input.siteUids),
+          productionModuleUids: unique(input.productionModuleUids),
           defaultSiteUid: input.defaultSiteUid ?? null,
           mustChangePassword: true,
         },
@@ -562,6 +643,10 @@ systemUserAccessRouter.patch('/users/:uid', async (req, res, next) => {
       oldSiteUids = oldAccess.sites.map((site) => site.uid).sort()
     const accessChanged =
       input.status !== current.status ||
+      JSON.stringify(unique(input.productionModuleUids).sort()) !==
+        JSON.stringify(
+          oldAccess.productionModules.map((module) => module.uid).sort()
+        ) ||
       JSON.stringify(unique(input.roleUids).sort()) !==
         JSON.stringify(oldRoleUids) ||
       JSON.stringify(unique(input.siteUids).sort()) !==
@@ -594,6 +679,9 @@ systemUserAccessRouter.patch('/users/:uid', async (req, res, next) => {
           status: current.status,
           roleUids: oldRoleUids,
           siteUids: oldSiteUids,
+          productionModuleUids: oldAccess.productionModules.map(
+            (module) => module.uid
+          ),
         },
         afterData: {
           fullName: input.fullName,
@@ -603,6 +691,7 @@ systemUserAccessRouter.patch('/users/:uid', async (req, res, next) => {
           status: input.status,
           roleUids: unique(input.roleUids),
           siteUids: unique(input.siteUids),
+          productionModuleUids: unique(input.productionModuleUids),
           defaultSiteUid: input.defaultSiteUid ?? null,
         },
       },
@@ -677,7 +766,7 @@ systemUserAccessRouter.get('/roles', async (_req, res, next) => {
         ...row,
         isSystem: Boolean(row.isSystem),
         isActive: Boolean(row.isActive),
-        permissionsImmutable: row.code === 'SUPER_ADMIN',
+        permissionsImmutable: ['SUPER_ADMIN', 'QC'].includes(String(row.code)),
       }))
     )
   } catch (error) {
@@ -706,7 +795,7 @@ systemUserAccessRouter.get('/roles/:uid', async (req, res, next) => {
       description: role.description,
       isSystem: Boolean(role.isSystem),
       isActive: Boolean(role.isActive),
-      permissionsImmutable: role.code === 'SUPER_ADMIN',
+      permissionsImmutable: ['SUPER_ADMIN', 'QC'].includes(String(role.code)),
       userCount: Number(role.userCount ?? 0),
       permissionCount: permissions.length,
       permissions,
@@ -734,6 +823,11 @@ systemUserAccessRouter.patch('/roles/:uid', async (req, res, next) => {
       throw new ApiError(
         422,
         'Hak akses Super Admin selalu penuh dan tidak dapat diubah.'
+      )
+    if (role.code === 'QC')
+      throw new ApiError(
+        422,
+        'Hak akses QC tetap: lihat, scan, koreksi dan void Produksi.'
       )
     const permissionUids = unique(input.permissionUids)
     let permissions: RowDataPacket[] = []

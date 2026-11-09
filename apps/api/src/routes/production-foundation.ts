@@ -7,6 +7,8 @@ import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
 import { businessDate } from '../lib/contract-lifecycle.js'
 import { ApiError } from '../lib/errors.js'
+import { isQc, productionModuleScope } from '../lib/production-module-access.js'
+import { qcTransactionPredicate } from '../lib/production-transaction-module.js'
 import {
   assignmentStatusSql,
   booleanFilter,
@@ -41,7 +43,7 @@ const routeParam = (value: string | string[]) =>
   Array.isArray(value) ? value[0] : value
 
 function isGlobalViewer(auth: AuthContext) {
-  return auth.roles.some((role) => role === 'SUPER_ADMIN' || role === 'DIRECTOR')
+  return !isQc(auth) && auth.roles.some((role) => role === 'SUPER_ADMIN' || role === 'DIRECTOR')
 }
 
 function scopeWhere(auth: AuthContext, column = 's.code') {
@@ -287,6 +289,14 @@ async function activeRateContext(connection: PoolConnection, uid: string, lock: 
 
 export const productionFoundationRouter = Router()
 productionFoundationRouter.use(authenticate)
+// The three routers share a mount; allow scanner metadata to reach the QC router.
+productionFoundationRouter.use((req, res, next) => {
+  if (isQc(res.locals.auth as AuthContext) &&
+      !((req.method === 'GET' || req.method === 'HEAD') && /^\/(qc-options|jobs|eligible-employees)\/?$/i.test(req.path))) {
+    return next(new ApiError(403, 'Role QC hanya dapat mengakses scanner dan transaksi Produksi.'))
+  }
+  next()
+})
 
 productionFoundationRouter.get(
   '/work-units',
@@ -454,6 +464,29 @@ productionFoundationRouter.get(
       const { page, pageSize } = pageParams(req.query.page, req.query.pageSize)
       const where = ['1=1']
       const values: unknown[] = []
+      const auth = res.locals.auth as AuthContext
+      if (isQc(auth)) {
+        const assignmentSite = scopeWhere(auth, 'job_site.code')
+        const assignmentModule = productionModuleScope(auth, 'job_mapping.production_module_id')
+        const transactionSite = scopeWhere(auth, 'job_site.code')
+        const transactionModule = qcTransactionPredicate(auth, 'job_transaction')
+        where.push(`(EXISTS (
+          SELECT 1 FROM employee_job_assignments job_assignment
+          JOIN sites job_site ON job_site.id=job_assignment.site_id
+          JOIN employee_employment_histories job_history ON job_history.employee_id=job_assignment.employee_id
+            AND job_history.site_id=job_assignment.site_id AND job_history.status='ACTIVE'
+            AND job_history.effective_from<=COALESCE(job_assignment.effective_to,'9999-12-31')
+            AND (job_history.effective_to IS NULL OR job_history.effective_to>=job_assignment.effective_from)
+          JOIN production_module_sections job_mapping ON job_mapping.id=job_history.production_module_section_id
+          WHERE job_assignment.production_job_id=j.id AND job_assignment.status='ACTIVE'
+            AND ${assignmentSite.sql} AND ${assignmentModule.clause}
+        ) OR EXISTS (
+          SELECT 1 FROM production_transactions job_transaction
+          JOIN sites job_site ON job_site.id=job_transaction.site_id
+          WHERE job_transaction.production_job_id=j.id AND ${transactionSite.sql} AND ${transactionModule.sql}
+        ))`)
+        values.push(...assignmentSite.params,...assignmentModule.params,...transactionSite.params,...transactionModule.params)
+      }
       const query = String(req.query.query ?? '').trim()
       if (query) {
         where.push('(j.code LIKE ? OR j.name LIKE ? OR j.category LIKE ?)')
@@ -1667,6 +1700,8 @@ productionFoundationRouter.get(
       const values: unknown[] = [site, asOf, asOf, asOf, asOf]
       const search = query ? 'AND (e.employee_number LIKE ? OR e.full_name LIKE ?)' : ''
       if (query) values.push(`%${query}%`, `%${query}%`)
+      const moduleScope = productionModuleScope(auth, 'pms.production_module_id')
+      if (isQc(auth)) values.push(...moduleScope.params)
       const from = `FROM employee_employment_histories eh
         JOIN employees e ON e.id=eh.employee_id
         JOIN sites s ON s.id=eh.site_id
@@ -1674,10 +1709,10 @@ productionFoundationRouter.get(
         JOIN employee_types et ON et.id=eh.employee_type_id AND et.code IN ('BORONGAN','TRAINING')
         LEFT JOIN production_module_sections pms ON pms.id=eh.production_module_section_id
         LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
-       WHERE s.code=? AND eh.effective_from<=? AND (eh.effective_to IS NULL OR eh.effective_to>=?)
+       WHERE s.code=? ${isQc(auth) ? "AND eh.status='ACTIVE'" : ''} AND eh.effective_from<=? AND (eh.effective_to IS NULL OR eh.effective_to>=?)
          AND (SELECT COUNT(*) FROM employee_employment_histories active_history
-               WHERE active_history.employee_id=e.id AND active_history.effective_from<=?
-                 AND (active_history.effective_to IS NULL OR active_history.effective_to>=?))=1 ${search}`
+               WHERE active_history.employee_id=e.id ${isQc(auth) ? "AND active_history.status='ACTIVE'" : ''} AND active_history.effective_from<=?
+                 AND (active_history.effective_to IS NULL OR active_history.effective_to>=?))=1 ${search} ${isQc(auth) ? `AND ${moduleScope.clause}` : ''}`
       const [counts] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) total ${from}`, values)
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT e.id employeeId,e.uid,e.employee_number employeeNumber,e.full_name fullName,s.code site,

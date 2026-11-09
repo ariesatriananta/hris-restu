@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/sidebar'
 import { AppBrand } from '@/components/app-brand'
 import { hasAnyPermission } from '@/features/auth/permissions'
+import { isQcSession } from '@/features/auth/qc-access'
 import { sidebarData } from './data/sidebar-data'
 import { NavGroup } from './nav-group'
 import type { NavGroup as NavGroupType, NavItem } from './types'
@@ -69,9 +70,10 @@ export function AppSidebar() {
 }
 
 function canSeeItem(
-  item: Pick<NavItem, 'superAdminOnly' | 'anyOfPermissions'>,
+  item: Pick<NavItem, 'superAdminOnly' | 'anyOfPermissions' | 'excludeQc'>,
   session: ReturnType<typeof useAuthStore.getState>['session']
 ) {
+  if (item.excludeQc && isQcSession(session)) return false
   if (item.superAdminOnly && session?.user.role !== 'SUPER_ADMIN') return false
   if (item.anyOfPermissions?.length) {
     return hasAnyPermission(session, item.anyOfPermissions)

@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { authenticate } from './authenticate.js'
+import { authenticate, requirePermission } from './authenticate.js'
 
 const mocks = vi.hoisted(() => ({ query: vi.fn(), verify: vi.fn() }))
 vi.mock('../db.js', () => ({ pool: { query: mocks.query } }))
@@ -68,7 +68,9 @@ describe('authenticate wajib ganti password', () => {
     mocks.verify.mockRejectedValueOnce(new Error('Synthetic expired token'))
     const ctx = context('GET', '/api/employees')
     await authenticate(ctx.req, ctx.res, ctx.next)
-    expect(ctx.next).toHaveBeenCalledWith(expect.objectContaining({ status: 401 }))
+    expect(ctx.next).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 401 })
+    )
     expect(mocks.query).not.toHaveBeenCalled()
   })
 
@@ -86,4 +88,50 @@ describe('authenticate wajib ganti password', () => {
         .mustChangePassword
     ).toBe(true)
   })
+})
+
+describe('QC authentication scope', () => {
+  it('loads module UIDs constrained by assigned sites and strips unapproved grants', async () => {
+    mocks.query.mockReset()
+    mocks.verify.mockResolvedValue({ payload: { sub: 'qc', sid: 'session' } })
+    mocks.query
+      .mockResolvedValueOnce([
+        [
+          {
+            id: 9,
+            uid: 'qc',
+            full_name: 'QC',
+            status: 'ACTIVE',
+            must_change_password: 0,
+            role_code: 'QC',
+            permission_code: 'production.scan',
+            site_code: 'KLATEN',
+          },
+          {
+            id: 9,
+            role_code: 'QC',
+            permission_code: 'production.export',
+            site_code: 'KLATEN',
+          },
+        ],
+      ])
+      .mockResolvedValueOnce([[{ uid: 'module-one' }, { uid: 'module-one' }]])
+    const ctx = context('GET', '/api/production/terminal/meta')
+    await authenticate(ctx.req, ctx.res, ctx.next)
+    expect(ctx.res.locals.auth.productionModuleAccess).toEqual(['module-one'])
+    expect(ctx.res.locals.auth.permissions).toEqual(['production.scan'])
+    expect(mocks.query.mock.calls[1][0]).toContain('usa.site_id=pm.site_id')
+    expect(ctx.next).toHaveBeenCalledWith()
+  })
+  it.each(['production.export', 'production.manage_master', 'employees.view'])(
+    'denies injected %s grants',
+    (permission) => {
+      const ctx = context('GET', '/api/test')
+      ctx.res.locals.auth = { roles: ['QC'], permissions: [permission] }
+      requirePermission(permission)(ctx.req, ctx.res, ctx.next)
+      expect(ctx.next).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 403 })
+      )
+    }
+  )
 })

@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
 import { ApiError } from '../lib/errors.js'
+import { isQc } from '../lib/production-module-access.js'
 import {
   authenticate,
   requirePermission,
@@ -63,6 +64,14 @@ async function ensureUnused(
 
 export const productionStructureRouter = Router()
 productionStructureRouter.use(authenticate)
+// The three routers share a mount; allow scanner metadata to reach the QC router.
+productionStructureRouter.use((req, res, next) => {
+  if (isQc(res.locals.auth as AuthContext) &&
+      !((req.method === 'GET' || req.method === 'HEAD') && /^\/qc-options\/?$/i.test(req.path))) {
+    return next(new ApiError(403, 'Role QC hanya dapat mengakses scanner dan transaksi Produksi.'))
+  }
+  next()
+})
 
 // Fondasi Produksi modern dipasang lebih dahulu pada prefix yang sama. Bila
 // sebuah sub-route modern tidak ditemukan, jangan pernah jatuh ke handler

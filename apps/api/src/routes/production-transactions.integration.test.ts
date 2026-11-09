@@ -26,6 +26,8 @@ const mocks = vi.hoisted(() => ({
 
 function databaseQuery(...args: unknown[]) {
   const sql = String(args[0])
+  if (sql.startsWith('SELECT pt.id FROM production_transactions pt WHERE pt.id=?')) return Promise.resolve([[{id:21}]])
+  if (sql.startsWith('SELECT pt.id FROM production_transactions pt WHERE pt.employee_id=?')) return Promise.resolve([[]])
   if (sql.includes('production_transaction_pairs')) return mocks.pairsQuery(...args)
   if (/GROUP BY j\.id,j\.uid,j\.code,j\.name,u\.id/.test(sql)) {
     return mocks.jobSummaryQuery(...args)
@@ -400,22 +402,18 @@ describe('Production transactions API', () => {
     expect(await response.json()).toEqual({items:[{uid:jobUid,name:'Modul Uji',site:'JEPARA',siteName:'Jepara'}]})
   })
 
-  it.each(['legacy','status','invalid'])('filter modul berlaku pada list dan semua total dengan penempatan historis: %s', async variant => {
-    mocks.query.mockResolvedValueOnce([[{hasHistoryStatus:variant==='status' ? 1 : 0}]])
-      .mockResolvedValueOnce([[{transactionCount:0,employeeCount:0,totalGrossAmount:0}]])
+  it.each(['valid','invalid'])('filter modul memakai snapshot transaksi untuk list dan semua total: %s', async variant => {
+    mocks.query.mockResolvedValueOnce([[{transactionCount:0,employeeCount:0,totalGrossAmount:0}]])
       .mockResolvedValueOnce([[]]).mockResolvedValueOnce([[]])
     const response=await request(`/transactions?site=JEPARA&moduleUid=${variant==='invalid' ? '1' : jobUid}`)
     expect(response.status).toBe(variant==='invalid' ? 422 : 200)
     if (variant==='invalid') {expect(mocks.query).not.toHaveBeenCalled();return}
-    expect(mocks.query).toHaveBeenCalledTimes(4)
-    for (const [sql,values] of mocks.query.mock.calls.slice(1)) {
-      expect(sql).toContain('module_history.site_id=pt.site_id')
-      expect(sql).toContain('module_history.effective_from<=pt.business_date')
-      expect(sql).toContain('module.uid IN (?)')
-      expect(sql).toContain('conflicting_history.id<>module_history.id')
+    expect(mocks.query).toHaveBeenCalledTimes(3)
+    for (const [sql,values] of mocks.query.mock.calls) {
+      expect(sql).toContain('frozen_module.id=pt.production_module_id')
+      expect(sql).toContain('frozen_module.uid IN (?)')
+      expect(sql).not.toContain('employee_employment_histories')
       expect(values).toContain(jobUid)
-      if (variant==='status') expect(sql).toContain("module_history.status='ACTIVE'")
-      else expect(sql).not.toContain('module_history.status')
     }
   })
 
@@ -1376,14 +1374,13 @@ describe('Production transactions API', () => {
     } else expect(qcHeader).toBeUndefined()
   })
 
-  it.each(['legacy', 'status'])('enriches list QC snapshots and unique historic module without changing totals: %s', async variant => {
+  it('enriches list QC and frozen module snapshots without changing totals', async () => {
     mocks.query
       .mockResolvedValueOnce([[{transactionCount:2,employeeCount:1,totalGrossAmount:'3525.00'}]])
       .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([[transactionRow(),{...transactionRow(),id:22,uid:jobUid}]])
       .mockResolvedValueOnce([[{id:81,transactionId:21,brandUid:employeeUid,brandCode:'BR-OLD',brandName:'Snapshot brand',weight1Grams:'71.29',weight2Grams:null}]])
       .mockResolvedValueOnce([[{qcId:81,uid:jobUid,code:'DF-OLD',name:'Snapshot defect',sortOrder:3,quantity:9}]])
-      .mockResolvedValueOnce([[{hasHistoryStatus:variant==='status' ? 1 : 0}]])
       .mockResolvedValueOnce([[{transactionId:21,uid:jobUid,code:'MOD-OLD',name:'Historical module'}]])
     const response = await request('/transactions?site=JEPARA')
     expect(response.status).toBe(200)
@@ -1397,13 +1394,11 @@ describe('Production transactions API', () => {
     expect(body.items[0]).toMatchObject({productionModule:{uid:jobUid,code:'MOD-OLD',name:'Historical module'},qc:{brand:{code:'BR-OLD',name:'Snapshot brand'},weight1Grams:'71.29',defects:[{name:'Snapshot defect',quantity:9}]}})
     expect(body.items[1]).toMatchObject({productionModule:null,qc:null})
     expect(body.items[0]).not.toHaveProperty('id')
-    expect(mocks.query).toHaveBeenCalledTimes(7)
-    const moduleSql = String(mocks.query.mock.calls[6][0])
-    expect(moduleSql).toContain('module_history.site_id=pt.site_id')
-    expect(moduleSql).toContain('module_history.effective_from<=pt.business_date')
-    expect(moduleSql).toContain('conflicting_history.id<>module_history.id')
-    expect(moduleSql.includes("module_history.status='ACTIVE'")).toBe(variant==='status')
-    expect(mocks.query.mock.calls[6][1]).toEqual([21,22])
+    expect(mocks.query).toHaveBeenCalledTimes(6)
+    const moduleSql = String(mocks.query.mock.calls[5][0])
+    expect(moduleSql).toContain('module.id=pt.production_module_id')
+    expect(moduleSql).not.toContain('employee_employment_histories')
+    expect(mocks.query.mock.calls[5][1]).toEqual([21,22])
   })
 
   it('membatasi list ke site user dan menghitung KPI hanya dari POSTED', async () => {
@@ -1423,8 +1418,7 @@ describe('Production transactions API', () => {
       .mockResolvedValueOnce([[transactionRow()]])
 
       .mockResolvedValueOnce([[]]) // No QC on legacy transactions.
-      .mockResolvedValueOnce([[{hasHistoryStatus:1}]])
-      .mockResolvedValueOnce([[]]) // No unique historical module placement.
+      .mockResolvedValueOnce([[]]) // No frozen module snapshot.
 
     const response = await request(
       `/transactions?site=JEPARA&jobUid=${jobUid}&status=POSTED&pageSize=500`
@@ -1632,7 +1626,7 @@ describe('Production transactions API', () => {
     )
   })
 
-  it.each(['legacy', 'qc', 'qc-write-failure'])('membuat koreksi atomik: original VOID, replacement POSTED, revision append-only QC %s', async qcCase => {
+  it.each(['legacy', 'qc', 'qc-role', 'qc-write-failure'])('membuat koreksi atomik: original VOID, replacement POSTED, revision append-only QC %s', async qcCase => {
     const replacement = {
       ...transactionRow(),
       id: 22,
@@ -1706,7 +1700,7 @@ describe('Production transactions API', () => {
         reason: 'Kuantitas setoran salah dicatat.',
         idempotencyKey: '68666666-6666-4666-8666-666666666666',
       },
-      auth: auth({ permissions: ['production.correct'] }),
+      auth: qcCase==='qc-role' ? {...auth({permissions:['production.correct']}),roles:['QC'],productionModuleAccess:[jobUid]} : auth({permissions:['production.correct']}),
     })
     if (qcCase==='qc-write-failure') {
       expect(response.status).toBe(500)
@@ -1722,9 +1716,9 @@ describe('Production transactions API', () => {
     }
     expect(body.sourceTransaction.status).toBe('VOID')
     expect(body.transaction).toMatchObject({ status: 'POSTED', quantity: '4.0000' })
-    if (qcCase==='qc') expect(body.transaction).toMatchObject({qc:{brand:{name:'Old snapshot'},defects:[{name:'Old defect',sortOrder:9}]}})
+    if (qcCase==='qc' || qcCase==='qc-role') expect(body.transaction).toMatchObject({qc:{brand:{name:'Old snapshot'},defects:[{name:'Old defect',sortOrder:9}]}})
     else expect(body.transaction).toMatchObject({qc:null})
-    expect(mocks.execute.mock.calls.some(([sql]) => String(sql).includes('detail.sort_order_snapshot'))).toBe(qcCase==='qc')
+    expect(mocks.execute.mock.calls.some(([sql]) => String(sql).includes('detail.sort_order_snapshot'))).toBe(qcCase==='qc' || qcCase==='qc-role')
     expect(
       mocks.execute.mock.calls.some((call) =>
         String(call[0]).includes('INSERT INTO production_transaction_revisions')
@@ -1747,7 +1741,7 @@ describe('Production transactions API', () => {
     expect(mocks.audit).toHaveBeenCalledTimes(1)
   })
 
-  it('mengembalikan hasil void lama untuk idempotency yang sama saat source sudah VOID', async () => {
+  it.each(['admin','QC'])('mengembalikan hasil void lama untuk idempotency yang sama saat source sudah VOID: %s', async role => {
     mocks.query
       .mockResolvedValueOnce([[managedTransactionRow({ status: 'VOID' })]])
       .mockResolvedValueOnce([[
@@ -1773,7 +1767,7 @@ describe('Production transactions API', () => {
         reason: 'Setoran duplikat.',
         idempotencyKey: '69666666-6666-4666-8666-666666666666',
       },
-      auth: auth({ permissions: ['production.correct'] }),
+      auth: {...auth({permissions:['production.correct']}),roles:[role],productionModuleAccess:role==='QC' ? [jobUid] : undefined},
     })
     expect(response.status).toBe(200)
     expect((await response.json()) as object).toMatchObject({ duplicate: true })

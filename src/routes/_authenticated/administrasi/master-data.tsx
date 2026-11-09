@@ -1,10 +1,12 @@
 import { z } from 'zod'
 import { createFileRoute } from '@tanstack/react-router'
+import { requireNonQcRole } from '@/features/auth/qc-access'
 import { ProductionStructurePage } from '@/features/production-structure/production-structure-page'
 
 export const Route = createFileRoute(
   '/_authenticated/administrasi/master-data'
 )({
+  beforeLoad: requireNonQcRole,
   validateSearch: z.object({
     page: z.number().int().positive().optional(),
     pageSize: z.number().int().min(1).max(500).optional(),

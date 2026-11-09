@@ -1,10 +1,14 @@
 import { z } from 'zod'
 import { createFileRoute } from '@tanstack/react-router'
 import { requirePermission } from '@/features/auth/permissions'
+import { requireNonQcRole } from '@/features/auth/qc-access'
 import { ProductionRecapPage } from '@/features/production/production-recap-page'
 
 export const Route = createFileRoute('/_authenticated/produksi/rekap')({
-  beforeLoad: () => requirePermission('production.view'),
+  beforeLoad: () => {
+    requireNonQcRole()
+    requirePermission('production.view')
+  },
   validateSearch: z.object({
     filter: z.string().optional(),
     site: z.array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])).optional(),

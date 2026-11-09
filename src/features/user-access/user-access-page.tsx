@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useId, useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
 import {
   flexRender,
@@ -85,6 +85,12 @@ import type {
   UserInput,
   UserStatus,
 } from './domain'
+import {
+  changeUserRole,
+  changeUserSites,
+  isQcRole,
+  moduleAccessError,
+} from './module-access'
 
 type PageSearch = {
   tab?: 'users' | 'roles'
@@ -713,7 +719,7 @@ function TableState({
   )
 }
 
-function UserFormDialog({
+export function UserFormDialog({
   open,
   onOpenChange,
   meta,
@@ -736,6 +742,8 @@ function UserFormDialog({
     setDraft(userDraft(user))
   }
   const pending = create.isPending || update.isPending
+  const isQc = isQcRole(draft, meta)
+  const moduleError = moduleAccessError(draft, meta)
   const selectedRoleCodes = meta.roles
     .filter((role) => draft.roleUids.includes(role.uid))
     .map((role) => role.code)
@@ -749,6 +757,7 @@ function UserFormDialog({
     (!requiresSite || draft.siteUids.length > 0) &&
     (!draft.email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.email)) &&
     (!draft.defaultSiteUid || draft.siteUids.includes(draft.defaultSiteUid)) &&
+    !moduleError &&
     (Boolean(user) || validPassword(draft.initialPassword ?? ''))
 
   const submit = () => {
@@ -759,6 +768,7 @@ function UserFormDialog({
       username: draft.username.trim(),
       email: nullable(draft.email),
       phone: nullable(draft.phone),
+      productionModuleUids: isQc ? (draft.productionModuleUids ?? []) : [],
     }
     const options = {
       onSuccess: () => {
@@ -878,20 +888,24 @@ function UserFormDialog({
                     checked={draft.roleUids.includes(role.uid)}
                     disabled={
                       isCurrentUser &&
-                      role.code === 'SUPER_ADMIN' &&
-                      draft.roleUids.includes(role.uid)
+                      ((role.code === 'SUPER_ADMIN' &&
+                        draft.roleUids.includes(role.uid)) ||
+                        (role.code === 'QC' &&
+                          selectedRoleCodes.includes('SUPER_ADMIN')))
                     }
                     label={role.name}
                     description={role.code}
                     onCheckedChange={(checked) =>
-                      setDraft({
-                        ...draft,
-                        roleUids: toggle(draft.roleUids, role.uid, checked),
-                      })
+                      setDraft(changeUserRole(draft, meta, role.uid, checked))
                     }
                   />
                 ))}
             </div>
+            {isQc && (
+              <p className='text-xs text-muted-foreground'>
+                QC berdiri sendiri. Memilih peran lain akan mengganti peran QC.
+              </p>
+            )}
             {requiresSite && draft.siteUids.length === 0 && (
               <p className='text-xs text-destructive'>
                 Peran yang dipilih wajib memiliki minimal satu akses site.
@@ -909,20 +923,81 @@ function UserFormDialog({
                   description={site.code}
                   onCheckedChange={(checked) => {
                     const siteUids = toggle(draft.siteUids, site.uid, checked)
-                    setDraft({
-                      ...draft,
-                      siteUids,
-                      defaultSiteUid: siteUids.includes(
-                        draft.defaultSiteUid ?? ''
-                      )
-                        ? draft.defaultSiteUid
-                        : null,
-                    })
+                    setDraft(changeUserSites(draft, meta, siteUids))
                   }}
                 />
               ))}
             </div>
           </fieldset>
+          {isQc && (
+            <fieldset className='space-y-2 sm:col-span-2'>
+              <legend className='text-sm font-medium'>
+                Akses modul produksi
+              </legend>
+              <p className='text-xs text-muted-foreground'>
+                Pilih minimal satu modul di setiap site. QC hanya dapat scan,
+                melihat, serta koreksi/void transaksi dalam modul ini.
+              </p>
+              {meta.sites
+                .filter((site) => draft.siteUids.includes(site.uid))
+                .map((site) => {
+                  const modules = (meta.productionModules ?? []).filter(
+                    (module) =>
+                      module.siteUid === site.uid &&
+                      (module.isActive ||
+                        draft.productionModuleUids?.includes(module.uid))
+                  )
+                  return (
+                    <div
+                      key={site.uid}
+                      className='overflow-hidden rounded-md border'
+                    >
+                      <p className='bg-muted/50 px-3 py-2 text-xs font-semibold'>
+                        {site.name}
+                      </p>
+                      <div className='grid gap-1 p-2 sm:grid-cols-2'>
+                        {modules.map((module) => (
+                          <CheckLine
+                            key={module.uid}
+                            checked={
+                              draft.productionModuleUids?.includes(
+                                module.uid
+                              ) ?? false
+                            }
+                            label={module.name}
+                            description={
+                              module.isActive
+                                ? module.code
+                                : `${module.code} · Nonaktif, hapus pilihan ini`
+                            }
+                            onCheckedChange={(checked) =>
+                              setDraft({
+                                ...draft,
+                                productionModuleUids: toggle(
+                                  draft.productionModuleUids ?? [],
+                                  module.uid,
+                                  checked
+                                ),
+                              })
+                            }
+                          />
+                        ))}
+                        {!modules.length && (
+                          <p className='px-2 py-1 text-xs text-muted-foreground sm:col-span-2'>
+                            Belum ada modul produksi aktif di site ini.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              {moduleError && (
+                <p role='status' className='text-xs text-destructive'>
+                  {moduleError}
+                </p>
+              )}
+            </fieldset>
+          )}
           <Field label='Site utama' className='sm:col-span-2'>
             <Select
               value={draft.defaultSiteUid ?? 'NONE'}
@@ -1028,6 +1103,23 @@ function UserDetailSheet({
                 />
               </dl>
             </section>
+            {user.roles.some((role) => role.code === 'QC') && (
+              <section className='space-y-3'>
+                <h3 className='font-semibold'>Akses modul produksi</h3>
+                <div className='flex flex-wrap gap-2'>
+                  {user.productionModuleAccess?.map((module) => (
+                    <Badge key={module.uid} variant='outline'>
+                      {module.siteCode} · {module.name}
+                    </Badge>
+                  ))}
+                  {!user.productionModuleAccess?.length && (
+                    <p className='text-sm text-muted-foreground'>
+                      Belum memiliki akses modul produksi.
+                    </p>
+                  )}
+                </div>
+              </section>
+            )}
             <section className='space-y-3'>
               <h3 className='font-semibold'>Peran</h3>
               <div className='flex flex-wrap gap-2'>
@@ -1206,8 +1298,9 @@ function RoleDetailSheet({
             ))}
             {role.permissionsImmutable ? (
               <p className='rounded-md border border-sky-500/30 bg-sky-500/5 p-3 text-sm text-muted-foreground'>
-                Super Admin selalu memiliki seluruh hak akses. Ketentuan ini
-                tidak dapat dikurangi.
+                {role.code === 'QC'
+                  ? 'Hak akses QC ditetapkan khusus untuk scan, melihat, serta koreksi/void transaksi sesuai modul. Ketentuan ini tidak dapat diubah.'
+                  : 'Super Admin selalu memiliki seluruh hak akses. Ketentuan ini tidak dapat dikurangi.'}
               </p>
             ) : (
               <Button className='w-full' onClick={() => onEdit(role)}>
@@ -1310,7 +1403,7 @@ function RoleFormDialog({
                       <CheckLine
                         key={permission.uid}
                         checked={draft.permissionUids.includes(permission.uid)}
-                        disabled={role?.code === 'SUPER_ADMIN'}
+                        disabled={role?.permissionsImmutable}
                         label={permission.name}
                         description={permission.description || permission.code}
                         onCheckedChange={(checked) =>
@@ -1380,7 +1473,7 @@ function CheckLine({
   disabled?: boolean
   onCheckedChange: (checked: boolean) => void
 }) {
-  const id = `check-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
+  const id = useId()
   return (
     <label
       htmlFor={id}
@@ -1461,6 +1554,8 @@ function userDraft(user?: ManagedUser): UserInput {
     status: user?.status ?? 'ACTIVE',
     roleUids: user?.roles.map((role) => role.uid) ?? [],
     siteUids: user?.siteAccess.map((site) => site.uid) ?? [],
+    productionModuleUids:
+      user?.productionModuleAccess?.map((module) => module.uid) ?? [],
     defaultSiteUid:
       user?.siteAccess.find((site) => site.isDefault)?.uid ?? null,
     initialPassword: user ? undefined : '',

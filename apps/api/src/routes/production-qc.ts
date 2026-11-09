@@ -6,12 +6,13 @@ import { z } from 'zod'
 import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
 import { ApiError } from '../lib/errors.js'
+import { isQc } from '../lib/production-module-access.js'
 import { booleanFilter, pageParams, productionSiteCode } from '../lib/production-foundation.js'
 import { productionBrandInput, productionMasterUpdateInput, productionDefectInput } from '../lib/production-qc.js'
 import { authenticate, requirePermission, type AuthContext } from '../middleware/authenticate.js'
 
 function globalAccess(auth: AuthContext) {
-  return auth.roles.some(role => role === 'SUPER_ADMIN' || role === 'DIRECTOR')
+  return !isQc(auth) && auth.roles.some(role => role === 'SUPER_ADMIN' || role === 'DIRECTOR')
 }
 function enforceSite(auth: AuthContext, site: string) {
   if (!globalAccess(auth) && !auth.siteAccess.includes(site)) throw new ApiError(403, 'Akses site ditolak.')
@@ -25,11 +26,28 @@ const uidParam = (value: string | string[]) => z.string().uuid().parse(Array.isA
 
 export const productionQcRouter = Router()
 productionQcRouter.use(authenticate)
+// The three routers share a mount; allow scanner metadata to reach the QC router.
+productionQcRouter.use((req, res, next) => {
+  if (isQc(res.locals.auth as AuthContext) &&
+      !((req.method === 'GET' || req.method === 'HEAD') && /^\/qc-options\/?$/i.test(req.path))) {
+    return next(new ApiError(403, 'Role QC hanya dapat mengakses scanner dan transaksi Produksi.'))
+  }
+  next()
+})
 
 productionQcRouter.get('/qc-options', requirePermission('production.view'), async (req, res, next) => {
   try {
     const site = productionSiteCode.parse(req.query.site)
-    enforceSite(res.locals.auth as AuthContext, site)
+    const auth = res.locals.auth as AuthContext
+    enforceSite(auth, site)
+    if (isQc(auth)) {
+      const modules = [...new Set(auth.productionModuleAccess ?? [])]
+      if (!modules.length) throw new ApiError(403, 'Akses modul Produksi belum diberikan.')
+      const [allowed] = await pool.query<RowDataPacket[]>(
+        'SELECT 1 FROM production_modules m JOIN sites s ON s.id=m.site_id WHERE s.code=? AND m.uid IN (' + modules.map(() => '?').join(',') + ') LIMIT 1',
+        [site, ...modules])
+      if (!allowed.length) throw new ApiError(403, 'Akses modul Produksi pada site ini ditolak.')
+    }
     const [brands] = await pool.query<RowDataPacket[]>(
       'SELECT b.uid,b.code,b.name,b.sort_order sortOrder FROM production_brands b JOIN sites s ON s.id=b.site_id WHERE s.code=? AND b.is_active=1 ORDER BY b.sort_order,b.id', [site])
     const [defects] = await pool.query<RowDataPacket[]>(

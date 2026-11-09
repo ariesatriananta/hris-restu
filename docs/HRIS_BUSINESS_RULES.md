@@ -772,3 +772,12 @@ jumlah hari Alpha/Izin`. Kalkulasi dibulatkan `HALF_UP` ke Rp1 per komponen
 - Setiap ekspor laporan wajib dicatat pada audit trail per site yang tercakup,
   disertai identitas permintaan dan checksum berkas. Berkas ekspor tidak boleh
   memuat data sensitif yang tidak ditampilkan pada laporan sumber.
+
+
+## Role QC dan akses Modul Produksi
+
+- Role QC berdiri sendiri, dengan hak tetap melihat, scan, koreksi dan void Produksi. Tidak boleh ekspor, hapus batch, import, input susulan, kelola master/tarif/penugasan, atau membuka Rekap Produksi.
+- Akses QC merupakan irisan site dan Modul Produksi yang diberikan pada pengguna. Setiap site wajib memiliki minimal satu modul aktif terpilih; akses kosong ditolak. Pembatasan wajib diterapkan API dan UI, termasuk daftar, KPI, ringkasan scanner, detail dan preview.
+- Transaksi menyimpan snapshot modul saat dibuat. Mutasi atau perubahan histori karyawan tidak mengubah cakupan transaksi lama. Koreksi pekerja sama mempertahankan snapshot sumber; pergantian pekerja memakai modul historis pekerja tujuan pada tanggal transaksi.
+- Pasangan Linting-Batil dan transaksi koreksi terkait wajib seluruhnya dapat diakses QC. Jika hitung ulang grup harian menyentuh transaksi di luar akses QC, operasi ditolak untuk ditangani admin Produksi. Penguncian Payroll tetap berlaku.
+- Perubahan akses membatalkan sesi pengguna. Backfill snapshot transaksi lama hanya dari satu histori ACTIVE yang pasti sesuai site/tanggal; data ambigu tetap NULL dan tersembunyi dari QC. Detail implementasi dan uji Owner: [QC_MODULE_ACCESS.md](QC_MODULE_ACCESS.md).

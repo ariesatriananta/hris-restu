@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { createFileRoute } from '@tanstack/react-router'
+import { requireNonQcRole } from '@/features/auth/qc-access'
 import { CronMonitoringPage } from '@/features/system-monitoring/cron-monitoring-page'
 
 const searchSchema = z.object({
@@ -26,6 +27,7 @@ function optionalInteger(minimum: number, maximum?: number) {
 export const Route = createFileRoute(
   '/_authenticated/administrasi/monitoring-cron'
 )({
+  beforeLoad: requireNonQcRole,
   validateSearch: searchSchema,
   component: RouteComponent,
 })

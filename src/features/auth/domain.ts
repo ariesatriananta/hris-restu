@@ -7,6 +7,7 @@ export type UserRole =
   | 'PRODUCTION_ADMIN'
   | 'PAYROLL_FINANCE'
   | 'SITE_SUPERVISOR'
+  | 'QC'
 
 export type PermissionCode =
   | 'attendance.view'
@@ -28,6 +29,7 @@ export interface AuthUser {
   roleLabel: string
   roles: UserRole[]
   siteAccess: SiteAccess[]
+  productionModuleAccess?: string[]
   mustChangePassword: boolean
 }
 

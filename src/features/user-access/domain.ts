@@ -10,6 +10,12 @@ export interface SiteAccessOption extends AccessOption {
   isActive?: boolean
 }
 
+export interface ProductionModuleAccessOption extends AccessOption {
+  siteUid: string
+  siteCode: string
+  isActive: boolean
+}
+
 export interface PermissionOption extends AccessOption {
   module: string
   description: string | null
@@ -19,6 +25,7 @@ export interface AccessManagementMeta {
   sites: SiteAccessOption[]
   roles: Array<AccessOption & { isActive: boolean; isSystem: boolean }>
   permissions: PermissionOption[]
+  productionModules?: ProductionModuleAccessOption[]
 }
 
 export interface ManagedUser {
@@ -36,6 +43,7 @@ export interface ManagedUser {
   updatedAt: string
   roles: AccessOption[]
   siteAccess: Array<SiteAccessOption & { isDefault: boolean }>
+  productionModuleAccess?: ProductionModuleAccessOption[]
 }
 
 export interface ManagedRole {
@@ -79,6 +87,7 @@ export interface UserInput {
   roleUids: string[]
   siteUids: string[]
   defaultSiteUid: string | null
+  productionModuleUids?: string[]
   initialPassword?: string
 }
 

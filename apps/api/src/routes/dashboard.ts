@@ -5,6 +5,7 @@ import { env } from '../config.js'
 import { pool } from '../db.js'
 import { jakartaBusinessDate } from '../lib/attendance-shift-policy.js'
 import { ApiError } from '../lib/errors.js'
+import { isQc } from '../lib/production-module-access.js'
 import { authenticate, type AuthContext } from '../middleware/authenticate.js'
 
 const siteCodes = ['JEPARA', 'SEMARANG', 'KLATEN'] as const
@@ -27,7 +28,7 @@ type DashboardSite = {
 }
 
 function isGlobalViewer(auth: AuthContext) {
-  return auth.roles.some(
+  return !isQc(auth) && auth.roles.some(
     (role) => role === 'SUPER_ADMIN' || role === 'DIRECTOR'
   )
 }
@@ -56,7 +57,8 @@ function capabilityMap(auth: AuthContext) {
   return {
     employees: hasPermission(auth, 'employees.view'),
     attendance: hasPermission(auth, 'attendance.view'),
-    production: hasPermission(auth, 'production.view'),
+    // Dashboard aggregates have site scope only; QC uses its scoped transaction page.
+    production: !isQc(auth) && hasPermission(auth, 'production.view'),
     recruitment: hasPermission(auth, 'recruitment.view'),
   }
 }

@@ -1,3 +1,4 @@
+import { isQcUser, assertQcEmployeeModule, qcModulePredicate, qcTransactionPredicate, assertQcTransactionAccess, assertQcDailyGroupAccess, snapshotTransactionModule, snapshotTransactionModules } from '../lib/production-transaction-module.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { Router, type Request } from 'express'
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
@@ -53,7 +54,7 @@ const routeParam = (value: string | string[]) =>
   Array.isArray(value) ? value[0] : value
 
 function isGlobalViewer(auth: AuthContext) {
-  return auth.roles.some((role) => role === 'SUPER_ADMIN' || role === 'DIRECTOR')
+  return !isQcUser(auth) && auth.roles.some((role) => role === 'SUPER_ADMIN' || role === 'DIRECTOR')
 }
 
 function assertSuperAdmin(auth: AuthContext) {
@@ -182,7 +183,7 @@ async function employeeContext(
 
   const [histories] = await conn.query<RowDataPacket[]>(
     `SELECT eh.id,eh.site_id siteId,eh.work_group_id workGroupId,
-            pms.production_section_id productionSectionId,
+            pms.production_section_id productionSectionId,pms.production_module_id productionModuleId,pm.uid productionModuleUid,
             es.allows_production allowsProduction,es.code employeeStatus,
             et.code employeeType,et.name employeeTypeName,et.payroll_basis payrollBasis,
             s.code site,s.name siteName,
@@ -196,8 +197,9 @@ async function employeeContext(
        LEFT JOIN work_groups wg ON wg.id=eh.work_group_id
        LEFT JOIN production_module_sections pms
          ON pms.id=eh.production_module_section_id
+       LEFT JOIN production_modules pm ON pm.id=pms.production_module_id AND pm.site_id=eh.site_id
        LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
-      WHERE eh.employee_id=?
+      WHERE eh.employee_id=? AND eh.status='ACTIVE'
         AND eh.effective_from<=?
         AND (eh.effective_to IS NULL OR eh.effective_to>=?)
       ${lock ? 'FOR UPDATE' : ''}`,
@@ -1238,6 +1240,7 @@ async function createBatilDeposit(
   auth: AuthContext, request: Request
 ) {
   const { employee, history } = await employeeContext(conn, barcode, String(time.businessDate), Number(device.siteId), true)
+  assertQcEmployeeModule(auth, history)
   const attendance = await attendanceContext(conn, Number(employee.id), Number(device.siteId), String(time.businessDate), true)
   const { jobs } = await availableJobs(conn, Number(employee.id), Number(device.siteId), String(time.businessDate), true)
   const batil = jobs.find(job => job.code === BATIL_JOB_CODE)
@@ -1251,6 +1254,7 @@ async function createBatilDeposit(
     [batil.uid,device.siteId,time.businessDate,time.businessDate])
   if (rows.length !== 1 || rows[0].unitCode !== 'PCS') throw new ApiError(422, 'Tarif Batil harus tunggal dengan satuan PCS.')
   const rate = rows[0]
+  await assertQcDailyGroupAccess(conn, {employee_id:employee.id,site_id:device.siteId,production_job_id:rate.jobId,businessDateKey:time.businessDate} as RowDataPacket, auth)
   const [linting] = await conn.query<RowDataPacket[]>('SELECT employee_id,unit_id FROM production_transactions WHERE id=?',[lintingId])
   if (Number(linting[0]?.employee_id) === Number(employee.id)) throw new ApiError(422,'Karyawan Linting dan Batil harus berbeda.')
   const quantity = normalizeQuantity(inputQuantity, Number(rate.decimalPrecision))
@@ -1265,6 +1269,7 @@ async function createBatilDeposit(
       rate.jobId,rate.unitId,rate.rateId,attendance.id,device.id,time.businessDate,time.transactionTimestamp,
       quantity,normalizeStoredDecimal(rate.rateAmount),quantity,calculateGrossAmount(quantity,normalizeStoredDecimal(rate.rateAmount)),auth.id,auth.id])
   const id = Number(result.insertId)
+  await snapshotTransactionModule(conn, id, Number(history.productionModuleId) || null)
   await saveProductionQc(conn,id,qc?.brand ? {...qc,weight1Grams:null,weight2Grams:null,defects:[]} : null,auth.id)
   await saveProductionPair(conn,lintingId,id,auth.id)
   await repriceProductionDay(conn,{employeeId:Number(employee.id),siteId:Number(device.siteId),jobId:Number(rate.jobId),businessDate:String(time.businessDate)},auth,request,
@@ -1421,6 +1426,7 @@ async function managedTransaction(
     [uid, ...scope.params]
   )
   if (!rows[0]) throw new ApiError(404, 'Transaksi Produksi tidak ditemukan.')
+  await assertQcTransactionAccess(conn, Number(rows[0].id), auth)
   return rows[0]
 }
 
@@ -1635,6 +1641,8 @@ async function repriceProductionDay(
     await conn.query('SELECT id FROM employees WHERE id=? FOR UPDATE', [key.employeeId])
     context?.lockedEmployees.add(key.employeeId)
   }
+  // Recheck after acquiring the serialization lock, before any daily amount changes.
+  await assertQcDailyGroupAccess(conn, {employee_id:key.employeeId,site_id:key.siteId,production_job_id:key.jobId,businessDateKey:key.businessDate} as RowDataPacket, auth)
   const dateLock = await payrollDateLockContext(
     conn,
     key.siteId,
@@ -2021,7 +2029,8 @@ async function correctionTarget(
   conn: PoolConnection,
   source: RowDataPacket,
   employeeUid: string | undefined,
-  lock: boolean
+  lock: boolean,
+  auth: AuthContext
 ) {
   if (!employeeUid || employeeUid === String(source.employeeUid)) {
     return { transaction: source, employeeChanged: false }
@@ -2029,6 +2038,7 @@ async function correctionTarget(
   const { employee, history } = await employeeContextByUid(
     conn, employeeUid, String(source.businessDateKey), Number(source.site_id), lock
   )
+  assertQcEmployeeModule(auth, history)
   const attendance = await attendanceContext(
     conn, Number(employee.id), Number(source.site_id), String(source.businessDateKey), lock
   )
@@ -2037,6 +2047,7 @@ async function correctionTarget(
     transaction: {
       ...source,
       employee_id: employee.id,
+      production_module_id: history.productionModuleId ?? null,
       employeeUid: employee.uid,
       employeeNumber: employee.employeeNumber,
       fullName: employee.fullName,
@@ -2096,6 +2107,7 @@ async function pairedManagedTransaction(conn: PoolConnection, source: RowDataPac
   const pair = (await readProductionPairs(conn,[Number(source.id)])).get(Number(source.id))
   if (!pair) return null
   const peer = await managedTransaction(conn,pair.partner.uid,auth,lock)
+  await assertQcDailyGroupAccess(conn, peer, auth)
   if (String(source.site) !== 'KLATEN' || Number(peer.site_id) !== Number(source.site_id)
     || String(peer.businessDateKey) !== String(source.businessDateKey)
     || Number(peer.employee_id) === Number(source.employee_id)
@@ -2130,6 +2142,7 @@ async function revisePairedPeer(conn: PoolConnection, peer: RowDataPacket, quant
         peer.businessDateKey,peer.transactionTimestamp,proposal.quantity,proposal.rateSnapshot,proposal.quantity,proposal.grossAmount,
         `Koreksi pasangan dari ${peer.transaction_number}: ${reason}`,auth.id,auth.id])
     replacementId = Number(result.insertId)
+    await snapshotTransactionModule(conn, replacementId, peer.production_module_id ?? null)
     await cloneProductionQc(conn,Number(peer.id),replacementId,String(peer.jobCode),auth.id)
     after = {...before,uid,transactionNumber:number,quantity:proposal.quantity,status:'POSTED'}
   }
@@ -2385,6 +2398,14 @@ async function productionBatchDeleteSummary(
 
 export const productionTransactionsRouter = Router()
 productionTransactionsRouter.use(authenticate)
+productionTransactionsRouter.use((req, res, next) => {
+  if (!isQcUser(res.locals.auth as AuthContext)) return next()
+  const path = req.path.replace(/\/$/, '').toLowerCase()
+  if (path.includes('/import') || path.includes('/historical') || path.includes('/batch-delete') || path.endsWith('/export')) {
+    return next(new ApiError(403, 'QC hanya dapat scan, melihat, koreksi, dan void transaksi dalam akses modulnya.'))
+  }
+  next()
+})
 
 productionTransactionsRouter.get('/terminal/daily-summary', requirePermission('production.scan'), async (req, res, next) => {
   const conn = await pool.getConnection()
@@ -2400,6 +2421,9 @@ productionTransactionsRouter.get('/terminal/daily-summary', requirePermission('p
           AND COLUMN_NAME='status'`
     )
     const hasHistoryStatus = Number(historyColumns[0]?.hasHistoryStatus) > 0
+    const moduleScope = qcModulePredicate(res.locals.auth as AuthContext, 'mapping.production_module_id')
+    const postedScope = qcTransactionPredicate(res.locals.auth as AuthContext, 'transaction_row')
+    const postedSql = productionTerminalSummaryPostedSql.replace("AND transaction_row.status='POSTED'", "AND transaction_row.status='POSTED' AND " + postedScope.sql)
     const [rows] = await conn.query<RowDataPacket[]>(
       `SELECT section.uid,section.name,
               COALESCE(summary.presentEmployees,0) presentEmployees,
@@ -2408,13 +2432,13 @@ productionTransactionsRouter.get('/terminal/daily-summary', requirePermission('p
          LEFT JOIN (
            SELECT mapping.production_section_id,
                   COUNT(DISTINCT attendance.employee_id) presentEmployees,
-                  COUNT(DISTINCT CASE WHEN ${productionTerminalSummaryPostedSql}
+                  COUNT(DISTINCT CASE WHEN ${postedSql}
                     THEN attendance.employee_id END) submittedEmployees
-             ${productionTerminalSummaryAttendanceSql(hasHistoryStatus)}
+             ${productionTerminalSummaryAttendanceSql(hasHistoryStatus)} AND ${moduleScope.sql}
             GROUP BY mapping.production_section_id
          ) summary ON summary.production_section_id=section.id
         WHERE section.is_active=1 ORDER BY section.name,section.id`,
-      [businessDate,businessDate,businessDate,device.siteId,businessDate,businessDate]
+      [...postedScope.params,businessDate,businessDate,businessDate,device.siteId,businessDate,businessDate,...moduleScope.params]
     )
     res.json({ businessDate,siteName:device.siteName,sections:rows.map(row => ({
       uid:row.uid,name:row.name,presentEmployees:Number(row.presentEmployees),
@@ -2443,13 +2467,17 @@ productionTransactionsRouter.get('/terminal/daily-summary/employees', requirePer
           AND COLUMN_NAME='status'`
     )
     const hasHistoryStatus = Number(historyColumns[0]?.hasHistoryStatus) > 0
+    const moduleScope = qcModulePredicate(res.locals.auth as AuthContext, 'mapping.production_module_id')
+    const postedScope = qcTransactionPredicate(res.locals.auth as AuthContext, 'transaction_row')
+    const postedSql = productionTerminalSummaryPostedSql.replace("AND transaction_row.status='POSTED'", "AND transaction_row.status='POSTED' AND " + postedScope.sql)
     const condition = input.condition==='SUBMITTED'
-      ? ` AND ${productionTerminalSummaryPostedSql}`
-      : input.condition==='PENDING' ? ` AND NOT ${productionTerminalSummaryPostedSql}` : ''
+      ? ` AND ${postedSql}`
+      : input.condition==='PENDING' ? ` AND NOT ${postedSql}` : ''
     const filter = ` AND employee_section.uid=?${condition}
-      ${input.search ? 'AND (employee.full_name LIKE ? OR employee.employee_number LIKE ?)' : ''}`
+      ${input.search ? 'AND (employee.full_name LIKE ? OR employee.employee_number LIKE ?)' : ''} AND ${moduleScope.sql}`
     const values = [businessDate,businessDate,businessDate,device.siteId,businessDate,businessDate,input.sectionUid,
-      ...(input.search ? [`%${input.search}%`,`%${input.search}%`] : [])]
+      ...(input.condition !== 'PRESENT' ? postedScope.params : []),
+      ...(input.search ? [`%${input.search}%`,`%${input.search}%`] : []),...moduleScope.params]
     const [counts] = await conn.query<RowDataPacket[]>(
       `SELECT COUNT(DISTINCT attendance.employee_id) total
         ${productionTerminalSummaryAttendanceSql(hasHistoryStatus)} ${filter}`, values
@@ -2457,12 +2485,13 @@ productionTransactionsRouter.get('/terminal/daily-summary/employees', requirePer
     const total = Number(counts[0]?.total ?? 0)
     const page = Math.min(input.page,Math.max(1,Math.ceil(total/input.pageSize)))
     // Aggregate raw PCS only. No payable quantities, prices or Payroll data.
+    const depositScope = qcTransactionPredicate(res.locals.auth as AuthContext)
     const depositJoin = input.condition==='SUBMITTED' ? `LEFT JOIN (
       SELECT pt.employee_id,COUNT(*) depositCount,
              SUM(CASE WHEN unit.code='PCS' THEN pt.quantity ELSE 0 END) quantityPcs,
              MAX(pt.transaction_at) lastTransactionAt
         FROM production_transactions pt JOIN work_units unit ON unit.id=pt.unit_id
-       WHERE pt.business_date=? AND pt.site_id=? AND pt.status='POSTED'
+       WHERE pt.business_date=? AND pt.site_id=? AND pt.status='POSTED' AND ${depositScope.sql}
        GROUP BY pt.employee_id
     ) deposits ON deposits.employee_id=attendance.employee_id` : ''
     const [rows] = await conn.query<RowDataPacket[]>(
@@ -2475,7 +2504,7 @@ productionTransactionsRouter.get('/terminal/daily-summary/employees', requirePer
         ${productionTerminalSummaryAttendanceSql(hasHistoryStatus,depositJoin)} ${filter}
        ORDER BY employee.full_name,employee.employee_number,employee.id LIMIT ? OFFSET ?`,
       // Deposit placeholders occur after the two history-date placeholders.
-      [values[0],values[1],...(depositJoin ? [businessDate,device.siteId] : []),...values.slice(2),input.pageSize,(page-1)*input.pageSize]
+      [values[0],values[1],...(depositJoin ? [businessDate,device.siteId,...depositScope.params] : []),...values.slice(2),input.pageSize,(page-1)*input.pageSize]
     )
     res.json({businessDate,siteName:device.siteName,
       items:rows.map(row => ({
@@ -2494,6 +2523,7 @@ productionTransactionsRouter.get('/terminal/recent', requirePermission('producti
     const auth = res.locals.auth as AuthContext
     const device = await getDevice(conn, deviceToken(req))
     enforceSite(auth, String(device.site))
+    const moduleScope = qcTransactionPredicate(auth)
     const [rows] = await conn.query<RowDataPacket[]>(
       `SELECT pt.id,pt.uid,pt.transaction_number transactionNumber,
               DATE_FORMAT(pt.transaction_at,'%Y-%m-%dT%H:%i:%s+07:00') transactionAt,
@@ -2510,9 +2540,9 @@ productionTransactionsRouter.get('/terminal/recent', requirePermission('producti
          JOIN work_units u ON u.id=pt.unit_id
          LEFT JOIN production_transaction_qc qc ON qc.production_transaction_id=pt.id
          LEFT JOIN production_brands brand ON brand.id=qc.brand_id
-        WHERE pt.scan_device_id=? AND pt.site_id=? AND pt.status='POSTED'
+        WHERE pt.scan_device_id=? AND pt.site_id=? AND pt.status='POSTED' AND ${moduleScope.sql}
         ORDER BY pt.transaction_at DESC,pt.id DESC LIMIT 5`,
-      [device.id, device.siteId]
+      [device.id, device.siteId, ...moduleScope.params]
     )
     const pairs = await readProductionPairs(conn, rows.map(row => Number(row.id)))
     res.json({ items: rows.map(row => ({
@@ -2548,6 +2578,7 @@ productionTransactionsRouter.get('/terminal/transactions/:uid', requirePermissio
     )
     const row = rows[0]
     if (!row) throw new ApiError(404, 'Setoran tidak ditemukan pada perangkat ini.')
+    await assertQcTransactionAccess(conn, Number(row.id), res.locals.auth as AuthContext)
     const qc = await readProductionQc(conn, Number(row.id))
     res.json({ transaction: {
       uid:row.uid,transactionNumber:row.transactionNumber,businessDate:row.businessDate,transactionAt:row.transactionAt,
@@ -2659,6 +2690,7 @@ productionTransactionsRouter.post(
         Number(device.siteId),
         false
       )
+      assertQcEmployeeModule(auth, history)
       const attendance = await attendanceContext(
         conn,
         Number(employee.id),
@@ -2752,6 +2784,7 @@ productionTransactionsRouter.post(
       )
       const existing = existingRows[0]
       if (existing) {
+        await assertQcTransactionAccess(conn, Number(existing.id), auth)
         if (
           Number(existing.deviceId) !== Number(device.id) ||
           String(existing.barcode) !== input.barcode ||
@@ -2790,6 +2823,7 @@ productionTransactionsRouter.post(
         Number(device.siteId),
         true
       )
+      assertQcEmployeeModule(auth, history)
       const attendance = await attendanceContext(
         conn,
         Number(employee.id),
@@ -2873,6 +2907,7 @@ productionTransactionsRouter.post(
       if (datePayrollLock.locked) throw new ApiError(409, datePayrollLock.reasons[0])
       const uid = randomUUID()
       const transactionNumber = `PRD-${String(time.businessDate).replaceAll('-', '')}-${device.site}-${randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`
+      await assertQcDailyGroupAccess(conn, {employee_id:employee.id,site_id:device.siteId,production_job_id:assignment.jobId,businessDateKey:time.businessDate} as RowDataPacket, auth)
       const qc = await resolveProductionQc(conn,input.qc,Number(device.siteId),String(assignment.jobCode),true)
       const [insertResult] = await conn.execute(
         `INSERT INTO production_transactions(
@@ -2907,6 +2942,7 @@ productionTransactionsRouter.post(
       const transactionId = Number(
         (insertResult as { insertId?: number }).insertId ?? 0
       )
+      await snapshotTransactionModule(conn, transactionId, Number(history.productionModuleId) || null)
       await saveProductionQc(conn,transactionId,qc,auth.id)
       let pairedTransactionId: number | undefined
       if (input.batilBarcode) {
@@ -3481,6 +3517,9 @@ productionTransactionsRouter.post(
         }
       }
 
+      for (let offset=0;offset<inserted.length;offset+=500) {
+        await snapshotTransactionModules(conn, inserted.slice(offset,offset+500).map(item => item.id))
+      }
       await saveProductionImportQc(conn, inserted.map(item => ({transactionId:item.id,qc:item.row.qc ?? null})), auth.id)
       for (const row of validRows) {
         const proposal = row.proposal
@@ -3651,6 +3690,7 @@ productionTransactionsRouter.post(
          proposal.proposed.quantity,proposal.proposed.grossAmount,input.idempotencyKey,`Setoran susulan: ${input.reason}`,auth.id,auth.id]
       )
       const transactionId = Number((insertResult as { insertId?: number }).insertId ?? 0)
+      await snapshotTransactionModule(conn, transactionId)
       await saveProductionQc(conn,transactionId,qc,auth.id)
       await repriceProductionDay(conn, {
         employeeId: Number(proposal.employee.id), siteId: Number(proposal.site.id),
@@ -3676,6 +3716,7 @@ productionTransactionsRouter.get(
       }
       const auth = res.locals.auth as AuthContext
       const source = await managedTransaction(conn, uid, auth)
+      await assertQcDailyGroupAccess(conn, source, auth)
       const payrollLock = await payrollLockContext(conn, source, false)
       const paired = await pairedManagedTransaction(conn,source,auth)
       const jobs = (await correctionJobOptions(conn, source)).filter(job => !paired || job.code === source.jobCode)
@@ -3708,9 +3749,10 @@ productionTransactionsRouter.post(
       const input = productionCorrectionPreviewInput.parse(req.body)
       const auth = res.locals.auth as AuthContext
       const source = await managedTransaction(conn, uid, auth)
+      await assertQcDailyGroupAccess(conn, source, auth)
       const payrollLock = await payrollLockContext(conn, source, false)
       assertPostedAndUnlocked(source, payrollLock)
-      const target = await correctionTarget(conn, source, input.employeeUid, false)
+      const target = await correctionTarget(conn, source, input.employeeUid, false, auth)
       const paired = await pairedManagedTransaction(conn,source,auth,false)
       if (paired && (input.jobUid !== source.jobUid || target.employeeChanged))
         throw new ApiError(422,'Koreksi pasangan hanya mengubah kuantitas; untuk mengganti karyawan lakukan void dan scan ulang.')
@@ -3722,6 +3764,7 @@ productionTransactionsRouter.post(
         false,
         target.employeeChanged
       )
+      await assertQcDailyGroupAccess(conn, {...target.transaction,production_job_id:targetIds.jobId} as RowDataPacket, auth)
       const pairProposal = paired ? {
         source:await transactionResponse(conn,Number(paired.peer.id)),
         proposed:(await correctionProposal(conn,paired.peer,String(paired.peer.jobUid),proposed.quantity.replace(/\.0+$/,''),false)).proposed
@@ -3801,6 +3844,7 @@ productionTransactionsRouter.post(
       }
       const auth = res.locals.auth as AuthContext
       const source = await managedTransaction(conn, uid, auth)
+      await assertQcDailyGroupAccess(conn, source, auth)
       const payrollLock = await payrollLockContext(conn, source, false)
       assertPostedAndUnlocked(source, payrollLock)
       const paired = await pairedManagedTransaction(conn,source,auth)
@@ -3845,6 +3889,7 @@ productionTransactionsRouter.post(
       const auth = res.locals.auth as AuthContext
       await conn.beginTransaction()
       const source = await managedTransaction(conn, uid, auth, true)
+      await assertQcDailyGroupAccess(conn, source, auth)
       const replayPayload = {
         employeeUid: input.employeeUid ?? String(source.employeeUid),
         jobUid: input.jobUid,
@@ -3876,7 +3921,7 @@ productionTransactionsRouter.post(
       }
       const payrollLock = await payrollLockContext(conn, source, true)
       assertPostedAndUnlocked(source, payrollLock)
-      const target = await correctionTarget(conn, source, input.employeeUid, true)
+      const target = await correctionTarget(conn, source, input.employeeUid, true, auth)
       const paired = await pairedManagedTransaction(conn,source,auth,true)
       if (paired && (input.jobUid !== source.jobUid || target.employeeChanged))
         throw new ApiError(422,'Koreksi pasangan hanya mengubah kuantitas; untuk mengganti karyawan lakukan void dan scan ulang.')
@@ -3888,6 +3933,7 @@ productionTransactionsRouter.post(
         true,
         target.employeeChanged
       )
+      await assertQcDailyGroupAccess(conn, {...target.transaction,production_job_id:targetIds.jobId} as RowDataPacket, auth)
       const replacementUid = randomUUID()
       const replacementNumber = `PRD-COR-${String(source.businessDateKey).replaceAll('-', '')}-${String(source.site)}-${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`
       const [insertResult] = await conn.execute(
@@ -3923,6 +3969,7 @@ productionTransactionsRouter.post(
       const replacementId = Number(
         (insertResult as { insertId?: number }).insertId ?? 0
       )
+      await snapshotTransactionModule(conn, replacementId, target.transaction.production_module_id ?? null)
       await cloneProductionQc(conn, Number(source.id), replacementId, String(proposed.job.code), auth.id)
       const peerReplacementId = paired ? await revisePairedPeer(conn,paired.peer,proposed.quantity,false,input.reason,auth,req) : null
       if (paired && peerReplacementId) await saveProductionPair(conn,
@@ -4067,6 +4114,7 @@ productionTransactionsRouter.post(
       const auth = res.locals.auth as AuthContext
       await conn.beginTransaction()
       const source = await managedTransaction(conn, uid, auth, true)
+      await assertQcDailyGroupAccess(conn, source, auth)
       const replayPayload = { reason: input.reason }
       const replay = await revisionReplay(
         conn,
@@ -4182,14 +4230,15 @@ productionTransactionsRouter.get('/transactions/module-options', requirePermissi
   try {
     const auth=res.locals.auth as AuthContext
     const scope=scopeWhere(auth)
+    const moduleScope=qcModulePredicate(auth,'module.id')
     const sites=csvValues(req.query.site)
     if (sites.some(site => !allowedSites.includes(site as never))) throw new ApiError(422,'Filter site tidak valid.')
     sites.forEach(site => enforceSite(auth,site))
     const [rows]=await pool.query<RowDataPacket[]>(
       `SELECT module.uid,module.name,s.code site,s.name siteName
         FROM production_modules module JOIN sites s ON s.id=module.site_id
-       WHERE ${scope.sql} ${sites.length ? `AND s.code IN (${sites.map(() => '?').join(',')})` : ''}
-       ORDER BY s.name,module.name,module.id`, [...scope.params,...sites]
+       WHERE ${scope.sql} AND ${moduleScope.sql} ${sites.length ? `AND s.code IN (${sites.map(() => '?').join(',')})` : ''}
+       ORDER BY s.name,module.name,module.id`, [...scope.params,...moduleScope.params,...sites]
     )
     res.json({items:rows.map(row => ({uid:row.uid,name:row.name,site:row.site,siteName:row.siteName}))})
   } catch(error) {next(error)}
@@ -4217,6 +4266,8 @@ productionTransactionsRouter.get(
       const scope = scopeWhere(auth)
       where.push(scope.sql)
       values.push(...scope.params)
+      const moduleScope = qcTransactionPredicate(auth)
+      if (isQcUser(auth)) { where.push(moduleScope.sql); values.push(...moduleScope.params) }
       const sites = csvValues(req.query.site)
       if (sites.length) {
         if (sites.some((site) => !allowedSites.includes(site as never))) {
@@ -4243,11 +4294,15 @@ productionTransactionsRouter.get(
       }
       const moduleUids = csvValues(req.query.moduleUid)
       const employeeTypes = csvValues(req.query.employeeType)
-      let hasHistoryStatus: boolean | undefined
       if (employeeTypes.some(type => !['BORONGAN','HARIAN','BULANAN','TRAINING'].includes(type))) {
         throw new ApiError(422, 'Filter jenis karyawan tidak valid.')
       }
-      if (moduleUids.length || employeeTypes.length) {
+      if (moduleUids.length) {
+        if (moduleUids.some(uid => !z.string().uuid().safeParse(uid).success)) throw new ApiError(422, 'Filter modul Produksi tidak valid.')
+        where.push(`EXISTS (SELECT 1 FROM production_modules frozen_module WHERE frozen_module.id=pt.production_module_id AND frozen_module.uid IN (${moduleUids.map(() => '?').join(',')}))`)
+        values.push(...moduleUids)
+      }
+      if (employeeTypes.length) {
         if (moduleUids.some((uid) => !z.string().uuid().safeParse(uid).success)) {
           throw new ApiError(422, 'Filter modul Produksi tidak valid.')
         }
@@ -4256,7 +4311,6 @@ productionTransactionsRouter.get(
             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='employee_employment_histories' AND COLUMN_NAME='status'`
         )
         const hasStatus = Number(columns[0]?.hasHistoryStatus)>0
-        hasHistoryStatus = hasStatus
         // Historical placement, not the employee's current module. EXISTS
         // avoids duplicating transaction totals when joining employment data.
         where.push(`EXISTS (
@@ -4268,7 +4322,7 @@ productionTransactionsRouter.get(
             AND module_history.effective_from<=pt.business_date
             AND (module_history.effective_to IS NULL OR module_history.effective_to>=pt.business_date)
             ${hasStatus ? "AND module_history.status='ACTIVE'" : ''}
-            ${moduleUids.length ? `AND module.uid IN (${moduleUids.map(() => '?').join(',')})` : ''}
+
             ${employeeTypes.length ? `AND historical_type.code IN (${employeeTypes.map(() => '?').join(',')})` : ''}
             AND NOT EXISTS (
               SELECT 1 FROM employee_employment_histories conflicting_history
@@ -4278,7 +4332,6 @@ productionTransactionsRouter.get(
                 ${hasStatus ? "AND conflicting_history.status='ACTIVE'" : ''}
             )
         )`)
-        values.push(...moduleUids)
         values.push(...employeeTypes)
       }
       const statuses = csvValues(req.query.status)
@@ -4365,30 +4418,11 @@ productionTransactionsRouter.get(
       const qcChunk = await readProductionQcBatch(pool, transactionIds)
       for (const [id,qc] of qcChunk) qcByTransaction.set(id,qc)
       if (transactionIds.length) {
-        if (hasHistoryStatus === undefined) {
-          const [columns] = await pool.query<RowDataPacket[]>(
-            `SELECT COUNT(*) hasHistoryStatus FROM INFORMATION_SCHEMA.COLUMNS
-              WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='employee_employment_histories' AND COLUMN_NAME='status'`
-          )
-          hasHistoryStatus = Number(columns[0]?.hasHistoryStatus)>0
-        }
         const [moduleRows] = await pool.query<RowDataPacket[]>(
           `SELECT pt.id transactionId,module.uid,module.code,module.name
            FROM production_transactions pt
-           JOIN employee_employment_histories module_history ON module_history.employee_id=pt.employee_id
-             AND module_history.site_id=pt.site_id AND module_history.effective_from<=pt.business_date
-             AND (module_history.effective_to IS NULL OR module_history.effective_to>=pt.business_date)
-             ${hasHistoryStatus ? "AND module_history.status='ACTIVE'" : ''}
-           JOIN production_module_sections module_mapping ON module_mapping.id=module_history.production_module_section_id
-           JOIN production_modules module ON module.id=module_mapping.production_module_id
-           WHERE pt.id IN (${transactionIds.map(() => '?').join(',')})
-             AND NOT EXISTS (
-               SELECT 1 FROM employee_employment_histories conflicting_history
-               WHERE conflicting_history.employee_id=module_history.employee_id AND conflicting_history.id<>module_history.id
-                 AND conflicting_history.effective_from<=pt.business_date
-                 AND (conflicting_history.effective_to IS NULL OR conflicting_history.effective_to>=pt.business_date)
-                 ${hasHistoryStatus ? "AND conflicting_history.status='ACTIVE'" : ''}
-             )`,
+           JOIN production_modules module ON module.id=pt.production_module_id
+           WHERE pt.id IN (${transactionIds.map(() => '?').join(',')})`,
           transactionIds
         )
         for (const row of moduleRows) modulesByTransaction.set(Number(row.transactionId), {uid:String(row.uid),code:String(row.code),name:String(row.name)})

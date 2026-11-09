@@ -326,6 +326,23 @@ CREATE TABLE production_modules (
   CONSTRAINT fk_production_modules_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE user_production_module_access (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  production_module_id BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_user_production_module_access_uid (uid),
+  UNIQUE KEY uq_user_production_module_access_user_module (user_id,production_module_id),
+  KEY idx_user_production_module_access_module (production_module_id),
+  CONSTRAINT fk_user_production_module_access_user FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_user_production_module_access_module FOREIGN KEY (production_module_id) REFERENCES production_modules(id) ON UPDATE RESTRICT ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE production_sections (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   uid CHAR(36) NOT NULL,
@@ -1799,6 +1816,7 @@ CREATE TABLE production_transactions (
   site_id BIGINT UNSIGNED NOT NULL,
   work_group_id BIGINT UNSIGNED NULL,
   production_section_id BIGINT UNSIGNED NULL,
+  production_module_id BIGINT UNSIGNED NULL,
   production_job_id BIGINT UNSIGNED NOT NULL,
   unit_id BIGINT UNSIGNED NOT NULL,
   job_rate_id BIGINT UNSIGNED NOT NULL,
@@ -1831,6 +1849,7 @@ CREATE TABLE production_transactions (
   UNIQUE KEY uq_production_transactions_idempotency (idempotency_key),
   KEY idx_production_employee_date (employee_id, business_date),
   KEY idx_production_site_date (site_id, business_date),
+  KEY idx_production_module_date (production_module_id,business_date),
   KEY idx_production_job_date (production_job_id, business_date),
   KEY idx_production_group_date (work_group_id, business_date),
   KEY idx_production_transaction_section_date (production_section_id,business_date),
@@ -1846,6 +1865,7 @@ CREATE TABLE production_transactions (
   CONSTRAINT chk_production_entry_source CHECK (entry_source IN ('TERMINAL', 'HISTORICAL', 'CORRECTION')),
   CONSTRAINT fk_production_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_production_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_production_transaction_module FOREIGN KEY (production_module_id) REFERENCES production_modules(id) ON UPDATE RESTRICT ON DELETE RESTRICT,
   CONSTRAINT fk_production_group FOREIGN KEY (work_group_id) REFERENCES work_groups (id) ON UPDATE CASCADE ON DELETE SET NULL,
   CONSTRAINT fk_production_transaction_section FOREIGN KEY (production_section_id) REFERENCES production_sections(id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_production_transaction_deduction_policy FOREIGN KEY (quantity_deduction_policy_id) REFERENCES production_quantity_deduction_policies(id) ON UPDATE CASCADE ON DELETE RESTRICT,
@@ -2783,6 +2803,7 @@ VALUES
   (UUID(), 'HR_OFFICER', 'HR Officer', 'Mengelola karyawan, kontrak, mutasi, dan attendance.', 1),
   (UUID(), 'PRODUCTION_ADMIN', 'Admin Produksi', 'Mengelola transaksi dan koreksi setoran produksi.', 1),
   (UUID(), 'PAYROLL_FINANCE', 'Finance / Payroll', 'Simulasi, validasi, approval, dan closing payroll.', 1),
+  (UUID(), 'QC', 'QC Produksi', 'Scan, lihat, koreksi dan void Produksi berdasarkan akses site dan modul.', 1),
   (UUID(), 'SITE_SUPERVISOR', 'Supervisor / PIC Site', 'Monitoring site dan approval koreksi operasional.', 1);
 
 INSERT INTO employee_types (uid, code, name, payroll_basis, pay_frequency, description)
@@ -2991,6 +3012,9 @@ WHERE r.code IN (
   'DIRECTOR',
   'PAYROLL_FINANCE'
 );
+
+INSERT INTO role_permissions (uid,role_id,permission_id)
+SELECT UUID(),r.id,p.id FROM roles r JOIN permissions p ON p.code IN ('production.view','production.scan','production.correct') WHERE r.code='QC';
 
 -- Matriks akses awal Payroll.
 INSERT INTO role_permissions (uid, role_id, permission_id)

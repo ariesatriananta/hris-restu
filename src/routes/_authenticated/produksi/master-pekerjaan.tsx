@@ -1,12 +1,16 @@
 import { z } from 'zod'
 import { createFileRoute } from '@tanstack/react-router'
 import { requirePermission } from '@/features/auth/permissions'
+import { requireNonQcRole } from '@/features/auth/qc-access'
 import { ProductionJobMasterPage } from '@/features/production/production-rate-pages'
 
 export const Route = createFileRoute(
   '/_authenticated/produksi/master-pekerjaan'
 )({
-  beforeLoad: () => requirePermission('production.view'),
+  beforeLoad: () => {
+    requireNonQcRole()
+    requirePermission('production.view')
+  },
   validateSearch: z.object({
     tab: z
       .enum(['jobs', 'units', 'assignments', 'brands', 'defects'])

@@ -22,7 +22,14 @@ export const sidebarData: SidebarData = {
   navGroups: [
     {
       title: 'Ringkasan',
-      items: [{ title: 'Dashboard', url: '/', icon: LayoutDashboard }],
+      items: [
+        {
+          title: 'Dashboard',
+          url: '/',
+          icon: LayoutDashboard,
+          excludeQc: true,
+        },
+      ],
     },
     {
       title: 'Operasional HR',
@@ -122,16 +129,19 @@ export const sidebarData: SidebarData = {
             },
             {
               title: 'Rekap Produksi',
+              excludeQc: true,
               url: '/produksi/rekap',
               anyOfPermissions: ['production.view'],
             },
             {
               title: 'Master Pekerjaan',
+              excludeQc: true,
               url: '/produksi/master-pekerjaan',
               anyOfPermissions: ['production.view'],
             },
             {
               title: 'Tarif per Site',
+              excludeQc: true,
               url: '/produksi/tarif-site',
               anyOfPermissions: ['production.view'],
             },
@@ -244,6 +254,7 @@ export const sidebarData: SidebarData = {
         {
           title: 'Administrasi Sistem',
           icon: Settings,
+          excludeQc: true,
           items: [
             {
               title: 'User & Hak Akses',

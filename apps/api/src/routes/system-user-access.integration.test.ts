@@ -6,6 +6,7 @@ import type { AuthContext } from '../middleware/authenticate.js'
 import { systemUserAccessRouter } from './system-user-access.js'
 
 const mocks = vi.hoisted(() => ({
+  moduleQuery: vi.fn(),
   query: vi.fn(),
   connectionQuery: vi.fn(),
   execute: vi.fn(),
@@ -20,7 +21,10 @@ vi.mock('../db.js', () => ({
   pool: {
     query: mocks.query,
     getConnection: vi.fn(async () => ({
-      query: mocks.connectionQuery,
+      query: (sql: string, params: unknown[]) =>
+        sql.includes('user_production_module_access')
+          ? mocks.moduleQuery(sql, params)
+          : mocks.connectionQuery(sql, params),
       execute: mocks.execute,
       beginTransaction: mocks.begin,
       commit: mocks.commit,
@@ -83,6 +87,7 @@ async function request(
 describe('Kelola User dan Hak Akses API', () => {
   beforeEach(() => {
     Object.values(mocks).forEach((mock) => mock.mockReset())
+    mocks.moduleQuery.mockResolvedValue([[]])
     mocks.begin.mockResolvedValue(undefined)
     mocks.commit.mockResolvedValue(undefined)
     mocks.rollback.mockResolvedValue(undefined)
@@ -516,5 +521,207 @@ describe('Kelola User dan Hak Akses API', () => {
     )
     expect(revokeCall?.[0]).toContain('uid<>?')
     expect(revokeCall?.[1]).toEqual(['ACCESS_UPDATED', 1, 1, 'current-session'])
+  })
+  const qcRoleUid = '00000000-0000-4000-8000-000000000011'
+  const qcSiteUid = '00000000-0000-4000-8000-000000000012'
+  const qcModuleUid = '00000000-0000-4000-8000-000000000013'
+  const qcPayload = {
+    fullName: 'QC Test',
+    username: 'qc.test',
+    status: 'ACTIVE',
+    initialPassword: 'test12345',
+    roleUids: [qcRoleUid],
+    siteUids: [qcSiteUid],
+    productionModuleUids: [qcModuleUid],
+  }
+  function qcReferences(
+    modules: unknown[] = [
+      {
+        id: 5,
+        uid: qcModuleUid,
+        siteUid: qcSiteUid,
+        code: 'M1',
+        name: 'Module 1',
+      },
+    ]
+  ) {
+    mocks.connectionQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM roles WHERE'))
+        return [[{ id: 3, uid: qcRoleUid, code: 'QC', name: 'QC' }]]
+      if (sql.includes('FROM sites WHERE'))
+        return [[{ id: 4, uid: qcSiteUid, code: 'KLATEN', name: 'Klaten' }]]
+      if (sql.includes('FROM production_modules pm')) return [modules]
+      return [[]]
+    })
+  }
+  it('saves QC module grants atomically with user/site grants and audits public identifiers', async () => {
+    qcReferences()
+    mocks.execute.mockResolvedValue([{ affectedRows: 1, insertId: 9 }])
+    const response = await request('/users', {
+      method: 'POST',
+      body: JSON.stringify(qcPayload),
+    })
+    expect(response.status).toBe(201)
+    expect(
+      mocks.execute.mock.calls.some(
+        (call) =>
+          String(call[0]).includes(
+            'INSERT INTO user_production_module_access'
+          ) &&
+          call[1][1] === 9 &&
+          call[1][2] === 5
+      )
+    ).toBe(true)
+    expect(mocks.commit).toHaveBeenCalledOnce()
+    expect(mocks.audit.mock.calls[0][0].afterData.productionModuleUids).toEqual(
+      [qcModuleUid]
+    )
+  })
+  it.each([
+    ['empty modules', [], []],
+    ['inactive/missing module', [qcModuleUid], []],
+    [
+      'module outside selected site',
+      [qcModuleUid],
+      [{ id: 5, uid: qcModuleUid, siteUid: 'other' }],
+    ],
+  ])(
+    'rejects QC %s before saving any user data',
+    async (_name, moduleUids, modules) => {
+      qcReferences(modules)
+      const response = await request('/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...qcPayload,
+          productionModuleUids: moduleUids,
+        }),
+      })
+      expect(response.status).toBe(422)
+      expect(mocks.execute).not.toHaveBeenCalled()
+      expect(mocks.rollback).toHaveBeenCalledOnce()
+    }
+  )
+  it('rejects mixed QC and other roles', async () => {
+    qcReferences()
+    mocks.connectionQuery.mockResolvedValueOnce([
+      [
+        { id: 3, uid: qcRoleUid, code: 'QC' },
+        { id: 4, uid: qcModuleUid, code: 'HR_OFFICER' },
+      ],
+    ])
+    const response = await request('/users', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...qcPayload,
+        roleUids: [qcRoleUid, qcModuleUid],
+      }),
+    })
+    expect(response.status).toBe(422)
+    expect(mocks.execute).not.toHaveBeenCalled()
+  })
+  it('keeps QC permissions immutable', async () => {
+    mocks.connectionQuery.mockResolvedValueOnce([
+      [{ id: 3, uid: qcRoleUid, code: 'QC', isSystem: 1 }],
+    ])
+    const response = await request(`/roles/${qcRoleUid}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ permissionUids: [] }),
+    })
+    expect(response.status).toBe(422)
+    expect(mocks.execute).not.toHaveBeenCalled()
+  })
+  it('requires at least one active module for EACH selected site', async () => {
+    const secondSite = '00000000-0000-4000-8000-000000000014'
+    mocks.connectionQuery
+      .mockResolvedValueOnce([[{ id: 3, uid: qcRoleUid, code: 'QC' }]])
+      .mockResolvedValueOnce([
+        [
+          { id: 4, uid: qcSiteUid },
+          { id: 6, uid: secondSite },
+        ],
+      ])
+      .mockResolvedValueOnce([
+        [{ id: 5, uid: qcModuleUid, siteUid: qcSiteUid }],
+      ])
+    const response = await request('/users', {
+      method: 'POST',
+      body: JSON.stringify({ ...qcPayload, siteUids: [qcSiteUid, secondSite] }),
+    })
+    expect(response.status).toBe(422)
+    expect(((await response.json()) as { message: string }).message).toContain(
+      'setiap site'
+    )
+    expect(mocks.execute).not.toHaveBeenCalled()
+  })
+  it('revokes sessions when ONLY module access changes and returns existing module grants', async () => {
+    const oldModule = '00000000-0000-4000-8000-000000000015'
+    mocks.moduleQuery.mockResolvedValue([
+      [
+        {
+          userId: 9,
+          uid: oldModule,
+          code: 'OLD',
+          name: 'Old',
+          siteUid: qcSiteUid,
+          siteCode: 'KLATEN',
+          isActive: 1,
+        },
+      ],
+    ])
+    mocks.connectionQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM users WHERE uid='))
+        return [
+          [
+            {
+              id: 9,
+              uid: 'qc-user',
+              fullName: 'QC Test',
+              username: 'qc.test',
+              status: 'ACTIVE',
+            },
+          ],
+        ]
+      if (sql.includes('FROM user_roles ur'))
+        return [[{ userId: 9, uid: qcRoleUid, code: 'QC', name: 'QC' }]]
+      if (sql.includes('FROM user_site_access usa'))
+        return [
+          [
+            {
+              userId: 9,
+              uid: qcSiteUid,
+              code: 'KLATEN',
+              name: 'Klaten',
+              isDefault: 0,
+            },
+          ],
+        ]
+      if (sql.includes('FROM roles WHERE'))
+        return [[{ id: 3, uid: qcRoleUid, code: 'QC' }]]
+      if (sql.includes('FROM sites WHERE')) return [[{ id: 4, uid: qcSiteUid }]]
+      if (sql.includes('FROM production_modules pm'))
+        return [[{ id: 5, uid: qcModuleUid, siteUid: qcSiteUid }]]
+      return [[]]
+    })
+    const read = await request('/users/qc-user')
+    expect(
+      ((await read.json()) as { productionModuleAccess: { uid: string }[] })
+        .productionModuleAccess[0].uid
+    ).toBe(oldModule)
+    const response = await request('/users/qc-user', {
+      method: 'PATCH',
+      body: JSON.stringify(qcPayload),
+    })
+    expect(response.status).toBe(200)
+    expect(
+      ((await response.json()) as { sessionsRevoked: boolean }).sessionsRevoked
+    ).toBe(true)
+    expect(
+      mocks.execute.mock.calls.some((call) =>
+        String(call[0]).includes('UPDATE user_sessions')
+      )
+    ).toBe(true)
+    expect(
+      mocks.audit.mock.calls[0][0].beforeData.productionModuleUids
+    ).toEqual([oldModule])
   })
 })

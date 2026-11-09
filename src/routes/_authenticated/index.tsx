@@ -1,5 +1,7 @@
 import { z } from 'zod'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
+import { useAuthStore } from '@/stores/auth-store'
+import { isQcSession } from '@/features/auth/qc-access'
 import { Dashboard } from '@/features/dashboard'
 
 const dashboardSearchSchema = z.object({
@@ -7,6 +9,11 @@ const dashboardSearchSchema = z.object({
 })
 
 export const Route = createFileRoute('/_authenticated/')({
+  beforeLoad: () => {
+    if (isQcSession(useAuthStore.getState().session)) {
+      throw redirect({ to: '/produksi/terminal-setoran' })
+    }
+  },
   validateSearch: dashboardSearchSchema,
   component: Dashboard,
 })

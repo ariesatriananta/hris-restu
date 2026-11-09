@@ -7,6 +7,7 @@ import { jakartaDateTime } from '../lib/attendance-finalization-policy.js'
 import { writeAudit } from '../lib/audit.js'
 import { businessDate } from '../lib/contract-lifecycle.js'
 import { ApiError } from '../lib/errors.js'
+import { isQc } from '../lib/production-module-access.js'
 import {
   aggregateProductionRecap,
   aggregateProductionRecapMatrix,
@@ -517,6 +518,12 @@ async function loadRevisionRows(auth: AuthContext, input: RecapInput) {
 
 export const productionRecapsRouter = Router()
 productionRecapsRouter.use(authenticate)
+productionRecapsRouter.use('/recaps', (_req, res, next) => {
+  if (isQc(res.locals.auth as AuthContext)) {
+    return next(new ApiError(403, 'Role QC hanya dapat mengakses scanner dan transaksi Produksi.'))
+  }
+  next()
+})
 
 productionRecapsRouter.get(
   '/recaps',

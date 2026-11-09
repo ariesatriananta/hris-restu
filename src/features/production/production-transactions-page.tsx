@@ -109,6 +109,7 @@ import {
   dateOnlyToInput,
 } from '@/features/attendance/date-only'
 import { hasPermission } from '@/features/auth/permissions'
+import { isQcSession } from '@/features/auth/qc-access'
 import {
   useCreateHistoricalProduction,
   useExportProductionTransactions,
@@ -221,10 +222,13 @@ export function ProductionTransactionsPage({
     }
   }
   const canCorrect = hasPermission(session, 'production.correct')
-  const canExport = hasPermission(session, 'production.export')
+  const canUseBatch = !isQcSession(session) && canCorrect
+  const canExport =
+    !isQcSession(session) && hasPermission(session, 'production.export')
   const canDeleteBatch =
-    session?.user.role === 'SUPER_ADMIN' ||
-    session?.user.roles.includes('SUPER_ADMIN') === true
+    !isQcSession(session) &&
+    (session?.user.role === 'SUPER_ADMIN' ||
+      session?.user.roles.includes('SUPER_ADMIN') === true)
   const hasGlobalSiteAccess =
     session?.user.role === 'SUPER_ADMIN' || session?.user.role === 'DIRECTOR'
   const accessibleSites = hasGlobalSiteAccess
@@ -302,11 +306,11 @@ export function ProductionTransactionsPage({
             />
           </div>
           <div className='flex items-center gap-1'>
-            {(canCorrect || canDeleteBatch) && (
+            {(canUseBatch || canDeleteBatch) && (
               <HistoricalProductionDialog sites={accessibleSites} />
             )}
             <ProductionBatchActions
-              canUseBatch={canCorrect || canDeleteBatch}
+              canUseBatch={canUseBatch || canDeleteBatch}
               canDeleteBatch={canDeleteBatch}
               dateFrom={dateFrom}
               dateTo={dateTo}

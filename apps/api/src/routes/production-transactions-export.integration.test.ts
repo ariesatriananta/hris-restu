@@ -203,7 +203,7 @@ describe('all-filtered production transaction Excel export', () => {
     ])
     for (const index of [1, 2, 3]) {
       const sql = String(mocks.query.mock.calls[index][0])
-      expect(sql).toContain('module_history.site_id=pt.site_id')
+      expect(sql).toContain('frozen_module.id=pt.production_module_id')
       expect(sql).toContain("module_history.status='ACTIVE'")
       expect(sql).toContain('conflicting_history.id<>module_history.id')
       expect(sql).toContain('pt.status IN (?)')
@@ -261,7 +261,6 @@ describe('all-filtered production transaction Excel export', () => {
       .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([rows])
       .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[{ hasHistoryStatus: 1 }]])
       .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([[]])
@@ -281,7 +280,7 @@ describe('all-filtered production transaction Excel export', () => {
       mocks.query.mock.calls.filter(([sql]) =>
         String(sql).includes('INFORMATION_SCHEMA.COLUMNS')
       )
-    ).toHaveLength(1)
+    ).toHaveLength(0)
   })
   it('rolls back failed export audit and sends no workbook', async () => {
     mocks.query
