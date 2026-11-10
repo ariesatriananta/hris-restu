@@ -58,6 +58,8 @@ Cache ringkasan, opsi modul dan detail yang dipakai halaman ini dipisahkan berda
 
 ## Verifikasi
 
+**M4 selesai:** audit lintas role, regresi dan rekonsiliasi menggunakan MariaDB lokal read-only. Lihat [PRODUCTION_M4_AUDIT.md](PRODUCTION_M4_AUDIT.md) untuk hasil, batas pengujian dan langkah uji singkat. Dataset lokal belum memiliki transaksi hari ini (9 November 2026), sehingga hasil QC kosong saat audit adalah sesuai data.
+
 **Hasil M2:** 30 tes API lulus, ESLint file baru dan integrasi app lulus, serta `pnpm run build:api` lulus. SQL tidak dieksekusi dan tidak ada migrasi baru.
 
 **Hasil pengujian M3:** 8 tes browser halaman, 3 tes cache query, dan 54 tes regresi Produksi lulus. Build frontend lengkap (`pnpm run build:frontend`, TypeScript dan Vite) lulus. Tampilan mobile 390px diperiksa tanpa overflow daftar. Lint terarah tidak memiliki error; peringatan standar TanStack Table tetap ada. Route tree dibuat melalui generator TanStack, tidak diedit manual.

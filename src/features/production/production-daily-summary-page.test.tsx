@@ -154,6 +154,77 @@ beforeEach(async () => {
   )
 })
 describe('Ringkasan Produksi lapangan', () => {
+  it('pauses refresh while the browser is hidden and resumes it when visible', async () => {
+    const visibility = vi
+      .spyOn(document, 'visibilityState', 'get')
+      .mockReturnValue('visible')
+    try {
+      await view()
+      expect(mocks.tabs.mock.calls[mocks.tabs.mock.calls.length - 1]?.[1]).toBe(
+        true
+      )
+      visibility.mockReturnValue('hidden')
+      document.dispatchEvent(new Event('visibilitychange'))
+      await expect
+        .poll(
+          () => mocks.tabs.mock.calls[mocks.tabs.mock.calls.length - 1]?.[1]
+        )
+        .toBe(false)
+      expect(
+        mocks.employees.mock.calls[mocks.employees.mock.calls.length - 1]?.[1]
+      ).toBe(false)
+      visibility.mockReturnValue('visible')
+      document.dispatchEvent(new Event('visibilitychange'))
+      await expect
+        .poll(
+          () => mocks.tabs.mock.calls[mocks.tabs.mock.calls.length - 1]?.[1]
+        )
+        .toBe(true)
+    } finally {
+      visibility.mockRestore()
+    }
+  })
+
+  it('changes employee query day and resets paging when the server crosses midnight', async () => {
+    const search = { page: 2, jobUid: 'linting' }
+    mocks.employees.mockReturnValue(
+      result({
+        ...metadata,
+        items: [employee],
+        summary: { units: [] },
+        total: 100,
+        page: 2,
+        pageSize: 50,
+      })
+    )
+    const screen = await view(search)
+    const initial = mocks.tabs().data
+    mocks.tabs.mockReturnValue(
+      result({
+        ...initial,
+        effectiveDate: '2026-11-10',
+        serverToday: '2026-11-10',
+      })
+    )
+    mocks.navigate.mockClear()
+    await screen.rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <ProductionDailySummaryPage search={search} navigate={mocks.navigate} />
+      </QueryClientProvider>
+    )
+    expect(
+      mocks.employees.mock.calls[mocks.employees.mock.calls.length - 1]?.[0]
+        .date
+    ).toBe('2026-11-10')
+    const reset = mocks.navigate.mock.calls.find(
+      ([options]) => options.replace === true
+    )
+    expect(reset?.[0].search(search)).toMatchObject({
+      page: undefined,
+      jobUid: undefined,
+    })
+  })
+
   it('uses server day and hides wages/date control for QC despite a stale URL or nominal field', async () => {
     const screen = await view({ date: '2026-11-01' })
     await expect

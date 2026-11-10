@@ -3,23 +3,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import type { AuthSession } from '@/features/auth/domain'
 import {
+  useCorrectProductionTransaction,
   useProductionDailyEmployees,
   useProductionDailyTabs,
   useProductionDailyTransactions,
   useProductionTransaction,
   useProductionTransactionModuleOptions,
+  useVoidProductionTransaction,
 } from './queries'
 
 const state = vi.hoisted(() => ({
   session: null as AuthSession | null,
   get: vi.fn(),
+  post: vi.fn(),
 }))
 vi.mock('@/stores/auth-store', () => ({
   useAuthStore: (
     selector: (value: { session: AuthSession | null }) => unknown
   ) => selector(state),
 }))
-vi.mock('@/lib/api-client', () => ({ apiClient: { get: state.get } }))
+vi.mock('@/lib/api-client', () => ({
+  apiClient: { get: state.get, post: state.post },
+}))
 
 const clients: QueryClient[] = []
 function session(uid = 'account-a'): AuthSession {
@@ -46,16 +51,39 @@ function Harness() {
   const deposits = useProductionDailyTransactions('employee', input)
   const modules = useProductionTransactionModuleOptions(['KLATEN'])
   const transaction = useProductionTransaction('transaction')
+  const correct = useCorrectProductionTransaction('transaction')
+  const cancel = useVoidProductionTransaction('transaction')
   return (
-    <output data-testid='monitor'>
-      {JSON.stringify([
-        tabs.data ?? 'pending',
-        employees.data ?? 'pending',
-        deposits.data ?? 'pending',
-        modules.data ?? 'pending',
-        transaction.data ?? 'pending',
-      ])}
-    </output>
+    <div>
+      <output data-testid='monitor'>
+        {JSON.stringify([
+          tabs.data ?? 'pending',
+          employees.data ?? 'pending',
+          deposits.data ?? 'pending',
+          modules.data ?? 'pending',
+          transaction.data ?? 'pending',
+        ])}
+      </output>
+      <button
+        onClick={() =>
+          correct.mutate({
+            jobUid: 'job',
+            quantity: '500',
+            reason: 'Audit test',
+            idempotencyKey: 'test',
+          })
+        }
+      >
+        Uji koreksi
+      </button>
+      <button
+        onClick={() =>
+          cancel.mutate({ reason: 'Audit test', idempotencyKey: 'test' })
+        }
+      >
+        Uji void
+      </button>
+    </div>
   )
 }
 function setup() {
@@ -72,6 +100,7 @@ function setup() {
 }
 beforeEach(() => {
   state.session = session()
+  state.post.mockReset().mockResolvedValue({ data: {} })
   state.get.mockReset().mockResolvedValue({
     data: {
       effectiveDate: '2026-11-09',
@@ -89,6 +118,30 @@ afterEach(() => {
 })
 
 describe('Production monitoring cache isolation', () => {
+  it.each(['koreksi', 'void'])(
+    'refreshes tabs, workers, deposits and transaction after successful %s',
+    async (action) => {
+      const { view } = setup()
+      const screen = await render(view())
+      await expect.poll(() => state.get.mock.calls.length).toBe(5)
+      state.get.mockResolvedValue({
+        data: { marker: 'updated', transaction: { marker: 'updated' } },
+      })
+      await screen
+        .getByRole('button', { name: `Uji ${action}`, exact: true })
+        .click()
+      await expect.poll(() => state.get.mock.calls.length).toBe(9)
+      const monitor = JSON.parse(
+        screen.getByTestId('monitor').element().textContent ?? '[]'
+      ) as Array<{ marker?: string }>
+      for (const index of [0, 1, 2, 4])
+        expect(monitor[index]?.marker).toBe('updated')
+      expect(state.post.mock.calls[0][0]).toBe(
+        `/production/transactions/transaction/${action === 'koreksi' ? 'correct' : 'void'}`
+      )
+    }
+  )
+
   it('does not request monitoring or detail data without a session', async () => {
     state.session = null
     const { view } = setup()
