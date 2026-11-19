@@ -6,7 +6,7 @@ Keputusan Bos, 19 November 2026. Halaman baru di kategori Ringkasan, setelah Das
 
 1. **M1 - kategori**: master modul dan brand Reguler/Premium, histori tanggal efektif, pemetaan eksplisit data lama. Tersedia dalam perubahan kode ini; migrasi dijalankan Owner.
 2. **M2 - Training**: selesai pada kode. Eligibility Produksi memakai jenis Borongan/Training, dengan isolasi nominal Payroll dan kunci snapshot Training.
-3. **M3 - agregasi**: roster, attendance, AVG minggu sebelumnya dan estimasi box, dengan validasi scope/role.
+3. **M3 - agregasi**: selesai pada kode backend. Roster, attendance, AVG minggu sebelumnya dan estimasi box tersedia melalui API read-only dengan validasi scope/role.
 4. **M4 - UI**: dashboard compact mengikuti susunan sistem lama, satu site/tanggal, mode screenshot.
 5. **M5 - audit**: rekonsiliasi angka, role, histori, pergantian minggu dan alur koreksi/void.
 
@@ -78,3 +78,46 @@ Tes otomatis memakai mock database/browser: kategori valid, data lama belum dipe
 Uji otomatis M2 mencakup scanner Training TIME_BASED, penolakan Harian/Bulanan, attendance wajib Hadir, import single/bulk dan penyimpanan, pasangan batch Training, kategori/permission QC, lifecycle assignment, isolasi Payroll pada pergantian jenis dalam minggu yang sama, serta kunci periode/snapshot Training. SQL scope diuji dengan SQLite dalam memori; integrasi API memakai mock database, bukan MySQL nyata.
 
 Uji Owner setelah deploy: pilih Training dengan histori efektif, assignment/tarif dan attendance Hadir; scan serta simpan setoran. Pastikan hasil tercatat di Ringkasan/Transaksi. Periksa Payroll Training tetap memakai hari hadir dan tarif harian. Pada karyawan yang berubah ke Borongan, hanya setoran sejak tanggal Borongan yang masuk detail upah Borongan. Coba koreksi/void setoran yang sudah tersnapshot Payroll Training: harus ditolak.
+
+## Backend agregasi (M3, 20 November 2026)
+
+### Akses dan endpoint
+
+- `GET /api/attendance-rate/options`: daftar site aktif yang boleh diakses dan `serverToday` (Asia/Jakarta).
+- `GET /api/attendance-rate?site=KLATEN&date=2026-11-19`: tepat satu site wajib; tanggal default hari ini WIB, tanggal masa depan/format tidak valid ditolak. Batas teknis tanggal minimal 1000-01-15 agar seluruh minggu sumber masih valid dalam DATE MySQL.
+- Role HR_OFFICER wajib memiliki permission `attendance.view` dan `production.view` sekaligus akses site. SUPER_ADMIN dapat memilih seluruh site aktif. Role lain ditolak; QC yang digabung HR tetap dibatasi menurut kebijakan QC repo (SUPER_ADMIN tetap memiliki prioritas global).
+- Respons memakai `Cache-Control: private, no-store`. Query sumber dijalankan dalam satu transaksi read-only REPEATABLE READ dengan consistent snapshot. Tujuh bulk query sumber ditambah pencarian site, tanpa query per karyawan. Kegagalan melepaskan koneksi dan membatalkan transaksi baca.
+- Tidak memerlukan migrasi/seed tambahan. Tidak mengubah Attendance, transaksi Produksi, tarif atau Payroll. Menu dan UI baru dikerjakan M4.
+
+### Definisi hitung
+
+1. Roster per tanggal hanya dari tepat satu histori employment berstatus ACTIVE, status karyawan ACTIVE dan jenis TRAINING/BORONGAN pada site terpilih. Histori lintas site ikut diperiksa agar transfer yang overlap tidak dihitung dua kali. Data `employees.current_*`, status aktif saat ini dan jadwal shift tidak menjadi fallback atau filter roster hari lampau.
+2. Hari libur tetap memiliki denominator roster. Hadir hanya attendance final PRESENT di site/tanggal yang sama; satu orang sekali per tanggal, tanpa syarat scan pulang.
+3. Pekerjaan utama harus tepat satu assignment ACTIVE/is_primary efektif, sesuai site. Assignment tambahan tidak masuk breakdown/AVG. Tanpa pekerjaan utama yang valid, karyawan tetap masuk total attendance, masuk `unassigned` jika kategori diketahui, dan muncul peringatan.
+4. Kategori roster mengikuti histori Modul efektif pada hari tersebut; atribut kategori terkini dan status aktif master tidak menimpa histori. Kategori tidak diketahui masuk `unmapped`, tetap dihitung dalam total Training/Borong/semua karyawan.
+5. Minggu referensi selalu Senin-Minggu sebelumnya. Contoh: 19 dan 22 November 2026 memakai 9-15 November; 15 November memakai 2-8 November; 23 November memakai 16-22 November. Sumber hari ini tidak masuk AVG.
+6. AVG terpisah untuk Linting/Packing, Training/Borong dan Reguler/Premium. Numerator raw `quantity` PCS POSTED pada pekerjaan utama; VOID, pekerjaan tambahan, hasil di site lain, potongan dan payable quantity tidak ikut. Denominator person-days PRESENT pada kelompok historis yang sama, termasuk hari hadir tanpa hasil setor. AVG Total memakai jumlah numerator dibagi jumlah denominator, bukan rata-rata dari dua AVG.
+7. Jika transaksi memiliki brand, histori kategori brand wajib tersedia, sesuai site dan sama dengan kategori modul hari tersebut. Konflik, kategori brand hilang/overlap atau snapshot modul berbeda ditandai dan hasil AVG terkait dianggap tidak lengkap. Untuk transaksi tanpa brand (misalnya Packing), kategori berasal dari histori modul, bukan kategori master saat ini. Snapshot modul NULL pada transaksi lama boleh menggunakan histori employment yang tunggal; snapshot non-NULL yang bertentangan tidak boleh diabaikan.
+8. Estimasi per pekerjaan/kategori = jumlah `(hadir Training x AVG Training) + (hadir Borong x AVG Borong)` dibagi kapasitas box. Konstanta sementara sesuai persetujuan: `BORONGAN-LINTING` 9.600 PCS/box, `BORONGAN-PACKING` 800 PCS/box. Packing memakai AVG Packing, bukan AVG Linting. Total estimasi menjumlahkan kontribusi tepat sebelum pembulatan akhir.
+9. Perhitungan quantity dan rasio memakai integer BigInt, tanpa floating point. AVG/estimasi PCS memiliki 4 desimal; persen attendance dan box 2 desimal, HALF_UP. Jangan menghitung ulang estimasi dari AVG tampilan yang sudah dibulatkan.
+10. Denominator nol atau sama sekali tidak ada hasil produksi sumber memberikan AVG `null/NO_DATA`. Data tidak lengkap memberikan `null/INCOMPLETE`. Jika ada pekerja Hadir yang membutuhkan AVG belum tersedia, estimasi `null`, bukan nol. Jika tidak ada pekerja Hadir dan tidak ada klasifikasi ambigu pada hari terpilih, estimasi benar-benar `0.00` walaupun AVG belum ada.
+
+### Kontrak respons untuk M4
+
+Envelope `{data, meta: {serverToday}}`; `data` berisi:
+
+- `date`, `site: {uid,code,name}`, `referenceWeek: {from,to}`.
+- `groups`: empat kelompok, urutan Training Reguler/Premium lalu Borongan Reguler/Premium. Setiap kelompok berisi `present`, `roster`, `ratePercent`, daftar modul publik, breakdown `jobs` dan `unassigned`. Job mengandung UID/code/name publik dan jumlah Hadir/roster. Rate `null` jika roster nol.
+- `unmapped`: jumlah karyawan/present tanpa kategori per jenis. Total tidak boleh dihitung hanya dengan menjumlah empat kartu karena kelompok ini tetap ada.
+- `totals`: Training, Borongan dan TOTAL, dihitung dari orang berbeda pada roster yang valid.
+- `averages`: Linting dan Packing, masing-masing per jenis dan kategori REGULER/PREMIUM/TOTAL; field `quantityPcs`, `presentDays`, `transactions`, `averagePcs`, `complete`, `status` (AVAILABLE/NO_DATA/INCOMPLETE).
+- `estimates`: per job, `pcsPerBox` dan `categories` REGULER/PREMIUM/TOTAL; field `present`, `estimatedPcs`, `boxes`, `complete`. Semua angka desimal berupa string; `null` wajib ditampilkan sebagai belum tersedia/perlu pemetaan, bukan dikonversi menjadi nol.
+- `warnings`: `{scope,code,count,message}` tanpa identitas pribadi. Scope DAY menghitung orang terkait; REFERENCE_WEEK untuk pemetaan/attendance menghitung person-days, untuk produksi menghitung transaksi. UI harus menampilkan peringatan data belum lengkap sebelum angka dipakai untuk laporan.
+
+Kategori baru yang hanya berlaku mulai hari ini tidak cukup untuk AVG minggu lampau. Owner perlu menyesuaikan tanggal efektif berdasarkan fakta yang diketahui jika pemetaan tersebut memang sudah berlaku pada minggu sumber; jangan otomatis memundurkan histori agar angka terisi.
+
+### Verifikasi M3
+
+Tes unit perhitungan dan integrasi API memakai fixture/mock database. Mencakup pergantian minggu/tahun, jenis/mutasi/kategori efektif, roster hari libur, attendance distinct, pekerjaan utama saja, person-days tanpa hasil, AVG Total tertimbang, kuantitas mentah, Packing tanpa brand, konflik snapshot/kategori, histori overlap, estimasi presisi, sumber tidak tersedia vs kapasitas nol, role/permission/site, rollback/release dan respons tanpa nominal/identitas pribadi/internal ID.
+
+Belum mengeksekusi query pada MySQL/MariaDB nyata atau menguji melalui browser. Uji M5 harus merekonsiliasi satu site/tanggal: roster histori, attendance PRESENT, raw PCS POSTED dan person-days minggu referensi. Nilai AVG dapat berubah jika data sumber minggu lalu dikoreksi; tidak berubah hanya karena memilih hari lain dalam minggu referensi yang sama.

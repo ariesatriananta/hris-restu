@@ -4,6 +4,7 @@ import express from 'express'
 import { env } from './config.js'
 import { errorHandler } from './lib/errors.js'
 import { registerProductionFrontend } from './lib/production-frontend.js'
+import { attendanceRateRouter } from './routes/attendance-rate.js'
 import { attendanceRouter } from './routes/attendance.js'
 import { authRouter } from './routes/auth.js'
 import { dashboardRouter } from './routes/dashboard.js'
@@ -14,12 +15,12 @@ import { internalRouter } from './routes/internal.js'
 import { payrollApprovalsRouter } from './routes/payroll-approvals.js'
 import { payrollBpjsRouter } from './routes/payroll-bpjs.js'
 import { payrollConfigurationRouter } from './routes/payroll-configuration.js'
-import { payrollHistoryRouter } from './routes/payroll-history.js'
 import { payrollHandoverRouter } from './routes/payroll-handover.js'
+import { payrollHistoryRouter } from './routes/payroll-history.js'
 import { payrollPeriodsRouter } from './routes/payroll-periods.js'
 import { payrollSimulationsRouter } from './routes/payroll-simulations.js'
-import { productionFoundationRouter } from './routes/production-foundation.js'
 import { productionDailySummaryRouter } from './routes/production-daily-summary.js'
+import { productionFoundationRouter } from './routes/production-foundation.js'
 import { productionQcRouter } from './routes/production-qc.js'
 import { productionRecapsRouter } from './routes/production-recaps.js'
 import { productionStructureRouter } from './routes/production-structure.js'
@@ -64,6 +65,7 @@ app.use('/api/system/access-management', systemUserAccessRouter)
 app.use('/api/system/audit-trail', systemAuditTrailRouter)
 app.use('/api/system', systemRouter)
 app.use('/api/attendance', attendanceRouter)
+app.use('/api/attendance-rate', attendanceRateRouter)
 app.use('/api', (_req, res) =>
   res.status(404).json({ message: 'Endpoint API tidak ditemukan.' })
 )
