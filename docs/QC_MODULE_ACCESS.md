@@ -11,7 +11,7 @@ Disetujui Bos pada 9 November 2026. Implementasi kode tersedia; migrasi dan uji 
 
 ## Hak akses
 
-QC boleh scan, melihat transaksi, koreksi, dan void dalam cakupan site **dan** modulnya. QC tidak boleh ekspor, hapus batch, import, input susulan, mengelola master/tarif/penugasan, atau membuka rekap Produksi. Setelah login QC diarahkan ke scanner.
+QC boleh scan, melihat transaksi melalui Ringkasan Produksi, koreksi, dan void dalam cakupan site **dan** modulnya. Menu dan halaman daftar Transaksi Produksi tidak tersedia untuk QC maupun PRODUCTION_ADMIN; akses URL langsung ditolak. Detail/koreksi dari Ringkasan dan API pendukung scanner tetap tersedia. QC tidak boleh ekspor, hapus batch, import, input susulan, mengelola master/tarif/penugasan, atau membuka rekap Produksi. Setelah login QC diarahkan ke scanner.
 
 Pilihan pekerjaan, pencarian karyawan untuk koreksi, dan opsi brand/defect hanya menjadi metadata pendukung scanner/transaksi. Endpoint pengelolaan tetap diblokir. Dashboard tidak menampilkan agregat seluruh site untuk QC.
 

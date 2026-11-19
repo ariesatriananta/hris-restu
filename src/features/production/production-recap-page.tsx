@@ -69,7 +69,10 @@ import {
   dateOnlyToInput,
 } from '@/features/attendance/date-only'
 import { hasPermission } from '@/features/auth/permissions'
-import { canViewProductionWages } from '@/features/auth/production-access'
+import {
+  canViewProductionWages,
+  canAccessProductionTransactionPage,
+} from '@/features/auth/production-access'
 import {
   useExportProductionRecaps,
   useProductionEmployeeRecap,
@@ -1623,6 +1626,9 @@ function EmptyRecap({
   hasFilters: boolean
   onReset: () => void
 }) {
+  const canOpenTransactions = canAccessProductionTransactionPage(
+    useAuthStore((state) => state.session)
+  )
   return hasFilters ? (
     <StatePanel
       icon={SearchX}
@@ -1639,7 +1645,17 @@ function EmptyRecap({
           Transaksi POSTED akan tampil pada rekap ini.
         </p>
         <Button asChild size='sm' variant='outline' className='mt-3'>
-          <a href='/produksi/transaksi'>Buka Transaksi Produksi</a>
+          <a
+            href={
+              canOpenTransactions
+                ? '/produksi/transaksi'
+                : '/produksi/ringkasan'
+            }
+          >
+            {canOpenTransactions
+              ? 'Buka Transaksi Produksi'
+              : 'Buka Ringkasan Produksi'}
+          </a>
         </Button>
       </div>
     </div>

@@ -1,10 +1,14 @@
 import { z } from 'zod'
 import { createFileRoute } from '@tanstack/react-router'
 import { requirePermission } from '@/features/auth/permissions'
+import { requireProductionTransactionPageRole } from '@/features/auth/production-access'
 import { ProductionTransactionsPage } from '@/features/production/production-transactions-page'
 
 export const Route = createFileRoute('/_authenticated/produksi/transaksi')({
-  beforeLoad: () => requirePermission('production.view'),
+  beforeLoad: () => {
+    requirePermission('production.view')
+    requireProductionTransactionPageRole()
+  },
   validateSearch: z.object({
     filter: z.string().optional(),
     site: z.array(z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])).optional(),

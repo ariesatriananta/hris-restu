@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -9,11 +9,11 @@ import {
 import {
   Boxes,
   CalendarDays,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   Eye,
-  PackageCheck,
   RefreshCw,
-  Users,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
 import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
@@ -75,6 +75,27 @@ const time = (value: string) =>
     hour: '2-digit',
     minute: '2-digit',
   })
+const averageDeposit = (item: ProductionDailyEmployee) => {
+  const quantity = Number(item.quantity)
+  const count = item.transactionCount
+  if (!Number.isFinite(quantity) || !Number.isFinite(count) || count <= 0)
+    return '\u2014'
+  return `${number(quantity / count, Math.max(2, item.unit.decimalPrecision))} ${item.unit.code}`
+}
+const defectDescription =
+  'Jumlah kejadian defect tercatat, bukan jumlah PCS reject unik.'
+function DefectCount({ count }: { count: number }) {
+  return (
+    <span
+      title={
+        count > 0 ? defectDescription : 'Belum ada kejadian defect tercatat'
+      }
+    >
+      {count > 0 ? number(count) : '\u2014'}
+    </span>
+  )
+}
+
 function useVisible() {
   const [visible, setVisible] = useState(
     () => document.visibilityState !== 'hidden'
@@ -120,6 +141,8 @@ function DailySummaryBody({
   const visible = useVisible()
   const [selected, setSelected] = useState<ProductionDailyEmployee>()
   const [transactionUid, setTransactionUid] = useState<string>()
+  const [summariesOpen, setSummariesOpen] = useState(false)
+  const summariesId = useId()
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     moduleUid: false,
   })
@@ -330,6 +353,24 @@ function DailySummaryBody({
         cell: ({ row }) => number(row.original.transactionCount),
       },
       {
+        id: 'defects',
+        meta: { label: 'Defect Tercatat' },
+        header: () => <span title={defectDescription}>Defect Tercatat</span>,
+        cell: ({ row }) => (
+          <DefectCount count={row.original.rejectOccurrences} />
+        ),
+      },
+      {
+        id: 'average',
+        meta: { label: 'Rata-rata / Setoran' },
+        header: () => (
+          <span title='Rata-rata hasil setor per transaksi.'>
+            Rata-rata / Setoran
+          </span>
+        ),
+        cell: ({ row }) => averageDeposit(row.original),
+      },
+      {
         id: 'last',
         header: 'Terakhir',
         cell: ({ row }) => time(row.original.lastSubmittedAt),
@@ -393,7 +434,6 @@ function DailySummaryBody({
     session?.user.role !== 'QC'
       ? sites
       : (session?.user.siteAccess ?? [])
-  const updatedAt = Math.max(tabs.dataUpdatedAt, employees.dataUpdatedAt)
   return (
     <Main fluid className='space-y-3'>
       <div className='flex flex-wrap items-center justify-between gap-2'>
@@ -485,14 +525,6 @@ function DailySummaryBody({
           </button>
         </p>
       )}
-      <div className='text-[11px] text-muted-foreground' aria-live='polite'>
-        {updatedAt
-          ? `Diperbarui ${time(new Date(updatedAt).toISOString())} WIB`
-          : 'Memuat data...'}
-        {!polling
-          ? ' / Pembaruan otomatis dijeda'
-          : ' / Otomatis setiap 60 detik'}
-      </div>
       {tabs.isError ? (
         <ErrorState onRetry={() => void tabs.refetch()} />
       ) : tabs.isPending ? (
@@ -511,48 +543,120 @@ function DailySummaryBody({
           value={active.jobUid}
           onValueChange={(jobUid) => patch({ jobUid })}
         >
-          <div className='max-w-full overflow-x-auto pb-1'>
-            <TabsList className='h-auto w-max gap-1'>
-              <>
+          <div className='flex min-w-0 items-start gap-2'>
+            <div
+              id={summariesId}
+              className='min-w-0 flex-1 overflow-x-auto pb-1'
+            >
+              <TabsList className='h-auto w-max items-stretch gap-1'>
                 {metadata?.tabs.map((tab) => (
-                  <TabsTrigger
+                  <div
                     key={tab.jobUid}
-                    value={tab.jobUid}
-                    className='h-10 gap-2 px-4'
+                    className={
+                      summariesOpen
+                        ? `w-52 shrink-0 rounded-md border ${active.jobUid === tab.jobUid ? 'border-primary/30 bg-background shadow-sm' : 'border-transparent'}`
+                        : 'contents'
+                    }
                   >
-                    <Boxes className='size-4' />
-                    {tab.jobName}
-                    <Badge variant='secondary' className='text-[10px]'>
-                      {number(tab.employeeCount)} orang
-                    </Badge>
-                  </TabsTrigger>
+                    <TabsTrigger
+                      value={tab.jobUid}
+                      className={`h-10 gap-2 px-4 ${summariesOpen ? 'w-full justify-start data-[state=active]:shadow-none' : ''}`}
+                    >
+                      <Boxes className='size-4' />
+                      <span
+                        className={
+                          summariesOpen ? 'min-w-0 truncate' : undefined
+                        }
+                        title={tab.jobName}
+                      >
+                        {tab.jobName}
+                      </span>
+                      <Badge
+                        variant='secondary'
+                        className='shrink-0 text-[10px]'
+                      >
+                        {number(tab.employeeCount)} orang
+                      </Badge>
+                    </TabsTrigger>
+                    {summariesOpen && (
+                      <dl
+                        aria-label={`Ringkasan ${tab.jobName}`}
+                        className='space-y-2 border-t px-3 py-2 text-xs text-foreground'
+                      >
+                        <div className='flex items-start justify-between gap-2'>
+                          <dt className='text-[11px] font-normal text-muted-foreground'>
+                            Hasil Setoran
+                          </dt>
+                          <dd className='text-right font-semibold whitespace-nowrap tabular-nums'>
+                            {tab.units.length
+                              ? tab.units.map((unit) => (
+                                  <div key={unit.unitUid}>
+                                    {number(
+                                      unit.quantity,
+                                      unit.decimalPrecision
+                                    )}{' '}
+                                    <span className='font-normal text-muted-foreground'>
+                                      {unit.unitCode}
+                                    </span>
+                                  </div>
+                                ))
+                              : '\u2014'}
+                          </dd>
+                        </div>
+                        <div className='flex items-center justify-between gap-2'>
+                          <dt className='text-[11px] font-normal text-muted-foreground'>
+                            Jumlah Setoran
+                          </dt>
+                          <dd className='font-medium tabular-nums'>
+                            {number(tab.transactionCount)}
+                          </dd>
+                        </div>
+                        <div className='flex items-center justify-between gap-2'>
+                          <dt className='text-[11px] font-normal text-muted-foreground'>
+                            Defect Tercatat
+                          </dt>
+                          <dd className='font-medium tabular-nums'>
+                            <DefectCount
+                              count={tab.units.reduce(
+                                (total, unit) => total + unit.rejectOccurrences,
+                                0
+                              )}
+                            />
+                          </dd>
+                        </div>
+                      </dl>
+                    )}
+                  </div>
                 ))}
-              </>
-            </TabsList>
+              </TabsList>
+            </div>
+            <Button
+              type='button'
+              variant='outline'
+              size='icon'
+              className='mt-0.5 size-10 shrink-0'
+              aria-label={
+                summariesOpen
+                  ? 'Tutup ringkasan semua pekerjaan'
+                  : 'Buka ringkasan semua pekerjaan'
+              }
+              title={
+                summariesOpen
+                  ? 'Tutup ringkasan semua pekerjaan'
+                  : 'Buka ringkasan semua pekerjaan'
+              }
+              aria-expanded={summariesOpen}
+              aria-controls={summariesId}
+              onClick={() => setSummariesOpen((open) => !open)}
+            >
+              {summariesOpen ? (
+                <ChevronUp className='size-4' />
+              ) : (
+                <ChevronDown className='size-4' />
+              )}
+            </Button>
           </div>
           <TabsContent value={active.jobUid} className='space-y-3'>
-            <div className='grid grid-cols-2 gap-2 lg:grid-cols-3'>
-              <Kpi
-                icon={<Users className='size-4' />}
-                label='Pekerja'
-                value={`${number(active.employeeCount)} orang`}
-              />
-              <Kpi
-                icon={<PackageCheck className='size-4' />}
-                label='Hasil Setoran'
-                value={active.units
-                  .map(
-                    (unit) =>
-                      `${number(unit.quantity, unit.decimalPrecision)} ${unit.unitCode}`
-                  )
-                  .join(' / ')}
-              />
-              <Kpi
-                icon={<Boxes className='size-4' />}
-                label='Jumlah Setoran'
-                value={number(active.transactionCount)}
-              />
-            </div>
             {employees.isError ? (
               <ErrorState onRetry={() => void employees.refetch()} />
             ) : employees.isPending ? (
@@ -618,6 +722,13 @@ function DailySummaryBody({
                           {item.transactionCount} setoran /{' '}
                           {time(item.lastSubmittedAt)} WIB
                         </p>
+                        <p className='text-[11px] text-muted-foreground'>
+                          Rata-rata {averageDeposit(item)} / setoran
+                          <span className='mx-1.5' aria-hidden='true'>
+                            {'\u00b7'}
+                          </span>
+                          Defect <DefectCount count={item.rejectOccurrences} />
+                        </p>
                       </div>
                       <div className='flex shrink-0 items-center gap-1'>
                         <span className='text-right text-base font-semibold'>
@@ -667,25 +778,6 @@ function DailySummaryBody({
   )
 }
 
-function Kpi({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode
-  label: string
-  value: string
-}) {
-  return (
-    <div className='flex min-h-[68px] items-center justify-between gap-2 rounded-lg border px-3 py-2.5'>
-      <div>
-        <p className='text-[11px] text-muted-foreground'>{label}</p>
-        <p className='text-base font-semibold tabular-nums'>{value}</p>
-      </div>
-      <span className='text-muted-foreground'>{icon}</span>
-    </div>
-  )
-}
 function ErrorState({ onRetry }: { onRetry: () => void }) {
   return (
     <div

@@ -11,7 +11,10 @@ import {
 } from '@/components/ui/sidebar'
 import { AppBrand } from '@/components/app-brand'
 import { hasAnyPermission } from '@/features/auth/permissions'
-import { canViewProductionWages } from '@/features/auth/production-access'
+import {
+  canViewProductionWages,
+  canAccessProductionTransactionPage,
+} from '@/features/auth/production-access'
 import { isQcSession } from '@/features/auth/qc-access'
 import { sidebarData } from './data/sidebar-data'
 import { NavGroup } from './nav-group'
@@ -80,6 +83,11 @@ function canSeeItem(
     'url' in item &&
     item.url === '/produksi/tarif-site' &&
     !canViewProductionWages(session)
+  )
+    return false
+  if (
+    item.url === '/produksi/transaksi' &&
+    !canAccessProductionTransactionPage(session)
   )
     return false
   if (item.excludeQc && isQcSession(session)) return false

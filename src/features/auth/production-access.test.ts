@@ -2,6 +2,7 @@
 import type { AuthSession, UserRole } from './domain'
 import {
   canViewProductionWages,
+  canAccessProductionTransactionPage,
   canReviseProductionDate,
   productionBusinessToday,
 } from './production-access'
@@ -49,6 +50,34 @@ describe('Production role and date policy', () => {
     expect(canReviseProductionDate(null, '2026-11-09', '2026-11-09')).toBe(
       false
     )
+  })
+  it.each(['QC', 'PRODUCTION_ADMIN'] as const)(
+    'blocks the standalone transaction page for %s',
+    (role) => {
+      expect(canAccessProductionTransactionPage(session(role))).toBe(false)
+      expect(
+        canAccessProductionTransactionPage(
+          session('DIRECTOR', ['DIRECTOR', role])
+        )
+      ).toBe(false)
+    }
+  )
+  it.each([
+    'SUPER_ADMIN',
+    'HR_OFFICER',
+    'DIRECTOR',
+    'PAYROLL_FINANCE',
+    'SITE_SUPERVISOR',
+  ] as const)('retains the transaction page role policy for %s', (role) => {
+    expect(canAccessProductionTransactionPage(session(role))).toBe(true)
+  })
+  it('denies absent sessions and honors HR/Superadmin membership', () => {
+    expect(canAccessProductionTransactionPage(null)).toBe(false)
+    expect(
+      canAccessProductionTransactionPage(
+        session('PRODUCTION_ADMIN', ['PRODUCTION_ADMIN', 'HR_OFFICER'])
+      )
+    ).toBe(true)
   })
   it('rolls over at midnight WIB, independent of the browser timezone', () => {
     expect(productionBusinessToday(new Date('2026-11-08T16:59:59Z'))).toBe(

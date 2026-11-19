@@ -9,6 +9,22 @@ export function canViewProductionWages(
   return roles.includes('SUPER_ADMIN') || roles.includes('HR_OFFICER')
 }
 
+// The operational summary remains the entry point for QC and production admins.
+export function canAccessProductionTransactionPage(
+  session: AuthSession | null | undefined
+) {
+  if (!session) return false
+  if (canViewProductionWages(session)) return true
+  const roles = [session.user.role, ...(session.user.roles ?? [])]
+  return !roles.some((role) => role === 'QC' || role === 'PRODUCTION_ADMIN')
+}
+
+export function requireProductionTransactionPageRole() {
+  if (!canAccessProductionTransactionPage(useAuthStore.getState().session)) {
+    throw redirect({ to: '/errors/$error', params: { error: 'forbidden' } })
+  }
+}
+
 export function productionBusinessToday(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Jakarta',

@@ -38,9 +38,13 @@ Total dan pagination dihitung di database, bukan dari sebagian baris yang sudah 
 
 ## Halaman Ringkasan Produksi (M3)
 
-Menu **Produksi Borongan > Ringkasan Produksi**, sesudah Transaksi Produksi, pada `/produksi/ringkasan`. Header ringkas berisi tanggal, site/modul, pencarian dan refresh. Tab pekerjaan bergeser horizontal pada HP. Ringkasan mengikuti pekerjaan aktif; daftar desktop berbentuk tabel dan mobile berupa kartu tipis. Ketuk karyawan membuka rincian setorannya.
+Menu **Produksi Borongan > Ringkasan Produksi**, sesudah Transaksi Produksi, pada `/produksi/ringkasan`. Header ringkas berisi tanggal, site/modul, pencarian dan refresh. Tab pekerjaan bergeser horizontal pada HP. Daftar mengikuti pekerjaan aktif tanpa tiga kartu KPI (Pekerja, Hasil Setoran, Jumlah Setoran); desktop berbentuk tabel dan mobile berupa kartu tipis. Setelah kolom Setoran terdapat Defect Tercatat (jumlah kejadian defect, bukan PCS rusak unik; kosong ditampilkan sebagai tanda pisah) dan Rata-rata / Setoran (hasil setor mentah dibagi jumlah transaksi, per satuan). Rata-rata memakai format Indonesia dengan maksimal dua desimal atau presisi satuan jika lebih tinggi; jumlah transaksi nol atau data tidak valid menghasilkan tanda pisah. Kedua informasi juga tersedia ringkas pada kartu mobile. Ketuk karyawan membuka rincian setorannya.
 
-Refresh otomatis setiap 60 detik ketika halaman aktif, berhenti saat browser tersembunyi atau panel rincian/koreksi dibuka, dengan indikator waktu pembaruan. Rincian hanya dimuat saat karyawan dipilih, dengan pagination sendiri; tidak memuat seluruh pekerjaan/karyawan sekaligus.
+Refresh otomatis setiap 60 detik ketika halaman aktif, berhenti saat browser tersembunyi atau panel rincian/koreksi dibuka, tanpa baris informasi waktu pembaruan atau interval polling di halaman. Rincian hanya dimuat saat karyawan dipilih, dengan pagination sendiri; tidak memuat seluruh pekerjaan/karyawan sekaligus.
+
+Tab pekerjaan sekaligus menyediakan ringkasan operasional yang dapat dibuka/ditutup bersama melalui tombol panah kecil di sebelah kanan deretan tab. Default tertutup setiap halaman dibuka, tanpa penyimpanan preferensi. Saat terbuka, setiap tab menjadi kartu compact: badge jumlah pekerja pada header, Hasil Setoran per satuan, Jumlah Setoran, dan Defect Tercatat (kejadian defect dijumlahkan; nol ditampilkan sebagai tanda pisah). Tidak ada nominal, Hasil Dibayar atau persentase potongan pada kartu ini, termasuk untuk HR/Superadmin. Klik header tetap memilih pekerjaan; ringkasan bukan tombol tambahan. Navigasi keyboard tab tetap memakai primitive Tabs bawaan. Pada HP, kartu bergeser horizontal sementara tombol buka/tutup tetap tersedia di luar area geser tanpa memperlebar halaman.
+
+Angka kartu memakai agregat tab dari seluruh transaksi POSTED dalam tanggal/site/modul dan akses pengguna. Pencarian nama/NIK maupun pagination daftar tidak membatasi ringkasan kartu; satuan berbeda tetap ditampilkan terpisah. Membuka ringkasan tidak memuat daftar karyawan atau setoran setiap pekerjaan dan tidak menambahkan request API.
 
 Tanggal, site, modul, pekerjaan terpilih, pencarian dan pagination tersimpan di URL. Pencarian ditunda singkat agar tidak mengirim request tiap penekanan tombol. Pilihan modul menyesuaikan site; modul yang sudah tidak tersedia dibersihkan. Pergantian tanggal efektif server menutup rincian dan mereset halaman/pekerjaan, sehingga data kemarin tidak tercampur dengan hari baru.
 
@@ -53,8 +57,9 @@ Cache ringkasan, opsi modul dan detail yang dipakai halaman ini dipisahkan berda
 3. Cari nama/NIK dan ubah halaman; tab pekerjaan tetap ada. Ubah filter dan pastikan pagination kembali ke awal.
 4. Gunakan HP: daftar tampil sebagai kartu tipis tanpa scroll horizontal isi daftar. Tab pekerjaan boleh digeser.
 5. Ketuk pekerja, periksa jumlah setoran, brand dan QC per transaksi. Buka Detail untuk koreksi/void; aturan M1 dan Payroll tetap berlaku.
-6. Saat panel ditutup, periksa refresh manual dan waktu pembaruan. Beralih ke tab browser lain atau membuka rincian menjeda polling.
+6. Saat panel ditutup, periksa refresh manual memperbarui daftar. Kartu KPI dan baris waktu pembaruan tidak ditampilkan. Beralih ke tab browser lain atau membuka rincian menjeda polling.
 7. Login HR dengan permission/site sesuai: pilihan tanggal tersedia dan nominal mengikuti akses. Berganti akun harus menghilangkan data akun sebelumnya.
+8. Tekan tombol panah di kanan tab: seluruh ringkasan pekerjaan terbuka bersama tanpa mengganti pekerjaan aktif. Pilih pekerjaan lain, lakukan pencarian dan ganti halaman; ringkasan tetap terbuka dengan angka agregat seluruh cakupan. Tekan kembali untuk menutup. Uji juga dengan keyboard dan HP; tombol tetap terlihat saat tab digeser.
 
 ## Verifikasi
 
@@ -65,3 +70,6 @@ Cache ringkasan, opsi modul dan detail yang dipakai halaman ini dipisahkan berda
 **Hasil pengujian M3:** 8 tes browser halaman, 3 tes cache query, dan 54 tes regresi Produksi lulus. Build frontend lengkap (`pnpm run build:frontend`, TypeScript dan Vite) lulus. Tampilan mobile 390px diperiksa tanpa overflow daftar. Lint terarah tidak memiliki error; peringatan standar TanStack Table tetap ada. Route tree dibuat melalui generator TanStack, tidak diedit manual.
 
 Pengujian API memakai mock database untuk batas role/tanggal, scope site/modul, pengikatan parameter SQL, satuan terpisah, preagregasi defect, pagination dan redaksi nominal. Uji database nyata, konsistensi angka dengan transaksi lapangan dan `EXPLAIN` query tetap dilakukan setelah tersedia lingkungan Owner yang diizinkan. Tidak menambahkan indeks berdasarkan asumsi tanpa pengukuran.
+
+
+QC dan Admin Produksi memakai Terminal Setoran serta Ringkasan Produksi sebagai akses operasional. Menu dan halaman daftar Transaksi Produksi disembunyikan/diblokir untuk kedua role tersebut. Detail, koreksi dan void tetap dapat dibuka dari Ringkasan sesuai permission, tanggal, site/modul dan kunci Payroll; API pendukungnya tidak dinonaktifkan. Role HR/Superadmin tetap mendapat akses daftar dengan permission terkait.

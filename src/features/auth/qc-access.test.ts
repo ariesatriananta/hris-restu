@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AuthSession } from './domain'
+import { requireProductionTransactionPageRole } from './production-access'
 import { isQcSession, requireNonQcRole } from './qc-access'
 
 const { state } = vi.hoisted(() => ({
@@ -31,10 +32,24 @@ describe('QC navigation restrictions', () => {
     state.session = session('QC')
     expect(() => requireNonQcRole()).toThrow()
   })
-  it('preserves production routes for the existing production administrator', () => {
+  it('preserves other production routes for the existing production administrator', () => {
     state.session = session('PRODUCTION_ADMIN')
     expect(() => requireNonQcRole()).not.toThrow()
   })
+  it.each(['QC', 'PRODUCTION_ADMIN'] as const)(
+    'blocks direct transaction-page navigation for %s despite view/correct permissions',
+    (role) => {
+      state.session = session(role)
+      expect(() => requireProductionTransactionPageRole()).toThrow()
+    }
+  )
+  it.each(['HR_OFFICER', 'SUPER_ADMIN'] as const)(
+    'keeps transaction-page navigation for %s',
+    (role) => {
+      state.session = session(role)
+      expect(() => requireProductionTransactionPageRole()).not.toThrow()
+    }
+  )
   it('recognizes QC in the full roles list and handles a missing session', () => {
     const mixed = session('SITE_SUPERVISOR')
     mixed.user.roles.push('QC')

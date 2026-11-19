@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import '@/styles/index.css'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
-import { page } from 'vitest/browser'
+import { page, userEvent } from 'vitest/browser'
 import { ProductionDailySummaryPage } from './production-daily-summary-page'
 
 const mocks = vi.hoisted(() => ({
@@ -97,6 +97,7 @@ beforeEach(async () => {
               unitCode: unit.code,
               quantity: '1200',
               decimalPrecision: 0,
+              rejectOccurrences: 3,
             },
           ],
         },
@@ -154,6 +155,234 @@ beforeEach(async () => {
   )
 })
 describe('Ringkasan Produksi lapangan', () => {
+  it('expands every job summary together without changing jobs or requesting extra lists', async () => {
+    const screen = await view({ filter: 'Pekerja', page: 2 })
+    const toggle = screen.getByRole('button', {
+      name: 'Buka ringkasan semua pekerjaan',
+    })
+    await expect.element(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(
+      document.querySelectorAll('dl[aria-label^="Ringkasan "]')
+    ).toHaveLength(0)
+    mocks.navigate.mockClear()
+    await toggle.click()
+    await expect
+      .element(
+        screen.getByRole('button', { name: 'Tutup ringkasan semua pekerjaan' })
+      )
+      .toHaveAttribute('aria-expanded', 'true')
+    const summaries = document.querySelectorAll('dl[aria-label^="Ringkasan "]')
+    expect(summaries).toHaveLength(2)
+    expect(summaries[0]?.textContent).toContain('1.200 PCS')
+    expect(summaries[0]?.textContent).toContain('Jumlah Setoran2')
+    expect(summaries[0]?.textContent).toContain('Defect Tercatat3')
+    expect(summaries[1]?.textContent).toContain('Defect Tercatat\u2014')
+    expect(mocks.navigate).not.toHaveBeenCalled()
+    expect(
+      mocks.tabs.mock.calls[mocks.tabs.mock.calls.length - 1]?.[0]
+    ).not.toHaveProperty('query')
+    expect(
+      mocks.employees.mock.calls[mocks.employees.mock.calls.length - 1]?.[0]
+    ).toMatchObject({
+      query: 'Pekerja',
+      page: 2,
+    })
+    expect(
+      mocks.deposits.mock.calls[mocks.deposits.mock.calls.length - 1]?.[0]
+    ).toBeUndefined()
+    await screen.getByRole('tab', { name: /Batil/ }).click()
+    await screen.rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <ProductionDailySummaryPage
+          search={{ jobUid: 'batil' }}
+          navigate={mocks.navigate}
+        />
+      </QueryClientProvider>
+    )
+    await expect
+      .element(screen.getByRole('tab', { name: /Batil/ }))
+      .toHaveAttribute('aria-selected', 'true')
+    expect(
+      document.querySelectorAll('dl[aria-label^="Ringkasan "]')
+    ).toHaveLength(2)
+    await screen
+      .getByRole('button', { name: 'Tutup ringkasan semua pekerjaan' })
+      .click()
+    expect(
+      document.querySelectorAll('dl[aria-label^="Ringkasan "]')
+    ).toHaveLength(0)
+  })
+  it('keeps raw totals per unit and excludes payroll fields from all job cards', async () => {
+    const original = mocks.tabs().data
+    mocks.tabs.mockReturnValue(
+      result({
+        ...original,
+        tabs: original.tabs.map((tab: { units: unknown[] }) => ({
+          ...tab,
+          units: [
+            ...tab.units,
+            {
+              unitUid: 'kg',
+              unitCode: 'KG',
+              quantity: '12.345',
+              decimalPrecision: 3,
+              rejectOccurrences: 2,
+              payableQuantity: '11',
+              grossAmount: '999999',
+              deductionPercentage: '3',
+            },
+          ],
+        })),
+      })
+    )
+    const screen = await view()
+    await screen
+      .getByRole('button', { name: 'Buka ringkasan semua pekerjaan' })
+      .click()
+    const summary = document.querySelector('dl[aria-label="Ringkasan Linting"]')
+    expect(summary?.textContent).toContain('1.200 PCS')
+    expect(summary?.textContent).toContain('12,345 KG')
+    expect(summary?.textContent).toContain('Defect Tercatat5')
+    expect([...summary!.querySelectorAll('dd')][0]?.children).toHaveLength(2)
+    expect(summary?.textContent).not.toMatch(
+      /Dibayar|Bruto|Adjustment|Potongan|999999|Rp/
+    )
+  })
+  it('keeps the global toggle outside the scrollable tabs on mobile with no page overflow', async () => {
+    await page.viewport(390, 844)
+    const screen = await view()
+    await screen
+      .getByRole('button', { name: 'Buka ringkasan semua pekerjaan' })
+      .click()
+    const toggle = document.querySelector<HTMLButtonElement>(
+      'button[aria-expanded="true"][aria-controls]'
+    )!
+    const scroller = document.getElementById(
+      toggle.getAttribute('aria-controls')!
+    )!
+    expect(scroller.contains(toggle)).toBe(false)
+    expect(scroller.scrollWidth).toBeGreaterThan(scroller.clientWidth)
+    expect(toggle.getBoundingClientRect().right).toBeLessThanOrEqual(390)
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
+    toggle.focus()
+    await userEvent.keyboard('{Enter}')
+    await expect
+      .element(
+        screen.getByRole('button', { name: 'Buka ringkasan semua pekerjaan' })
+      )
+      .toHaveAttribute('aria-expanded', 'false')
+  })
+  it('preserves arrow-key job navigation with expanded summaries', async () => {
+    const screen = await view()
+    await screen
+      .getByRole('button', { name: 'Buka ringkasan semua pekerjaan' })
+      .click()
+    const firstTab = document.querySelector<HTMLButtonElement>(
+      '[role="tab"][data-state="active"]'
+    )!
+    firstTab.focus()
+    mocks.navigate.mockClear()
+    await userEvent.keyboard('{ArrowRight}')
+    expect(document.activeElement?.textContent).toContain('Batil')
+    const update =
+      mocks.navigate.mock.calls[mocks.navigate.mock.calls.length - 1]?.[0]
+        .search
+    expect(update({})).toMatchObject({ jobUid: 'batil' })
+    expect(
+      document.querySelectorAll('dl[aria-label^="Ringkasan "]')
+    ).toHaveLength(2)
+  })
+  it('removes KPI and refresh captions while showing operational defect and average columns', async () => {
+    const screen = await view()
+    await expect
+      .element(screen.getByText(/^Diperbarui /))
+      .not.toBeInTheDocument()
+    await expect
+      .element(screen.getByText(/Otomatis setiap 60 detik/))
+      .not.toBeInTheDocument()
+    await expect
+      .element(screen.getByText('Pekerja', { exact: true }))
+      .not.toBeInTheDocument()
+    await expect
+      .element(screen.getByText('Jumlah Setoran', { exact: true }))
+      .not.toBeInTheDocument()
+    // Only the table header remains; the total KPI is gone.
+    expect(document.querySelectorAll('thead')).toHaveLength(1)
+    expect(
+      [...document.querySelectorAll('p')].some(
+        (node) => node.textContent === 'Hasil Setoran'
+      )
+    ).toBe(false)
+    const headers = [...document.querySelectorAll('thead th')].map(
+      (node) => node.textContent
+    )
+    expect(
+      headers.slice(headers.indexOf('Setoran'), headers.indexOf('Terakhir') + 1)
+    ).toEqual(['Setoran', 'Defect Tercatat', 'Rata-rata / Setoran', 'Terakhir'])
+    await expect
+      .element(screen.getByRole('cell', { name: '600 PCS', exact: true }))
+      .toBeVisible()
+    await expect
+      .element(screen.getByRole('cell', { name: '3', exact: true }))
+      .toBeVisible()
+    expect(
+      document.querySelector('tbody [title*="bukan jumlah PCS reject unik"]')
+        ?.textContent
+    ).toBe('3')
+  })
+  it('uses a dash for zero-count averages and missing defect occurrences without NaN or Infinity', async () => {
+    mocks.employees.mockReturnValue(
+      result({
+        ...metadata,
+        items: [{ ...employee, transactionCount: 0, rejectOccurrences: 0 }],
+        total: 1,
+      })
+    )
+    await view()
+    const cells = [...document.querySelectorAll('tbody td')].map(
+      (node) => node.textContent
+    )
+    expect(cells[4]).toBe('\u2014')
+    expect(cells[5]).toBe('\u2014')
+    expect(
+      document.querySelector(
+        'tbody [title="Belum ada kejadian defect tercatat"]'
+      )
+    ).not.toBeNull()
+    expect(document.body.textContent).not.toMatch(/NaN|Infinity/)
+  })
+  it('formats average raw quantities using Indonesian decimal precision', async () => {
+    mocks.employees.mockReturnValue(
+      result({
+        ...metadata,
+        items: [
+          {
+            ...employee,
+            quantity: '12.345',
+            transactionCount: 2,
+            unit: { ...unit, code: 'KG', decimalPrecision: 3 },
+          },
+        ],
+        total: 1,
+      })
+    )
+    const screen = await view()
+    await expect
+      .element(screen.getByRole('cell', { name: '6,173 KG', exact: true }))
+      .toBeVisible()
+  })
+  it('guards an invalid raw quantity when computing average deposits', async () => {
+    mocks.employees.mockReturnValue(
+      result({
+        ...metadata,
+        items: [{ ...employee, quantity: 'invalid' }],
+        total: 1,
+      })
+    )
+    await view()
+    expect(document.querySelectorAll('tbody td')[5]?.textContent).toBe('\u2014')
+  })
+
   it('pauses refresh while the browser is hidden and resumes it when visible', async () => {
     const visibility = vi
       .spyOn(document, 'visibilityState', 'get')
@@ -304,6 +533,9 @@ describe('Ringkasan Produksi lapangan', () => {
     await expect
       .element(screen.getByRole('table', { includeHidden: true }))
       .not.toBeVisible()
+    const card = screen.getByRole('button', { name: /^Pekerja Satu EMP001/ })
+    await expect.element(card).toHaveTextContent('Rata-rata 600 PCS / setoran')
+    await expect.element(card).toHaveTextContent('Defect 3')
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
   })
   it('requires role and server capability together before rendering wages', async () => {
