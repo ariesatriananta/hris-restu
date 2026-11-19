@@ -19,6 +19,9 @@ untuk mengakali pembatasan.
 ## Input dan fakta transaksi
 
 - Field Batil hanya muncul saat Linting dipilih pada perangkat Klaten.
+- Barcode Batil otomatis diperiksa setelah input berhenti 800 ms. Enter,
+  keluar kolom, atau tombol Cek langsung memeriksa tanpa request ganda.
+  Setelah gagal, ubah barcode atau gunakan Enter/Cek untuk mencoba kembali.
 - Scanner Klaten memblokir setoran Batil mandiri di UI, termasuk ketika Batil
   di-scan pertama. Operator diarahkan scan Linting dahulu lalu isi field Batil.
   Pembatasan ini hanya UI scanner; API dan alur input lain belum diubah.

@@ -166,6 +166,11 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   kerja atau penugasan efektif yang bertumpang-tindih, site Shift yang berbeda,
   Shift nonaktif, serta hari kerja kosong wajib ditandai sebagai kondisi yang
   perlu diperiksa dan tidak boleh disamarkan sebagai penugasan siap.
+- Input barcode terminal Produksi (termasuk pasangan Batil) dan Attendance
+  otomatis diproses setelah input berhenti berubah selama 800 ms, tanpa polling. Enter atau tombol manual
+  langsung memproses dan membatalkan timer; request bersamaan dicegah dan kegagalan
+  tidak dicoba ulang otomatis. Produksi hanya memeriksa pekerja, bukan menyimpan
+  setoran; Attendance mencatat sesuai mode Masuk/Pulang dan validasi yang berlaku.
 - Kode aktivasi Attendance/Produksi tidak kedaluwarsa,
   tetapi hanya dapat digunakan sekali; kode pengganti membatalkan kode yang
   belum dipakai dan token lama hanya pada tujuan aktivasi yang dipilih.

@@ -1,7 +1,7 @@
 import '@/styles/index.css'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
-import { page } from 'vitest/browser'
+import { page, userEvent } from 'vitest/browser'
 import type { ProductionTerminalRecentTransaction } from './domain'
 import { ProductionTerminalPage } from './production-terminal-page'
 
@@ -184,6 +184,64 @@ afterEach(async () => {
   localStorage.removeItem('hris-rsia-production-recent-expanded-v1')
   vi.clearAllMocks()
   await page.viewport(1280, 720)
+})
+
+describe('automatic production barcode lookup', () => {
+  it('checks only the latest input after typing pauses, without saving a deposit', async () => {
+    const screen = await render(<ProductionTerminalPage />)
+    await screen.getByLabelText('Barcode karyawan').fill('TEST-')
+    await new Promise((resolve) => setTimeout(resolve, 350))
+    expect(lookup).not.toHaveBeenCalled()
+    await screen.getByLabelText('Barcode karyawan').fill('TEST-001')
+    await vi.waitFor(() => expect(lookup).toHaveBeenCalledTimes(1))
+    expect(lookup).toHaveBeenCalledWith(
+      expect.objectContaining({ barcode: 'TEST-001' })
+    )
+    await expect.element(screen.getByLabelText('Jumlah (PCS)')).toBeVisible()
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('checks immediately on Enter and prevents a delayed or button duplicate while pending', async () => {
+    let finish!: (value: typeof result) => void
+    lookup.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        })
+    )
+    const screen = await render(<ProductionTerminalPage />)
+    await screen.getByLabelText('Barcode karyawan').fill('TEST-001')
+    await userEvent.keyboard('{Enter}')
+    await screen.getByRole('button', { name: 'Cek', exact: true }).click()
+    await new Promise((resolve) => setTimeout(resolve, 950))
+    expect(lookup).toHaveBeenCalledTimes(1)
+    finish(result)
+    await expect.element(screen.getByLabelText('Jumlah (PCS)')).toBeVisible()
+  })
+
+  it('does not automatically retry a failed barcode, but allows an explicit retry', async () => {
+    lookup.mockRejectedValueOnce(new Error('Synthetic rejection'))
+    const screen = await render(<ProductionTerminalPage />)
+    await screen.getByLabelText('Barcode karyawan').fill('TEST-001')
+    await vi.waitFor(() => expect(lookup).toHaveBeenCalledTimes(1))
+    await new Promise((resolve) => setTimeout(resolve, 950))
+    expect(lookup).toHaveBeenCalledTimes(1)
+    await screen.getByRole('button', { name: 'Cek', exact: true }).click()
+    await expect.element(screen.getByLabelText('Jumlah (PCS)')).toBeVisible()
+    expect(lookup).toHaveBeenCalledTimes(2)
+  })
+
+  it('cancels delayed checks when input is cleared or the terminal unmounts', async () => {
+    const screen = await render(<ProductionTerminalPage />)
+    await screen.getByLabelText('Barcode karyawan').fill('TEST-001')
+    await screen.getByLabelText('Barcode karyawan').fill('')
+    await new Promise((resolve) => setTimeout(resolve, 950))
+    expect(lookup).not.toHaveBeenCalled()
+    await screen.getByLabelText('Barcode karyawan').fill('TEST-002')
+    await screen.unmount()
+    await new Promise((resolve) => setTimeout(resolve, 950))
+    expect(lookup).not.toHaveBeenCalled()
+  })
 })
 
 describe('compact production deposit form', () => {
@@ -945,6 +1003,87 @@ async function fillLintingDeposit(screen: Awaited<ReturnType<typeof render>>) {
 }
 
 describe('Klaten paired Linting and Batil deposits', () => {
+  it('automatically checks only the latest Batil barcode after an 800 ms pause without saving', async () => {
+    useKlatenPairLookup()
+    const screen = await render(<ProductionTerminalPage />)
+    await fillLintingDeposit(screen)
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('TEST-')
+    await new Promise((resolve) => setTimeout(resolve, 350))
+    expect(lookup).toHaveBeenCalledTimes(1)
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('TEST-BATIL')
+    await new Promise((resolve) => setTimeout(resolve, 350))
+    expect(lookup).toHaveBeenCalledTimes(1)
+    await expect.element(screen.getByText('Di Batil Oleh:')).toBeVisible()
+    expect(lookup).toHaveBeenCalledTimes(2)
+    expect(lookup).toHaveBeenLastCalledWith(
+      expect.objectContaining({ barcode: 'TEST-BATIL' })
+    )
+    expect(post).not.toHaveBeenCalled()
+  })
+  it('checks Batil immediately on Enter without duplicate blur, button or timer requests', async () => {
+    const { linting, batil } = useKlatenPairLookup()
+    let finish!: (value: typeof batil) => void
+    lookup.mockImplementation(({ barcode }) =>
+      barcode === 'TEST-001'
+        ? Promise.resolve(linting)
+        : new Promise((resolve) => {
+            finish = resolve
+          })
+    )
+    const screen = await render(<ProductionTerminalPage />)
+    await fillLintingDeposit(screen)
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('TEST-BATIL')
+    await userEvent.keyboard('{Enter}')
+    await screen.getByLabelText('Jumlah (PCS)').click()
+    await expect
+      .element(screen.getByRole('button', { name: 'Cek', exact: true }))
+      .toBeDisabled()
+    await new Promise((resolve) => setTimeout(resolve, 950))
+    expect(lookup).toHaveBeenCalledTimes(2)
+    finish(batil)
+    await expect.element(screen.getByText('Di Batil Oleh:')).toBeVisible()
+    await screen.getByRole('button', { name: 'Cek', exact: true }).click()
+    expect(lookup).toHaveBeenCalledTimes(2)
+    expect(post).not.toHaveBeenCalled()
+  })
+  it('does not retry a failed automatic Batil check on a timer or blur but allows explicit retry', async () => {
+    const { linting, batil } = useKlatenPairLookup()
+    let attempts = 0
+    lookup.mockImplementation(({ barcode }) => {
+      if (barcode === 'TEST-001') return Promise.resolve(linting)
+      attempts += 1
+      return attempts === 1
+        ? Promise.reject(new Error('Synthetic Batil rejection'))
+        : Promise.resolve(batil)
+    })
+    const screen = await render(<ProductionTerminalPage />)
+    await fillLintingDeposit(screen)
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('TEST-BATIL')
+    await expect.element(screen.getByRole('alert')).toBeVisible()
+    await screen.getByLabelText('Jumlah (PCS)').click()
+    await new Promise((resolve) => setTimeout(resolve, 950))
+    expect(lookup).toHaveBeenCalledTimes(2)
+    await expect
+      .element(screen.getByRole('button', { name: 'Simpan Setoran' }))
+      .toBeDisabled()
+    await screen.getByRole('button', { name: 'Cek', exact: true }).click()
+    await expect.element(screen.getByText('Di Batil Oleh:')).toBeVisible()
+    expect(lookup).toHaveBeenCalledTimes(3)
+    expect(post).not.toHaveBeenCalled()
+  })
+  it('cancels delayed Batil checks when cleared or unmounted', async () => {
+    useKlatenPairLookup()
+    const screen = await render(<ProductionTerminalPage />)
+    await fillLintingDeposit(screen)
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('TEST-BATIL')
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('')
+    await new Promise((resolve) => setTimeout(resolve, 950))
+    expect(lookup).toHaveBeenCalledTimes(1)
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('TEST-BATIL')
+    await screen.unmount()
+    await new Promise((resolve) => setTimeout(resolve, 950))
+    expect(lookup).toHaveBeenCalledTimes(1)
+  })
   it('checks the Batil barcode on blur and skips rechecking a confirmed partner', async () => {
     useKlatenPairLookup()
     const screen = await render(<ProductionTerminalPage />)
@@ -967,7 +1106,6 @@ describe('Klaten paired Linting and Batil deposits', () => {
     useKlatenPairLookup()
     const screen = await render(<ProductionTerminalPage />)
     await screen.getByLabelText('Barcode karyawan').fill('TEST-BATIL')
-    await screen.getByRole('button', { name: 'Cek', exact: true }).click()
     await screen.getByLabelText('Jumlah (PCS)').fill('500')
     await expect
       .element(screen.getByRole('alert'))
@@ -1005,9 +1143,7 @@ describe('Klaten paired Linting and Batil deposits', () => {
     await screen.getByLabelText('Pekerja Batil (opsional)').fill('TEST-BATIL')
     await screen.getByRole('button', { name: 'Cek', exact: true }).click()
     await screen.getByLabelText('Pekerjaan', { exact: true }).click()
-    await screen
-      .getByRole('option', { name: 'Packing · PCS · Utama' })
-      .click()
+    await screen.getByRole('option', { name: 'Packing · PCS · Utama' }).click()
     await expect
       .element(screen.getByLabelText('Pekerja Batil (opsional)'))
       .not.toBeInTheDocument()
@@ -1015,9 +1151,7 @@ describe('Klaten paired Linting and Batil deposits', () => {
     await screen.getByRole('button', { name: 'Simpan Setoran' }).click()
     expect(post.mock.calls[0][0].input).not.toHaveProperty('batilBarcode')
     await screen.getByLabelText('Pekerjaan', { exact: true }).click()
-    await screen
-      .getByRole('option', { name: 'Linting · PCS · Utama' })
-      .click()
+    await screen.getByRole('option', { name: 'Linting · PCS · Utama' }).click()
     await expect
       .element(screen.getByLabelText('Pekerja Batil (opsional)'))
       .toHaveValue('')
@@ -1064,9 +1198,7 @@ describe('Klaten paired Linting and Batil deposits', () => {
       })
     )
     await expect
-      .element(
-        screen.getByText('Pekerja Batil Uji · TEST-BATIL · Batil siap')
-      )
+      .element(screen.getByText('Pekerja Batil Uji · TEST-BATIL · Batil siap'))
       .toBeVisible()
     expect(post).not.toHaveBeenCalled()
     await expect
@@ -1147,9 +1279,7 @@ describe('Klaten paired Linting and Batil deposits', () => {
     await screen.getByRole('button', { name: 'Cek', exact: true }).click()
     resolveSecond(batil)
     await expect
-      .element(
-        screen.getByText('Pekerja Batil Uji · TEST-BATIL · Batil siap')
-      )
+      .element(screen.getByText('Pekerja Batil Uji · TEST-BATIL · Batil siap'))
       .toBeVisible()
     resolveFirst({
       ...batil,

@@ -226,7 +226,18 @@ function ProductionTerminal({
   const lookupRequest = useRef(0)
   const batilRequest = useRef(0)
   const latestBarcode = useRef('')
+  const lookupTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  )
+  const lookupInFlight = useRef(false)
+  const composingBarcode = useRef(false)
   const latestBatilBarcode = useRef('')
+  const batilTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  )
+  const batilInFlight = useRef<number | undefined>(undefined)
+  const batilConfirmed = useRef<string | undefined>(undefined)
+  const composingBatil = useRef(false)
   const lookupMutation = useProductionTerminalLookup()
   const batilLookupMutation = useProductionTerminalLookup()
   const postMutation = usePostProductionTransaction()
@@ -248,7 +259,10 @@ function ProductionTerminal({
     : undefined
 
   useEffect(() => {
-    const update = () => setOnline(navigator.onLine)
+    const update = () => {
+      if (!navigator.onLine) clearTimeout(batilTimer.current)
+      setOnline(navigator.onLine)
+    }
     window.addEventListener('online', update)
     window.addEventListener('offline', update)
     return () => {
@@ -264,6 +278,8 @@ function ProductionTerminal({
   }, [lookup])
   useEffect(
     () => () => {
+      clearTimeout(lookupTimer.current)
+      clearTimeout(batilTimer.current)
       lookupRequest.current += 1
       batilRequest.current += 1
     },
@@ -271,6 +287,9 @@ function ProductionTerminal({
   )
 
   const clearBatil = () => {
+    clearTimeout(batilTimer.current)
+    batilConfirmed.current = undefined
+    composingBatil.current = false
     batilRequest.current += 1
     latestBatilBarcode.current = ''
     setConfirmedBatilBarcode(undefined)
@@ -281,6 +300,7 @@ function ProductionTerminal({
     batilLookupMutation.reset()
   }
   const clearLookup = () => {
+    clearTimeout(lookupTimer.current)
     lookupRequest.current += 1
     latestBarcode.current = ''
     clearBatil()
@@ -301,9 +321,20 @@ function ProductionTerminal({
     return true
   }
 
-  const submitLookup = async () => {
-    const value = barcode.trim()
-    if (!value || lookupMutation.isPending || !online) return
+  const submitLookup = async (input = latestBarcode.current) => {
+    clearTimeout(lookupTimer.current)
+    const value = input.trim()
+    if (
+      !value ||
+      composingBarcode.current ||
+      lookup ||
+      lookupInFlight.current ||
+      lookupMutation.isPending ||
+      !navigator.onLine ||
+      !online
+    )
+      return
+    lookupInFlight.current = true
     const request = ++lookupRequest.current
     clearBatil()
     try {
@@ -333,21 +364,36 @@ function ProductionTerminal({
         toast.error(apiMessage(error, 'Karyawan tidak siap menerima setoran.'))
         window.setTimeout(() => barcodeRef.current?.focus(), 50)
       }
+    } finally {
+      lookupInFlight.current = false
     }
   }
 
-  const submitBatilLookup = async () => {
-    const value = batilBarcode.trim()
+  const scheduleLookup = (value: string) => {
+    clearTimeout(lookupTimer.current)
+    if (!value.trim() || composingBarcode.current) return
+    lookupTimer.current = setTimeout(() => {
+      if (latestBarcode.current === value) void submitLookup(value)
+    }, 800)
+  }
+
+  const submitBatilLookup = async (input = latestBatilBarcode.current) => {
+    clearTimeout(batilTimer.current)
+    const value = input.trim()
     if (
       !canPairBatil ||
       !lookup ||
       !value ||
-      batilPending ||
+      composingBatil.current ||
+      batilConfirmed.current === value ||
+      batilInFlight.current === batilRequest.current ||
+      !navigator.onLine ||
       !online ||
       postMutation.isPending
     )
       return
     const request = ++batilRequest.current
+    batilInFlight.current = request
     setBatilPending(true)
     setBatilError(undefined)
     setBatilLookup(undefined)
@@ -377,6 +423,7 @@ function ProductionTerminal({
       ) {
         setBatilError('Penugasan dan tarif Batil (PCS) belum siap.')
       } else {
+        batilConfirmed.current = value
         setConfirmedBatilBarcode(value)
         setBatilLookup(result)
         quantityRef.current?.focus()
@@ -388,8 +435,17 @@ function ProductionTerminal({
           apiMessage(error, 'Pekerja Batil belum siap menerima setoran.')
         )
     } finally {
+      if (batilInFlight.current === request) batilInFlight.current = undefined
       if (current()) setBatilPending(false)
     }
+  }
+
+  const scheduleBatilLookup = (value: string) => {
+    clearTimeout(batilTimer.current)
+    if (!value.trim() || composingBatil.current) return
+    batilTimer.current = setTimeout(() => {
+      if (latestBatilBarcode.current === value) void submitBatilLookup(value)
+    }, 800)
   }
 
   const submitTransaction = async () => {
@@ -534,8 +590,18 @@ function ProductionTerminal({
                       className='h-14 text-center text-lg font-semibold tracking-wide'
                       value={barcode}
                       onChange={(event) => {
-                        latestBarcode.current = event.target.value
-                        setBarcode(event.target.value)
+                        const value = event.target.value
+                        latestBarcode.current = value
+                        setBarcode(value)
+                        scheduleLookup(value)
+                      }}
+                      onCompositionStart={() => {
+                        composingBarcode.current = true
+                        clearTimeout(lookupTimer.current)
+                      }}
+                      onCompositionEnd={(event) => {
+                        composingBarcode.current = false
+                        scheduleLookup(event.currentTarget.value)
                       }}
                       placeholder='Scan atau ketik nomor karyawan'
                       autoComplete='off'
@@ -557,6 +623,10 @@ function ProductionTerminal({
                     </Button>
                   </div>
                 </div>
+                <p className='text-center text-xs text-muted-foreground'>
+                  Otomatis cek setelah selesai mengetik. Tekan Enter atau Cek
+                  untuk langsung memeriksa.
+                </p>
                 {lookupMutation.isError && (
                   <p className='rounded-lg bg-destructive/10 p-3 text-sm text-destructive'>
                     {apiMessage(
@@ -683,7 +753,8 @@ function ProductionTerminal({
                           if (
                             event.relatedTarget?.id ===
                               'production-batil-check' ||
-                            batilReady
+                            batilReady ||
+                            batilError
                           )
                             return
                           void submitBatilLookup()
@@ -692,12 +763,22 @@ function ProductionTerminal({
                           const value = event.target.value
                           latestBatilBarcode.current = value
                           batilRequest.current += 1
+                          batilConfirmed.current = undefined
                           setConfirmedBatilBarcode(undefined)
                           setBatilBarcode(value)
                           setBatilLookup(undefined)
                           setBatilError(undefined)
                           setBatilPending(false)
                           idempotencyKey.current = undefined
+                          scheduleBatilLookup(value)
+                        }}
+                        onCompositionStart={() => {
+                          composingBatil.current = true
+                          clearTimeout(batilTimer.current)
+                        }}
+                        onCompositionEnd={(event) => {
+                          composingBatil.current = false
+                          scheduleBatilLookup(event.currentTarget.value)
                         }}
                         onKeyDown={(event) => {
                           if (event.key !== 'Enter') return
@@ -748,8 +829,8 @@ function ProductionTerminal({
                       </p>
                     ) : (
                       <p className='text-[11px] text-muted-foreground'>
-                        Kosongkan untuk Linting saja. Jumlah PCS dan Brand
-                        digunakan bersama.
+                        Otomatis cek setelah 0,8 detik. Kosongkan untuk Linting
+                        saja. Jumlah PCS dan Brand digunakan bersama.
                       </p>
                     )}
                   </div>

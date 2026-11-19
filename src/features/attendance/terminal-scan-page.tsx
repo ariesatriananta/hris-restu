@@ -172,8 +172,27 @@ function ScanTerminal({
   const [confirmDeactivate, setConfirmDeactivate] = useState(false)
   const browserOnline = useBrowserOnline()
   const submitting = useRef(false)
+  const autoSubmitTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  )
+  const composing = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const scan = useAttendanceScan()
+  const cancelAutoSubmit = useCallback(() => {
+    clearTimeout(autoSubmitTimer.current)
+    autoSubmitTimer.current = undefined
+  }, [])
+  useEffect(
+    () => cancelAutoSubmit,
+    [
+      cancelAutoSubmit,
+      eventType,
+      browserOnline,
+      cameraOpen,
+      cameraTestOpen,
+      confirmDeactivate,
+    ]
+  )
   const focusInput = useCallback(() => {
     window.setTimeout(() => inputRef.current?.focus(), 50)
   }, [])
@@ -214,8 +233,9 @@ function ScanTerminal({
 
   const submitBarcode = useCallback(
     async (rawBarcode: string) => {
+      cancelAutoSubmit()
       const value = rawBarcode.trim()
-      if (!value || submitting.current) return
+      if (!value || submitting.current || composing.current) return
       if (!browserOnline) {
         setCameraOpen(false)
         focusInput()
@@ -260,6 +280,7 @@ function ScanTerminal({
     },
     [
       browserOnline,
+      cancelAutoSubmit,
       eventType,
       focusInput,
       onDeactivate,
@@ -268,6 +289,23 @@ function ScanTerminal({
       soundEnabled,
     ]
   )
+
+  const changeBarcode = (value: string) => {
+    setBarcode(value)
+    cancelAutoSubmit()
+    if (
+      !value.trim() ||
+      composing.current ||
+      submitting.current ||
+      !browserOnline
+    )
+      return
+    // One timeout per edit, never polling or retrying a rejected scan.
+    autoSubmitTimer.current = setTimeout(() => {
+      autoSubmitTimer.current = undefined
+      void submitBarcode(value)
+    }, 800)
+  }
 
   return (
     <Main className='mx-auto w-full max-w-5xl p-3 sm:p-6'>
@@ -371,6 +409,8 @@ function ScanTerminal({
       <Tabs
         value={eventType}
         onValueChange={(value) => {
+          cancelAutoSubmit()
+          setBarcode('')
           setEventType(value as AttendanceScanEventType)
           setFeedback(undefined)
         }}
@@ -378,12 +418,14 @@ function ScanTerminal({
         <TabsList className='grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0'>
           <TabsTrigger
             value='CLOCK_IN'
+            disabled={scan.isPending}
             className='h-14 gap-2 border bg-card text-base text-positive data-[state=active]:border-positive data-[state=active]:bg-positive data-[state=active]:text-positive-foreground'
           >
             <ClockArrowDown className='size-5' /> Masuk
           </TabsTrigger>
           <TabsTrigger
             value='CLOCK_OUT'
+            disabled={scan.isPending}
             className='h-14 gap-2 border bg-card text-base data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'
           >
             <ClockArrowUp className='size-5' /> Pulang
@@ -411,7 +453,8 @@ function ScanTerminal({
                 <Keyboard className='mx-auto mb-2 size-8 text-primary' />
                 <h2 className='text-lg font-semibold'>Scan barcode karyawan</h2>
                 <p className='text-sm text-muted-foreground'>
-                  Arahkan scanner USB atau ketik barcode lalu tekan Enter.
+                  Scan atau ketik barcode. Otomatis diproses setelah berhenti
+                  mengetik 0,8 detik; tekan Enter untuk langsung memproses.
                 </p>
               </div>
               <form
@@ -428,7 +471,15 @@ function ScanTerminal({
                   id='employee-barcode'
                   className='h-16 text-center text-xl font-semibold'
                   value={barcode}
-                  onChange={(event) => setBarcode(event.target.value)}
+                  onChange={(event) => changeBarcode(event.target.value)}
+                  onCompositionStart={() => {
+                    composing.current = true
+                    cancelAutoSubmit()
+                  }}
+                  onCompositionEnd={(event) => {
+                    composing.current = false
+                    changeBarcode(event.currentTarget.value)
+                  }}
                   placeholder='Scan barcode di sini'
                   autoComplete='off'
                   autoCapitalize='off'
@@ -452,7 +503,11 @@ function ScanTerminal({
                 type='button'
                 variant='outline'
                 className='h-11 w-full'
-                onClick={() => setCameraOpen((open) => !open)}
+                onClick={() => {
+                  cancelAutoSubmit()
+                  setBarcode('')
+                  setCameraOpen((open) => !open)
+                }}
                 disabled={scan.isPending || !browserOnline}
               >
                 {cameraOpen ? <CameraOff /> : <Camera />}{' '}
