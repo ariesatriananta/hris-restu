@@ -294,7 +294,7 @@ dashboardRouter.get('/overview', async (req, res, next) => {
       ? pool.query<RowDataPacket[]>(
           `SELECT site_id siteId,
                   SUM(is_active=1 AND (activated_at IS NULL OR device_token_hash IS NULL)) attendanceNotReady,
-                  SUM(is_active=1 AND device_type IN ('USB_SCANNER','TERMINAL')
+                  SUM(is_active=1 AND device_type IN ('MOBILE_CAMERA','USB_SCANNER','TERMINAL','OTHER')
                     AND (production_activated_at IS NULL OR production_token_hash IS NULL)) productionNotReady
              FROM scan_devices
             WHERE site_id IN (${placeholders(selectedSiteIds)})

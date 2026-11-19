@@ -171,6 +171,11 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   langsung memproses dan membatalkan timer; request bersamaan dicegah dan kegagalan
   tidak dicoba ulang otomatis. Produksi hanya memeriksa pekerja, bukan menyimpan
   setoran; Attendance mencatat sesuai mode Masuk/Pulang dan validasi yang berlaku.
+- Attendance dan Produksi mendukung semua tipe master perangkat: Kamera HP,
+  Scanner USB, Terminal, dan Lainnya. Tipe adalah kategori perangkat, bukan
+  deteksi hardware browser. Kamera Produksi dapat memilih pekerja utama dan
+  pasangan Batil; penyimpanan setoran tetap dikonfirmasi operator. Kamera
+  memerlukan HTTPS/localhost dan izin browser; input manual/USB tetap tersedia.
 - Kode aktivasi Attendance/Produksi tidak kedaluwarsa,
   tetapi hanya dapat digunakan sekali; kode pengganti membatalkan kode yang
   belum dipakai dan token lama hanya pada tujuan aktivasi yang dipilih.
@@ -290,6 +295,17 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   ke pekerjaan pengganti non-Linting, tetapi berat dan defect tidak dibawa.
   Transaksi lama tanpa QC tetap dapat dikoreksi
   tanpa kewajiban melengkapi QC. Void mempertahankan metadata QC untuk audit.
+- Input Setoran Produksi Batch untuk demo khusus `SUPER_ADMIN`, diaktifkan lewat
+  `PRODUCTION_BATCH_TOOLS_ENABLED` (default nonaktif). Preview maksimal 7 hari
+  dan 1.000 target karyawan-hari per proses, dengan hasil acak yang ditetapkan
+  pada preview. Hanya histori penempatan, Attendance, pekerjaan dan tarif yang
+  eligible pada tanggal/site tersebut yang diproses; penguncian Payroll tetap
+  berlaku. Target yang sudah memiliki transaksi pekerjaan itu, termasuk VOID,
+  dilewati. Klaten menghasilkan pasangan Linting–Batil berbeda karyawan dengan
+  PCS sama dan modul yang sama; Batil mandiri tidak dibuat oleh generator demo.
+  Run memeriksa ulang kesiapan, memerlukan alasan dan konfirmasi `PROSES`,
+  menyimpan atomik dengan audit serta idempotensi. Ini transaksi sungguhan,
+  bukan simulasi, dan tarif/perhitungan upah tetap mengikuti master berlaku.
 - Reset batch Produksi khusus `SUPER_ADMIN` boleh menghapus transaksi yang
   memiliki histori koreksi atau void. Seluruh revision sumber/pengganti,
   detail/header QC, dan detail tarif dibersihkan sebelum transaksi induk dalam
@@ -790,7 +806,7 @@ jumlah hari Alpha/Izin`. Kalkulasi dibulatkan `HALF_UP` ke Rp1 per komponen
 
 ## Pembatasan upah dan koreksi Produksi (M1)
 
-- Tarif, rincian tarif bertingkat, bruto/upah dan dampak koreksi dalam Rupiah hanya tersedia untuk HR_OFFICER atau SUPER_ADMIN di seluruh UI/API Produksi. Role lain tetap dapat melihat kuantitas operasional sesuai permission dan scope, tetapi respons tidak mengandung field nominal, termasuk histori/replay/snapshot. Tarif dan ekspor bernominal dibatasi dengan role tersebut sekaligus permission yang sudah berlaku.
+- Adjustment/potongan persen, Hasil Dibayar, jumlah potongan dalam PCS, tarif, rincian tarif bertingkat, bruto/upah dan dampak koreksi dalam Rupiah hanya tersedia untuk HR_OFFICER atau SUPER_ADMIN di seluruh UI/API Produksi. Role lain tetap dapat melihat kuantitas operasional sesuai permission dan scope, tetapi respons tidak mengandung field nominal, termasuk histori/replay/snapshot. Tarif dan ekspor bernominal dibatasi dengan role tersebut sekaligus permission yang sudah berlaku.
 - Koreksi dan void transaksi sebelum hari ini hanya boleh dilakukan HR_OFFICER atau SUPER_ADMIN, termasuk preview dan replay. Hari ini mengikuti tanggal bisnis server Asia/Jakarta. Transaksi lama tetap dapat dibaca sesuai scope; permission koreksi, pasangan dan penguncian Payroll tetap wajib dipenuhi.
 - Aturan ini tidak memberi permission tambahan otomatis, tidak mengubah perhitungan/snapshot/audit, tidak mengubah akses modul Payroll, dan tidak mengubah alur input susulan/import. Detail scope dan skenario uji: [PRODUCTION_ACCESS_M1.md](PRODUCTION_ACCESS_M1.md).
 

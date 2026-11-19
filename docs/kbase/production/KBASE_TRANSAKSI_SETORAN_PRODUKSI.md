@@ -35,7 +35,7 @@ Tidak ada alur persetujuan terpisah untuk Setoran Susulan, koreksi, atau pembata
 
 Pastikan hal berikut sudah siap:
 
-- perangkat Scanner USB atau Terminal sudah aktif pada Master Perangkat;
+- perangkat Kamera HP, Scanner USB, Terminal, atau Lainnya sudah aktif pada Master Perangkat;
 - browser terhubung ke internet;
 - akun operator memiliki akses ke site perangkat;
 - kode aktivasi Terminal Produksi masih berlaku;
@@ -72,7 +72,7 @@ Buka **Produksi Borongan → Terminal Setoran**.
 Jika layar menampilkan **Aktivasi Terminal Produksi**:
 
 1. dari Master Perangkat, pilih aksi **Aktivasi Produksi** pada perangkat
-   bertipe Scanner USB atau Terminal;
+   bertipe Kamera HP, Scanner USB, Terminal, atau Lainnya;
 2. masukkan kode pada kolom **Kode aktivasi**;
 3. klik **Aktifkan terminal**;
 4. pastikan nama perangkat, site, kode perangkat, dan jenis perangkat yang tampil sudah benar.

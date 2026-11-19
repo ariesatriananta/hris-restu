@@ -9,6 +9,16 @@ vi.mock('@/features/attendance/data/queries', () => ({
   useActivateAttendanceDevice: () => ({ isPending: false }),
 }))
 
+async function typeBarcode(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value'
+    )!.set!.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
 const wait = (milliseconds: number) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds))
 const rejectScan = {
@@ -67,9 +77,9 @@ describe('attendance automatic barcode submission', () => {
   it('waits 800 ms after the last edit, submits only the latest barcode, and never retries an error', async () => {
     const screen = await render(<TerminalScanPage />)
     const input = screen.getByLabelText('Barcode karyawan')
-    await input.fill('TEST-0')
+    await typeBarcode(input.element() as HTMLInputElement, 'TEST-0')
     await wait(400)
-    await input.fill('TEST-001')
+    await typeBarcode(input.element() as HTMLInputElement, 'TEST-001')
     await wait(450)
     expect(scan).not.toHaveBeenCalled()
     await expect.poll(() => scan.mock.calls.length).toBe(1)
@@ -109,8 +119,21 @@ describe('attendance automatic barcode submission', () => {
 
   it('cancels input when changing between Masuk and Pulang', async () => {
     const screen = await render(<TerminalScanPage />)
-    await screen.getByLabelText('Barcode karyawan').fill('TEST-001')
-    await screen.getByRole('tab', { name: 'Pulang' }).click()
+    await act(async () => {
+      const input = screen.getByLabelText('Barcode karyawan').element()
+      const tab = screen
+        .getByRole('tab', { name: 'Pulang' })
+        .element() as HTMLElement
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value'
+      )!.set!.call(input, 'TEST-001')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      tab.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, button: 0 })
+      )
+      tab.click()
+    })
     await wait(900)
     expect(scan).not.toHaveBeenCalled()
     await expect

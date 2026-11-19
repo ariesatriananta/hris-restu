@@ -131,7 +131,7 @@ attendanceDevicesRouter.get(
                 DATE_FORMAT(d.last_seen_at,'%Y-%m-%dT%H:%i:%s+07:00') lastSeenAt,
                 d.is_active isActive,(d.device_token_hash IS NOT NULL) isActivated,
                 (d.device_token_hash IS NOT NULL) attendanceActivated,
-                (d.device_type IN ('USB_SCANNER','TERMINAL')) productionSupported,
+                (d.device_type IN ('MOBILE_CAMERA','USB_SCANNER','TERMINAL','OTHER')) productionSupported,
                 (d.production_token_hash IS NOT NULL AND d.production_activated_at IS NOT NULL) productionActivated,
                 (d.activation_code_hash IS NOT NULL) activationPending,
                 CASE
@@ -402,7 +402,7 @@ attendanceDevicesRouter.post(
       }
       if (
         purpose === 'PRODUCTION' &&
-        !['USB_SCANNER', 'TERMINAL'].includes(String(device.deviceType))
+        !['MOBILE_CAMERA', 'USB_SCANNER', 'TERMINAL', 'OTHER'].includes(String(device.deviceType))
       ) {
         throw new ApiError(
           422,

@@ -194,11 +194,11 @@ describe('Attendance device readiness API', () => {
     expect(conn.commit).toHaveBeenCalledOnce()
   })
 
-  it('menolak aktivasi Produksi untuk tipe perangkat yang tidak didukung', async () => {
+  it.each(['MOBILE_CAMERA', 'USB_SCANNER', 'TERMINAL', 'OTHER'])('menerima aktivasi Produksi untuk tipe %s', async (deviceType) => {
     const conn = connection()
     conn.query.mockResolvedValueOnce([[
-      deviceRow({ deviceType: 'MOBILE_CAMERA', productionTokenHash: null }),
-    ]])
+      deviceRow({ deviceType, productionTokenHash: null }),
+    ]]).mockResolvedValueOnce([[{ activationCodeExpiresAt: null }]])
     mocks.getConnection.mockResolvedValue(conn)
 
     const response = await request(
@@ -206,8 +206,8 @@ describe('Attendance device readiness API', () => {
       { method: 'POST', body: { purpose: 'PRODUCTION' } }
     )
 
-    expect(response.status).toBe(422)
-    expect(conn.execute).not.toHaveBeenCalled()
-    expect(conn.rollback).toHaveBeenCalledOnce()
+    expect(response.status).toBe(200)
+    expect(conn.execute).toHaveBeenCalled()
+    expect(conn.commit).toHaveBeenCalledOnce()
   })
 })

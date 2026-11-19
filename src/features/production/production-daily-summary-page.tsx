@@ -303,19 +303,27 @@ function DailySummaryBody({
           </strong>
         ),
       },
-      {
-        id: 'payable',
-        header: 'Hasil Dibayar',
-        cell: ({ row }) => (
-          <>
-            {number(
-              row.original.payableQuantity,
-              row.original.unit.decimalPrecision
-            )}{' '}
-            {row.original.unit.code}
-          </>
-        ),
-      },
+      ...(wages
+        ? [
+            {
+              id: 'payable',
+              header: 'Hasil Dibayar',
+              cell: ({
+                row,
+              }: {
+                row: { original: ProductionDailyEmployee }
+              }) => (
+                <>
+                  {number(
+                    row.original.payableQuantity ?? '0',
+                    row.original.unit.decimalPrecision
+                  )}{' '}
+                  {row.original.unit.code}
+                </>
+              ),
+            },
+          ]
+        : []),
       {
         id: 'count',
         header: 'Setoran',
@@ -777,14 +785,16 @@ function EmployeeDeposits({
                       {item.unit.code}
                     </span>
                   </p>
-                  <p className='text-xs text-muted-foreground'>
-                    Dibayar{' '}
-                    {number(
-                      item.payableQuantity ?? item.quantity,
-                      item.unit.decimalPrecision
-                    )}{' '}
-                    {item.unit.code}
-                  </p>
+                  {wages && result.data?.canViewWages && (
+                    <p className='text-xs text-muted-foreground'>
+                      Dibayar{' '}
+                      {number(
+                        item.payableQuantity ?? item.quantity,
+                        item.unit.decimalPrecision
+                      )}{' '}
+                      {item.unit.code}
+                    </p>
+                  )}
                   {wages &&
                     result.data?.canViewWages &&
                     item.grossAmount !== undefined && (

@@ -20,11 +20,11 @@ afterEach(() => vi.useRealTimers())
 
 describe('Production M1 access policy', () => {
   it.each(['HR_OFFICER', 'SUPER_ADMIN'])('allows wages only for %s', (role) => {
-    const body = { grossAmount: '100.00', jobs: [{ rate: { amount: '1' } }] }
+    const body = { grossAmount: '100.00', payableQuantity: '485', deductionQuantity: '15', deductionPercentage: '3', adjustment: '97', jobs: [{ rate: { amount: '1' } }] }
     expect(canViewProductionWages(auth(role))).toBe(true)
     expect(redactProductionFinancials(body, auth(role))).toBe(body)
   })
-  it.each(['QC', 'PRODUCTION_ADMIN', 'DIRECTOR', 'SITE_SUPERVISOR', 'HR', ''])(
+  it.each(['QC', 'PRODUCTION_ADMIN', 'DIRECTOR', 'SITE_SUPERVISOR', 'PAYROLL_FINANCE', 'HR', ''])(
     'redacts nested financials for %s while preserving quantity and source objects',
     (role) => {
       const body = {
@@ -34,7 +34,10 @@ describe('Production M1 access policy', () => {
         employee: { uid: 'employee', fullName: 'Example' },
         quantity: '500',
         payableQuantity: '485',
+        deductionQuantity: '15',
+        totals: { totalPayableQuantity: '485', totalDeductedQuantity: '15', quantity: '500' },
         deductionPercentage: '3',
+        adjustmentPercentage: '97',
         jobs: [
           {
             uid: 'job',
@@ -55,9 +58,14 @@ describe('Production M1 access policy', () => {
               rate_snapshot: '20',
               gross_amount: '100',
               quantity: '400',
+              payable_quantity_snapshot: '388',
+              deducted_quantity: '12',
+              deduction_percentage_snapshot: '3',
             },
             afterData: JSON.stringify({
               quantity: '500',
+              deduction_quantity: '15',
+              payable_quantity: '485',
               rateAmount: '20',
               pair: { amount_snapshot: '10' },
             }),
@@ -72,8 +80,7 @@ describe('Production M1 access policy', () => {
       expect(result).toEqual({
         employee: body.employee,
         quantity: '500',
-        payableQuantity: '485',
-        deductionPercentage: '3',
+        totals: { quantity: '500' },
         jobs: [{ uid: 'job' }],
         revisions: [
           {

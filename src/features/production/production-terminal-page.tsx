@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { isAxiosError } from 'axios'
 import {
   CheckCircle2,
+  Camera,
   ChevronDown,
   Keyboard,
   LoaderCircle,
@@ -24,6 +25,13 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -35,6 +43,7 @@ import {
 } from '@/components/ui/select'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Main } from '@/components/layout/main'
+import { NativeBarcodeCamera } from '@/components/native-barcode-camera'
 import {
   useActivateProductionDevice,
   usePostProductionTransaction,
@@ -43,6 +52,7 @@ import {
 } from './data/queries'
 import type {
   ActivatedProductionDevice,
+  ProductionDeviceType,
   ProductionTerminalLookup,
 } from './domain'
 import { ProductionQcFields } from './production-qc-fields'
@@ -64,6 +74,12 @@ import { ProductionTerminalSummary } from './production-terminal-summary'
 
 const storageKey = 'hris-rsia-production-device-v1'
 const recentExpandedKey = 'hris-rsia-production-recent-expanded-v1'
+const deviceTypeLabels: Record<ProductionDeviceType, string> = {
+  MOBILE_CAMERA: 'Kamera HP',
+  USB_SCANNER: 'Scanner USB',
+  TERMINAL: 'Terminal',
+  OTHER: 'Lainnya',
+}
 
 export function ProductionTerminalPage() {
   const authSession = useAuthStore((state) => state.session)
@@ -136,8 +152,8 @@ function ActivationScreen({
             </div>
             <h1 className='text-2xl font-bold'>Aktivasi Terminal Produksi</h1>
             <p className='mt-2 text-sm text-muted-foreground'>
-              Hubungkan scanner USB atau terminal site memakai kode aktivasi
-              dari Master Perangkat.
+              Hubungkan browser perangkat site memakai kode aktivasi dari Master
+              Perangkat.
             </p>
           </div>
           <form
@@ -217,6 +233,7 @@ function ProductionTerminal({
   const [recentExpanded, setRecentExpanded] = useState(readRecentExpanded)
   const [confirmDeactivate, setConfirmDeactivate] = useState(false)
   const [detailUid, setDetailUid] = useState<string>()
+  const [cameraTarget, setCameraTarget] = useState<'employee' | 'batil'>()
   const [online, setOnline] = useState(
     () => typeof navigator === 'undefined' || navigator.onLine
   )
@@ -260,7 +277,10 @@ function ProductionTerminal({
 
   useEffect(() => {
     const update = () => {
-      if (!navigator.onLine) clearTimeout(batilTimer.current)
+      if (!navigator.onLine) {
+        clearTimeout(batilTimer.current)
+        setCameraTarget(undefined)
+      }
       setOnline(navigator.onLine)
     }
     window.addEventListener('online', update)
@@ -287,6 +307,7 @@ function ProductionTerminal({
   )
 
   const clearBatil = () => {
+    setCameraTarget((current) => (current === 'batil' ? undefined : current))
     clearTimeout(batilTimer.current)
     batilConfirmed.current = undefined
     composingBatil.current = false
@@ -520,9 +541,7 @@ function ProductionTerminal({
               {session.device.code}
             </Badge>
             <Badge variant='secondary' className='hidden sm:inline-flex'>
-              {session.device.deviceType === 'USB_SCANNER'
-                ? 'Scanner USB'
-                : 'Terminal'}
+              {deviceTypeLabels[session.device.deviceType]}
             </Badge>
           </div>
         </div>
@@ -627,6 +646,18 @@ function ProductionTerminal({
                   Otomatis cek setelah selesai mengetik. Tekan Enter atau Cek
                   untuk langsung memeriksa.
                 </p>
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='w-full'
+                  disabled={!online || lookupMutation.isPending}
+                  onClick={() => {
+                    clearTimeout(lookupTimer.current)
+                    setCameraTarget('employee')
+                  }}
+                >
+                  <Camera /> Scan pekerja dengan kamera
+                </Button>
                 {lookupMutation.isError && (
                   <p className='rounded-lg bg-destructive/10 p-3 text-sm text-destructive'>
                     {apiMessage(
@@ -753,6 +784,8 @@ function ProductionTerminal({
                           if (
                             event.relatedTarget?.id ===
                               'production-batil-check' ||
+                            event.relatedTarget?.id ===
+                              'production-batil-camera' ||
                             batilReady ||
                             batilError
                           )
@@ -806,6 +839,24 @@ function ProductionTerminal({
                           <ScanBarcode />
                         )}
                         Cek
+                      </Button>
+                      <Button
+                        id='production-batil-camera'
+                        type='button'
+                        variant='outline'
+                        size='icon'
+                        className='h-9 w-9 shrink-0'
+                        aria-label='Scan Batil dengan kamera'
+                        title='Scan Batil dengan kamera'
+                        disabled={
+                          !online || batilPending || postMutation.isPending
+                        }
+                        onClick={() => {
+                          clearTimeout(batilTimer.current)
+                          setCameraTarget('batil')
+                        }}
+                      >
+                        <Camera />
                       </Button>
                     </div>
                     {batilLookup ? (
@@ -1056,6 +1107,61 @@ function ProductionTerminal({
         uid={detailUid}
         onClose={() => setDetailUid(undefined)}
       />
+      <Dialog
+        open={Boolean(cameraTarget)}
+        onOpenChange={(open) => {
+          if (!open) setCameraTarget(undefined)
+        }}
+      >
+        <DialogContent className='max-h-[90dvh] overflow-y-auto sm:max-w-md'>
+          <DialogHeader>
+            <DialogTitle>
+              {cameraTarget === 'batil'
+                ? 'Scan Pekerja Batil'
+                : 'Scan Pekerja Produksi'}
+            </DialogTitle>
+            <DialogDescription>
+              Arahkan barcode ke kamera. Identitas akan diperiksa; setoran tetap
+              disimpan oleh operator.
+            </DialogDescription>
+          </DialogHeader>
+          {cameraTarget && (
+            <NativeBarcodeCamera
+              onClose={() => setCameraTarget(undefined)}
+              onDetected={async (value) => {
+                const target = cameraTarget
+                setCameraTarget(undefined)
+                if (target === 'batil') {
+                  clearTimeout(batilTimer.current)
+                  latestBatilBarcode.current = value
+                  batilRequest.current += 1
+                  batilConfirmed.current = undefined
+                  composingBatil.current = false
+                  setConfirmedBatilBarcode(undefined)
+                  setBatilBarcode(value)
+                  setBatilLookup(undefined)
+                  setBatilError(undefined)
+                  setBatilPending(false)
+                  idempotencyKey.current = undefined
+                  await submitBatilLookup(value)
+                } else {
+                  latestBarcode.current = value
+                  composingBarcode.current = false
+                  setBarcode(value)
+                  await submitLookup(value)
+                }
+              }}
+            />
+          )}
+          <Button
+            type='button'
+            variant='outline'
+            onClick={() => setCameraTarget(undefined)}
+          >
+            Tutup kamera
+          </Button>
+        </DialogContent>
+      </Dialog>
       <ConfirmDialog
         open={confirmDeactivate}
         onOpenChange={setConfirmDeactivate}
@@ -1114,8 +1220,10 @@ function readSession(): ActivatedProductionDevice | null {
       parsed.device?.uid &&
       parsed.device.site &&
       parsed.device.siteName &&
-      (parsed.device.deviceType === 'USB_SCANNER' ||
-        parsed.device.deviceType === 'TERMINAL')
+      Object.prototype.hasOwnProperty.call(
+        deviceTypeLabels,
+        parsed.device.deviceType
+      )
       ? (parsed as ActivatedProductionDevice)
       : null
   } catch {

@@ -222,7 +222,7 @@ Master Perangkat mendaftarkan browser/terminal yang berhak mengirim scan untuk s
 | Lokasi | Keterangan fisik perangkat, opsional. |
 | Status aktif | Terminal nonaktif ditolak oleh server. |
 | Kesiapan Attendance | Menunjukkan apakah browser Attendance sudah memperoleh token perangkat. |
-| Kesiapan Produksi | Menunjukkan **Siap**, **Perlu aktivasi**, atau **Tidak didukung**. Hanya `USB_SCANNER` dan `TERMINAL` yang mendukung Produksi. |
+| Kesiapan Produksi | Menunjukkan **Siap**, **Perlu aktivasi**, atau **Tidak didukung**. Semua tipe (`MOBILE_CAMERA`, `USB_SCANNER`, `TERMINAL`, `OTHER`) mendukung Produksi. |
 | Terakhir aktif | Waktu terakhir terminal berkomunikasi dengan server. |
 | Scan | Jumlah event scan yang tercatat. |
 

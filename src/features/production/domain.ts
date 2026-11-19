@@ -217,7 +217,11 @@ export type ProductionListParams = {
   activeOn?: string
 }
 
-export type ProductionDeviceType = 'USB_SCANNER' | 'TERMINAL'
+export type ProductionDeviceType =
+  | 'MOBILE_CAMERA'
+  | 'USB_SCANNER'
+  | 'TERMINAL'
+  | 'OTHER'
 
 export type ActivatedProductionDevice = {
   device: {
@@ -706,6 +710,7 @@ export type ProductionTransactionListParams = {
 
 export type ProductionTransactionResult =
   PaginatedProductionResult<ProductionTransaction> & {
+    batchInputEnabled?: boolean
     summary: {
       transactionCount: number
       employeeCount: number
@@ -922,7 +927,7 @@ export type ProductionDailyParams = {
 }
 export type ProductionDailyTotals = {
   quantity: string
-  payableQuantity: string
+  payableQuantity?: string
   transactionCount: number
   rejectOccurrences: number
   grossAmount?: string

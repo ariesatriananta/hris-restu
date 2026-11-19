@@ -17,6 +17,7 @@ import {
   Ban,
   Boxes,
   CalendarPlus,
+  ClipboardPlus,
   Download,
   ChevronLeft,
   ChevronRight,
@@ -141,6 +142,7 @@ import {
   type ProductionTransactionResult,
 } from './domain'
 import { ProductionBatchDeleteDialog } from './production-batch-delete-dialog'
+import { ProductionBatchInputDialog } from './production-batch-input-dialog'
 import { ProductionEmployeePicker } from './production-employee-picker'
 import { ProductionImportDialog } from './production-import-dialog'
 import { ProductionQcDetail } from './production-qc-detail'
@@ -317,6 +319,9 @@ export function ProductionTransactionsPage({
             <ProductionBatchActions
               canUseBatch={canUseBatch || canDeleteBatch}
               canDeleteBatch={canDeleteBatch}
+              canInputBatch={
+                canDeleteBatch && result.data?.batchInputEnabled === true
+              }
               dateFrom={dateFrom}
               dateTo={dateTo}
               showKpi={showKpi}
@@ -369,6 +374,7 @@ export function ProductionTransactionsPage({
 function ProductionBatchActions({
   canUseBatch,
   canDeleteBatch,
+  canInputBatch,
   dateFrom,
   dateTo,
   showKpi,
@@ -380,6 +386,7 @@ function ProductionBatchActions({
 }: {
   canUseBatch: boolean
   canDeleteBatch: boolean
+  canInputBatch: boolean
   dateFrom: string
   dateTo: string
   showKpi: boolean
@@ -391,6 +398,7 @@ function ProductionBatchActions({
 }) {
   const [importOpen, setImportOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [inputOpen, setInputOpen] = useState(false)
   return (
     <>
       <DropdownMenu>
@@ -413,6 +421,11 @@ function ProductionBatchActions({
           {canUseBatch && (
             <DropdownMenuItem onSelect={() => setImportOpen(true)}>
               <FileSpreadsheet /> Import Excel
+            </DropdownMenuItem>
+          )}
+          {canInputBatch && (
+            <DropdownMenuItem onSelect={() => setInputOpen(true)}>
+              <ClipboardPlus /> Input Setoran Batch
             </DropdownMenuItem>
           )}
           {canDeleteBatch && (
@@ -467,6 +480,14 @@ function ProductionBatchActions({
         <ProductionBatchDeleteDialog
           open={deleteOpen}
           onOpenChange={setDeleteOpen}
+          initialDateFrom={dateFrom}
+          initialDateTo={dateTo}
+        />
+      )}
+      {canInputBatch && inputOpen && (
+        <ProductionBatchInputDialog
+          open={inputOpen}
+          onOpenChange={setInputOpen}
           initialDateFrom={dateFrom}
           initialDateTo={dateTo}
         />
@@ -733,18 +754,22 @@ function HistoricalProductionDialog({ sites }: { sites: ProductionSite[] }) {
                 label='Hasil setor'
                 value={`${formatNumber(preview.data.proposed.quantity, preview.data.proposed.unit.decimalPrecision)} ${preview.data.proposed.unit.code}`}
               />
-              <PreviewMetric
-                label='Potongan standar'
-                value={
-                  Number(preview.data.proposed.deductionQuantity ?? 0) > 0
-                    ? `${Number(preview.data.proposed.deductionPercentage ?? 0).toLocaleString('id-ID')}% / ${formatNumber(preview.data.proposed.deductionQuantity ?? '0', preview.data.proposed.unit.decimalPrecision)} ${preview.data.proposed.unit.code}`
-                    : 'Tidak diterapkan'
-                }
-              />
-              <PreviewMetric
-                label='Kuantitas dibayar'
-                value={`${formatNumber(preview.data.proposed.payableQuantity ?? preview.data.proposed.quantity, preview.data.proposed.unit.decimalPrecision)} ${preview.data.proposed.unit.code}`}
-              />
+              <ProductionWages>
+                <PreviewMetric
+                  label='Potongan standar'
+                  value={
+                    Number(preview.data.proposed.deductionPercentage ?? 0) > 0
+                      ? `${Number(preview.data.proposed.deductionPercentage ?? 0).toLocaleString('id-ID')}% / ${formatNumber(preview.data.proposed.deductionQuantity ?? '0', preview.data.proposed.unit.decimalPrecision)} ${preview.data.proposed.unit.code}`
+                      : 'Tidak diterapkan'
+                  }
+                />
+              </ProductionWages>
+              <ProductionWages>
+                <PreviewMetric
+                  label='Kuantitas dibayar'
+                  value={`${formatNumber(preview.data.proposed.payableQuantity ?? preview.data.proposed.quantity, preview.data.proposed.unit.decimalPrecision)} ${preview.data.proposed.unit.code}`}
+                />
+              </ProductionWages>
               <ProductionWages>
                 <PreviewMetric
                   label='Estimasi bruto'
@@ -1110,36 +1135,43 @@ function TransactionTable({
             size: 100,
           }))
         : []),
-      {
-        id: 'adjustment',
-        header: 'Adjustment',
-        meta: { label: 'Adjustment' },
-        cell: ({ row }) => (
-          <span className='tabular-nums'>{formatAdjustment(row.original)}</span>
-        ),
-        size: 95,
-      },
-      {
-        id: 'payableResult',
-        header: canViewWages ? 'Hasil Dibayar & Tarif Dasar' : 'Hasil Dibayar',
-        cell: ({ row }) => (
-          <div className='min-w-0'>
-            <p className='font-medium whitespace-nowrap tabular-nums'>
-              {formatNumber(
-                row.original.payableQuantity ?? row.original.quantity,
-                row.original.unit.decimalPrecision
-              )}{' '}
-              {row.original.unit.code}
-            </p>
-            <ProductionWages>
-              <p className='truncate text-[11px] leading-4 text-muted-foreground'>
-                Tarif dasar {formatCurrency(row.original.rateSnapshot)}
-              </p>
-            </ProductionWages>
-          </div>
-        ),
-        size: 185,
-      },
+      ...(canViewWages
+        ? [
+            {
+              id: 'adjustment',
+              header: 'Adjustment',
+              meta: { label: 'Adjustment' },
+              cell: ({ row }: { row: { original: ProductionTransaction } }) => (
+                <span className='tabular-nums'>
+                  {formatAdjustment(row.original)}
+                </span>
+              ),
+              size: 95,
+            },
+
+            {
+              id: 'payableResult',
+              header: 'Hasil Dibayar & Tarif Dasar',
+              cell: ({ row }: { row: { original: ProductionTransaction } }) => (
+                <div className='min-w-0'>
+                  <p className='font-medium whitespace-nowrap tabular-nums'>
+                    {formatNumber(
+                      row.original.payableQuantity ?? row.original.quantity,
+                      row.original.unit.decimalPrecision
+                    )}{' '}
+                    {row.original.unit.code}
+                  </p>
+                  <ProductionWages>
+                    <p className='truncate text-[11px] leading-4 text-muted-foreground'>
+                      Tarif dasar {formatCurrency(row.original.rateSnapshot)}
+                    </p>
+                  </ProductionWages>
+                </div>
+              ),
+              size: 185,
+            },
+          ]
+        : []),
       {
         id: 'amount',
         header: canViewWages ? 'Nilai Bruto' : 'Status',
@@ -1501,21 +1533,23 @@ function MobileTransaction({
           <p className='text-xs text-muted-foreground'>QC</p>
           <TransactionQcSummary item={item} />
         </div>
-        <div className='min-w-0'>
-          <p className='text-xs text-muted-foreground'>Hasil Dibayar</p>
-          <p className='tabular-nums'>
-            {formatNumber(
-              item.payableQuantity ?? item.quantity,
-              item.unit.decimalPrecision
-            )}{' '}
-            {item.unit.code}
-          </p>
-          <ProductionWages>
-            <p className='text-xs text-muted-foreground'>
-              Tarif dasar {formatCurrency(item.rateSnapshot)}
+        <ProductionWages>
+          <div className='min-w-0'>
+            <p className='text-xs text-muted-foreground'>Hasil Dibayar</p>
+            <p className='tabular-nums'>
+              {formatNumber(
+                item.payableQuantity ?? item.quantity,
+                item.unit.decimalPrecision
+              )}{' '}
+              {item.unit.code}
             </p>
-          </ProductionWages>
-        </div>
+            <ProductionWages>
+              <p className='text-xs text-muted-foreground'>
+                Tarif dasar {formatCurrency(item.rateSnapshot)}
+              </p>
+            </ProductionWages>
+          </div>
+        </ProductionWages>
         <div>
           <ProductionWages>
             <p className='text-xs text-muted-foreground'>Nilai bruto</p>
@@ -1672,18 +1706,18 @@ export function TransactionDetailSheet({
                     'Hasil setor',
                     `${formatNumber(item.quantity, item.unit.decimalPrecision)} ${item.unit.code}`,
                   ],
-                  [
-                    'Potongan standar',
-                    Number(item.deductionQuantity ?? 0) > 0
-                      ? `${Number(item.deductionPercentage ?? 0).toLocaleString('id-ID')}% / ${formatNumber(item.deductionQuantity ?? '0', item.unit.decimalPrecision)} ${item.unit.code}`
-                      : 'Tidak diterapkan',
-                  ],
-                  [
-                    'Kuantitas dibayar',
-                    `${formatNumber(item.payableQuantity ?? item.quantity, item.unit.decimalPrecision)} ${item.unit.code}`,
-                  ],
                   ...(canViewProductionWages(session)
                     ? [
+                        [
+                          'Potongan standar',
+                          Number(item.deductionPercentage ?? 0) > 0
+                            ? `${Number(item.deductionPercentage ?? 0).toLocaleString('id-ID')}% / ${formatNumber(item.deductionQuantity ?? '0', item.unit.decimalPrecision)} ${item.unit.code}`
+                            : 'Tidak diterapkan',
+                        ] as [string, string],
+                        [
+                          'Kuantitas dibayar',
+                          `${formatNumber(item.payableQuantity ?? item.quantity, item.unit.decimalPrecision)} ${item.unit.code}`,
+                        ] as [string, string],
                         [
                           'Tarif dasar snapshot',
                           formatCurrency(item.rateSnapshot),

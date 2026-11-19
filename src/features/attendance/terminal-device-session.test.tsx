@@ -47,7 +47,7 @@ describe('attendance activation retention', () => {
       })
       const screen = await render(<TerminalScanPage />)
       await screen.getByLabelText('Barcode karyawan').fill('TEST-001')
-      await screen.getByRole('button', { name: 'Proses Masuk' }).click()
+      await expect.poll(() => scan.mock.calls.length).toBe(1)
       if (disconnected) {
         await expect
           .element(screen.getByLabelText('Kode aktivasi'))

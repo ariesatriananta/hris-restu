@@ -1,3 +1,4 @@
+import { act } from 'react'
 import '@/styles/index.css'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
@@ -15,6 +16,8 @@ const {
   dailySummary,
   summaryEmployees,
   authState,
+  cameraBarcode,
+  activate,
 } = vi.hoisted(() => ({
   lookup: vi.fn(),
   post: vi.fn(),
@@ -27,6 +30,19 @@ const {
   authState: {
     session: { user: { role: 'SUPER_ADMIN', siteAccess: ['JEPARA'] } },
   },
+  cameraBarcode: { value: 'TEST-001' },
+  activate: vi.fn(),
+}))
+vi.mock('@/components/native-barcode-camera', () => ({
+  NativeBarcodeCamera: ({
+    onDetected,
+  }: {
+    onDetected: (value: string) => Promise<void>
+  }) => (
+    <button type='button' onClick={() => void onDetected(cameraBarcode.value)}>
+      Baca barcode kamera uji
+    </button>
+  ),
 }))
 vi.mock('@/stores/auth-store', () => ({
   useAuthStore: (selector: (state: unknown) => unknown) => selector(authState),
@@ -48,7 +64,7 @@ vi.mock('@/features/production/data/queries', async () => {
         },
       }
     },
-    useActivateProductionDevice: () => ({ isPending: false }),
+    useActivateProductionDevice: () => ({ isPending: false, mutate: activate }),
     useProductionTerminalLookup: () => ({
       mutateAsync: lookup,
       isPending: false,
@@ -95,6 +111,8 @@ const result = {
 }
 
 beforeEach(async () => {
+  activate.mockReset()
+  cameraBarcode.value = 'TEST-001'
   authState.session.user.role = 'SUPER_ADMIN'
   authState.session.user.siteAccess = ['JEPARA']
   await page.viewport(320, 740)
@@ -187,6 +205,72 @@ afterEach(async () => {
 })
 
 describe('automatic production barcode lookup', () => {
+  it.each(['MOBILE_CAMERA', 'USB_SCANNER', 'TERMINAL', 'OTHER'])(
+    'persists activation across remount and reuses the stored %s token',
+    async (deviceType) => {
+      const key = 'hris-rsia-production-device-v1'
+      const deviceSession = JSON.parse(localStorage.getItem(key)!)
+      deviceSession.device.deviceType = deviceType
+      localStorage.removeItem(key)
+      activate.mockImplementationOnce((_code, options) =>
+        options.onSuccess(deviceSession)
+      )
+      const activation = await render(<ProductionTerminalPage />)
+      await activation.getByLabelText('Kode aktivasi').fill('TEST-ACTIVATION')
+      await activation
+        .getByRole('button', { name: 'Aktifkan terminal', exact: true })
+        .click()
+      await expect
+        .element(activation.getByLabelText('Barcode karyawan'))
+        .toBeVisible()
+      const saved = localStorage.getItem(key)
+      expect(JSON.parse(saved!)).toEqual(deviceSession)
+      await activation.unmount()
+      const refreshed = await render(<ProductionTerminalPage />)
+      await expect
+        .element(refreshed.getByLabelText('Barcode karyawan'))
+        .toBeVisible()
+      await expect
+        .element(refreshed.getByLabelText('Kode aktivasi'))
+        .not.toBeInTheDocument()
+      expect(localStorage.getItem(key)).toBe(saved)
+      expect(activate).toHaveBeenCalledTimes(1)
+      await refreshed.getByLabelText('Barcode karyawan').fill('TEST-001')
+      await expect
+        .element(refreshed.getByLabelText('Jumlah (PCS)'))
+        .toBeVisible()
+      expect(lookup).toHaveBeenCalledWith({
+        barcode: 'TEST-001',
+        deviceToken: deviceSession.deviceToken,
+      })
+    }
+  )
+  it('reads the main employee from camera and cancels a partial input timer without saving', async () => {
+    const screen = await render(<ProductionTerminalPage />)
+    await act(async () => {
+      const input = screen.getByLabelText('Barcode karyawan').element()
+      const button = screen
+        .getByRole('button', { name: 'Scan pekerja dengan kamera' })
+        .element() as HTMLButtonElement
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value'
+      )!.set!.call(input, 'PARTIAL')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      button.click()
+    })
+    await new Promise((resolve) => setTimeout(resolve, 950))
+    expect(lookup).not.toHaveBeenCalled()
+    await screen
+      .getByRole('button', { name: 'Baca barcode kamera uji' })
+      .click()
+    await expect.element(screen.getByLabelText('Jumlah (PCS)')).toBeVisible()
+    expect(lookup).toHaveBeenCalledTimes(1)
+    expect(lookup).toHaveBeenCalledWith(
+      expect.objectContaining({ barcode: 'TEST-001' })
+    )
+    expect(post).not.toHaveBeenCalled()
+  })
   it('checks only the latest input after typing pauses, without saving a deposit', async () => {
     const screen = await render(<ProductionTerminalPage />)
     await screen.getByLabelText('Barcode karyawan').fill('TEST-')
@@ -796,7 +880,6 @@ describe('compact production deposit form', () => {
     })
     const screen = await render(<ProductionTerminalPage />)
     await screen.getByLabelText('Barcode karyawan').fill('TEST-001')
-    await screen.getByRole('button', { name: 'Cek', exact: true }).click()
     await screen.getByLabelText('Jumlah (PCS)').fill('500')
     await screen.getByLabelText('Berat 1 (gram) *').fill('80')
     await screen.getByLabelText('Berat 2 (gram) *').fill('81')
@@ -996,13 +1079,45 @@ function useKlatenPairLookup() {
 
 async function fillLintingDeposit(screen: Awaited<ReturnType<typeof render>>) {
   await screen.getByLabelText('Barcode karyawan').fill('TEST-001')
-  await screen.getByRole('button', { name: 'Cek', exact: true }).click()
   await screen.getByLabelText('Jumlah (PCS)').fill('500')
   await screen.getByLabelText('Berat 1 (gram) *').fill('71,29')
   await screen.getByLabelText('Berat 2 (gram) *').fill('70,05')
 }
 
 describe('Klaten paired Linting and Batil deposits', () => {
+  it('reads Batil from camera, cancels partial blur/timer checks and retains partner validation', async () => {
+    useKlatenPairLookup()
+    const screen = await render(<ProductionTerminalPage />)
+    await fillLintingDeposit(screen)
+    await screen.getByLabelText('Pekerja Batil (opsional)').fill('PARTIAL')
+    await screen
+      .getByRole('button', { name: 'Scan Batil dengan kamera' })
+      .click()
+    await new Promise((resolve) => setTimeout(resolve, 950))
+    expect(lookup).toHaveBeenCalledTimes(1)
+    cameraBarcode.value = 'TEST-BATIL'
+    await screen
+      .getByRole('button', { name: 'Baca barcode kamera uji' })
+      .click()
+    await expect.element(screen.getByText('Di Batil Oleh:')).toBeVisible()
+    expect(lookup).toHaveBeenCalledTimes(2)
+    expect(post).not.toHaveBeenCalled()
+    await screen
+      .getByRole('button', { name: 'Scan Batil dengan kamera' })
+      .click()
+    cameraBarcode.value = 'TEST-001'
+    await screen
+      .getByRole('button', { name: 'Baca barcode kamera uji' })
+      .click()
+    await expect
+      .element(
+        screen.getByText('Pekerja Batil harus berbeda dari pekerja Linting.')
+      )
+      .toBeVisible()
+    await expect
+      .element(screen.getByRole('button', { name: 'Simpan Setoran' }))
+      .toBeDisabled()
+  })
   it('automatically checks only the latest Batil barcode after an 800 ms pause without saving', async () => {
     useKlatenPairLookup()
     const screen = await render(<ProductionTerminalPage />)

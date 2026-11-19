@@ -26,11 +26,12 @@ export function assertProductionRevisionDate(auth: AuthContext, date: string) {
   }
 }
 
-// Quantities, adjustment percentages and QC measurements remain operational data.
+// Raw quantities and QC measurements remain operational data.
+// Adjustment percentages, payable and deducted quantities follow wage visibility, including audit snapshots.
 // Strip financial containers as well as individual monetary values, including
 // immutable revision snapshots. Never modify the internal pricing/audit object.
 const financialKey =
-  /amount|gross|earnings|salary|wage|price|tarif|upah|currency|^rate|^tiers$/
+  /amount|gross|earnings|salary|wage|price|tarif|upah|currency|payablequantity|deductedquantity|deductionquantity|deductionpercentage|adjustment|^rate|^tiers$/
 const jsonSnapshotKey =
   /^(?:before|after|beforedata|afterdata|snapshot|datasnapshot|requestsnapshot)$/
 

@@ -11,6 +11,7 @@ const schema = z.object({
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().positive().default(7),
   CONTRACT_LIFECYCLE_CRON_SECRET: z.string().min(32),
   ATTENDANCE_GO_LIVE_DATE: z.string().date(),
+  PRODUCTION_BATCH_TOOLS_ENABLED: z.enum(['true', 'false']).default('false').transform(value => value === 'true'),
   ATTENDANCE_BATCH_TOOLS_ENABLED: z
     .enum(['true', 'false'])
     .default('false')

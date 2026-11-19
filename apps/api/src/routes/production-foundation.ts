@@ -2820,7 +2820,7 @@ productionFoundationRouter.get(
         const jobMetrics = jobMetricsRows[0] ?? {}
         const [deviceRows] = await pool.query<RowDataPacket[]>(
           `SELECT COUNT(*) readyProductionDevices FROM scan_devices
-            WHERE site_id=? AND is_active=1 AND device_type IN ('USB_SCANNER','TERMINAL')
+            WHERE site_id=? AND is_active=1 AND device_type IN ('MOBILE_CAMERA','USB_SCANNER','TERMINAL','OTHER')
               AND production_activated_at IS NOT NULL AND production_token_hash IS NOT NULL`,
           [site.id]
         )

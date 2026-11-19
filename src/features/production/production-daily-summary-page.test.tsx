@@ -243,6 +243,9 @@ describe('Ringkasan Produksi lapangan', () => {
     await expect
       .element(screen.getByText('12.345', { exact: false }))
       .not.toBeInTheDocument()
+    await expect
+      .element(screen.getByText('Hasil Dibayar', { exact: true }))
+      .not.toBeInTheDocument()
     expect(document.querySelector('button[data-empty]')).toBeNull()
   })
   it('keeps dynamic tabs and resets pagination when switching jobs', async () => {
@@ -286,6 +289,7 @@ describe('Ringkasan Produksi lapangan', () => {
       false
     )
     await expect.element(screen.getByText(/kejadian defect/)).toBeVisible()
+    await expect.element(screen.getByText(/^Dibayar/)).not.toBeInTheDocument()
     await screen.getByRole('button', { name: 'Detail', exact: true }).click()
     await expect
       .element(screen.getByText('Transaksi dibuka: deposit'))
@@ -303,6 +307,7 @@ describe('Ringkasan Produksi lapangan', () => {
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
   })
   it('requires role and server capability together before rendering wages', async () => {
+    await page.viewport(1440, 900)
     mocks.state.role = 'HR_OFFICER'
     const originalTabs = mocks.tabs().data
     mocks.tabs.mockReturnValue(
@@ -316,6 +321,9 @@ describe('Ringkasan Produksi lapangan', () => {
       .element(screen.getByText('Nilai Bruto', { exact: true }))
       .toBeVisible()
     await expect.element(screen.getByText(/12.345/)).toBeVisible()
+    await expect
+      .element(screen.getByText('Hasil Dibayar', { exact: true }))
+      .toBeVisible()
     expect(document.querySelector('button[data-empty]')).not.toBeNull()
   })
   it('renders retry state and no previous employee table when request fails', async () => {

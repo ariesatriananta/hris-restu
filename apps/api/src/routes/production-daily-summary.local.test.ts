@@ -49,7 +49,7 @@ type Fact = RowDataPacket & {
 }
 type Totals = {
   quantity: string
-  payableQuantity: string
+  payableQuantity?: string
   grossAmount?: string
   transactionCount: number
   rejectOccurrences: number
@@ -123,7 +123,7 @@ function reconcile(
       scale(row.quantity) ===
         group.reduce((sum, fact) => sum + scale(fact.quantity), 0n)
     ).toBe(true)
-    expect(
+    if (row.payableQuantity !== undefined) expect(
       scale(row.payableQuantity) ===
         group.reduce((sum, fact) => sum + scale(fact.payable), 0n)
     ).toBe(true)
@@ -297,7 +297,7 @@ describe.skipIf(process.env.RUN_LOCAL_PRODUCTION_AUDIT !== '1')(
           expect(result.status).toBe(200)
           expect(result.body.canViewWages).toBe(false)
           expect(
-            /grossAmount|rateSnapshot/.test(JSON.stringify(result.body))
+            /grossAmount|rateSnapshot|payableQuantity|deductionQuantity|deductedQuantity|deductionPercentage|adjustment/.test(JSON.stringify(result.body))
           ).toBe(false)
           expect(
             result.body.tabs.length ===

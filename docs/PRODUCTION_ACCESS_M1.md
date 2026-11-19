@@ -6,7 +6,7 @@ Keputusan Bos, 9 November 2026. M1 hanya mengubah akses pada alur Produksi yang 
 
 - Nilai tarif, rincian tarif bertingkat, upah/bruto dan dampak koreksi dalam Rupiah hanya tersedia bagi role `HR_OFFICER` atau `SUPER_ADMIN`.
 - Pembatasan berlaku di API dan UI: scanner, daftar transaksi/KPI, detail, preview, hasil simpan/replay, histori koreksi, penugasan, rekap dan Laporan Produksi yang memakai rekap tersebut.
-- Pengguna lainnya tetap boleh membaca data operasional sesuai permission, site dan modulnya: hasil setor, hasil dibayar dalam satuan produksi, adjustment/potongan persen, brand, berat dan defect. Field nominal tidak dikirim dalam JSON; bukan diganti nol atau sekadar disembunyikan dengan CSS.
+- Pengguna lainnya tetap boleh membaca data operasional sesuai permission, site dan modulnya: hasil setor, brand, berat dan defect. Adjustment/potongan persen, Hasil Dibayar dan jumlah potongan dalam PCS mengikuti akses upah: hanya HR_OFFICER/SUPER_ADMIN, termasuk tabel, detail, preview, ringkasan, serta respons API dan snapshot histori. Field nominal tidak dikirim dalam JSON; bukan diganti nol atau sekadar disembunyikan dengan CSS.
 - Endpoint tarif dan ekspor Produksi yang memuat nominal hanya tersedia bagi HR/Superadmin, dengan permission awal tetap wajib dipenuhi. Menu/form/ekspor terkait disembunyikan dari pengguna lain.
 - Koreksi dan void transaksi dengan tanggal bisnis sebelum hari ini hanya boleh dilakukan HR/Superadmin. Hari ini ditentukan server dalam zona `Asia/Jakarta`, bukan jam perangkat. Preview, konteks koreksi dan pengulangan request juga mengikuti aturan ini. Detail transaksi lama tetap dapat dibaca tanpa nominal oleh pengguna yang memenuhi scope.
 - Role `DIRECTOR`, `PRODUCTION_ADMIN`, `PAYROLL_FINANCE`, `SITE_SUPERVISOR` dan `QC` tidak mendapat pengecualian nominal maupun koreksi tanggal lampau hanya karena role tersebut. Jika pengguna memiliki role HR/Superadmin juga, pengecualian mengikuti role yang dimilikinya.
@@ -36,5 +36,5 @@ Pengujian otomatis memakai database mock; pengujian database/perangkat nyata dil
 
 - Build API (`pnpm run build:api`) dan pemeriksaan TypeScript frontend lulus.
 - Tes backend mencakup redaksi respons/snapshot tanpa mengubah objek audit asli, role HR/Superadmin versus role lain, batas tengah malam WIB, larangan koreksi/void lampau termasuk preview dan replay, ekspor serta regresi pasangan/Payroll.
-- Tes browser mencakup tampilan kuantitas/adjustment/status tanpa field nominal, kolom nominal HR/Superadmin, scanner dengan payload tanpa objek tarif, serta ekspor hasil validasi yang menyertakan nominal hanya ketika diizinkan.
+- Tes browser mencakup tampilan kuantitas/status tanpa field nominal, kolom nominal HR/Superadmin, scanner dengan payload tanpa objek tarif, serta ekspor hasil validasi yang menyertakan nominal hanya ketika diizinkan.
 - Pemeriksaan lint terarah dan diff digunakan untuk file yang berubah. Tes dengan database mock tidak menggantikan uji operasional Owner sesudah deploy.

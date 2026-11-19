@@ -105,7 +105,7 @@ Persiapan satu karyawan uji:
 2. memiliki tepat satu assignment pekerjaan utama aktif dan tarif `ACTIVE`;
 3. lakukan scan Masuk Attendance melalui terminal sampai record berstatus
    `PRESENT` dan event `CLOCK_IN/SUCCESS` tersimpan;
-4. perangkat Produksi bertipe `USB_SCANNER` atau `TERMINAL`, aktif, dan memiliki
+4. perangkat Produksi bertipe `MOBILE_CAMERA`, `USB_SCANNER`, `TERMINAL`, atau `OTHER`, aktif, dan memiliki
    kode aktivasi yang belum kedaluwarsa.
 
 Skenario UI/API:

@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render as browserRender } from 'vitest-browser-react'
 import { page } from 'vitest/browser'
 import type { ProductionTransaction } from './domain'
-import { ProductionTransactionsPage } from './production-transactions-page'
+import {
+  ProductionTransactionsPage,
+  TransactionDetailSheet,
+} from './production-transactions-page'
 
 function render(element: ReactNode) {
   return browserRender(
@@ -18,6 +21,8 @@ function render(element: ReactNode) {
     </QueryClientProvider>
   )
 }
+
+const detail = vi.hoisted(() => vi.fn())
 
 const { modules, transactions, navigate, exportMutation, permissionState } =
   vi.hoisted(() => ({
@@ -48,7 +53,7 @@ vi.mock('@/features/production/data/queries', async () => ({
   useProductionTransactions: transactions,
   useExportProductionTransactions: () => exportMutation,
   useProductionJobs: () => ({ data: { items: [] } }),
-  useProductionTransaction: () => ({ data: undefined, isPending: false }),
+  useProductionTransaction: detail,
 }))
 
 const jepara = '11111111-1111-4111-8111-111111111111'
@@ -58,6 +63,7 @@ afterEach(async () => {
 })
 beforeEach(() => {
   vi.clearAllMocks()
+  detail.mockReturnValue({ data: undefined, isPending: false })
   vi.restoreAllMocks()
   permissionState.values = ['production.view']
   permissionState.role = 'PRODUCTION_ADMIN'
@@ -209,8 +215,6 @@ describe('compact production QC table', () => {
       'Brand',
       'Hasil Setoran',
       'QC',
-      'Adjustment',
-      'Hasil Dibayar',
       'Status',
       'Aksi',
     ])
@@ -232,22 +236,14 @@ describe('compact production QC table', () => {
     const rows = document.querySelectorAll('tbody tr')
     expect(rows[1].children[5].textContent?.trim()).toBe('-')
     expect(rows[2].children[5].textContent?.trim()).toBe('-')
-    expect(rows[0].children[6].textContent?.trim()).toBe('97%')
-    expect(rows[1].children[6].textContent?.trim()).toBe('100%')
-    expect(rows[2].children[6].textContent?.trim()).toBe('96,875%')
-    expect(rows[0].children[8].textContent).toContain('Tercatat')
+    expect(rows[0].children[6].textContent).toContain('Tercatat')
     const toggle = screen.getByRole('button', {
       name: 'Detail Defect',
       exact: true,
     })
     await toggle.click()
     await expect.element(toggle).toHaveAttribute('aria-expanded', 'true')
-    expect(headers().slice(5, 9)).toEqual([
-      'QC',
-      'Defect A',
-      'Defect B',
-      'Adjustment',
-    ])
+    expect(headers().slice(5, 8)).toEqual(['QC', 'Defect A', 'Defect B'])
     expect(
       document.querySelector('tbody tr')?.children[6].textContent?.trim()
     ).toBe('3')
@@ -543,24 +539,28 @@ describe('site-scoped production module filter', () => {
 })
 
 describe('production financial visibility', () => {
-  it('keeps quantities, adjustment and status while omitting all wages for production admins', async () => {
-    await page.viewport(1440, 900)
-    setDeposits([deposit({ rateSnapshot: undefined, grossAmount: undefined })])
-    const screen = await render(
-      <ProductionTransactionsPage search={{}} navigate={navigate} />
-    )
-    const table = screen.getByRole('table')
-    await expect
-      .element(table.getByText('Tercatat', { exact: true }))
-      .toBeInTheDocument()
-    expect(table.element().textContent).toContain('97%')
-    expect(table.element().textContent).not.toMatch(
-      /Tarif dasar|Nilai Bruto|Rp|NaN/
-    )
-    await expect
-      .element(screen.getByText('Nilai Bruto', { exact: true }))
-      .not.toBeInTheDocument()
-  })
+  it.each(['PRODUCTION_ADMIN', 'QC'])(
+    'keeps raw quantities and status while hiding paid quantities for %s',
+    async (role) => {
+      permissionState.role = role
+      await page.viewport(1440, 900)
+      setDeposits([deposit({ payableQuantity: '97', deductionQuantity: '3' })])
+      const screen = await render(
+        <ProductionTransactionsPage search={{}} navigate={navigate} />
+      )
+      const table = screen.getByRole('table')
+      await expect
+        .element(table.getByText('Tercatat', { exact: true }))
+        .toBeInTheDocument()
+      expect(table.element().textContent).not.toContain('97%')
+      expect(table.element().textContent).not.toMatch(
+        /Adjustment|Potongan standar|Hasil Dibayar|Kuantitas dibayar|Tarif dasar|Nilai Bruto|Rp|NaN/
+      )
+      await expect
+        .element(screen.getByText('Nilai Bruto', { exact: true }))
+        .not.toBeInTheDocument()
+    }
+  )
   it.each(['HR_OFFICER', 'SUPER_ADMIN'])(
     'preserves wage columns for %s',
     async (role) => {
@@ -575,6 +575,48 @@ describe('production financial visibility', () => {
         .element(table.getByText('Nilai Bruto', { exact: true }))
         .toBeInTheDocument()
       expect(table.element().textContent).toContain('Rp')
+      expect(table.element().textContent).toContain('Hasil Dibayar')
+      expect(table.element().textContent).toContain('Adjustment')
+      expect(table.element().textContent).toContain('97%')
+    }
+  )
+})
+
+describe('production detail deduction visibility', () => {
+  it.each(['QC', 'PRODUCTION_ADMIN', 'HR_OFFICER', 'SUPER_ADMIN'])(
+    'restricts the complete deduction row for %s even with an unredacted payload',
+    async (role) => {
+      permissionState.role = role
+      detail.mockReturnValue({
+        data: deposit({ payableQuantity: '97', deductionQuantity: '3' }),
+        isPending: false,
+        isError: false,
+      })
+      const screen = await render(
+        <TransactionDetailSheet
+          uid='deposit-linting'
+          open
+          onOpenChange={() => {}}
+          onOpenTransaction={() => {}}
+        />
+      )
+      await expect
+        .element(
+          screen.getByRole('heading', { name: 'Detail Transaksi Produksi' })
+        )
+        .toBeVisible()
+      const label = screen.getByText('Potongan standar', { exact: true })
+      if (role === 'HR_OFFICER' || role === 'SUPER_ADMIN') {
+        await expect.element(label).toBeInTheDocument()
+        await expect
+          .element(screen.getByText('3% / 3 PCS', { exact: true }))
+          .toBeInTheDocument()
+      } else {
+        await expect.element(label).not.toBeInTheDocument()
+        await expect
+          .element(screen.getByText('Kuantitas dibayar', { exact: true }))
+          .not.toBeInTheDocument()
+      }
     }
   )
 })

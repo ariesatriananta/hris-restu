@@ -1090,8 +1090,8 @@ describe('Production transactions API', () => {
     if(oldSnapshot) expect(mocks.query.mock.calls.some(call=>String(call[0]).includes('FROM production_quantity_deduction_policies'))).toBe(false)
   })
 
-  it('mengaktifkan Terminal hanya dengan kode Produksi atau kode legacy', async () => {
-    mocks.query.mockResolvedValueOnce([[deviceRow()]])
+  it.each(['MOBILE_CAMERA', 'USB_SCANNER', 'TERMINAL', 'OTHER'])('mengaktifkan Terminal tipe %s dengan kode Produksi atau kode legacy', async (deviceType) => {
+    mocks.query.mockResolvedValueOnce([[{ ...deviceRow(), deviceType }]])
 
     const response = await request('/terminal/activate', {
       method: 'POST',
@@ -1101,6 +1101,7 @@ describe('Production transactions API', () => {
 
     expect(response.status).toBe(200)
     expect(String(mocks.query.mock.calls[0]?.[0])).not.toContain('activation_code_expires_at>')
+    expect(String(mocks.query.mock.calls[0]?.[0])).toContain("'MOBILE_CAMERA','USB_SCANNER','TERMINAL','OTHER'")
     const update = mocks.execute.mock.calls.find(([sql]) => String(sql).includes('UPDATE scan_devices'))
     expect(String(update?.[0])).toContain('activation_code_hash=NULL')
     const lookupParams = mocks.query.mock.calls[0]?.[1] as string[]

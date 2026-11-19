@@ -1,5 +1,6 @@
 import { canViewProductionWages, canReviseProductionDate, assertProductionRevisionDate, redactProductionFinancials } from '../lib/production-access-policy.js'
 import { isQcUser, assertQcEmployeeModule, qcModulePredicate, qcTransactionPredicate, assertQcTransactionAccess, assertQcDailyGroupAccess, snapshotTransactionModule, snapshotTransactionModules } from '../lib/production-transaction-module.js'
+import { productionBatchSelection, productionBatchRun, batchRandom, productionBatchHash, signProductionBatch, readProductionBatch, type BatchSelection } from '../lib/production-batch-input.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { Router, type Request } from 'express'
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
@@ -128,7 +129,7 @@ async function getDevice(
        FROM scan_devices d
        JOIN sites s ON s.id=d.site_id
       WHERE d.production_token_hash=?
-        AND d.device_type IN ('USB_SCANNER','TERMINAL')
+        AND d.device_type IN ('MOBILE_CAMERA','USB_SCANNER','TERMINAL','OTHER')
       ${lock ? 'FOR UPDATE' : ''}`,
     [hashDeviceSecret(token)]
   )
@@ -2399,6 +2400,319 @@ async function productionBatchDeleteSummary(
   })
 }
 
+
+function productionBatchEnabled(auth: AuthContext) {
+  return (
+    process.env.PRODUCTION_BATCH_TOOLS_ENABLED === 'true' &&
+    auth.roles.includes('SUPER_ADMIN') &&
+    !isQcUser(auth)
+  )
+}
+function assertProductionBatchAccess(auth: AuthContext) {
+  if (!productionBatchEnabled(auth))
+    throw new ApiError(
+      403,
+      'Input batch Produksi hanya tersedia untuk Super Admin saat alat demo diaktifkan.'
+    )
+}
+function productionBatchSecret() {
+  const secret = process.env.JWT_ACCESS_SECRET
+  if (!secret || secret.length < 32)
+    throw new ApiError(
+      503,
+      'Konfigurasi keamanan preview batch belum tersedia.'
+    )
+  return secret
+}
+type BatchProposal = Awaited<ReturnType<typeof historicalProposal>>
+type BatchPlannedRow = {
+  transactionAt: string
+  date: string
+  site: string
+  proposal: BatchProposal
+  qc: ResolvedProductionQc | null
+  pairWith?: string
+}
+type BatchDay = {
+  businessDate: string
+  site: string
+  eligible: number
+  planned: number
+  blocked: number
+  pairs: number
+  blockers: { reason: string; count: number }[]
+}
+async function buildProductionBatchPlan(
+  conn: PoolConnection,
+  input: BatchSelection,
+  seed: string,
+  lock = false,
+  cutoff = Date.now()
+) {
+  const time = await currentServerTime(conn)
+  if (input.dateTo > String(time.businessDate))
+    throw new ApiError(422, 'Tanggal batch tidak boleh berada di masa depan.')
+  const [sites] = await conn.query<RowDataPacket[]>(
+    `SELECT id,code FROM sites WHERE is_active=1 AND code IN ('JEPARA','SEMARANG','KLATEN') ${input.site === 'ALL' ? '' : 'AND code=?'} ORDER BY id`,
+    input.site === 'ALL' ? [] : [input.site]
+  )
+  if (!sites.length)
+    throw new ApiError(422, 'Site tidak tersedia atau tidak aktif.')
+  const items: BatchDay[] = []
+  const rows: BatchPlannedRow[] = []
+  const scopes: Array<{
+    date: string
+    site: RowDataPacket
+    employees: RowDataPacket[]
+  }> = []
+  let candidateCount = 0
+  for (
+    let day = Date.parse(input.dateFrom);
+    day <= Date.parse(input.dateTo);
+    day += 86400000
+  ) {
+    const date = new Date(day).toISOString().slice(0, 10)
+    for (const site of sites) {
+      const [employees] = await conn.query<RowDataPacket[]>(
+        `SELECT e.id,e.uid FROM employees e WHERE EXISTS(
+          SELECT 1 FROM employee_employment_histories eh WHERE eh.employee_id=e.id AND eh.site_id=?
+          AND eh.status='ACTIVE' AND eh.effective_from<=? AND (eh.effective_to IS NULL OR eh.effective_to>=?))
+          ORDER BY e.id LIMIT 2001 ${lock ? 'FOR UPDATE' : ''}`,
+        [site.id, date, date]
+      )
+      candidateCount += employees.length
+      if (candidateCount > 1000)
+        throw new ApiError(
+          422,
+          'Batch maksimal 1.000 kandidat karyawan/tanggal per proses. Persempit site atau rentang tanggal.'
+        )
+      scopes.push({ date, site, employees })
+    }
+  }
+  for (const { date, site, employees } of scopes) {
+    const item: BatchDay = {
+      businessDate: date,
+      site: String(site.code),
+      eligible: 0,
+      planned: 0,
+      blocked: 0,
+      pairs: 0,
+      blockers: [],
+    }
+    items.push(item)
+    const block = (reason: string, count = 1) => {
+      item.blocked += count
+      const existing = item.blockers.find((row) => row.reason === reason)
+      if (existing) existing.count += count
+      else item.blockers.push({ reason, count })
+    }
+    const payroll = await payrollDateLockContext(
+      conn,
+      Number(site.id),
+      date,
+      lock
+    )
+    if (payroll.locked) {
+      block(payroll.reasons[0], employees.length)
+      continue
+    }
+    const candidates: BatchPlannedRow[] = []
+    const options = await loadProductionQcOptions(conn, Number(site.id))
+    for (const employee of employees) {
+      try {
+        const key = `${date}:${employee.uid}`
+        const quantity = String(300 + batchRandom(seed, `${key}:quantity`, 601))
+        const proposal = await historicalProposal(
+          conn,
+          {
+            employeeUid: String(employee.uid),
+            site: String(site.code),
+            businessDate: date,
+            quantity,
+          },
+          lock
+        )
+        if (!proposal.history.productionModuleId)
+          throw new ApiError(
+            422,
+            'Penempatan modul Produksi pada tanggal tersebut belum valid.'
+          )
+        const [modules] = await conn.query<RowDataPacket[]>(
+          `SELECT id FROM production_modules WHERE id=? AND site_id=? AND is_active=1 ${lock ? 'FOR UPDATE' : ''}`,
+          [proposal.history.productionModuleId, site.id]
+        )
+        if (!modules.length)
+          throw new ApiError(
+            422,
+            'Modul Produksi tidak aktif atau bukan milik site tersebut.'
+          )
+        const [existing] = await conn.query<RowDataPacket[]>(
+          `SELECT id FROM production_transactions WHERE employee_id=? AND site_id=? AND production_job_id=? AND business_date=? LIMIT 1 ${lock ? 'FOR UPDATE' : ''}`,
+          [employee.id, site.id, proposal.targetIds.jobId, date]
+        )
+        if (existing.length)
+          throw new ApiError(
+            422,
+            'Sudah memiliki transaksi pekerjaan ini pada tanggal tersebut (termasuk VOID).'
+          )
+        if (!options.brands.length)
+          throw new ApiError(422, 'Brand aktif untuk site belum tersedia.')
+        const linting = proposal.proposed.job.code === LINTING_JOB_CODE
+        const qc = await resolveProductionQc(
+          conn,
+          {
+            brandUid: String(
+              options.brands[
+                batchRandom(seed, `${key}:brand`, options.brands.length)
+              ].uid
+            ),
+            ...(linting
+              ? {
+                  weight1Grams: (
+                    70 +
+                    batchRandom(seed, `${key}:w1`, 1000) / 100
+                  ).toFixed(2),
+                  weight2Grams: (
+                    70 +
+                    batchRandom(seed, `${key}:w2`, 1000) / 100
+                  ).toFixed(2),
+                }
+              : {}),
+            defects: linting
+              ? options.defects.map((defect) => ({
+                  defectUid: String(defect.uid),
+                  quantity: batchRandom(seed, `${key}:${defect.uid}`, 4),
+                }))
+              : [],
+          },
+          Number(site.id),
+          String(proposal.proposed.job.code),
+          lock
+        )
+        const clockIn = Date.parse(String(proposal.attendance.clockInAt))
+        if (!Number.isFinite(clockIn) || clockIn > cutoff)
+          throw new ApiError(
+            422,
+            'Jam Masuk belum valid atau masih berada di masa depan.'
+          )
+        const timestamp = Math.min(
+          clockIn + (30 + batchRandom(seed, `${key}:minutes`, 301)) * 60000,
+          Date.parse(`${date}T23:59:59+07:00`),
+          cutoff
+        )
+        if (timestamp < clockIn)
+          throw new ApiError(422, 'Jam Masuk tidak sesuai tanggal setoran.')
+        const transactionAt = new Date(timestamp + 7 * 3600000)
+          .toISOString()
+          .slice(0, 23)
+          .replace('T', ' ')
+        candidates.push({
+          transactionAt,
+          date,
+          site: String(site.code),
+          proposal,
+          qc,
+        })
+        item.eligible++
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status >= 500) throw error
+        block(error.message)
+      }
+    }
+    const used = new Set<BatchPlannedRow>()
+    for (const row of candidates) {
+      if (used.has(row)) continue
+      if (
+        row.site === 'KLATEN' &&
+        row.proposal.proposed.job.code === BATIL_JOB_CODE
+      )
+        continue
+      if (
+        row.site === 'KLATEN' &&
+        row.proposal.proposed.job.code === LINTING_JOB_CODE
+      ) {
+        const peer = candidates.find(
+          (candidate) =>
+            !used.has(candidate) &&
+            candidate.proposal.proposed.job.code === BATIL_JOB_CODE &&
+            candidate.proposal.employee.id !== row.proposal.employee.id &&
+            candidate.proposal.history.productionModuleId ===
+              row.proposal.history.productionModuleId &&
+            candidate.proposal.targetIds.unitId ===
+              row.proposal.targetIds.unitId &&
+            candidate.proposal.proposed.unit.code === 'PCS' &&
+            row.proposal.proposed.unit.code === 'PCS'
+        )
+        if (!peer) {
+          block(
+            'Pasangan Batil eligible dengan modul dan satuan PCS yang sama tidak tersedia.'
+          )
+          continue
+        }
+        assertLintingBatilScope(
+          row.site,
+          String(row.proposal.proposed.job.code)
+        )
+        peer.proposal = await historicalProposal(
+          conn,
+          {
+            employeeUid: String(peer.proposal.employee.uid),
+            site: peer.site,
+            businessDate: date,
+            quantity: row.proposal.proposed.quantity.split('.')[0],
+          },
+          lock
+        )
+        peer.qc = row.qc?.brand
+          ? {
+              brand: row.qc.brand,
+              weight1Grams: null,
+              weight2Grams: null,
+              defects: [],
+            }
+          : null
+        row.transactionAt = peer.transactionAt = [
+          row.transactionAt,
+          peer.transactionAt,
+        ].sort()[1]
+        peer.pairWith = String(row.proposal.employee.uid)
+        used.add(peer)
+        rows.push(row, peer)
+        item.planned += 2
+        item.pairs++
+      } else {
+        rows.push(row)
+        item.planned++
+      }
+      used.add(row)
+    }
+    for (const row of candidates)
+      if (
+        !used.has(row) &&
+        row.proposal.proposed.job.code === BATIL_JOB_CODE &&
+        row.site === 'KLATEN'
+      )
+        block(
+          'Batil Klaten hanya dibuat sebagai pasangan Linting; pasangan tidak tersedia.'
+        )
+    item.eligible = item.planned
+    if (rows.length > 1000)
+      throw new ApiError(
+        422,
+        'Batch maksimal 1.000 transaksi. Persempit site atau rentang tanggal.'
+      )
+  }
+  const summary = {
+    employees: items.reduce((sum, row) => sum + row.eligible + row.blocked, 0),
+    planned: rows.length,
+    blocked: items.reduce((sum, row) => sum + row.blocked, 0),
+    pairs: items.reduce((sum, row) => sum + row.pairs, 0),
+  }
+  // Hash full resolved facts, attendance, assignments, rates, deductions and QC masters.
+  const hash = productionBatchHash({ rows, items })
+  return { rows, items, summary, hash }
+}
+
 export const productionTransactionsRouter = Router()
 productionTransactionsRouter.use(authenticate)
 // Redact only the HTTP response; pricing, revision snapshots and audit writes
@@ -2416,6 +2730,255 @@ productionTransactionsRouter.use((req, res, next) => {
   }
   next()
 })
+
+
+productionTransactionsRouter.post(
+  '/transactions/batch-input/preview',
+  requirePermission('production.scan'),
+  async (req, res, next) => {
+    let conn: PoolConnection | undefined
+    try {
+      const auth = res.locals.auth as AuthContext
+      assertProductionBatchAccess(auth)
+      const input = productionBatchSelection.parse(req.body)
+      const secret = productionBatchSecret()
+      conn = await pool.getConnection()
+      await conn.beginTransaction()
+      const seed = randomUUID()
+      const cutoff = Date.now()
+      const expires = cutoff + 15 * 60000
+      const plan = await buildProductionBatchPlan(
+        conn,
+        input,
+        seed,
+        false,
+        cutoff
+      )
+      const previewToken = signProductionBatch(
+        {
+          ...input,
+          actor: auth.uid,
+          seed,
+          hash: plan.hash,
+          count: plan.rows.length,
+          pairs: plan.summary.pairs,
+          expires,
+        },
+        secret
+      )
+      await conn.rollback()
+      res.json({
+        data: {
+          ...input,
+          previewToken,
+          expiresAt: new Date(expires).toISOString(),
+          canCreate: plan.rows.length > 0,
+          summary: plan.summary,
+          items: plan.items,
+        },
+      })
+    } catch (error) {
+      if (conn) await conn.rollback()
+      next(error)
+    } finally {
+      conn?.release()
+    }
+  }
+)
+productionTransactionsRouter.post(
+  '/transactions/batch-input/run',
+  requirePermission('production.scan'),
+  async (req, res, next) => {
+    let conn: PoolConnection | undefined
+    let acquired = false
+    try {
+      const auth = res.locals.auth as AuthContext
+      assertProductionBatchAccess(auth)
+      const input = productionBatchRun.parse(req.body)
+      const token = readProductionBatch(
+        input.previewToken,
+        productionBatchSecret(),
+        auth.uid,
+        true
+      )
+      if (
+        token.dateFrom !== input.dateFrom ||
+        token.dateTo !== input.dateTo ||
+        token.site !== input.site
+      )
+        throw new ApiError(
+          409,
+          'Filter berbeda dari preview. Klik Periksa kembali.'
+        )
+      conn = await pool.getConnection()
+      const [locks] = await conn.query<RowDataPacket[]>(
+        "SELECT GET_LOCK('production-demo-batch-input',0) acquired"
+      )
+      if (Number(locks[0]?.acquired) !== 1)
+        throw new ApiError(
+          409,
+          'Batch Produksi lain sedang berjalan. Tunggu lalu coba kembali.'
+        )
+      acquired = true
+      await conn.beginTransaction()
+      const prefix = `PRD-DEMO-${input.idempotencyKey}-`
+      const notes = `Demo batch ${productionBatchHash({ token: input.previewToken, key: input.idempotencyKey, reason: input.reason })}: ${input.reason}`
+      const [existing] = await conn.query<RowDataPacket[]>(
+        'SELECT id,notes FROM production_transactions WHERE idempotency_key LIKE ? FOR UPDATE',
+        [`${prefix}%`]
+      )
+      if (existing.length) {
+        if (
+          existing.length !== token.count ||
+          existing.some((row) => row.notes !== notes)
+        )
+          throw new ApiError(
+            409,
+            'Preview sudah dipakai atau batch sebelumnya berubah. Periksa data sebelum membuat batch baru.'
+          )
+        await conn.commit()
+        return res.json({
+          data: {
+            total: existing.length,
+            created: 0,
+            replayed: existing.length,
+            pairs: token.pairs,
+          },
+        })
+      }
+      if (token.expires < Date.now())
+        throw new ApiError(409, 'Preview kedaluwarsa. Klik Periksa kembali.')
+      const plan = await buildProductionBatchPlan(
+        conn,
+        { dateFrom: input.dateFrom, dateTo: input.dateTo, site: input.site },
+        token.seed,
+        true,
+        token.expires - 15 * 60000
+      )
+      if (!plan.rows.length || plan.hash !== token.hash)
+        throw new ApiError(
+          409,
+          'Data atau kelayakan berubah sejak preview. Klik Periksa kembali.'
+        )
+      const inserted = new Map<string, number>()
+      const repricing: RepricingContext = {
+        lockedEmployees: new Set(),
+        tiersByRate: new Map(),
+        newTransactionIds: new Set(),
+      }
+      for (const [index, row] of plan.rows.entries()) {
+        const p = row.proposal
+        const uid = randomUUID()
+        const number = `PRD-DMO-${row.date.replaceAll('-', '')}-${randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`
+        const [result] = await conn.execute<ResultSetHeader>(
+          `INSERT INTO production_transactions(uid,transaction_number,employee_id,site_id,work_group_id,production_section_id,production_job_id,
+          unit_id,job_rate_id,attendance_record_id,scan_device_id,business_date,transaction_at,quantity,rate_snapshot,payable_quantity,gross_amount,status,entry_source,idempotency_key,notes,created_by,updated_by)
+          VALUES(?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,'POSTED','HISTORICAL',?,?,?,?)`,
+          [
+            uid,
+            number,
+            p.employee.id,
+            p.site.id,
+            p.history.workGroupId ?? null,
+            p.history.productionSectionId ?? null,
+            p.targetIds.jobId,
+            p.targetIds.unitId,
+            p.targetIds.rateId,
+            p.attendance.id,
+            row.date,
+            row.transactionAt,
+            p.proposed.quantity,
+            p.proposed.rateSnapshot,
+            p.proposed.quantity,
+            p.proposed.grossAmount,
+            `${prefix}${index}`,
+            notes,
+            auth.id,
+            auth.id,
+          ]
+        )
+        const id = Number(result.insertId)
+        inserted.set(`${row.date}:${row.site}:${p.employee.uid}`, id)
+        repricing.newTransactionIds!.add(id)
+        await snapshotTransactionModule(
+          conn,
+          id,
+          Number(p.history.productionModuleId)
+        )
+        await saveProductionQc(conn, id, row.qc, auth.id)
+        if (row.pairWith) {
+          const lintingId = inserted.get(
+            `${row.date}:${row.site}:${row.pairWith}`
+          )
+          if (!lintingId)
+            throw new ApiError(
+              500,
+              'Pasangan Linting tidak ditemukan. Batch dibatalkan.'
+            )
+          await saveProductionPair(conn, lintingId, id, auth.id)
+        }
+        await repriceProductionDay(
+          conn,
+          {
+            employeeId: Number(p.employee.id),
+            siteId: Number(p.site.id),
+            jobId: p.targetIds.jobId,
+            businessDate: row.date,
+          },
+          auth,
+          req,
+          repricing
+        )
+        await writeAudit(
+          {
+            auth,
+            request: req,
+            module: 'PRODUCTION',
+            siteId: Number(p.site.id),
+            action: 'CREATE',
+            table: 'production_transactions',
+            recordId: id,
+            recordUid: uid,
+            description: `Input demo batch Produksi ${number}.`,
+            reason: input.reason,
+            afterData: {
+              batchKey: input.idempotencyKey,
+              previewSeed: token.seed,
+              businessDate: row.date,
+              quantity: p.proposed.quantity,
+              paired: !!row.pairWith,
+            },
+          },
+          conn
+        )
+      }
+      await conn.commit()
+      res
+        .status(201)
+        .json({
+          data: {
+            total: plan.rows.length,
+            created: plan.rows.length,
+            replayed: 0,
+            pairs: plan.summary.pairs,
+          },
+        })
+    } catch (error) {
+      if (conn) await conn.rollback()
+      next(error)
+    } finally {
+      if (conn && acquired) {
+        try {
+          await conn.query("SELECT RELEASE_LOCK('production-demo-batch-input')")
+        } catch {
+          conn.destroy()
+          conn = undefined
+        }
+      }
+      conn?.release()
+    }
+  }
+)
 
 productionTransactionsRouter.get('/terminal/daily-summary', requirePermission('production.scan'), async (req, res, next) => {
   const conn = await pool.getConnection()
@@ -2617,7 +3180,7 @@ productionTransactionsRouter.post(
            FROM scan_devices d
            JOIN sites s ON s.id=d.site_id
           WHERE d.activation_code_hash IN (?,?)
-            AND d.device_type IN ('USB_SCANNER','TERMINAL')
+            AND d.device_type IN ('MOBILE_CAMERA','USB_SCANNER','TERMINAL','OTHER')
           FOR UPDATE`,
         [
           hashDeviceActivationCode(input.activationCode, 'PRODUCTION'),
@@ -4517,6 +5080,7 @@ productionTransactionsRouter.get(
             ? { uid: row.deviceUid, code: row.deviceCode, name: row.deviceName }
             : null,
         })),
+        batchInputEnabled: productionBatchEnabled(res.locals.auth as AuthContext),
         total: Number(summary.transactionCount ?? 0),
         page,
         pageSize,

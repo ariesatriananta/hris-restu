@@ -318,6 +318,7 @@ describe('Ringkasan Produksi: grouped totals and pagination', () => {
     expect(result.body.tabs[0].units[0].quantity).toBe('1000.0000')
     expect(result.body.tabs[0].units[0].decimalPrecision).toBe(0)
     expect(result.body.tabs[0].units[0]).not.toHaveProperty('grossAmount')
+    expect(result.body.tabs[0].units[0]).not.toHaveProperty('payableQuantity')
     expect(mocks.query.mock.calls[0][0]).not.toContain('LIKE')
     expect(mocks.query.mock.calls[0][1]).not.toContain(transactionUid)
     expect(mocks.query.mock.calls[1][0]).toContain(
@@ -395,6 +396,7 @@ describe('Ringkasan Produksi: grouped totals and pagination', () => {
     expect(response.body.items[0].unit.decimalPrecision).toBe(0)
     expect(response.body.items[0]).not.toHaveProperty('id')
     expect(response.body.items[0]).not.toHaveProperty('grossAmount')
+    expect(response.body.items[0]).not.toHaveProperty('payableQuantity')
     expect(response.body.summary.units[0].quantity).toBe('1000.0000')
     for (const [sql, values] of mocks.query.mock.calls) {
       expect(sql).toContain("pt.status='POSTED'")
@@ -499,8 +501,6 @@ describe('Ringkasan Produksi: paged setoran details', () => {
     expect(item).toMatchObject({
       uid: transactionUid,
       quantity: '1000.0000',
-      payableQuantity: '970.0000',
-      deductionPercentage: '3.0000',
       status: 'POSTED',
       qc: {
         weight1Grams: '72.50',
@@ -510,6 +510,9 @@ describe('Ringkasan Produksi: paged setoran details', () => {
       },
     })
     expect(item).not.toHaveProperty('id')
+    expect(item).not.toHaveProperty('payableQuantity')
+    expect(item).not.toHaveProperty('deductionQuantity')
+    expect(item).not.toHaveProperty('deductionPercentage')
     expect(item).not.toHaveProperty('grossAmount')
     expect(item).not.toHaveProperty('rateSnapshot')
     expect(item.qc).not.toHaveProperty('id')
