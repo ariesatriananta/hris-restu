@@ -44,13 +44,14 @@ untuk mengakali pembatasan.
 
 ## Koreksi, void, dan reset
 
-Koreksi kuantitas atau void harus mempertimbangkan kedua transaksi. Preview
+Koreksi kuantitas, brand/QC atau void harus mempertimbangkan kedua transaksi. Preview
 menampilkan pasangan yang terdampak; pemeriksaan kunci Payroll mencakup kedua
 anggota dan seluruh grup harian yang harus dihitung ulang. Koreksi dilakukan
 append-only dan menghasilkan pasangan pengganti, sementara relasi lama tetap
 menjelaskan histori.
-Pada implementasi awal, koreksi pasangan hanya mengubah jumlah; karyawan dan
-pekerjaan tidak dapat diganti. Jika salah memilih partner, void pasangan lalu
+Koreksi pasangan mendukung jumlah serta brand/QC melalui anggota Linting;
+brand Batil ikut disamakan secara atomik, berat dan defect hanya pada Linting.
+Karyawan dan pekerjaan pasangan tidak dapat diganti. Jika salah memilih partner, void pasangan lalu
 scan ulang (selama belum terkunci Payroll). Koreksi setoran mandiri tetap
 mengikuti kemampuan yang sudah ada.
 
@@ -90,3 +91,5 @@ Pengujian wajib mencakup Klaten vs site lain, Batil opsional/invalid, karyawan
 yang sama, Attendance/assignment/tarif, rollback atomik, retry tanpa duplikasi,
 snapshot QC, kunci Payroll salah satu anggota, koreksi/void bersama, kelengkapan
 reset batch, serta hitungan dan label hasil kerja pada rekap.
+
+Rincian form, snapshot dan retry: [Koreksi Transaksi Produksi](PRODUCTION_TRANSACTION_CORRECTION.md).

@@ -699,7 +699,12 @@ function useProductionRevisionMutation<TInput extends object, TResult>(
 
 export function usePreviewProductionCorrection(uid?: string) {
   return useProductionRevisionMutation<
-    { employeeUid?: string; jobUid: string; quantity: string },
+    {
+      employeeUid?: string
+      jobUid: string
+      quantity: string
+      qc?: ProductionQcInput
+    },
     ProductionCorrectionPreview
   >(uid, 'correction-preview')
 }
@@ -710,6 +715,7 @@ export function useCorrectProductionTransaction(uid?: string) {
       employeeUid?: string
       jobUid: string
       quantity: string
+      qc?: ProductionQcInput
       reason: string
       idempotencyKey: string
     },

@@ -137,6 +137,33 @@ describe('Klaten atomic Linting/Batil pairs',()=>{
     expect(employeeLock[0]).toContain('ORDER BY id FOR UPDATE');expect(employeeLock[1]).toEqual([11,12])
     expect(transactionLock[0]).toContain('ORDER BY id FOR UPDATE');expect(transactionLock[1]).toEqual([21,22])
   })
+  it.each(['success','peer-qc-failure'])('QC-only Linting correction synchronizes brand to Batil atomically: %s',async variant=>{
+    paired=true
+    if(variant==='peer-qc-failure') mocks.saveQc.mockImplementation(async (_conn,transactionId)=>{
+      if(transactionId===32) throw new Error('Peer QC failed')
+    })
+    const response=await request(`/transactions/${rootUid}/correct`,{jobUid:lintingJob,quantity:'500',qc:{brandUid:'66666666-6666-4666-8666-666666666666',weight1Grams:'73',weight2Grams:'74',defects:[]},reason:'Koreksi QC pasangan',idempotencyKey:key})
+    expect(response.status,await response.clone().text()).toBe(variant==='success'?201:500)
+    expect(mocks.saveQc).toHaveBeenCalledTimes(2)
+    expect(mocks.saveQc.mock.calls[1][2]).toMatchObject({brand:{code:'BR-1'},weight1Grams:null,weight2Grams:null,defects:[]})
+    if(variant==='success') {
+      expect(mocks.commit).toHaveBeenCalledOnce()
+      expect(mocks.rollback).not.toHaveBeenCalled()
+      const inserts=mocks.execute.mock.calls.filter(([sql])=>String(sql).includes('INSERT INTO production_transactions'))
+      expect(inserts).toHaveLength(2)
+      expect(inserts.map(([,values])=>values[13])).toEqual(['500.0000','500.0000'])
+    } else {
+      expect(mocks.rollback).toHaveBeenCalledOnce()
+      expect(mocks.commit).not.toHaveBeenCalled()
+    }
+  })
+  it('requires opening Linting to edit paired Batil brand or QC',async()=>{
+    paired=true
+    const response=await request(`/transactions/${peerUid}/correct`,{jobUid:batilJob,quantity:'500',qc:{brandUid:'66666666-6666-4666-8666-666666666666'},reason:'Koreksi brand pasangan',idempotencyKey:key})
+    expect(response.status).toBe(422)
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.commit).not.toHaveBeenCalled()
+  })
   it('paired job change is rejected before replacing either member',async()=>{
     paired=true
     const response=await request(`/transactions/${rootUid}/correct`,{jobUid:batilJob,quantity:'600',reason:'Ganti pekerjaan pasangan',idempotencyKey:key})

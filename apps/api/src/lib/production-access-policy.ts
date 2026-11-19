@@ -13,7 +13,7 @@ export function canReviseProductionDate(auth: AuthContext, date: string) {
   }).format(new Date())
   return (
     canViewProductionWages(auth) ||
-    (/^\d{4}-\d{2}-\d{2}$/.test(date) && date >= today)
+    (/^\d{4}-\d{2}-\d{2}$/.test(date) && date === today)
   )
 }
 
@@ -21,7 +21,7 @@ export function assertProductionRevisionDate(auth: AuthContext, date: string) {
   if (!canReviseProductionDate(auth, date)) {
     throw new ApiError(
       403,
-      'Koreksi dan void transaksi sebelum hari ini hanya boleh dilakukan HR atau Superadmin.'
+      'Koreksi dan void hanya boleh untuk transaksi hari ini; tanggal lain hanya untuk HR atau Superadmin.'
     )
   }
 }

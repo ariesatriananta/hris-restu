@@ -151,6 +151,8 @@ import {
   emptyProductionQc,
   isLintingJob,
   productionQcPayload,
+  productionQcDraftSignature,
+  type ProductionQcDraft,
   validateProductionQc,
 } from './production-qc-form-policy'
 import {
@@ -1819,8 +1821,8 @@ export function TransactionDetailSheet({
               {hasPermission(session, 'production.correct') &&
                 !canReviseProductionDate(session, item.businessDate) && (
                   <p className='rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground'>
-                    Koreksi dan void tanggal sebelumnya hanya tersedia untuk
-                    HR/Superadmin.
+                    Selain HR/Superadmin, koreksi dan void hanya tersedia untuk
+                    transaksi hari ini (WIB).
                   </p>
                 )}
               {(canCorrect || canVoid) && (
@@ -1926,7 +1928,7 @@ function RevisionTimeline({
   )
 }
 
-function CorrectionDialog({
+export function CorrectionDialog({
   transaction,
   children,
 }: {
@@ -1943,6 +1945,7 @@ function CorrectionDialog({
     )
   )
   const [reason, setReason] = useState('')
+  const [qcDraft, setQcDraft] = useState<ProductionQcDraft>()
   const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey)
   const context = useProductionCorrectionContext(transaction.uid, open)
   const preview = usePreviewProductionCorrection(transaction.uid)
@@ -1972,6 +1975,43 @@ function CorrectionDialog({
       ? validateProductionQuantity(quantity, quantityPrecision)
       : 'Pilih pekerjaan terlebih dahulu.'
   const normalizedQuantity = normalizeProductionQuantity(quantity)
+  const sourceQc = context.data ? context.data.transaction.qc : transaction.qc
+  const originalQc: ProductionQcDraft = {
+    brandUid: sourceQc?.brand?.uid ?? '',
+    weight1: sourceQc?.weight1Grams?.replace('.', ',') ?? '00,00',
+    weight2: sourceQc?.weight2Grams?.replace('.', ',') ?? '00,00',
+    defects: Object.fromEntries(
+      (sourceQc?.defects ?? []).map((item) => [item.uid, String(item.quantity)])
+    ),
+  }
+  const qc = qcDraft ?? originalQc
+  const qcChanged =
+    productionQcDraftSignature(qc) !== productionQcDraftSignature(originalQc)
+  const linting = isLintingJob(
+    selectedJob?.code ??
+      selectedTargetAssignment?.jobCode ??
+      transaction.job.code
+  )
+  const pairedBatil = Boolean(
+    transaction.pair && !isLintingJob(transaction.job.code)
+  )
+  const qcOptions = context.data?.qcOptions
+  const qcError = qcChanged
+    ? validateProductionQc(qc, qcOptions, linting)
+    : undefined
+  const input = {
+    employeeUid: transaction.pair ? undefined : employee?.uid,
+    jobUid: effectiveJobUid,
+    quantity: normalizedQuantity,
+    ...(qcChanged && qcOptions && !pairedBatil
+      ? { qc: productionQcPayload(qc, qcOptions, linting) }
+      : {}),
+  }
+  // A late preview response must never authorize a newer form draft.
+  const currentPreview =
+    JSON.stringify(preview.variables) === JSON.stringify(input)
+      ? preview.data
+      : undefined
 
   const setDialogOpen = (next: boolean) => {
     setOpen(next)
@@ -1992,21 +2032,31 @@ function CorrectionDialog({
       )
     )
     setReason('')
+    setQcDraft(undefined)
     setIdempotencyKey(createIdempotencyKey())
     preview.reset()
   }
 
-  const resetPreview = () => preview.reset()
-  const validInput = Boolean(effectiveJobUid) && !quantityError
-  const canSubmit = preview.data?.canApply === true && reason.trim().length >= 5
+  const resetPreview = () => {
+    preview.reset()
+    setIdempotencyKey(createIdempotencyKey())
+  }
+  const validInput = Boolean(effectiveJobUid) && !quantityError && !qcError
+  const canSubmit =
+    validInput &&
+    !context.isError &&
+    !context.isPending &&
+    !correction.isPending &&
+    context.data?.canCorrect === true &&
+    currentPreview?.canApply === true &&
+    reason.trim().length >= 5 &&
+    !preview.isPending
 
   const submitCorrection = async () => {
     if (!canSubmit) return
     try {
       const output = await correction.mutateAsync({
-        employeeUid: transaction.pair ? undefined : employee?.uid,
-        jobUid: effectiveJobUid,
-        quantity: normalizedQuantity,
+        ...input,
         reason: reason.trim(),
         idempotencyKey,
       })
@@ -2037,6 +2087,15 @@ function CorrectionDialog({
           />
         ) : (
           <div className='space-y-4'>
+            <p className='rounded-md border bg-muted/30 px-3 py-2 text-sm'>
+              <span className='font-medium'>
+                {transaction.employee.fullName}
+              </span>
+              <span className='text-muted-foreground'>
+                {' '}
+                / {transaction.job.name} / {transaction.unit.code}
+              </span>
+            </p>
             {transaction.pair && (
               <p className='rounded-md border bg-muted/30 px-3 py-2 text-xs'>
                 Koreksi jumlah berlaku untuk kedua pekerja:{' '}
@@ -2049,126 +2108,162 @@ function CorrectionDialog({
               <LockedPanel reasons={context.data.payrollLock.reasons} />
             )}
             <label className='grid gap-1.5 text-sm'>
-              <span className='font-medium'>Karyawan pengganti</span>
-              {transaction.pair ? (
-                <p className='rounded-md border px-3 py-2 text-sm'>
-                  {transaction.employee.fullName}
-                </p>
-              ) : (
-                <ProductionEmployeePicker
-                  site={transaction.site}
-                  asOf={transaction.businessDate}
-                  value={employee?.uid ?? transaction.employee.uid}
-                  selected={employee}
-                  onChange={(item) => {
-                    setEmployee(item)
-                    const primary = item.assignments.find(
-                      (assignment) => assignment.isPrimary
-                    )
-                    setJobUid(
-                      primary?.jobUid ?? item.assignments[0]?.jobUid ?? ''
-                    )
-                    setIdempotencyKey(createIdempotencyKey())
-                    resetPreview()
-                  }}
-                />
+              <span className='font-medium'>Kuantitas hasil</span>
+              <Input
+                value={quantity}
+                onChange={(event) => {
+                  setQuantity(event.target.value)
+                  resetPreview()
+                }}
+                inputMode='decimal'
+                placeholder='Contoh: 25'
+                disabled={!context.data.canCorrect || correction.isPending}
+                aria-invalid={Boolean(quantity && quantityError)}
+              />
+              {quantity && quantityError && (
+                <span className='text-xs text-destructive'>
+                  {quantityError}
+                </span>
               )}
-              <span className='text-xs text-muted-foreground'>
-                {transaction.pair
-                  ? 'Pasangan Linting + Batil hanya mendukung koreksi jumlah.'
-                  : 'Biarkan tetap sama jika kesalahan hanya pada pekerjaan atau kuantitas.'}
-              </span>
             </label>
-            <div className='grid gap-4 sm:grid-cols-2'>
-              <label className='grid gap-1.5 text-sm'>
-                <span className='font-medium'>Pekerjaan pengganti</span>
-                <Select
-                  value={effectiveJobUid}
-                  onValueChange={(value) => {
-                    setJobUid(value)
-                    setIdempotencyKey(createIdempotencyKey())
-                    resetPreview()
-                  }}
-                  disabled={
-                    !context.data.canCorrect || Boolean(transaction.pair)
-                  }
-                >
-                  <SelectTrigger className='w-full'>
-                    <SelectValue placeholder='Pilih pekerjaan' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {employeeChanged
-                      ? targetAssignments.map((assignment) => (
-                          <SelectItem
-                            key={assignment.uid}
-                            value={assignment.jobUid}
-                          >
-                            {assignment.jobName} ({assignment.jobCode})
-                            {assignment.isPrimary ? ' · Utama' : ' · Tambahan'}
-                          </SelectItem>
-                        ))
-                      : context.data.jobs.map((job) => (
-                          <SelectItem key={job.uid} value={job.uid}>
-                            {job.name} ({job.code})
-                            {job.isPrimary ? ' · Utama' : ' · Tambahan'}
-                          </SelectItem>
-                        ))}
-                  </SelectContent>
-                </Select>
-              </label>
-              <label className='grid gap-1.5 text-sm'>
-                <span className='font-medium'>Kuantitas hasil</span>
-                <Input
-                  value={quantity}
-                  onChange={(event) => {
-                    setQuantity(event.target.value)
-                    setIdempotencyKey(createIdempotencyKey())
-                    resetPreview()
-                  }}
-                  inputMode='decimal'
-                  placeholder='Contoh: 25'
-                  disabled={!context.data.canCorrect}
-                  aria-invalid={Boolean(quantity && quantityError)}
-                />
-                {quantity && quantityError && (
-                  <span className='text-xs text-destructive'>
-                    {quantityError}
-                  </span>
+            {pairedBatil ? (
+              <p className='rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground'>
+                Untuk mengubah brand, berat, atau defect pasangan, buka Koreksi
+                pada transaksi Linting.
+              </p>
+            ) : qcOptions?.brands.length ? (
+              <>
+                {!sourceQc && (
+                  <p className='text-xs text-muted-foreground'>
+                    QC lama belum dicatat. Untuk koreksi jumlah saja, biarkan
+                    bagian QC tetap kosong.
+                  </p>
                 )}
-              </label>
-            </div>
+                <ProductionQcFields
+                  value={qc}
+                  options={qcOptions}
+                  linting={linting}
+                  quantity={quantity}
+                  disabled={!context.data.canCorrect || correction.isPending}
+                  onChange={(value) => {
+                    setQcDraft(value)
+                    if (
+                      productionQcDraftSignature(value) !==
+                      productionQcDraftSignature(qc)
+                    ) {
+                      resetPreview()
+                    }
+                  }}
+                />
+                {qcError && (
+                  <p role='alert' className='text-xs text-destructive'>
+                    {qcError}
+                  </p>
+                )}
+              </>
+            ) : qcOptions ? (
+              <p className='text-xs text-muted-foreground'>
+                Brand belum tersedia. Koreksi jumlah tetap dapat dilakukan tanpa
+                mengubah QC lama.
+              </p>
+            ) : null}
+            {!transaction.pair && (
+              <details className='rounded-lg border px-3 py-2'>
+                <summary className='cursor-pointer py-1 text-sm font-medium'>
+                  Ubah pekerja/pekerjaan
+                </summary>
+                <fieldset
+                  disabled={!context.data.canCorrect || correction.isPending}
+                  className='mt-2 space-y-3'
+                >
+                  <label className='grid gap-1.5 text-sm'>
+                    <span className='font-medium'>Karyawan pengganti</span>
+                    <ProductionEmployeePicker
+                      site={transaction.site}
+                      asOf={transaction.businessDate}
+                      value={employee?.uid ?? transaction.employee.uid}
+                      selected={employee}
+                      onChange={(item) => {
+                        setEmployee(item)
+                        const primary = item.assignments.find(
+                          (assignment) => assignment.isPrimary
+                        )
+                        setJobUid(
+                          primary?.jobUid ?? item.assignments[0]?.jobUid ?? ''
+                        )
+                        resetPreview()
+                      }}
+                    />
+                    <span className='text-xs text-muted-foreground'>
+                      Biarkan tetap sama jika kesalahan hanya pada pekerjaan
+                      atau kuantitas.
+                    </span>
+                  </label>
+                  <div className='grid gap-3'>
+                    <label className='grid gap-1.5 text-sm'>
+                      <span className='font-medium'>Pekerjaan pengganti</span>
+                      <Select
+                        value={effectiveJobUid}
+                        onValueChange={(value) => {
+                          setJobUid(value)
+                          resetPreview()
+                        }}
+                        disabled={
+                          !context.data.canCorrect || Boolean(transaction.pair)
+                        }
+                      >
+                        <SelectTrigger className='w-full'>
+                          <SelectValue placeholder='Pilih pekerjaan' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {employeeChanged
+                            ? targetAssignments.map((assignment) => (
+                                <SelectItem
+                                  key={assignment.uid}
+                                  value={assignment.jobUid}
+                                >
+                                  {assignment.jobName} ({assignment.jobCode})
+                                  {assignment.isPrimary
+                                    ? ' · Utama'
+                                    : ' · Tambahan'}
+                                </SelectItem>
+                              ))
+                            : context.data.jobs.map((job) => (
+                                <SelectItem key={job.uid} value={job.uid}>
+                                  {job.name} ({job.code})
+                                  {job.isPrimary ? ' · Utama' : ' · Tambahan'}
+                                </SelectItem>
+                              ))}
+                        </SelectContent>
+                      </Select>
+                    </label>
+                  </div>
+                </fieldset>
+              </details>
+            )}
             <Button
               type='button'
               variant='secondary'
               disabled={
-                !validInput || !context.data.canCorrect || preview.isPending
+                !validInput ||
+                !context.data.canCorrect ||
+                preview.isPending ||
+                correction.isPending
               }
               onClick={() =>
-                preview.mutate(
-                  {
-                    employeeUid: transaction.pair ? undefined : employee?.uid,
-                    jobUid: effectiveJobUid,
-                    quantity: normalizedQuantity,
-                  },
-                  {
-                    onError: (error) =>
-                      toast.error(
-                        apiMessage(error, 'Pratinjau koreksi gagal dibuat.')
-                      ),
-                  }
-                )
+                preview.mutate(input, {
+                  onError: (error) =>
+                    toast.error(
+                      apiMessage(error, 'Pratinjau koreksi gagal dibuat.')
+                    ),
+                })
               }
             >
               {preview.isPending && <Loader2 className='animate-spin' />}
               Preview perubahan
             </Button>
-            {preview.data && <CorrectionPreviewPanel preview={preview.data} />}
-            {context.data.transaction.qc && (
-              <p className='rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground'>
-                Brand asli dipertahankan. Berat dan defect hanya dibawa jika
-                pekerjaan pengganti tetap Linting. Koreksi ini tidak mengubah
-                data QC.
-              </p>
+            {currentPreview && (
+              <CorrectionPreviewPanel preview={currentPreview} />
             )}
             <label className='grid gap-1.5 text-sm'>
               <span className='font-medium'>Alasan koreksi</span>
@@ -2180,7 +2275,7 @@ function CorrectionDialog({
                 }}
                 placeholder='Jelaskan kesalahan dan alasan koreksi.'
                 maxLength={500}
-                disabled={!preview.data?.canApply}
+                disabled={!currentPreview?.canApply || correction.isPending}
               />
               <span className='text-xs text-muted-foreground'>
                 Minimal 5 karakter agar alasan audit cukup jelas.
@@ -2259,6 +2354,37 @@ function CorrectionPreviewPanel({
           </ProductionWages>
         </div>
       </div>
+      {preview.qcChanged && (
+        <div className='mt-2 space-y-2 border-t pt-2'>
+          <p className='text-xs font-semibold'>Perubahan QC</p>
+          <div className='grid gap-2 sm:grid-cols-2'>
+            <div>
+              <p className='mb-1 text-xs text-muted-foreground'>Sebelum</p>
+              {preview.source.qc ? (
+                <ProductionQcDetail
+                  qc={preview.source.qc}
+                  showPayHint={false}
+                  linting={isLintingJob(preview.source.job.code)}
+                />
+              ) : (
+                <p className='text-xs text-muted-foreground'>Belum dicatat</p>
+              )}
+            </div>
+            <div>
+              <p className='mb-1 text-xs text-muted-foreground'>Sesudah</p>
+              {preview.proposedQc ? (
+                <ProductionQcDetail
+                  qc={preview.proposedQc}
+                  showPayHint={false}
+                  linting={isLintingJob(preview.proposed.job.code)}
+                />
+              ) : (
+                <p className='text-xs text-muted-foreground'>Belum dicatat</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {preview.pairProposal && (
         <div className='mt-2 rounded-md border bg-background px-3 py-2 text-xs'>
           <p className='font-medium'>

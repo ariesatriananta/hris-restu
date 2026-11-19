@@ -411,6 +411,7 @@ export type ProductionPayrollLock = {
 }
 
 export type ProductionCorrectionContext = {
+  qcOptions?: ProductionQcOptions
   affectedTransactions?: ProductionTransaction[]
   transaction: ProductionTransaction
   jobs: ProductionCorrectionJob[]
@@ -420,6 +421,8 @@ export type ProductionCorrectionContext = {
 }
 
 export type ProductionCorrectionPreview = {
+  proposedQc?: ProductionQcSnapshot | null
+  qcChanged?: boolean
   pairDelta?: { quantity: string; grossAmount?: string }
   affectedTransactions?: ProductionTransaction[]
   pairProposal?: {

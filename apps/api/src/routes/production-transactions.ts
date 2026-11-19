@@ -1,3 +1,4 @@
+import { correctionQcOptions, correctionQcSignature, publicCorrectionQc, resolveCorrectionQc } from '../lib/production-correction-qc.js'
 import { canViewProductionWages, canReviseProductionDate, assertProductionRevisionDate, redactProductionFinancials } from '../lib/production-access-policy.js'
 import { isQcUser, assertQcEmployeeModule, qcModulePredicate, qcTransactionPredicate, assertQcTransactionAccess, assertQcDailyGroupAccess, snapshotTransactionModule, snapshotTransactionModules } from '../lib/production-transaction-module.js'
 import { productionBatchSelection, productionBatchRun, batchRandom, productionBatchHash, signProductionBatch, readProductionBatch, type BatchSelection } from '../lib/production-batch-input.js'
@@ -1896,7 +1897,8 @@ async function correctionProposal(
   jobUid: string,
   inputQuantity: string,
   lock = false,
-  forceActiveValidation = false
+  forceActiveValidation = false,
+  allowUnchanged = false
 ) {
   if (!forceActiveValidation && String(transaction.jobUid) === jobUid) {
     const quantity = normalizeQuantity(
@@ -1904,7 +1906,7 @@ async function correctionProposal(
       Number(transaction.decimalPrecision)
     )
     const sourceQuantity = normalizeStoredDecimal(transaction.quantity)
-    if (quantity === sourceQuantity) {
+    if (quantity === sourceQuantity && !allowUnchanged) {
       throw new ApiError(422, 'Koreksi tidak memiliki perubahan pekerjaan atau kuantitas.')
     }
     const rateSnapshot = normalizeStoredDecimal(transaction.rate_snapshot)
@@ -2123,16 +2125,16 @@ async function pairedManagedTransaction(conn: PoolConnection, source: RowDataPac
 }
 
 async function revisePairedPeer(conn: PoolConnection, peer: RowDataPacket, quantity: string | null,
-  sourceEmployeeChanged: boolean, reason: string, auth: AuthContext, request: Request) {
+  sourceEmployeeChanged: boolean, reason: string, auth: AuthContext, request: Request, qcOverride?: {qc: ResolvedProductionQc | null}) {
   assertPostedAndUnlocked(peer,await payrollLockContext(conn,peer,true))
-  const before = transactionSnapshot(peer)
+  const before = {...transactionSnapshot(peer), ...(qcOverride ? {qc:await readProductionQc(conn,Number(peer.id))} : {})}
   let replacementId: number | null = null
   let after: Record<string,unknown> = {...before,status:'VOID'}
   if (quantity !== null) {
     // An employee-only correction still replaces the unchanged partner, preserving the pair lineage.
     const proposal = sourceEmployeeChanged && normalizeStoredDecimal(peer.quantity) === quantity
       ? {quantity,rateSnapshot:normalizeStoredDecimal(peer.rate_snapshot),grossAmount:normalizeStoredDecimal(peer.gross_amount,2)}
-      : (await correctionProposal(conn,peer,String(peer.jobUid),quantity.replace(/\.0+$/,''),true)).proposed
+      : (await correctionProposal(conn,peer,String(peer.jobUid),quantity.replace(/\.0+$/,''),true,false,Boolean(qcOverride))).proposed
     const uid = randomUUID()
     const number = `PRD-COR-${String(peer.businessDateKey).replaceAll('-','')}-KLATEN-${randomUUID().replaceAll('-','').slice(0,8).toUpperCase()}`
     const [result] = await conn.execute<ResultSetHeader>(
@@ -2146,8 +2148,9 @@ async function revisePairedPeer(conn: PoolConnection, peer: RowDataPacket, quant
         `Koreksi pasangan dari ${peer.transaction_number}: ${reason}`,auth.id,auth.id])
     replacementId = Number(result.insertId)
     await snapshotTransactionModule(conn, replacementId, peer.production_module_id ?? null)
-    await cloneProductionQc(conn,Number(peer.id),replacementId,String(peer.jobCode),auth.id)
-    after = {...before,uid,transactionNumber:number,quantity:proposal.quantity,status:'POSTED'}
+    if (qcOverride) await saveProductionQc(conn,replacementId,qcOverride.qc,auth.id)
+    else await cloneProductionQc(conn,Number(peer.id),replacementId,String(peer.jobCode),auth.id)
+    after = {...before,uid,transactionNumber:number,quantity:proposal.quantity,status:'POSTED',...(qcOverride ? {qc:publicCorrectionQc(qcOverride.qc)} : {})}
   }
   const [revisionRows] = await conn.query<RowDataPacket[]>(
     'SELECT COALESCE(MAX(revision_number),0)+1 revisionNumber FROM production_transaction_revisions WHERE production_transaction_id=? FOR UPDATE',[peer.id])
@@ -4297,6 +4300,7 @@ productionTransactionsRouter.get(
       res.json({
         transaction: await transactionResponse(conn, Number(source.id)),
         jobs,
+        qcOptions: await correctionQcOptions(conn,Number(source.id),Number(source.site_id)),
         affectedTransactions: paired ? [await transactionResponse(conn,Number(paired.peer.id))] : [],
         payrollLock,
         canCorrect: source.status === 'POSTED' && !payrollLock.locked,
@@ -4331,18 +4335,26 @@ productionTransactionsRouter.post(
       const paired = await pairedManagedTransaction(conn,source,auth,false)
       if (paired && (input.jobUid !== source.jobUid || target.employeeChanged))
         throw new ApiError(422,'Koreksi pasangan hanya mengubah kuantitas; untuk mengganti karyawan lakukan void dan scan ulang.')
+      if (paired?.pair.role === 'BATIL' && input.qc !== undefined)
+        throw new ApiError(422,'Ubah brand dan QC melalui transaksi Linting pasangannya.')
       const { proposed, targetIds } = await correctionProposal(
         conn,
         target.transaction,
         input.jobUid,
         input.quantity,
         false,
-        target.employeeChanged
+        target.employeeChanged,
+        input.qc !== undefined
       )
+      const qcEdit = input.qc === undefined ? undefined : await resolveCorrectionQc(
+        conn,Number(source.id),Number(source.site_id),String(proposed.job.code),input.qc,false)
+      if (qcEdit && !qcEdit.changed && !target.employeeChanged && input.jobUid === source.jobUid
+          && normalizeStoredDecimal(proposed.quantity) === normalizeStoredDecimal(source.quantity))
+        throw new ApiError(422,'Koreksi tidak memiliki perubahan pekerjaan, kuantitas atau QC.')
       await assertQcDailyGroupAccess(conn, {...target.transaction,production_job_id:targetIds.jobId} as RowDataPacket, auth)
       const pairProposal = paired ? {
         source:await transactionResponse(conn,Number(paired.peer.id)),
-        proposed:(await correctionProposal(conn,paired.peer,String(paired.peer.jobUid),proposed.quantity.replace(/\.0+$/,''),false)).proposed
+        proposed:(await correctionProposal(conn,paired.peer,String(paired.peer.jobUid),proposed.quantity.replace(/\.0+$/,''),false,false,qcEdit?.changed === true)).proposed
       } : undefined
       const sourceKey = {
         employeeId:Number(source.employee_id),siteId:Number(source.site_id),
@@ -4381,6 +4393,7 @@ productionTransactionsRouter.post(
           fullName: target.transaction.fullName,
         },
         proposed,
+        ...(qcEdit ? {proposedQc:publicCorrectionQc(qcEdit.resolved),qcChanged:qcEdit.changed} : {}),
         pairProposal,
         affectedTransactions: pairProposal ? [pairProposal.source] : [],
         pairDelta: peerImpact ? {
@@ -4472,6 +4485,7 @@ productionTransactionsRouter.post(
         jobUid: input.jobUid,
         quantity: normalizeQuantity(input.quantity, 4),
         reason: input.reason,
+        qc: input.qc === undefined ? '' : correctionQcSignature(input.qc),
       }
       const replay = await revisionReplay(
         conn,
@@ -4502,14 +4516,22 @@ productionTransactionsRouter.post(
       const paired = await pairedManagedTransaction(conn,source,auth,true)
       if (paired && (input.jobUid !== source.jobUid || target.employeeChanged))
         throw new ApiError(422,'Koreksi pasangan hanya mengubah kuantitas; untuk mengganti karyawan lakukan void dan scan ulang.')
+      if (paired?.pair.role === 'BATIL' && input.qc !== undefined)
+        throw new ApiError(422,'Ubah brand dan QC melalui transaksi Linting pasangannya.')
       const { proposed, targetIds } = await correctionProposal(
         conn,
         target.transaction,
         input.jobUid,
         input.quantity,
         true,
-        target.employeeChanged
+        target.employeeChanged,
+        input.qc !== undefined
       )
+      const qcEdit = input.qc === undefined ? undefined : await resolveCorrectionQc(
+        conn,Number(source.id),Number(source.site_id),String(proposed.job.code),input.qc,true)
+      if (qcEdit && !qcEdit.changed && !target.employeeChanged && input.jobUid === source.jobUid
+          && normalizeStoredDecimal(proposed.quantity) === normalizeStoredDecimal(source.quantity))
+        throw new ApiError(422,'Koreksi tidak memiliki perubahan pekerjaan, kuantitas atau QC.')
       await assertQcDailyGroupAccess(conn, {...target.transaction,production_job_id:targetIds.jobId} as RowDataPacket, auth)
       const replacementUid = randomUUID()
       const replacementNumber = `PRD-COR-${String(source.businessDateKey).replaceAll('-', '')}-${String(source.site)}-${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`
@@ -4547,12 +4569,13 @@ productionTransactionsRouter.post(
         (insertResult as { insertId?: number }).insertId ?? 0
       )
       await snapshotTransactionModule(conn, replacementId, target.transaction.production_module_id ?? null)
-      await cloneProductionQc(conn, Number(source.id), replacementId, String(proposed.job.code), auth.id)
-      const peerReplacementId = paired ? await revisePairedPeer(conn,paired.peer,proposed.quantity,false,input.reason,auth,req) : null
+      if (qcEdit) await saveProductionQc(conn,replacementId,qcEdit.resolved,auth.id)
+      else await cloneProductionQc(conn, Number(source.id), replacementId, String(proposed.job.code), auth.id)
+      const peerReplacementId = paired ? await revisePairedPeer(conn,paired.peer,proposed.quantity,false,input.reason,auth,req,qcEdit ? {qc:qcEdit.resolved?.brand ? {brand:qcEdit.resolved.brand,weight1Grams:null,weight2Grams:null,defects:[]} : null} : undefined) : null
       if (paired && peerReplacementId) await saveProductionPair(conn,
         paired.pair.role === 'LINTING' ? replacementId : peerReplacementId,
         paired.pair.role === 'LINTING' ? peerReplacementId : replacementId,auth.id)
-      const before = transactionSnapshot(source)
+      const before = {...transactionSnapshot(source),...(qcEdit ? {qc:qcEdit.before} : {})}
       const after = {
         ...before,
         uid: replacementUid,
@@ -4575,6 +4598,7 @@ productionTransactionsRouter.post(
         rateSnapshot: proposed.rateSnapshot,
         grossAmount: proposed.grossAmount,
         status: 'POSTED',
+        ...(qcEdit ? {qc:publicCorrectionQc(qcEdit.resolved)} : {}),
         request: replayPayload,
       }
       const [revisionRows] = await conn.query<RowDataPacket[]>(

@@ -106,6 +106,7 @@ describe('Production M1 access policy', () => {
       assertProductionRevisionDate(auth('QC'), '2026-11-10')
     ).not.toThrow()
     expect(canReviseProductionDate(auth('DIRECTOR'), '2026-11-09')).toBe(false)
+    expect(canReviseProductionDate(auth('QC'), '2026-11-11')).toBe(false)
     expect(() =>
       assertProductionRevisionDate(auth('HR_OFFICER'), '2026-01-01')
     ).not.toThrow()

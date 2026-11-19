@@ -243,3 +243,8 @@ Jalankan `db/migrations/20260822_production_exception_integrity.sql` setelah
 migration revisi transaksi. Verifikasi setoran susulan, koreksi salah karyawan,
 Payroll lock pada terminal, auto-close assignment setelah mutasi/status,
 readiness perangkat/job/unit, serta koreksi dan pembatalan tarif unused.
+
+
+## Koreksi jumlah dan QC
+
+Lihat [Koreksi Transaksi Produksi](PRODUCTION_TRANSACTION_CORRECTION.md) untuk uji role/tanggal, QC saja tanpa perubahan jumlah, snapshot master nonaktif, data lama tanpa QC, dan pasangan Linting/Batil.

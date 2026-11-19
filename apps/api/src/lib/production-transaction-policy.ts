@@ -95,6 +95,7 @@ export const productionCorrectionPreviewInput = z
     employeeUid: z.string().uuid().optional(),
     jobUid: z.string().uuid(),
     quantity: decimalInput,
+    qc: productionQcInput.optional(),
   })
   .strict()
 

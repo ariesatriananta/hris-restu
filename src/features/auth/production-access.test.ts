@@ -28,6 +28,9 @@ describe('Production role and date policy', () => {
     expect(
       canReviseProductionDate(session(role), '2026-11-09', '2026-11-09')
     ).toBe(true)
+    expect(
+      canReviseProductionDate(session(role), '2026-11-10', '2026-11-09')
+    ).toBe(false)
   })
   it.each(['SUPER_ADMIN', 'HR_OFFICER'] as const)(
     'allows historical role exception for %s',

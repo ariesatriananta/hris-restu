@@ -25,7 +25,7 @@ export function canReviseProductionDate(
 ) {
   return (
     Boolean(session) &&
-    (canViewProductionWages(session) || businessDate >= today)
+    (canViewProductionWages(session) || businessDate === today)
   )
 }
 

@@ -353,9 +353,10 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   bruto sebagai snapshot agar histori tidak berubah saat master diperbarui.
 - Koreksi transaksi Produksi bersifat append-only dan dapat diterapkan langsung
   oleh pengguna dengan permission `production.correct` atau `SUPER_ADMIN`, tanpa
-  approval. Koreksi hanya mengganti pekerjaan dan kuantitas: transaksi sumber
-  menjadi `VOID`, transaksi pengganti mempertahankan karyawan, site, tanggal,
-  waktu transaksi, Attendance, perangkat, dan kelompok kerja sumber, sedangkan
+  approval. Koreksi mendukung pekerjaan, kuantitas, brand, berat dan defect;
+  setoran tunggal juga dapat mengganti karyawan yang eligible. Transaksi sumber
+  menjadi `VOID`; transaksi pengganti mempertahankan site, tanggal dan waktu awal,
+  dengan Attendance/penempatan mengikuti pekerja pengganti jika berubah, sedangkan
   revision menyimpan snapshot before/after serta alasan. Void tanpa pengganti
   juga wajib dicatat sebagai revision.
 - Koreksi dan void Produksi diblokir ketika transaksi sudah dikunci atau masuk
@@ -817,3 +818,12 @@ jumlah hari Alpha/Izin`. Kalkulasi dibulatkan `HALF_UP` ke Rp1 per komponen
 - Tab pekerjaan, ringkasan, daftar karyawan dan rincian hanya memakai transaksi POSTED dengan scope site serta snapshot modul QC yang sama. VOID dikecualikan; kuantitas dipisahkan per satuan dan per pekerjaan (Linting/Batil tidak dijumlah sebagai batang fisik).
 - Baris ringkasan per karyawan/site/pekerjaan/satuan. Total berasal dari agregasi database sebelum pagination. Jumlah defect adalah kejadian defect, bukan jumlah batang rusak unik; join detail defect tidak boleh menggandakan kuantitas/setoran/upah.
 - Nilai nominal mengikuti pembatasan M1. Ringkasan tidak mengedit hasil agregat; koreksi/void tetap melalui transaksi individual dan seluruh validasi lama. Kontrak dan rencana UI: [PRODUCTION_DAILY_SUMMARY.md](PRODUCTION_DAILY_SUMMARY.md).
+
+
+### Koreksi QC Produksi (19 November 2026)
+
+- Form Koreksi mendukung jumlah, brand, berat dan defect. Tanpa perubahan jumlah/pekerja/pekerjaan, koreksi tetap sah jika QC benar-benar berubah; seluruh perubahan memakai transaksi pengganti dan audit sebelum/sesudah.
+- Selain HR_OFFICER/SUPER_ADMIN, tanggal koreksi/void harus tepat hari ini menurut Asia/Jakarta (bukan hari ini dan ke depan). Permission dan kunci Payroll tetap berlaku.
+- QC yang tidak dikirim mempertahankan snapshot lama. Master nonaktif yang sudah dipakai boleh dipertahankan dengan snapshot asal; master baru wajib aktif dan brand sesuai site.
+- Edit QC pasangan melalui anggota Linting; brand ikut diperbarui pada Batil dalam transaksi yang sama. Berat dan defect khusus Linting. Ganti pekerja/pekerjaan pasangan tetap melalui void dan scan ulang.
+- Detail kontrak dan uji operasional: [Koreksi Transaksi Produksi](PRODUCTION_TRANSACTION_CORRECTION.md).

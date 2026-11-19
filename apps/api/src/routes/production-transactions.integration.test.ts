@@ -1628,23 +1628,29 @@ describe('Production transactions API', () => {
     )
   })
 
-  it.each(['legacy', 'qc', 'qc-role', 'qc-write-failure'])('membuat koreksi atomik: original VOID, replacement POSTED, revision append-only QC %s', async qcCase => {
+  it.each(['legacy', 'qc', 'qc-role', 'qc-write-failure', 'qc-edit', 'qc-edit-write-failure', 'qc-noop', 'qc-clear'])('membuat koreksi atomik: original VOID, replacement POSTED, revision append-only QC %s', async qcCase => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-08-21T02:00:00Z'))
+    const editing = ['qc-edit','qc-edit-write-failure','qc-noop','qc-clear'].includes(qcCase)
+    const brandUid='11111111-1111-4111-8111-111111111111'
+    const defectUid='22222222-2222-4222-8222-222222222222'
+    const changedQc = qcCase==='qc-clear' ? {} : {brandUid,weight1Grams:qcCase==='qc-noop'?'71.29':'73.00',weight2Grams:'70.05',defects:[{defectUid,quantity:10}]}
     const replacement = {
       ...transactionRow(),
       id: 22,
       uid: '77777777-7777-4777-8777-777777777777',
       transactionNumber: 'PRD-COR-20260821-JEPARA-ABC',
-      quantity: '4.0000',
+      quantity: editing ? '3.0000' : '4.0000',
       grossAmount: '4700.00',
     }
     const voidedSource = { ...transactionRow(), status: 'VOID' }
-    mocks.query.mockImplementation(async (sql: unknown) => {
+    mocks.query.mockImplementation(async (sql: unknown, params:unknown[]=[]) => {
       const statement = String(sql)
       if (statement.includes('SELECT pt.*')) return [[managedTransactionRow()]]
-      if (statement.includes('FROM production_transaction_qc qc')) return qcCase==='legacy' ? [[]] : [[{id:61,brandUid:'brand-uid',brandCode:'BR-OLD',brandName:'Old snapshot',weight1Grams:'71.29',weight2Grams:'70.05'}]]
-      if (statement.includes('FROM production_transaction_qc_defects detail')) return [[{uid:'defect-uid',code:'DF-OLD',name:'Old defect',sortOrder:9,quantity:10}]]
+      if (statement.includes('SELECT brand.id FROM')) return [[{id:51}]]
+      if (statement.includes('SELECT defect.id,defect.uid')) return [[{id:52,uid:defectUid}]]
+      if (statement.includes('FROM production_transaction_qc qc')) return qcCase==='legacy' || (qcCase==='qc-clear' && Number(params[0])===22) ? [[]] : [[{id:61,brandUid:editing?brandUid:'brand-uid',brandCode:'BR-OLD',brandName:'Old snapshot',weight1Grams:editing && Number(params[0])===22 ? '73.00':'71.29',weight2Grams:'70.05'}]]
+      if (statement.includes('FROM production_transaction_qc_defects detail')) return [[{uid:editing?defectUid:'defect-uid',code:'DF-OLD',name:'Old defect',sortOrder:9,quantity:10}]]
       if (statement.includes('SELECT production_section_id productionSectionId')) return [[{productionSectionId:3,deductionPercentage:'0.0000',deductionPolicyId:null}]]
       if (statement.includes('WHERE pr.idempotency_key')) return [[]]
       if (statement.includes('FROM payroll_production_details')) return [[]]
@@ -1690,23 +1696,39 @@ describe('Production transactions API', () => {
         return [{ affectedRows: 1, insertId: 22 }]
       }
       if (statement.includes('INSERT INTO production_transaction_qc(')) {
-        if (qcCase==='qc-write-failure') throw new Error('QC clone failed')
+        if (qcCase==='qc-write-failure' || qcCase==='qc-edit-write-failure') throw new Error('QC clone failed')
         return [{affectedRows:qcCase==='legacy'?0:1,insertId:61}]
       }
       return [{ affectedRows: 1 }]
     })
 
+    if (qcCase==='qc-edit' || qcCase==='qc-clear') {
+      const preview=await request(`/transactions/${transactionUid}/correction-preview`,{
+        method:'POST',auth:auth({permissions:['production.correct']}),body:{jobUid,quantity:'3',qc:changedQc},
+      })
+      expect(preview.status,await preview.clone().text()).toBe(200)
+      expect(await preview.json()).toMatchObject({canApply:true,qcChanged:true,proposed:{quantity:'3.0000'},proposedQc:qcCase==='qc-clear'?null:{weight1Grams:'73.00'}})
+      expect(mocks.execute).not.toHaveBeenCalled()
+    }
+
     const response = await request(`/transactions/${transactionUid}/correct`, {
       method: 'POST',
       body: {
         jobUid,
-        quantity: '4',
+        quantity: editing ? '3' : '4',
+        ...(editing ? {qc:changedQc} : {}),
         reason: 'Kuantitas setoran salah dicatat.',
         idempotencyKey: '68666666-6666-4666-8666-666666666666',
       },
       auth: qcCase==='qc-role' ? {...auth({permissions:['production.correct']}),roles:['QC'],productionModuleAccess:[jobUid]} : auth({permissions:['production.correct']}),
     })
-    if (qcCase==='qc-write-failure') {
+    if (qcCase==='qc-noop') {
+      expect(response.status,await response.clone().text()).toBe(422)
+      expect(mocks.execute).not.toHaveBeenCalled()
+      expect(mocks.commit).not.toHaveBeenCalled()
+      return
+    }
+    if (qcCase==='qc-write-failure' || qcCase==='qc-edit-write-failure') {
       expect(response.status).toBe(500)
       expect(mocks.rollback).toHaveBeenCalledTimes(1)
       expect(mocks.commit).not.toHaveBeenCalled()
@@ -1719,13 +1741,13 @@ describe('Production transactions API', () => {
       transaction: { status: string; quantity: string }
     }
     expect(body.sourceTransaction.status).toBe('VOID')
-    expect(body.transaction).toMatchObject({ status: 'POSTED', quantity: '4.0000' })
+    expect(body.transaction).toMatchObject({ status: 'POSTED', quantity: editing ? '3.0000' : '4.0000' })
     if (qcCase==='qc-role') {
       expect(body.transaction).not.toHaveProperty('grossAmount')
       expect(body.transaction).not.toHaveProperty('rateSnapshot')
       expect(mocks.audit.mock.calls[0][0].afterData.grossAmount).toBe('4700.00')
     }
-    if (qcCase==='qc' || qcCase==='qc-role') expect(body.transaction).toMatchObject({qc:{brand:{name:'Old snapshot'},defects:[{name:'Old defect',sortOrder:9}]}})
+    if (qcCase==='qc' || qcCase==='qc-role' || qcCase==='qc-edit') expect(body.transaction).toMatchObject({qc:{brand:{name:'Old snapshot'},defects:[{name:'Old defect',sortOrder:9}]}})
     else expect(body.transaction).toMatchObject({qc:null})
     expect(mocks.execute.mock.calls.some(([sql]) => String(sql).includes('detail.sort_order_snapshot'))).toBe(qcCase==='qc' || qcCase==='qc-role')
     expect(
@@ -1742,6 +1764,13 @@ describe('Production transactions API', () => {
     const afterSnapshot = JSON.parse(
       String((revisionInsert?.[1] as unknown[] | undefined)?.[6])
     ) as { job: { name: string }; unit: { code: string } }
+    if (qcCase==='qc-edit') {
+      expect(afterSnapshot).toMatchObject({qc:{weight1Grams:'73.00',brand:{name:'Old snapshot'},defects:[{name:'Old defect',quantity:10}]}})
+      expect(beforeSnapshot).toMatchObject({qc:{weight1Grams:'71.29'}})
+      const saved = mocks.execute.mock.calls.find(([sql])=>String(sql).includes('INSERT INTO production_transaction_qc('))
+      expect(saved?.[0]).not.toContain('SELECT')
+    }
+    if (qcCase==='qc-clear') expect(afterSnapshot).toHaveProperty('qc',null)
     expect(beforeSnapshot.job.name).toBe('Linting')
     expect(beforeSnapshot.unit.code).toBe('PCS')
     expect(afterSnapshot.job.name).toBe('Linting')
@@ -1783,6 +1812,22 @@ describe('Production transactions API', () => {
     expect(response.status).toBe(200)
     expect((await response.json()) as object).toMatchObject({ duplicate: true })
     expect(mocks.commit).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['same','different'])('QC correction replay compares normalized QC without duplicate writes: %s',async variant=>{
+    const signature=JSON.stringify({brandUid:null,weight1Grams:null,weight2Grams:null,defects:[]})
+    mocks.query.mockImplementation(async (sql:unknown)=>{
+      const statement=String(sql)
+      if(statement.includes('SELECT pt.*')) return [[managedTransactionRow({status:'VOID'})]]
+      if(statement.includes('WHERE pr.idempotency_key')) return [[{id:41,uid:transactionUid,sourceId:21,replacementId:22,revisionNumber:1,revisionType:'CORRECTION',reason:'Koreksi QC setoran',afterData:{request:{employeeUid,jobUid,quantity:'3.0000',reason:'Koreksi QC setoran',qc:signature}}}]]
+      if(statement.includes('SELECT pt.id,pt.uid')) return [[{...transactionRow(),status:'POSTED'}]]
+      return [[]]
+    })
+    const response=await request(`/transactions/${transactionUid}/correct`,{method:'POST',auth:auth({permissions:['production.correct']}),body:{jobUid,quantity:'3',qc:variant==='same'?{}:{weight1Grams:'73'},reason:'Koreksi QC setoran',idempotencyKey:'68666666-6666-4666-8666-666666666666'}})
+    expect(response.status,await response.clone().text()).toBe(variant==='same'?200:409)
+    if(variant==='same') expect(await response.json()).toMatchObject({duplicate:true})
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.query.mock.calls.some(([sql])=>String(sql).includes('FROM production_brands'))).toBe(false)
   })
 
   it('menolak replay revision bila idempotency key dipakai untuk payload berbeda', async () => {
@@ -2115,14 +2160,14 @@ describe('Production transactions API', () => {
   })
   it.each(['QC','DIRECTOR','PRODUCTION_ADMIN','SITE_SUPERVISOR'])('M1 blocks past-date correction and void for %s including previews/context/replay', async role => {
     const actor = {...auth({permissions:['production.correct']}),roles:[role],productionModuleAccess:[jobUid]}
-    for (const action of ['correction-context','correction-preview','void-preview','correct','void']) {
-      mocks.query.mockResolvedValue([[managedTransactionRow({status: action==='void' ? 'VOID' : 'POSTED'})]])
+    for (const date of ['2026-08-21','2099-08-21']) for (const action of ['correction-context','correction-preview','void-preview','correct','void']) {
+      mocks.query.mockResolvedValue([[managedTransactionRow({businessDateKey:date,status: action==='void' ? 'VOID' : 'POSTED'})]])
       const response = await request(`/transactions/${transactionUid}/${action}`, {
         method: action==='correction-context' ? 'GET' : 'POST', auth: actor,
         body: action==='correction-context' ? undefined : action==='correction-preview' ? {jobUid,quantity:'4'} : action==='void-preview' ? {} : { ...(action==='correct' ? {jobUid,quantity:'4'} : {}),reason:'Correction test',idempotencyKey:'68666666-6666-4666-8666-666666666666'},
       })
       expect(response.status, action).toBe(403)
-      expect(await response.json()).toMatchObject({message:expect.stringContaining('sebelum hari ini')})
+      expect(await response.json()).toMatchObject({message:expect.stringContaining('transaksi hari ini')})
     }
     expect(mocks.execute).not.toHaveBeenCalled()
     expect(mocks.commit).not.toHaveBeenCalled()
