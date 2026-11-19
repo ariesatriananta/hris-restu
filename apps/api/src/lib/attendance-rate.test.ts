@@ -425,6 +425,117 @@ describe('attendance rate average and capacity', () => {
 })
 
 describe('attendance rate source boundaries', () => {
+  it('withholds partial AVG when a present reference worker has no employment history', () => {
+    const s = source()
+    person(s, 1)
+    present(s, 1)
+    present(s, 1, day)
+    fact(s, 1, '1000')
+    present(s, 2)
+    const r = buildAttendanceRate(s, day)
+    expect(warning(r, 'ATTENDANCE_OUTSIDE_ROSTER')).toMatchObject({
+      scope: 'REFERENCE_WEEK',
+      count: 1,
+    })
+    expect(avg(r)).toMatchObject({
+      quantityPcs: '1000.0000',
+      averagePcs: null,
+      complete: false,
+      status: 'INCOMPLETE',
+    })
+    expect(estimate(r)).toMatchObject({ boxes: null, complete: false })
+  })
+  it('does not report zero capacity for an unclassified present worker today', () => {
+    const s = source()
+    present(s, 2, day)
+    const r = buildAttendanceRate(s, day)
+    expect(warning(r, 'ATTENDANCE_OUTSIDE_ROSTER')).toMatchObject({
+      scope: 'DAY',
+      count: 1,
+    })
+    for (const result of r.estimates)
+      for (const category of result.categories)
+        expect(category).toMatchObject({ boxes: null, complete: false })
+  })
+  it.each(['missing', 'overlapping'] as const)(
+    'withholds a partial AVG for %s employment on a POSTED fact without attendance',
+    (kind) => {
+      const s = source()
+      person(s, 1)
+      present(s, 1)
+      present(s, 1, day)
+      fact(s, 1, '1000')
+      if (kind === 'overlapping') {
+        person(s, 2)
+        s.employment.push({ ...s.employment[1], id: 98, siteId: 2 })
+      }
+      fact(s, 2, '9000')
+      const r = buildAttendanceRate(s, day)
+      expect(warning(r, 'PRODUCTION_OUTSIDE_ROSTER')).toMatchObject({
+        count: 1,
+      })
+      expect(avg(r)).toMatchObject({
+        averagePcs: null,
+        complete: false,
+        status: 'INCOMPLETE',
+      })
+      expect(estimate(r).boxes).toBeNull()
+      // This fact is Linting: it must not invalidate Packing AVG.
+      expect(avg(r, 'REGULER', 'TRAINING', 'BORONGAN-PACKING').complete).toBe(
+        true
+      )
+    }
+  )
+  it.each(['category', 'primary job'] as const)(
+    'marks POSTED without attendance incomplete when its %s is missing',
+    (missing) => {
+      const s = source()
+      person(s, 1)
+      present(s, 1)
+      present(s, 1, day)
+      fact(s, 1, '1000')
+      person(s, 2, missing === 'category' ? { moduleId: null } : {})
+      if (missing === 'primary job')
+        s.assignments = s.assignments.filter((row) => row.employeeId !== 2)
+      fact(s, 2, '9000')
+      const r = buildAttendanceRate(s, day)
+      expect(warning(r, 'PRODUCTION_WITHOUT_ATTENDANCE')).toMatchObject({
+        count: 1,
+      })
+      expect(avg(r)).toMatchObject({
+        quantityPcs: '1000.0000',
+        averagePcs: null,
+        complete: false,
+        status: 'INCOMPLETE',
+      })
+      expect(estimate(r).boxes).toBeNull()
+    }
+  )
+  it.each(['HARIAN', 'BULANAN'])(
+    'does not invalidate a valid AVG because known %s workers are outside scope',
+    (employeeType) => {
+      const s = source()
+      person(s, 1)
+      present(s, 1)
+      present(s, 1, day)
+      fact(s, 1, '9600')
+      person(s, 2, { employeeType })
+      present(s, 2)
+      present(s, 2, day)
+      fact(s, 2, '9000')
+      const r = buildAttendanceRate(s, day)
+      expect(avg(r)).toMatchObject({
+        averagePcs: '9600.0000',
+        complete: true,
+        status: 'AVAILABLE',
+      })
+      expect(estimate(r)).toMatchObject({
+        present: 1,
+        boxes: '1.00',
+        complete: true,
+      })
+    }
+  )
   it('uses historical mapping even when the master is inactive and current category differs', () => {
     const s = source()
     person(s, 1)

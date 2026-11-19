@@ -8,7 +8,7 @@ Keputusan Bos, 19 November 2026. Halaman baru di kategori Ringkasan, setelah Das
 2. **M2 - Training**: selesai pada kode. Eligibility Produksi memakai jenis Borongan/Training, dengan isolasi nominal Payroll dan kunci snapshot Training.
 3. **M3 - agregasi**: selesai pada kode backend. Roster, attendance, AVG minggu sebelumnya dan estimasi box tersedia melalui API read-only dengan validasi scope/role.
 4. **M4 - UI**: selesai pada kode. Menu Attendance Rate di Ringkasan setelah Dashboard, dashboard compact per site/tanggal dengan mode screenshot.
-5. **M5 - audit**: rekonsiliasi angka, role, histori, pergantian minggu dan alur koreksi/void.
+5. **M5 - audit**: selesai pada kode dan rekonsiliasi baca database lokal. Temuan, batas verifikasi dan perintah uji ulang ada di bagian M5.
 
 M1 tidak menambahkan dashboard/API angka attendance, tidak mengubah eligibility Training, transaksi Produksi, Attendance atau Payroll.
 
@@ -136,3 +136,42 @@ Belum mengeksekusi query pada MySQL/MariaDB nyata atau menguji melalui browser. 
 Uji manual M4: login HR dengan dua permission dan akses site, buka Ringkasan > Attendance Rate; pilih site/tanggal, cek URL serta konteks report. Coba Refresh, buka rincian peringatan, lalu Mode Screenshot dan Escape. Pada HP pastikan semua kartu dapat dibaca dengan scroll vertikal. Role QC/admin Produksi tidak boleh melihat menu atau membuka URL. Rekonsiliasi angka pada database nyata tetap menjadi M5.
 
 Verifikasi kode M4: 38 tes browser (halaman baru dan kebijakan akses Produksi), targeted ESLint, TypeScript frontend serta build Vite lulus. Tampilan fixture diperiksa pada desktop 1440x900 dan lebar HP 375px; mode screenshot desktop memuat report dalam satu layar pada fixture enam pekerjaan. Tes memakai API mock tanpa data pribadi; koneksi database nyata dan rekonsiliasi angka tetap M5.
+
+## Audit dan rekonsiliasi (M5, 20 November 2026)
+
+### Temuan dan perbaikan kode
+
+Code Reviewer menemukan bahwa fakta tanpa histori kerja yang jelas hanya diperingatkan lalu dibuang; AVG parsial atau estimasi nol masih dapat berstatus lengkap. Jalur kategori/pekerjaan utama yang kosong juga dapat melewati penandaan incomplete jika transaksi tidak memiliki attendance Hadir.
+
+Perbaikan: attendance tanpa klasifikasi historis menandai kapasitas/AVG kelompok potensial sebagai tidak lengkap; transaksi tanpa histori tunggal, kategori atau pekerjaan utama menandai AVG pekerjaan terkait incomplete meski attendance tidak ada. Jenis/kategori tidak ditebak; hanya cakupan potensial yang diketahui dibatasi. Histori tunggal Harian/Bulanan yang sah tetap dikecualikan tanpa merusak AVG Training/Borongan. Total attendance tetap memakai roster yang dapat diverifikasi, disertai warning atas fakta yang tidak terklasifikasi.
+
+Delapan tes regresi ditambahkan: histori hilang pada minggu sumber/hari terpilih, transaksi orphan atau employment overlap tanpa attendance, kategori/primary kosong tanpa attendance, dan pengecualian Harian/Bulanan. Kasus positif/negatif AVG dan kapasitas tetap diuji terpisah.
+
+### Verifikasi database lokal nyata
+
+Script [uat-attendance-rate.mjs](../scripts/uat-attendance-rate.mjs) membaca konfigurasi DB tanpa mencetak rahasia, menolak host non-lokal, dan memakai transaksi REPEATABLE READ dengan CONSISTENT SNAPSHOT/READ ONLY serta rollback. Tidak membuat login, session, data uji, tabel, seed atau perubahan data. Output hanya agregat site/tanggal dan kode/jumlah warning, tanpa data pribadi atau internal ID.
+
+Perintah dari root repo:
+
+```powershell
+node --env-file=apps/api/.env --import tsx scripts/uat-attendance-rate.mjs
+node --env-file=apps/api/.env --import tsx scripts/uat-attendance-rate.mjs --site=KLATEN --date=2026-11-19
+```
+
+Mode default mencakup hari ini, Minggu sebelumnya, tanggal transaksi terakhir dan Senin setelah minggu transaksi yang tersedia, selama tidak melampaui hari ini. Query SQL pembanding terpisah dari loader/agregator memeriksa roster dan attendance per jenis, breakdown pekerjaan, person-days, raw PCS dan jumlah transaksi sumber. AVG dan estimasi yang tersedia dicocokkan dengan aritmetika rasio independen; sumber AVG untuk hari lain dalam minggu sama juga harus identik.
+
+Hasil 20 November 2026: **11 kombinasi site/tanggal PASS** pada tiga site. Durasi satu pemeriksaan lengkap termasuk query pembanding sekitar 200-620 ms di mesin lokal (bukan benchmark server produksi).
+
+| Site | Tanggal laporan yang diuji | Contoh hasil |
+| --- | --- | --- |
+| Jepara | 6, 9, 15, 20 November 2026 | 6 November: 512 Hadir / 512 roster |
+| Klaten | 12 Oktober; 9, 15, 19, 20 November 2026 | 19 November: 507 Hadir / 507 roster |
+| Semarang | 15 dan 20 November 2026 | 20 November: 0 Hadir / 304 roster |
+
+### Kondisi data dan batas verifikasi
+
+- Tidak ada AVG AVAILABLE pada kombinasi data lokal yang diuji. Sumber minggu 9-15 November tidak memiliki hasil yang memenuhi perhitungan; beberapa periode lebih lama juga belum memiliki histori kategori yang mencakup sumber. Null/INCOMPLETE dan NO_DATA terverifikasi sesuai keadaan tersebut. Hasil AVG/box positif tetap diverifikasi melalui fixture tes, belum melalui data produksi lokal lengkap. Jangan menganggap hasil kosong sebagai kegagalan formula atau otomatis menggantinya nol.
+- Pada Klaten dengan minggu sumber 2-8 November ada **2 transaksi konflik kategori brand dan modul**. UI/API memunculkan CATEGORY_CONFLICT dan menahan AVG terkait. Tidak ada perbaikan kategori/transaksi otomatis; Owner perlu menilai fakta historis sebelum mengubahnya.
+- Histori kategori pada periode Oktober/awal November tertentu belum lengkap. Pemetaan awal yang berlaku baru hari ini tidak menjelaskan kategori minggu lampau; jangan backdate tanpa dasar kondisi lapangan.
+- Tes akses API dan browser memverifikasi role, permission, scope, tanggal, cache, null/zero dan pergantian filter. Script nyata memanggil loader/agregator langsung, bukan login HTTP/server atau browser dengan akun asli. Tidak melakukan koreksi/void nyata selama audit; filter POSTED/VOID dan kestabilan minggu sumber dicakup tes otomatis.
+- Verifikasi akhir: 107 tes backend relevan lulus, 2 tes eksternal yang sudah bersifat skip tetap skip; 38 tes browser lulus; API TypeScript, targeted ESLint dan diff check lulus. Tidak menjalankan migrasi atau memperbarui data pada M5.

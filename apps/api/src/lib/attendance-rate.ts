@@ -386,6 +386,52 @@ export function buildAttendanceRate(
     return value
   }
   const dayUnresolved = new Set<string>()
+  // Unknown facts must not turn a partial result into AVAILABLE or zero capacity.
+  // A known non-target employment (e.g. Harian) remains outside this report.
+  const markUnclassified = (
+    day: string,
+    employeeId: number,
+    factJobCode?: string
+  ) => {
+    const effective =
+      historyByEmployee.get(employeeId)?.filter((row) => inPeriod(row, day)) ??
+      []
+    const eligible = effective.filter(
+      (row) =>
+        row.siteId === source.siteId &&
+        row.employeeStatus === 'ACTIVE' &&
+        attendanceRateTypes.includes(row.employeeType as EmployeeType)
+    )
+    if (effective.length && !eligible.length) return
+    const types = eligible.length
+      ? [...new Set(eligible.map((row) => row.employeeType as EmployeeType))]
+      : attendanceRateTypes
+    const classified = classifications.get(`${day}:${employeeId}`)
+    const primary =
+      assignmentByEmployee
+        .get(employeeId)
+        ?.filter((row) => inPeriod(row, day)) ?? []
+    const primaryJob =
+      primary.length === 1 && primary[0].siteId === source.siteId
+        ? jobById.get(primary[0].jobId)
+        : undefined
+    const jobCode = factJobCode ?? primaryJob?.code
+    for (const type of types)
+      for (const category of attendanceRateCategories) {
+        if (classified?.category && classified.category !== category) continue
+        for (const target of capacityJobs) {
+          if (jobCode && target.code !== jobCode) continue
+          if (day === date)
+            dayUnresolved.add(avgKey(type, category, target.code))
+          else average(type, category, target.code).invalid = true
+        }
+      }
+  }
+  for (const key of present)
+    if (!classifications.has(key)) {
+      const [day, employeeId] = key.split(':')
+      markUnclassified(day, Number(employeeId))
+    }
   for (const row of uncertainAttendance)
     for (const category of attendanceRateCategories) {
       if (row.day === date)
@@ -461,13 +507,25 @@ export function buildAttendanceRate(
     const row = classifications.get(personDay)
     if (!row) {
       warn('PRODUCTION_OUTSIDE_ROSTER', 'REFERENCE_WEEK', String(fact.id))
+      markUnclassified(fact.date, fact.employeeId, job?.code)
       continue
     }
-    if (!row.job || row.job.id !== fact.jobId) {
+    if (!row.job) {
+      markUnclassified(fact.date, fact.employeeId, job?.code)
+      if (!present.has(personDay))
+        warn('PRODUCTION_WITHOUT_ATTENDANCE', 'REFERENCE_WEEK', String(fact.id))
+      continue
+    }
+    if (row.job.id !== fact.jobId) {
       warn('SECONDARY_PRODUCTION', 'REFERENCE_WEEK', String(fact.id))
       continue
     }
-    if (!row.category) continue // Already reported and marked incomplete by classification.
+    if (!row.category) {
+      markUnclassified(fact.date, fact.employeeId, row.job.code)
+      if (!present.has(personDay))
+        warn('PRODUCTION_WITHOUT_ATTENDANCE', 'REFERENCE_WEEK', String(fact.id))
+      continue
+    }
     const value = average(row.employeeType, row.category, row.job.code)
     const reject = (code: string) => {
       value.invalid = true
