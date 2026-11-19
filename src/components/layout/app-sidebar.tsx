@@ -10,6 +10,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { AppBrand } from '@/components/app-brand'
+import { canAccessAttendanceRate } from '@/features/auth/attendance-rate-access'
 import { hasAnyPermission } from '@/features/auth/permissions'
 import {
   canViewProductionWages,
@@ -79,6 +80,8 @@ function canSeeItem(
   },
   session: ReturnType<typeof useAuthStore.getState>['session']
 ) {
+  if (item.url === '/attendance-rate' && !canAccessAttendanceRate(session))
+    return false
   if (
     'url' in item &&
     item.url === '/produksi/tarif-site' &&

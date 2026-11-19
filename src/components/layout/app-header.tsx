@@ -15,7 +15,12 @@ export function AppHeader() {
     (pathname.startsWith('/karyawan/data-karyawan/')
       ? 'Detail Karyawan'
       : 'Halaman')
-  const group = pathname === '/' ? null : pathname.split('/')[1]
+  const group =
+    pathname === '/'
+      ? null
+      : pathname === '/attendance-rate'
+        ? 'Ringkasan'
+        : pathname.split('/')[1]
   const siteAccess = session?.user.siteAccess ?? []
   const siteLabel =
     session?.user.role === 'SUPER_ADMIN'

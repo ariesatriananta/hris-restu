@@ -7,7 +7,7 @@ Keputusan Bos, 19 November 2026. Halaman baru di kategori Ringkasan, setelah Das
 1. **M1 - kategori**: master modul dan brand Reguler/Premium, histori tanggal efektif, pemetaan eksplisit data lama. Tersedia dalam perubahan kode ini; migrasi dijalankan Owner.
 2. **M2 - Training**: selesai pada kode. Eligibility Produksi memakai jenis Borongan/Training, dengan isolasi nominal Payroll dan kunci snapshot Training.
 3. **M3 - agregasi**: selesai pada kode backend. Roster, attendance, AVG minggu sebelumnya dan estimasi box tersedia melalui API read-only dengan validasi scope/role.
-4. **M4 - UI**: dashboard compact mengikuti susunan sistem lama, satu site/tanggal, mode screenshot.
+4. **M4 - UI**: selesai pada kode. Menu Attendance Rate di Ringkasan setelah Dashboard, dashboard compact per site/tanggal dengan mode screenshot.
 5. **M5 - audit**: rekonsiliasi angka, role, histori, pergantian minggu dan alur koreksi/void.
 
 M1 tidak menambahkan dashboard/API angka attendance, tidak mengubah eligibility Training, transaksi Produksi, Attendance atau Payroll.
@@ -121,3 +121,18 @@ Kategori baru yang hanya berlaku mulai hari ini tidak cukup untuk AVG minggu lam
 Tes unit perhitungan dan integrasi API memakai fixture/mock database. Mencakup pergantian minggu/tahun, jenis/mutasi/kategori efektif, roster hari libur, attendance distinct, pekerjaan utama saja, person-days tanpa hasil, AVG Total tertimbang, kuantitas mentah, Packing tanpa brand, konflik snapshot/kategori, histori overlap, estimasi presisi, sumber tidak tersedia vs kapasitas nol, role/permission/site, rollback/release dan respons tanpa nominal/identitas pribadi/internal ID.
 
 Belum mengeksekusi query pada MySQL/MariaDB nyata atau menguji melalui browser. Uji M5 harus merekonsiliasi satu site/tanggal: roster histori, attendance PRESENT, raw PCS POSTED dan person-days minggu referensi. Nilai AVG dapat berubah jika data sumber minggu lalu dikoreksi; tidak berubah hanya karena memilih hari lain dalam minggu referensi yang sama.
+
+## Halaman operasional (M4, 20 November 2026)
+
+- Menu **Ringkasan > Attendance Rate**, URL `/attendance-rate`. Sidebar, guard route dan halaman mengikuti aturan role/permission API M3. Menu tersembunyi bagi QC/admin Produksi/role lain yang tidak memenuhi akses; URL langsung juga ditolak.
+- Filter satu Site dan Tanggal disimpan di URL. Default memakai site aktif pertama dari daftar yang diizinkan dan tanggal `serverToday` API. Tanggal masa depan tidak dapat dipilih. Site tunggal dikunci jika valid; URL dengan site yang tidak tersedia tetap dapat diperbaiki ke opsi yang diizinkan.
+- Susunan report mengikuti kebutuhan screenshot: empat kartu Training Reguler/Premium dan Borong Reguler/Premium (modul dan Hadir/roster per pekerjaan), tiga rate gabungan, enam AVG Linting, lalu estimasi box Linting/Packing per kategori dan Total. Estimasi Packing tetap memakai AVG Packing dari server; enam kartu AVG utama menampilkan Linting seperti contoh sistem lama.
+- Site, tanggal dan minggu sumber selalu tertulis di report. Total mengikuti hasil API, termasuk roster belum dipetakan; tidak dihitung ulang dari empat kartu. Peringatan/pemetaan yang belum lengkap tampil ringkas dan bisa dibuka rinciannya. Nilai `null` tampil tanda pisah dengan keterangan belum tersedia/perlu periksa data; nol sah tetap nol.
+- Tombol **Mode Screenshot** membuka report penuh tanpa sidebar, filter dan header aplikasi. Konteks laporan serta peringatan tetap terlihat. Tutup dengan tombol X atau Escape; dialog menjaga fokus keyboard. Mode screenshot hanya mengatur tampilan, tidak mengambil/mengirim gambar atau menyimpan data ke localStorage.
+- Layout responsif: empat kolom pada desktop lebar, dua pada tablet, satu pada HP. Warna menggunakan token tema aplikasi dan mendukung light/dark. Tombol **Refresh** memuat ulang manual; tidak ada polling otomatis atau retry request berulang.
+- Query membawa AbortSignal, dipisah per identitas/role/permission/site pengguna serta site/tanggal laporan. Angka lama disembunyikan selama fetch, saat error, atau bila identitas respons tidak cocok dengan filter; opsi dan laporan memiliki loading/error/empty state.
+- Route tree diperbarui melalui generator TanStack Router, bukan diedit manual. M4 tidak mengubah API, rumus, database atau Payroll.
+
+Uji manual M4: login HR dengan dua permission dan akses site, buka Ringkasan > Attendance Rate; pilih site/tanggal, cek URL serta konteks report. Coba Refresh, buka rincian peringatan, lalu Mode Screenshot dan Escape. Pada HP pastikan semua kartu dapat dibaca dengan scroll vertikal. Role QC/admin Produksi tidak boleh melihat menu atau membuka URL. Rekonsiliasi angka pada database nyata tetap menjadi M5.
+
+Verifikasi kode M4: 38 tes browser (halaman baru dan kebijakan akses Produksi), targeted ESLint, TypeScript frontend serta build Vite lulus. Tampilan fixture diperiksa pada desktop 1440x900 dan lebar HP 375px; mode screenshot desktop memuat report dalam satu layar pada fixture enam pekerjaan. Tes memakai API mock tanpa data pribadi; koneksi database nyata dan rekonsiliasi angka tetap M5.

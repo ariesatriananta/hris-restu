@@ -15,6 +15,7 @@ import { Route as FormDataPelamarSiteTokenRouteImport } from './routes/form-data
 import { Route as AuthenticatedProfilSayaRouteImport } from './routes/_authenticated/profil-saya'
 import { Route as AuthenticatedPanduanRouteImport } from './routes/_authenticated/panduan'
 import { Route as AuthenticatedLaporanRouteImport } from './routes/_authenticated/laporan'
+import { Route as AuthenticatedAttendanceRateRouteImport } from './routes/_authenticated/attendance-rate'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors404RouteImport } from './routes/(errors)/404'
@@ -117,6 +118,12 @@ const AuthenticatedLaporanRoute = AuthenticatedLaporanRouteImport.update({
   path: '/laporan',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAttendanceRateRoute =
+  AuthenticatedAttendanceRateRouteImport.update({
+    id: '/attendance-rate',
+    path: '/attendance-rate',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const errors503Route = errors503RouteImport.update({
   id: '/(errors)/503',
   path: '/503',
@@ -546,6 +553,7 @@ export interface FileRoutesByFullPath {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/attendance-rate': typeof AuthenticatedAttendanceRateRoute
   '/laporan': typeof AuthenticatedLaporanRouteWithChildren
   '/panduan': typeof AuthenticatedPanduanRouteWithChildren
   '/profil-saya': typeof AuthenticatedProfilSayaRoute
@@ -623,6 +631,7 @@ export interface FileRoutesByTo {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/attendance-rate': typeof AuthenticatedAttendanceRateRoute
   '/panduan': typeof AuthenticatedPanduanRouteWithChildren
   '/profil-saya': typeof AuthenticatedProfilSayaRoute
   '/form-data-pelamar/$siteToken': typeof FormDataPelamarSiteTokenRoute
@@ -702,6 +711,7 @@ export interface FileRoutesById {
   '/(errors)/404': typeof errors404Route
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
+  '/_authenticated/attendance-rate': typeof AuthenticatedAttendanceRateRoute
   '/_authenticated/laporan': typeof AuthenticatedLaporanRouteWithChildren
   '/_authenticated/panduan': typeof AuthenticatedPanduanRouteWithChildren
   '/_authenticated/profil-saya': typeof AuthenticatedProfilSayaRoute
@@ -783,6 +793,7 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
+    | '/attendance-rate'
     | '/laporan'
     | '/panduan'
     | '/profil-saya'
@@ -860,6 +871,7 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
+    | '/attendance-rate'
     | '/panduan'
     | '/profil-saya'
     | '/form-data-pelamar/$siteToken'
@@ -938,6 +950,7 @@ export interface FileRouteTypes {
     | '/(errors)/404'
     | '/(errors)/500'
     | '/(errors)/503'
+    | '/_authenticated/attendance-rate'
     | '/_authenticated/laporan'
     | '/_authenticated/panduan'
     | '/_authenticated/profil-saya'
@@ -1063,6 +1076,13 @@ declare module '@tanstack/react-router' {
       path: '/laporan'
       fullPath: '/laporan'
       preLoaderRoute: typeof AuthenticatedLaporanRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/attendance-rate': {
+      id: '/_authenticated/attendance-rate'
+      path: '/attendance-rate'
+      fullPath: '/attendance-rate'
+      preLoaderRoute: typeof AuthenticatedAttendanceRateRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/(errors)/503': {
@@ -1726,6 +1746,7 @@ const AuthenticatedKaryawanDataKaryawanEmployeeUidRouteWithChildren =
   )
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAttendanceRateRoute: typeof AuthenticatedAttendanceRateRoute
   AuthenticatedLaporanRoute: typeof AuthenticatedLaporanRouteWithChildren
   AuthenticatedPanduanRoute: typeof AuthenticatedPanduanRouteWithChildren
   AuthenticatedProfilSayaRoute: typeof AuthenticatedProfilSayaRoute
@@ -1772,6 +1793,7 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAttendanceRateRoute: AuthenticatedAttendanceRateRoute,
   AuthenticatedLaporanRoute: AuthenticatedLaporanRouteWithChildren,
   AuthenticatedPanduanRoute: AuthenticatedPanduanRouteWithChildren,
   AuthenticatedProfilSayaRoute: AuthenticatedProfilSayaRoute,
