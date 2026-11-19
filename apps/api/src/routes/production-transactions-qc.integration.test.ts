@@ -206,7 +206,7 @@ describe('QC transaction module boundaries', () => {
             {
               siteId: 1,
               allowsProduction: 1,
-              payrollBasis: 'PIECE_RATE',
+              employeeType: 'BORONGAN', payrollBasis: 'PIECE_RATE',
               productionModuleUid: transactionUid,
             },
           ],

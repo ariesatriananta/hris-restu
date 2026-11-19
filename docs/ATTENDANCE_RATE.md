@@ -5,7 +5,7 @@
 Keputusan Bos, 19 November 2026. Halaman baru di kategori Ringkasan, setelah Dashboard; akses hanya HR_OFFICER/SUPER_ADMIN. Implementasi bertahap:
 
 1. **M1 - kategori**: master modul dan brand Reguler/Premium, histori tanggal efektif, pemetaan eksplisit data lama. Tersedia dalam perubahan kode ini; migrasi dijalankan Owner.
-2. **M2 - Training**: perbaiki eligibility pencatatan produksi Training tanpa memasukkan hasil tersebut ke upah borongan.
+2. **M2 - Training**: selesai pada kode. Eligibility Produksi memakai jenis Borongan/Training, dengan isolasi nominal Payroll dan kunci snapshot Training.
 3. **M3 - agregasi**: roster, attendance, AVG minggu sebelumnya dan estimasi box, dengan validasi scope/role.
 4. **M4 - UI**: dashboard compact mengikuti susunan sistem lama, satu site/tanggal, mode screenshot.
 5. **M5 - audit**: rekonsiliasi angka, role, histori, pergantian minggu dan alur koreksi/void.
@@ -62,3 +62,19 @@ Helper `apps/api/src/lib/production-category.ts` menyediakan pemetaan bertanggal
 ## Uji M1
 
 Tes otomatis memakai mock database/browser: kategori valid, data lama belum dipetakan, lookup tanggal lampau, batas periode, edit kategori/tanggal hari sama dan backdate, penolakan tanggal yang menabrak periode sebelumnya/future, default Reguler, status aktif modul boolean, scope/permission, rollback histori, form modul/brand dan Defect tanpa atribut kategori. Belum mengeksekusi SQL atau menulis data database nyata.
+
+## Pencatatan Produksi Training (M2)
+
+- Scanner, input susulan, import satu/banyak baris dan input batch demo menerima jenis `BORONGAN` atau `TRAINING` dari histori employment ACTIVE efektif pada tanggal setoran. `TIME_BASED` bukan alasan penolakan Training; jenis Harian/Bulanan tetap tidak eligible Produksi.
+- Attendance final PRESENT beserta bukti scan Masuk/koreksi approved, scope site/modul, assignment, job, satuan, tarif aktif, kuantitas, QC, idempotensi dan validasi pasangan Klaten tetap wajib. Training memakai pekerjaan/tarif Produksi yang sudah ada, bukan jenis pekerjaan baru.
+- Hasil raw PCS, deduction, payable dan nominal transaksi tetap menggunakan perhitungan Produksi yang sama. Nominal ini tidak menjadi sumber upah Training; akses melihatnya tetap hanya HR/Superadmin. AVG M3 memakai raw quantity POSTED.
+- Pergantian employment dan kelanjutan penugasan setelah perpanjangan kontrak mengenali kedua jenis tersebut. Histori CANCELLED tidak menjadi dasar mempertahankan assignment. Mekanisme onboarding tidak diubah; M2 tidak memperbaiki assignment/data lama secara otomatis.
+- Referensi import dan filter jenis karyawan Rekap Produksi mencakup Training.
+- Payroll Borongan hanya mengambil fakta yang pada tanggal/site transaksi memiliki histori ACTIVE `BORONGAN` dengan basis PIECE_RATE. Readiness, populasi simulasi, nominal detail dan pemeriksaan integritas approval mengikuti scope yang sama. Perubahan Training menjadi Borongan di tengah minggu tidak memasukkan hasil Training ke upah Borongan.
+- Payroll berbasis waktu tetap menghitung Training dari attendance dan tarif harian. Snapshot `payroll_training_production_details` hanya monitoring kuantitas; sumbernya harus memiliki histori ACTIVE Training, bukan sumber nominal.
+- Lock Payroll Borongan yang sudah berlaku tetap dipertahankan. Periode TIME_BASED Training CALCULATED/APPROVED/CLOSED atau run PROCESSING juga memblokir perubahan/input setoran Training dalam cakupan periode terkait. Snapshot monitoring Training mengunci transaksi sumber, termasuk pasangan, dan ditampilkan sebagai alasan penolakan sebelum koreksi/void.
+- Tidak memerlukan migrasi tambahan M2, tidak menjalankan perubahan database atau backfill fakta lama.
+
+Uji otomatis M2 mencakup scanner Training TIME_BASED, penolakan Harian/Bulanan, attendance wajib Hadir, import single/bulk dan penyimpanan, pasangan batch Training, kategori/permission QC, lifecycle assignment, isolasi Payroll pada pergantian jenis dalam minggu yang sama, serta kunci periode/snapshot Training. SQL scope diuji dengan SQLite dalam memori; integrasi API memakai mock database, bukan MySQL nyata.
+
+Uji Owner setelah deploy: pilih Training dengan histori efektif, assignment/tarif dan attendance Hadir; scan serta simpan setoran. Pastikan hasil tercatat di Ringkasan/Transaksi. Periksa Payroll Training tetap memakai hari hadir dan tarif harian. Pada karyawan yang berubah ke Borongan, hanya setoran sejak tanggal Borongan yang masuk detail upah Borongan. Coba koreksi/void setoran yang sudah tersnapshot Payroll Training: harus ditolak.

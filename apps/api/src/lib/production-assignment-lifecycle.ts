@@ -47,8 +47,8 @@ export async function reconcileProductionAssignmentsAtEmploymentBoundary(
              AND employee_status.allows_production=1
             JOIN employee_types employee_type
               ON employee_type.id=history.employee_type_id
-             AND employee_type.payroll_basis='PIECE_RATE'
-           WHERE history.employee_id=assignment.employee_id
+             AND employee_type.code IN ('BORONGAN','TRAINING')
+           WHERE history.status='ACTIVE' AND history.employee_id=assignment.employee_id
              AND history.site_id=assignment.site_id
              AND history.effective_from<=?
              AND (history.effective_to IS NULL OR history.effective_to>=?)
@@ -75,8 +75,8 @@ export async function reconcileProductionAssignmentsAtEmploymentBoundary(
            AND employee_status.allows_production=1
           JOIN employee_types employee_type
             ON employee_type.id=history.employee_type_id
-           AND employee_type.payroll_basis='PIECE_RATE'
-          WHERE history.employee_id=assignment.employee_id
+           AND employee_type.code IN ('BORONGAN','TRAINING')
+          WHERE history.status='ACTIVE' AND history.employee_id=assignment.employee_id
             AND history.site_id=assignment.site_id
             AND history.effective_from<=assignment.effective_from
             AND (history.effective_to IS NULL OR history.effective_to>=assignment.effective_from)
@@ -116,14 +116,14 @@ export async function continuePrimaryProductionAssignmentAfterRenewal(
         AND employee_status.allows_production=1
        JOIN employee_types employee_type
          ON employee_type.id=history.employee_type_id
-        AND employee_type.payroll_basis='PIECE_RATE'
+        AND employee_type.code IN ('BORONGAN','TRAINING')
        LEFT JOIN production_module_sections module_section
          ON module_section.id=history.production_module_section_id
         AND module_section.is_active=1
        LEFT JOIN production_sections production_section
          ON production_section.id=module_section.production_section_id
         AND production_section.is_active=1
-      WHERE history.employee_id=?
+      WHERE history.status='ACTIVE' AND history.employee_id=?
         AND history.effective_from<=?
         AND (history.effective_to IS NULL OR history.effective_to>=?)
       ORDER BY history.id
@@ -199,7 +199,12 @@ export async function continuePrimaryProductionAssignmentAfterRenewal(
     const sectionCode = String(eligibleHistory.productionSectionCode ?? '')
       .trim()
       .toUpperCase()
-    if (String(eligibleHistory.employeeType) !== 'BORONGAN' || !sectionCode) {
+    if (
+      !['BORONGAN', 'TRAINING'].includes(
+        String(eligibleHistory.employeeType)
+      ) ||
+      !sectionCode
+    ) {
       return undefined
     }
     const [sectionDefaults] = await conn.query<RowDataPacket[]>(

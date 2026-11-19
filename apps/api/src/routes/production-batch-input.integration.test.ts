@@ -73,6 +73,7 @@ let candidates = [employee(1), employee(2)],
   changedRate = false,
   acquired = true,
   failPair = false
+let trainingPair = false
 let stored: Array<{ id: number; notes: string }> = []
 function query(sql: string, params: unknown[] = []): Promise<unknown> {
   const rows = () => {
@@ -106,8 +107,8 @@ function query(sql: string, params: unknown[] = []): Promise<unknown> {
           productionModuleId: 5,
           productionSectionId: 1,
           allowsProduction: 1,
-          payrollBasis: 'PIECE_RATE',
-          employeeType: 'BORONGAN',
+          payrollBasis: trainingPair ? 'TIME_BASED' : 'PIECE_RATE',
+          employeeType: trainingPair ? 'TRAINING' : 'BORONGAN',
         },
       ]
     if (sql.includes('attendance_status attendanceStatus'))
@@ -226,6 +227,7 @@ const runPayload = (previewToken: string) => ({
   confirmation: 'PROSES',
 })
 beforeEach(() => {
+  trainingPair = false
   vi.clearAllMocks()
   vi.stubEnv('PRODUCTION_BATCH_TOOLS_ENABLED', 'true')
   vi.stubEnv('JWT_ACCESS_SECRET', 'a'.repeat(64))
@@ -297,7 +299,8 @@ describe('Production demo batch API', () => {
       expect(m.execute).not.toHaveBeenCalled()
     }
   )
-  it('creates exact previewed pair with equal PCS and historical timestamp', async () => {
+  it.each([false,true])('creates exact previewed pair with equal PCS and historical timestamp (Training: %s)', async (isTraining) => {
+    trainingPair = isTraining
     const checked = await preview()
     expect(checked.body).toHaveProperty('data')
     expect(checked.status).toBe(200)

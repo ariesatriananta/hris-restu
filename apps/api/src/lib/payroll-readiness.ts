@@ -1,3 +1,4 @@
+import { pieceRateProductionScope } from './payroll-production-scope.js'
 import type { RowDataPacket } from 'mysql2'
 import type { Pool, PoolConnection } from 'mysql2/promise'
 import { ApiError } from './errors.js'
@@ -116,7 +117,7 @@ async function evaluatePieceRatePayrollReadiness(
     `WITH population AS (
        SELECT pt.employee_id,1 has_production
          FROM production_transactions pt
-        WHERE pt.site_id=? AND pt.status='POSTED'
+        WHERE pt.site_id=? AND pt.status='POSTED' AND ${pieceRateProductionScope('pt', true)}
           AND pt.business_date BETWEEN ? AND ?
         GROUP BY pt.employee_id
        UNION ALL
@@ -148,10 +149,10 @@ async function evaluatePieceRatePayrollReadiness(
                       OR e.bank_account_number IS NULL OR TRIM(e.bank_account_number)=''
                       OR e.bank_account_name IS NULL OR TRIM(e.bank_account_name)=''),0) missingBankAccounts
             ,(SELECT COUNT(*) FROM production_transactions posted
-                WHERE posted.site_id=? AND posted.status='POSTED'
+                WHERE posted.site_id=? AND posted.status='POSTED' AND ${pieceRateProductionScope('posted')}
                   AND posted.business_date BETWEEN ? AND ?) postedTransactionCount
             ,(SELECT COALESCE(SUM(posted.gross_amount),0) FROM production_transactions posted
-                WHERE posted.site_id=? AND posted.status='POSTED'
+                WHERE posted.site_id=? AND posted.status='POSTED' AND ${pieceRateProductionScope('posted')}
                   AND posted.business_date BETWEEN ? AND ?) productionGrossAmount
             ,(SELECT COUNT(*) FROM employee_payroll_components active_component
                 WHERE active_component.is_active=1
@@ -228,7 +229,7 @@ async function evaluatePieceRatePayrollReadiness(
            AND (
              EXISTS (
                SELECT 1 FROM production_transactions paid_production
-                WHERE paid_production.employee_id=first_history.employee_id
+                WHERE ${pieceRateProductionScope('paid_production')} AND paid_production.employee_id=first_history.employee_id
                   AND paid_production.site_id=? AND paid_production.status='POSTED'
                   AND paid_production.business_date BETWEEN ? AND ?
              )
@@ -244,7 +245,7 @@ async function evaluatePieceRatePayrollReadiness(
           FROM production_transactions pt
           JOIN payroll_production_details ppd ON ppd.production_transaction_id=pt.id
           JOIN payroll_employee_results per ON per.id=ppd.payroll_employee_result_id
-         WHERE pt.site_id=? AND pt.status='POSTED'
+         WHERE pt.site_id=? AND pt.status='POSTED' AND ${pieceRateProductionScope('pt')}
            AND pt.business_date BETWEEN ? AND ?
            AND per.payroll_period_id<>?) conflictingProduction,
        (SELECT COUNT(*)
@@ -503,7 +504,7 @@ async function evaluatePieceRatePayrollReadiness(
     } else {
       const [bpjsRows] = await executor.query<RowDataPacket[]>(
          `WITH population AS (
-            SELECT employee_id FROM production_transactions WHERE site_id=? AND status='POSTED' AND business_date BETWEEN ? AND ? GROUP BY employee_id
+            SELECT pt.employee_id FROM production_transactions pt WHERE pt.site_id=? AND pt.status='POSTED' AND pt.business_date BETWEEN ? AND ? AND ${pieceRateProductionScope('pt')} GROUP BY pt.employee_id
             UNION SELECT recurring.employee_id
               FROM employee_payroll_components recurring
              WHERE recurring.is_active=1

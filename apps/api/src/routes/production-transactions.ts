@@ -1,3 +1,4 @@
+import { productionEligibleEmployeeType } from '../lib/production-foundation.js'
 import { correctionQcOptions, correctionQcSignature, publicCorrectionQc, resolveCorrectionQc } from '../lib/production-correction-qc.js'
 import { canViewProductionWages, canReviseProductionDate, assertProductionRevisionDate, redactProductionFinancials } from '../lib/production-access-policy.js'
 import { isQcUser, assertQcEmployeeModule, qcModulePredicate, qcTransactionPredicate, assertQcTransactionAccess, assertQcDailyGroupAccess, snapshotTransactionModule, snapshotTransactionModules } from '../lib/production-transaction-module.js'
@@ -219,9 +220,9 @@ async function employeeContext(
   const history = histories[0]
   if (
     Number(history.allowsProduction) !== 1 ||
-    history.payrollBasis !== 'PIECE_RATE'
+    !productionEligibleEmployeeType.safeParse(history.employeeType).success
   ) {
-    throw new ApiError(422, 'Karyawan tidak eligible untuk Produksi Borongan.')
+    throw new ApiError(422, 'Karyawan tidak eligible untuk Produksi. Hanya Borongan dan Training yang diizinkan.')
   }
   if (Number(history.siteId) !== Number(deviceSiteId)) {
     throw new ApiError(422, 'Site karyawan tidak sesuai dengan site perangkat.')
@@ -407,6 +408,10 @@ async function historicalProposal(
   const { employee, history } = await employeeContextByUid(
     conn, input.employeeUid, input.businessDate, Number(site.id), lock
   )
+  if (history.employeeType === 'TRAINING') {
+    const trainingLock = await payrollDateLockContext(conn, Number(site.id), input.businessDate, lock, Number(employee.id))
+    if (trainingLock.locked) throw new ApiError(409, trainingLock.reasons[0])
+  }
   const attendance = await attendanceContext(
     conn, Number(employee.id), Number(site.id), input.businessDate, lock
   )
@@ -543,7 +548,7 @@ async function validateProductionImportBaseRows(
         `SELECT e.uid,s.id siteId,s.code site
            FROM employees e
            JOIN employee_employment_histories history
-             ON history.employee_id=e.id
+             ON history.status='ACTIVE' AND history.employee_id=e.id
             AND history.effective_from<=?
             AND (history.effective_to IS NULL OR history.effective_to>=?)
            JOIN sites s ON s.id=history.site_id
@@ -721,7 +726,7 @@ async function validateProductionImportRowsBatch(
          LEFT JOIN employees employee
            ON employee.employee_number=input.employee_number
          LEFT JOIN employee_employment_histories history
-           ON history.employee_id=employee.id
+           ON history.status='ACTIVE' AND history.employee_id=employee.id
           AND history.effective_from<=input.business_date
           AND (history.effective_to IS NULL OR history.effective_to>=input.business_date)
          LEFT JOIN employee_statuses status ON status.id=history.employee_status_id
@@ -748,7 +753,7 @@ async function validateProductionImportRowsBatch(
          FROM tmp_production_import_rows input
          JOIN employees employee ON employee.employee_number=input.employee_number
          JOIN employee_employment_histories history
-           ON history.employee_id=employee.id
+           ON history.status='ACTIVE' AND history.employee_id=employee.id
           AND history.effective_from<=input.business_date
           AND (history.effective_to IS NULL OR history.effective_to>=input.business_date)
          JOIN employee_job_assignments assignment
@@ -777,12 +782,14 @@ async function validateProductionImportRowsBatch(
          FROM tmp_production_import_rows input
          JOIN employees employee ON employee.employee_number=input.employee_number
          JOIN employee_employment_histories history
-           ON history.employee_id=employee.id
+           ON history.status='ACTIVE' AND history.employee_id=employee.id
           AND history.effective_from<=input.business_date
           AND (history.effective_to IS NULL OR history.effective_to>=input.business_date)
          JOIN payroll_periods period
            ON period.site_id=history.site_id
-          AND period.payroll_basis='PIECE_RATE'
+          AND (period.payroll_basis='PIECE_RATE' OR
+            (period.payroll_basis='TIME_BASED' AND period.employee_type_code='TRAINING'
+             AND EXISTS(SELECT 1 FROM employee_types type WHERE type.id=history.employee_type_id AND type.code='TRAINING')))
           AND period.period_start<=input.business_date
           AND period.period_end>=input.business_date
           AND period.status<>'CANCELLED'
@@ -797,7 +804,7 @@ async function validateProductionImportRowsBatch(
          FROM tmp_production_import_rows input
          JOIN employees employee ON employee.employee_number=input.employee_number
          JOIN employee_employment_histories history
-           ON history.employee_id=employee.id
+           ON history.status='ACTIVE' AND history.employee_id=employee.id
           AND history.effective_from<=input.business_date
           AND (history.effective_to IS NULL OR history.effective_to>=input.business_date)
          JOIN production_transactions transaction
@@ -814,7 +821,7 @@ async function validateProductionImportRowsBatch(
          FROM tmp_production_import_rows input
          JOIN employees employee ON employee.employee_number=input.employee_number
          JOIN employee_employment_histories history
-           ON history.employee_id=employee.id
+           ON history.status='ACTIVE' AND history.employee_id=employee.id
           AND history.effective_from<=input.business_date
           AND (history.effective_to IS NULL OR history.effective_to>=input.business_date)
          JOIN employee_job_assignments assignment
@@ -905,9 +912,9 @@ async function validateProductionImportRowsBatch(
         enforceSite(auth, String(context.site))
         if (
           Number(context.allowsProduction) !== 1 ||
-          String(context.payrollBasis) !== 'PIECE_RATE'
+          !productionEligibleEmployeeType.safeParse(context.employeeType).success
         ) {
-          throw new ApiError(422, 'Karyawan tidak eligible untuk Produksi Borongan.')
+          throw new ApiError(422, 'Karyawan tidak eligible untuk Produksi. Hanya Borongan dan Training yang diizinkan.')
         }
         const rowPeriods = periods.get(input.rowNumber) ?? []
         if (rowPeriods.some((period) => Number(period.processingRun) === 1)) {
@@ -1477,7 +1484,7 @@ async function dailyDeductionSnapshot(conn: SqlExecutor, key: DailyProductionKey
     `SELECT mapping.production_section_id sectionId
        FROM employee_employment_histories history
        LEFT JOIN production_module_sections mapping ON mapping.id=history.production_module_section_id
-      WHERE history.employee_id=? AND history.site_id=? AND history.effective_from<=?
+      WHERE history.status='ACTIVE' AND history.employee_id=? AND history.site_id=? AND history.effective_from<=?
         AND (history.effective_to IS NULL OR history.effective_to>=?) ${lock ? 'FOR UPDATE' : ''}`,
     [key.employeeId,key.siteId,key.businessDate,key.businessDate]
   )
@@ -1650,7 +1657,8 @@ async function repriceProductionDay(
     conn,
     key.siteId,
     key.businessDate,
-    true
+    true,
+    key.employeeId
   )
   if (dateLock.locked) throw new ApiError(409, dateLock.reasons[0])
   const [rows] = await conn.query<RowDataPacket[]>(
@@ -1810,7 +1818,8 @@ async function payrollDateLockContext(
   conn: SqlExecutor,
   siteId: number,
   date: string,
-  lock = false
+  lock = false,
+  employeeId?: number
 ): Promise<PayrollLock> {
   const reasons: string[] = []
   const [periods] = await conn.query<RowDataPacket[]>(
@@ -1820,11 +1829,16 @@ async function payrollDateLockContext(
                WHERE pr.payroll_period_id=pp.id AND pr.status='PROCESSING'
             ) processingRun
        FROM payroll_periods pp
-      WHERE pp.site_id=? AND pp.payroll_basis='PIECE_RATE'
+      WHERE pp.site_id=? AND (pp.payroll_basis='PIECE_RATE'
+        ${employeeId ? `OR (pp.payroll_basis='TIME_BASED' AND pp.employee_type_code='TRAINING'
+          AND EXISTS(SELECT 1 FROM employee_employment_histories history
+            JOIN employee_types type ON type.id=history.employee_type_id AND type.code='TRAINING'
+            WHERE history.employee_id=? AND history.site_id=pp.site_id AND history.status='ACTIVE'
+              AND history.effective_from<=? AND (history.effective_to IS NULL OR history.effective_to>=?)))` : ''})
         AND pp.period_start<=? AND pp.period_end>=?
         AND pp.status<>'CANCELLED'
       ${lock ? 'FOR UPDATE' : ''}`,
-    [siteId, date, date]
+    [siteId, ...(employeeId ? [employeeId, date, date] : []), date, date]
   )
   if (periods.some((period) => Number(period.processingRun) === 1)) {
     reasons.push('Perhitungan Payroll untuk periode ini sedang berjalan.')
@@ -1858,6 +1872,12 @@ async function payrollLockContext(
     [transaction.id]
   )
   if (snapshots[0]) reasons.push('Transaksi telah masuk snapshot Payroll.')
+  const [trainingSnapshots] = await conn.query<RowDataPacket[]>(
+    `SELECT id FROM payroll_training_production_details
+      WHERE production_transaction_id=? LIMIT 1 ${lock ? 'FOR UPDATE' : ''}`,
+    [transaction.id]
+  )
+  if (trainingSnapshots[0]) reasons.push('Transaksi telah masuk snapshot monitoring Payroll Training.')
   if (includePair) {
     const [pairs] = await conn.query<RowDataPacket[]>(
       `SELECT peer.* , DATE_FORMAT(peer.business_date,'%Y-%m-%d') businessDateKey
@@ -1876,7 +1896,8 @@ async function payrollLockContext(
     conn,
     Number(transaction.site_id),
     String(transaction.businessDateKey),
-    lock
+    lock,
+    Number(transaction.employee_id)
   )
   reasons.unshift(...periodLock.reasons)
   return { locked: reasons.length > 0, reasons }
@@ -3478,7 +3499,8 @@ productionTransactionsRouter.post(
         conn,
         Number(device.siteId),
         String(time.businessDate),
-        true
+        true,
+        Number(employee.id)
       )
       if (datePayrollLock.locked) throw new ApiError(409, datePayrollLock.reasons[0])
       const uid = randomUUID()
@@ -3862,7 +3884,7 @@ productionTransactionsRouter.get(
         `SELECT COUNT(DISTINCT employee.id) total
            FROM employees employee
            JOIN employee_employment_histories history
-             ON history.employee_id=employee.id
+             ON history.status='ACTIVE' AND history.employee_id=employee.id
             AND history.effective_from<=?
             AND (history.effective_to IS NULL OR history.effective_to>=?)
            JOIN employee_statuses status
@@ -3870,7 +3892,7 @@ productionTransactionsRouter.get(
             AND status.allows_production=1
            JOIN employee_types type
              ON type.id=history.employee_type_id
-            AND type.payroll_basis='PIECE_RATE'
+            AND type.code IN ('BORONGAN','TRAINING')
            JOIN sites site ON site.id=history.site_id AND site.is_active=1
           WHERE ${scope.sql}`,
         [referenceDate, referenceDate, ...scope.params]
@@ -3880,7 +3902,7 @@ productionTransactionsRouter.get(
                          employee.full_name employeeName
            FROM employees employee
            JOIN employee_employment_histories history
-             ON history.employee_id=employee.id
+             ON history.status='ACTIVE' AND history.employee_id=employee.id
             AND history.effective_from<=?
             AND (history.effective_to IS NULL OR history.effective_to>=?)
            JOIN employee_statuses status
@@ -3888,7 +3910,7 @@ productionTransactionsRouter.get(
             AND status.allows_production=1
            JOIN employee_types type
              ON type.id=history.employee_type_id
-            AND type.payroll_basis='PIECE_RATE'
+            AND type.code IN ('BORONGAN','TRAINING')
            JOIN sites site ON site.id=history.site_id AND site.is_active=1
           WHERE ${scope.sql}
           ORDER BY employee.full_name,employee.employee_number

@@ -835,5 +835,12 @@ jumlah hari Alpha/Izin`. Kalkulasi dibulatkan `HALF_UP` ke Rp1 per komponen
 - Modul mengelompokkan roster/karyawan; Brand mengelompokkan hasil produksi. Satu modul diasumsikan satu kategori per hari.
 - Histori kategori bertanggal menjaga pembacaan laporan lampau. Kategori dan tanggal efektif periode terakhir dapat dikoreksi termasuk hari sama/backdate, dengan audit sebelum/sesudah. Pergantian kategori setelah awal periode terakhir membuat periode baru; perubahan tanggal saja atau koreksi pada awal periode yang sama/lebih awal memperbarui periode terakhir dan menyesuaikan akhir periode sebelumnya H-1. Tanggal tidak boleh di masa depan atau menabrak awal periode sebelumnya. Koreksi dapat mengubah pengelompokan laporan pada periode terkait.
 - Kategori tersimpan di master hanya keadaan sekarang; laporan lampau harus membaca histori kategori, bersama histori employment dan pekerjaan utama efektif.
-- Fondasi M1 tidak mengubah data transaksi, Attendance, Payroll atau eligibility Training. Dashboard Attendance Rate dan perbaikan Training dikerjakan pada milestone berikutnya.
+- Fondasi M1 tidak mengubah data transaksi, Attendance, Payroll atau eligibility Training. M2 memperbaiki eligibility Training dan isolasi nominal Payroll; dashboard Attendance Rate dilanjutkan pada milestone berikutnya.
 - Migrasi Owner, kontrak dan rencana milestone: [ATTENDANCE_RATE.md](ATTENDANCE_RATE.md).
+
+### Produksi Training - Attendance Rate M2 (19 November 2026)
+
+- Eligibility transaksi Produksi mengikuti jenis BORONGAN/TRAINING dan status yang mengizinkan Produksi pada histori employment ACTIVE efektif tanggal setoran. Training TIME_BASED tetap boleh mencatat hasil, dengan seluruh prasyarat attendance, penugasan, tarif, site/modul dan QC yang sama.
+- Produksi yang terjadi saat jenis Training tidak boleh masuk detail nominal Payroll Borongan, termasuk bila karyawan menjadi Borongan di tengah periode. Scope diterapkan pada readiness, simulasi dan pemeriksaan approval menurut tanggal transaksi.
+- Snapshot monitoring Payroll Training dan periode TIME_BASED Training yang sedang dihitung/sudah CALCULATED, APPROVED atau CLOSED memblokir perubahan sumber terkait. Kunci Payroll yang sudah berlaku tetap dipertahankan.
+- Training tetap dibayar dari attendance dan tarif harian; nominal hasil Produksi merupakan informasi monitoring dan tidak menambah upah berbasis waktu. M2 tidak melakukan backfill/perubahan database. Detail dan uji Owner: [ATTENDANCE_RATE.md](ATTENDANCE_RATE.md).

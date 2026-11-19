@@ -15,6 +15,7 @@ import {
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   pairsQuery: vi.fn(),
+  trainingSnapshotQuery: vi.fn(),
   jobSummaryQuery: vi.fn(),
   execute: vi.fn(),
   beginTransaction: vi.fn(),
@@ -28,6 +29,7 @@ function databaseQuery(...args: unknown[]) {
   const sql = String(args[0])
   if (sql.startsWith('SELECT pt.id FROM production_transactions pt WHERE pt.id=?')) return Promise.resolve([[{id:21}]])
   if (sql.startsWith('SELECT pt.id FROM production_transactions pt WHERE pt.employee_id=?')) return Promise.resolve([[]])
+  if (sql.includes('SELECT id FROM payroll_training_production_details')) return mocks.trainingSnapshotQuery(...args)
   if (sql.includes('production_transaction_pairs') && !sql.includes('qc_pair')) return mocks.pairsQuery(...args)
   if (/GROUP BY j\.id,j\.uid,j\.code,j\.name,u\.id/.test(sql)) {
     return mocks.jobSummaryQuery(...args)
@@ -219,6 +221,7 @@ describe('Production transactions API', () => {
   beforeEach(() => {
     Object.values(mocks).forEach((mock) => mock.mockReset())
     mocks.pairsQuery.mockResolvedValue([[]])
+    mocks.trainingSnapshotQuery.mockResolvedValue([[]])
     mocks.jobSummaryQuery.mockResolvedValue([[]])
     mocks.beginTransaction.mockResolvedValue(undefined)
     mocks.commit.mockResolvedValue(undefined)
@@ -574,7 +577,8 @@ describe('Production transactions API', () => {
     {percentage:'3.0000',payable:'100.0000',deduction:'0.0000',gross:'4500.00',existingZero:true,sectionId:3,jobCode:'BORONGAN-LINTING',hasPolicy:true},
     {percentage:'3.0000',payable:'100.0000',deduction:'0.0000',gross:'4500.00',existingZero:false,sectionId:99,jobCode:'BORONGAN-PACKING',hasPolicy:true},
     {percentage:'3.0000',payable:'100.0000',deduction:'0.0000',gross:'4500.00',existingZero:false,sectionId:99,jobCode:'BORONGAN-LINTING',hasPolicy:false},
-  ])('preview import: policy $percentage, bagian $sectionId (99=SLOP), job $jobCode, snapshot lama $existingZero', async ({percentage,payable,deduction,gross,existingZero,sectionId,jobCode,hasPolicy}) => {
+    {percentage:'3.0000',payable:'97.0000',deduction:'3.0000',gross:'4365.00',existingZero:false,sectionId:3,jobCode:'BORONGAN-LINTING',hasPolicy:true,employeeType:'TRAINING'},
+  ])('preview import: policy $percentage, bagian $sectionId (99=SLOP), job $jobCode, snapshot lama $existingZero', async ({percentage,payable,deduction,gross,existingZero,sectionId,jobCode,hasPolicy,employeeType='BORONGAN'}) => {
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement = String(sql)
       if (statement.includes("DATE_FORMAT(CURDATE()")) {
@@ -609,9 +613,9 @@ describe('Production transactions API', () => {
           workGroupId: 4,
           allowsProduction: 1,
           employeeStatus: 'ACTIVE',
-          employeeType: 'BORONGAN',
+          employeeType,
           employeeTypeName: 'Borongan',
-          payrollBasis: 'PIECE_RATE',
+          payrollBasis: employeeType==='TRAINING'?'TIME_BASED':'PIECE_RATE',
           site: 'JEPARA',
           siteName: 'Site Jepara',
         }]]
@@ -725,7 +729,8 @@ describe('Production transactions API', () => {
     {sameEmployee:false,percentage:'0.0000',existingZero:false,secondPayable:'1.0000',secondGross:'45.00'},
     {sameEmployee:true,percentage:'3.0000',existingZero:false,secondPayable:'0.0000',secondGross:'0.00'},
     {sameEmployee:true,percentage:'3.0000',existingZero:true,secondPayable:'1.0000',secondGross:'45.00'},
-  ])('preview batch policy $percentage, karyawan sama $sameEmployee, snapshot lama $existingZero', async ({sameEmployee,percentage,existingZero,secondPayable,secondGross}) => {
+    {sameEmployee:false,percentage:'3.0000',existingZero:false,secondPayable:'1.0000',secondGross:'45.00',employeeType:'TRAINING'},
+  ])('preview batch policy $percentage, karyawan sama $sameEmployee, snapshot lama $existingZero', async ({sameEmployee,percentage,existingZero,secondPayable,secondGross,employeeType='BORONGAN'}) => {
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement = String(sql)
       if (statement.includes('DATE_FORMAT(CURDATE()')) {
@@ -748,9 +753,9 @@ describe('Production transactions API', () => {
             workGroupId: 4,
             allowsProduction: 1,
             employeeStatus: 'ACTIVE',
-            employeeType: 'BORONGAN',
+            employeeType,
             employeeTypeName: 'Borongan',
-            payrollBasis: 'PIECE_RATE',
+            payrollBasis: employeeType==='TRAINING'?'TIME_BASED':'PIECE_RATE',
             site: 'JEPARA',
             siteName: 'Site Jepara',
             siteActive: 1,
@@ -875,6 +880,10 @@ describe('Production transactions API', () => {
     expect(String(mocks.query.mock.calls[2][0])).toContain('site.code IN (?)')
     expect(mocks.query.mock.calls[2][1]).toEqual(['JEPARA'])
     expect(mocks.query.mock.calls).toHaveLength(4)
+    for (const call of mocks.query.mock.calls.slice(0,2)) {
+      expect(String(call[0])).toContain("type.code IN ('BORONGAN','TRAINING')")
+      expect(String(call[0])).toContain("history.status='ACTIVE'")
+    }
   })
 
   it.each([
@@ -886,7 +895,8 @@ describe('Production transactions API', () => {
     {percentage:'3.0000',quantity:'100.0000',payable:'97.0000',deduction:'3.0000',gross:'4365.00',oldSnapshot:false,qcCase:'valid'},
     {percentage:'3.0000',quantity:'100.0000',payable:'97.0000',deduction:'3.0000',gross:'4365.00',oldSnapshot:false,qcCase:'wrong-site'},
     {percentage:'3.0000',quantity:'100.0000',payable:'97.0000',deduction:'3.0000',gross:'4365.00',oldSnapshot:false,qcCase:'write-failure'},
-  ])('import disimpan sesuai preview, policy $percentage dan snapshot lama $oldSnapshot QC $qcCase', async ({percentage,quantity,payable,deduction,gross,oldSnapshot,qcCase}) => {
+    {percentage:'3.0000',quantity:'100.0000',payable:'97.0000',deduction:'3.0000',gross:'4365.00',oldSnapshot:false,qcCase:'none',employeeType:'TRAINING'},
+  ])('import disimpan sesuai preview, policy $percentage dan snapshot lama $oldSnapshot QC $qcCase', async ({percentage,quantity,payable,deduction,gross,oldSnapshot,qcCase,employeeType='BORONGAN'}) => {
     mocks.query.mockImplementation(async (sql: unknown) => {
       const statement = String(sql)
       if (statement.includes('FROM production_brands')) return [[{id:51,uid:'11111111-1111-4111-8111-111111111111',code:'BR-TEST',name:'Brand',siteId:qcCase==='wrong-site'?2:1}]]
@@ -927,9 +937,9 @@ describe('Production transactions API', () => {
           workGroupId: 4,
           allowsProduction: 1,
           employeeStatus: 'ACTIVE',
-          employeeType: 'BORONGAN',
+          employeeType,
           employeeTypeName: 'Borongan',
-          payrollBasis: 'PIECE_RATE',
+          payrollBasis: employeeType==='TRAINING'?'TIME_BASED':'PIECE_RATE',
           site: 'JEPARA',
           siteName: 'Site Jepara',
         }]]
@@ -1120,13 +1130,13 @@ describe('Production transactions API', () => {
     expect(await response.json()).toMatchObject({code:'DEVICE_SESSION_INVALID'})
     expect(mocks.rollback).toHaveBeenCalled()
   })
-  it('lookup pekerjaan non-Linting tetap memuat brand site dan default terakhir perangkat', async () => {
+  it.each(['BORONGAN','TRAINING','HARIAN','BULANAN'])('lookup pekerjaan non-Linting dengan jenis %s', async (employeeType) => {
     const brandUid = '11111111-1111-4111-8111-111111111111'
     mocks.query
       .mockResolvedValueOnce([[deviceRow()]])
       .mockResolvedValueOnce([[{ businessDate: '2026-08-21', serverTime: '2026-08-21T09:00:00+07:00' }]])
       .mockResolvedValueOnce([[{ id: 11, uid: employeeUid, employeeNumber: 'TEST-001', fullName: 'Pekerja Uji' }]])
-      .mockResolvedValueOnce([[{ id: 12, siteId: 1, allowsProduction: 1, payrollBasis: 'PIECE_RATE', site: 'JEPARA' }]])
+      .mockResolvedValueOnce([[{ id: 12, siteId: 1, allowsProduction: 1, employeeType, payrollBasis: employeeType==='BORONGAN'?'PIECE_RATE':'TIME_BASED', site: 'JEPARA' }]])
       .mockResolvedValueOnce([[{ id: 13, uid: 'attendance', attendanceStatus: 'PRESENT', clockInAt: '2026-08-21T06:00:00+07:00' }]])
       .mockResolvedValueOnce([[{ id: 14 }]])
       .mockResolvedValueOnce([[{ assignmentId: 14, isPrimary: 1, jobId: 15, jobUid, jobCode: 'BORONGAN-PACKING', jobName: 'Packing', rateId: 16, rateUid: 'rate', rateAmount: '1175.0000', currency: 'IDR', unitId: 17, unitUid: 'unit', unitCode: 'PCS', unitName: 'Pcs', decimalPrecision: 0 }]])
@@ -1134,12 +1144,17 @@ describe('Production transactions API', () => {
       .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([[{ uid: brandUid }]])
     const response = await request('/terminal/lookup', { method: 'POST', body: { barcode: 'TEST-001' } })
+    if (!['BORONGAN','TRAINING'].includes(employeeType)) {
+      expect(response.status).toBe(422)
+      expect(mocks.commit).not.toHaveBeenCalled()
+      return
+    }
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ jobs: [{ code: 'BORONGAN-PACKING' }], qcOptions: { brands: [{ uid: brandUid }], defects: [] }, lastBrandUid: brandUid })
     expect(mocks.query.mock.calls.at(-1)?.[1]).toEqual([9, 1])
   })
 
-  it('menolak setoran bila Attendance bukan Hadir meski record tersedia', async () => {
+  it.each(['BORONGAN','TRAINING'])('menolak setoran %s bila Attendance bukan Hadir meski record tersedia', async (employeeType) => {
     mocks.query
       .mockResolvedValueOnce([[deviceRow()]])
       .mockResolvedValueOnce([[
@@ -1154,7 +1169,7 @@ describe('Production transactions API', () => {
         { id: 11, uid: employeeUid, employeeNumber: 'J2608-001', fullName: 'Ariel Peterpan', barcode: 'J2608-001' },
       ]])
       .mockResolvedValueOnce([[
-        { id: 12, siteId: 1, allowsProduction: 1, payrollBasis: 'PIECE_RATE', site: 'JEPARA' },
+        { id: 12, siteId: 1, allowsProduction: 1, employeeType, payrollBasis: employeeType==='BORONGAN'?'PIECE_RATE':'TIME_BASED', site: 'JEPARA' },
       ]])
       .mockResolvedValueOnce([[
         { id: 13, uid: 'attendance', attendanceStatus: 'SICK', clockInAt: null },
@@ -1218,7 +1233,7 @@ describe('Production transactions API', () => {
         { id: 11, uid: employeeUid, employeeNumber: 'J2608-001', fullName: 'Ariel Peterpan', barcode: 'J2608-001' },
       ]])
       .mockResolvedValueOnce([[
-        { id: 12, siteId: 1, allowsProduction: 1, payrollBasis: 'PIECE_RATE', site: 'JEPARA' },
+        { id: 12, siteId: 1, allowsProduction: 1, employeeType: 'BORONGAN', payrollBasis: 'PIECE_RATE', site: 'JEPARA' },
       ]])
       .mockResolvedValueOnce([[
         { id: 13, uid: 'attendance', attendanceStatus: 'PRESENT', clockInAt: '2026-08-21T06:00:00+07:00' },
@@ -1256,7 +1271,7 @@ describe('Production transactions API', () => {
         { id: 11, uid: employeeUid, employeeNumber: 'J2608-001', fullName: 'Ariel Peterpan', barcode: 'J2608-001' },
       ]])
       .mockResolvedValueOnce([[
-        { id: 12, siteId: 1, allowsProduction: 1, payrollBasis: 'PIECE_RATE', site: 'JEPARA' },
+        { id: 12, siteId: 1, allowsProduction: 1, employeeType: 'BORONGAN', payrollBasis: 'PIECE_RATE', site: 'JEPARA' },
       ]])
       .mockResolvedValueOnce([[
         { id: 13, uid: 'attendance', attendanceStatus: 'PRESENT', clockInAt: '2026-08-21T06:00:00+07:00' },
@@ -1282,7 +1297,7 @@ describe('Production transactions API', () => {
     )
   })
 
-  it.each(['legacy','qc','brand-only','invalid-brand','invalid-defect','qc-write-failure'])('setoran atomik dan QC tidak mengubah PCS/upah: %s', async (variant) => {
+  it.each(['legacy','qc','brand-only','invalid-brand','invalid-defect','qc-write-failure','training','training-payroll-locked'])('setoran atomik dan QC tidak mengubah PCS/upah: %s', async (variant) => {
     const brandUid = '11111111-1111-4111-8111-111111111111'
     const defectUid = '22222222-2222-4222-8222-222222222222'
     mocks.query.mockImplementation(async (sql: unknown) => {
@@ -1315,7 +1330,7 @@ describe('Production transactions API', () => {
         { id: 11, uid: employeeUid, employeeNumber: 'J2608-001', fullName: 'Ariel Peterpan', barcode: 'J2608-001' },
       ]])
       .mockResolvedValueOnce([[
-        { id: 12, siteId: 1, workGroupId: 4, allowsProduction: 1, payrollBasis: 'PIECE_RATE', site: 'JEPARA' },
+        { id: 12, siteId: 1, workGroupId: 4, allowsProduction: 1, employeeType: variant.startsWith('training')?'TRAINING':'BORONGAN', payrollBasis: variant.startsWith('training')?'TIME_BASED':'PIECE_RATE', site: 'JEPARA' },
       ]])
       .mockResolvedValueOnce([[
         { id: 13, uid: '77777777-7777-4777-8777-777777777777', attendanceStatus: 'PRESENT', clockInAt: '2026-08-21T06:00:00+07:00' },
@@ -1327,7 +1342,7 @@ describe('Production transactions API', () => {
       .mockResolvedValueOnce([[
         { rateId: 16, rateUid: 'rate', rateAmount: '1175.0000', currency: 'IDR', unitId: 17, unitUid: 'unit', unitCode: 'PCS', unitName: 'Pcs', decimalPrecision: 0 },
       ]])
-      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([variant==='training-payroll-locked' ? [{status:'CALCULATED'}] : []])
     mocks.execute.mockImplementation(async (sql: unknown) => {
       if (String(sql).includes('INSERT INTO production_transaction_qc(')) {
         if (variant==='qc-write-failure') throw new Error('QC write failed')
@@ -1345,9 +1360,20 @@ describe('Production transactions API', () => {
         jobUid,
         quantity: '3',
         idempotencyKey: '66666666-6666-4666-8666-666666666666',
-        ...(variant==='brand-only' ? {qc:{brandUid}} : variant!=='legacy' ? {qc:{brandUid,weight1Grams:'71,29',weight2Grams:'70.05',defects:[{defectUid,quantity:10}]}} : {}),
+        ...(variant==='brand-only' ? {qc:{brandUid}} : !['legacy','training','training-payroll-locked'].includes(variant) ? {qc:{brandUid,weight1Grams:'71,29',weight2Grams:'70.05',defects:[{defectUid,quantity:10}]}} : {}),
       },
     })
+    if (variant==='training-payroll-locked') {
+      expect(response.status).toBe(409)
+      expect(mocks.execute).not.toHaveBeenCalled()
+      expect(mocks.commit).not.toHaveBeenCalled()
+      return
+    }
+    if (variant==='training') {
+      const periodCall=mocks.query.mock.calls.find(call=>String(call[0]).includes('FROM payroll_periods pp'))
+      expect(String(periodCall?.[0])).toContain("pp.employee_type_code='TRAINING'")
+      expect(periodCall?.[1]).toEqual([1,11,'2026-08-21','2026-08-21','2026-08-21','2026-08-21'])
+    }
     if (variant==='invalid-brand' || variant==='invalid-defect' || variant==='qc-write-failure') {
       expect(response.status).toBe(variant==='qc-write-failure' ? 500 : 422)
       expect(mocks.commit).not.toHaveBeenCalled()
@@ -1591,6 +1617,15 @@ describe('Production transactions API', () => {
         String(call[0]).includes('production_transaction_revisions')
       )
     ).toBe(false)
+  })
+
+  it('memblokir preview bila sudah masuk snapshot monitoring Training', async () => {
+    mocks.trainingSnapshotQuery.mockResolvedValue([[{id:91}]])
+    mocks.query.mockImplementation(async (sql: unknown) => String(sql).includes('SELECT pt.*') ? [[managedTransactionRow()]] : [[]])
+    const response=await request(`/transactions/${transactionUid}/void-preview`, {method:'POST',body:{},auth:auth({permissions:['production.correct']})})
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({message:expect.stringContaining('snapshot monitoring Payroll Training')})
+    expect(mocks.execute).not.toHaveBeenCalled()
   })
 
   it.each([

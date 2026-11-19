@@ -21,56 +21,63 @@ describe('production assignment lifecycle', () => {
       "assignment.status='ACTIVE'"
     )
     expect(String(execute.mock.calls[1][0])).toContain("status='CANCELLED'")
+    for (const call of execute.mock.calls)
+      expect(String(call[0])).toContain(
+        "employee_type.code IN ('BORONGAN','TRAINING')"
+      )
   })
 
-  it('melanjutkan pekerjaan utama yang dahulu ditutup otomatis saat kontrak berakhir', async () => {
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce([[{ siteId: 3 }]])
-      .mockResolvedValueOnce([[{ id: 8, uid: 'assignment-lama', jobId: 19 }]])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[]])
-    const execute = vi.fn().mockResolvedValueOnce([{ insertId: 44 }])
+  it.each(['BORONGAN', 'TRAINING'])(
+    'melanjutkan pekerjaan utama %s yang dahulu ditutup otomatis saat kontrak berakhir',
+    async (employeeType) => {
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce([[{ siteId: 3, employeeType }]])
+        .mockResolvedValueOnce([[{ id: 8, uid: 'assignment-lama', jobId: 19 }]])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[]])
+      const execute = vi.fn().mockResolvedValueOnce([{ insertId: 44 }])
 
-    const continued = await continuePrimaryProductionAssignmentAfterRenewal(
-      { query, execute } as never,
-      {
-        contractId: 31,
+      const continued = await continuePrimaryProductionAssignmentAfterRenewal(
+        { query, execute } as never,
+        {
+          contractId: 31,
+          employeeId: 15,
+          contractStartDate: '2026-09-19',
+          previousCoverageEnd: '2026-09-18',
+          actorUserId: 7,
+        }
+      )
+
+      expect(continued).toMatchObject({
+        mode: 'CREATED',
+        source: 'PREVIOUS_ASSIGNMENT',
+        id: 44,
         employeeId: 15,
-        contractStartDate: '2026-09-19',
-        previousCoverageEnd: '2026-09-18',
-        actorUserId: 7,
-      }
-    )
-
-    expect(continued).toMatchObject({
-      mode: 'CREATED',
-      source: 'PREVIOUS_ASSIGNMENT',
-      id: 44,
-      employeeId: 15,
-      siteId: 3,
-      jobId: 19,
-      sourceAssignmentUid: 'assignment-lama',
-      effectiveFrom: '2026-09-19',
-    })
-    expect(String(execute.mock.calls[0][0])).toContain(
-      'INSERT INTO employee_job_assignments'
-    )
-    expect(String(query.mock.calls[1][0])).toContain(
-      'FROM employee_job_assignments assignment'
-    )
-    expect(execute.mock.calls[0][1]).toEqual([
-      expect.any(String),
-      15,
-      19,
-      3,
-      '2026-09-19',
-      null,
-      7,
-      7,
-    ])
-  })
+        siteId: 3,
+        jobId: 19,
+        sourceAssignmentUid: 'assignment-lama',
+        effectiveFrom: '2026-09-19',
+      })
+      expect(String(execute.mock.calls[0][0])).toContain(
+        'INSERT INTO employee_job_assignments'
+      )
+      expect(String(query.mock.calls[1][0])).toContain(
+        'FROM employee_job_assignments assignment'
+      )
+      expect(execute.mock.calls[0][1]).toEqual([
+        expect.any(String),
+        15,
+        19,
+        3,
+        '2026-09-19',
+        null,
+        7,
+        7,
+      ])
+    }
+  )
 
   it('tidak membuat sambungan bila pekerjaan utama sudah aktif pada kontrak baru', async () => {
     const query = vi
@@ -167,75 +174,78 @@ describe('production assignment lifecycle', () => {
     expect(execute.mock.calls[0][1]).toEqual(['2026-09-15', 7, 9, '2026-09-15'])
   })
 
-  it('menyelaraskan pekerjaan default bagian untuk BORONGAN tanpa sumber lama', async () => {
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce([
-        [
-          {
-            siteId: 1,
-            employeeType: 'BORONGAN',
-            productionSectionCode: 'LINTING',
-          },
-        ],
-      ])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[{ jobId: 24 }]])
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 90,
-            siteId: 1,
-            jobId: 24,
-            status: 'ACTIVE',
-            isPrimary: 1,
-            effectiveFrom: '2026-09-26',
-          },
-        ],
-      ])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 90,
-            uid: 'assignment-lanjutan',
-            siteId: 1,
-            jobId: 24,
-            effectiveFrom: '2026-09-26',
-          },
-        ],
-      ])
-    const execute = vi.fn().mockResolvedValueOnce([{ affectedRows: 1 }])
+  it.each(['BORONGAN', 'TRAINING'])(
+    'menyelaraskan pekerjaan default bagian untuk %s tanpa sumber lama',
+    async (employeeType) => {
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce([
+          [
+            {
+              siteId: 1,
+              employeeType,
+              productionSectionCode: 'LINTING',
+            },
+          ],
+        ])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[{ jobId: 24 }]])
+        .mockResolvedValueOnce([
+          [
+            {
+              id: 90,
+              siteId: 1,
+              jobId: 24,
+              status: 'ACTIVE',
+              isPrimary: 1,
+              effectiveFrom: '2026-09-26',
+            },
+          ],
+        ])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([
+          [
+            {
+              id: 90,
+              uid: 'assignment-lanjutan',
+              siteId: 1,
+              jobId: 24,
+              effectiveFrom: '2026-09-26',
+            },
+          ],
+        ])
+      const execute = vi.fn().mockResolvedValueOnce([{ affectedRows: 1 }])
 
-    const continued = await continuePrimaryProductionAssignmentAfterRenewal(
-      { query, execute } as never,
-      {
-        contractId: 31,
-        employeeId: 520,
-        contractStartDate: '2026-08-01',
-        previousCoverageEnd: '2026-07-31',
-        actorUserId: 7,
-      }
-    )
+      const continued = await continuePrimaryProductionAssignmentAfterRenewal(
+        { query, execute } as never,
+        {
+          contractId: 31,
+          employeeId: 520,
+          contractStartDate: '2026-08-01',
+          previousCoverageEnd: '2026-07-31',
+          actorUserId: 7,
+        }
+      )
 
-    expect(continued).toMatchObject({
-      mode: 'REALIGNED',
-      source: 'SECTION_DEFAULT',
-      id: 90,
-      uid: 'assignment-lanjutan',
-      siteId: 1,
-      jobId: 24,
-      effectiveFrom: '2026-08-01',
-      previousEffectiveFrom: '2026-09-26',
-    })
-    expect(continued?.sourceAssignmentUid).toBeUndefined()
-    expect(execute.mock.calls[0][1]).toEqual([
-      '2026-08-01',
-      7,
-      90,
-      '2026-08-01',
-    ])
-  })
+      expect(continued).toMatchObject({
+        mode: 'REALIGNED',
+        source: 'SECTION_DEFAULT',
+        id: 90,
+        uid: 'assignment-lanjutan',
+        siteId: 1,
+        jobId: 24,
+        effectiveFrom: '2026-08-01',
+        previousEffectiveFrom: '2026-09-26',
+      })
+      expect(continued?.sourceAssignmentUid).toBeUndefined()
+      expect(execute.mock.calls[0][1]).toEqual([
+        '2026-08-01',
+        7,
+        90,
+        '2026-08-01',
+      ])
+    }
+  )
 
   it('memakai pekerjaan default site baru ketika assignment site lama sudah ditutup oleh transfer', async () => {
     const query = vi

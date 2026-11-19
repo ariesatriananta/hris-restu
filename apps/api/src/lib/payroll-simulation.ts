@@ -1,3 +1,4 @@
+import { pieceRateProductionScope } from './payroll-production-scope.js'
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { PoolConnection } from 'mysql2/promise'
 import { randomUUID } from 'node:crypto'
@@ -571,7 +572,7 @@ async function calculateWeeklyTimeBasedRun(
             JOIN employee_types production_employee_type
               ON production_employee_type.id=production_history.employee_type_id
              AND production_employee_type.code='TRAINING'
-            WHERE production_history.employee_id=result.employee_id
+            WHERE production_history.status='ACTIVE' AND production_history.employee_id=result.employee_id
               AND production_history.site_id=result.site_id
               AND production_history.effective_from<=transaction_row.business_date
               AND (production_history.effective_to IS NULL
@@ -1236,8 +1237,9 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
               et.code,d.name,p.name,w.name,
               e.bank_name,e.bank_account_number,e.bank_account_name,?,?
          FROM (
-           SELECT employee_id FROM production_transactions
-            WHERE site_id=? AND status='POSTED' AND business_date BETWEEN ? AND ?
+           SELECT pt.employee_id FROM production_transactions pt
+            WHERE pt.site_id=? AND pt.status='POSTED' AND pt.business_date BETWEEN ? AND ?
+          AND ${pieceRateProductionScope('pt')}
            UNION
            SELECT epc.employee_id FROM employee_payroll_components epc
             WHERE epc.is_active=1 AND epc.effective_from<=?
@@ -1315,6 +1317,7 @@ export async function calculatePayrollRun(runId: number, auth: AuthContext) {
          JOIN production_jobs j ON j.id=pt.production_job_id
          JOIN work_units u ON u.id=pt.unit_id
         WHERE pt.site_id=? AND pt.status='POSTED' AND pt.business_date BETWEEN ? AND ?
+          AND ${pieceRateProductionScope('pt')}
           AND NOT EXISTS (
             SELECT 1 FROM payroll_production_details other_detail
             JOIN payroll_employee_results other_result ON other_result.id=other_detail.payroll_employee_result_id

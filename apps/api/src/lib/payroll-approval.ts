@@ -1,3 +1,4 @@
+import { pieceRateProductionScope } from './payroll-production-scope.js'
 import type { RowDataPacket } from 'mysql2'
 import type { Pool, PoolConnection } from 'mysql2/promise'
 import { evaluatePayrollReadiness } from './payroll-readiness.js'
@@ -398,14 +399,14 @@ export async function inspectPayrollRunIntegrity(
             WHERE detail.payroll_employee_result_id=result.id
          )<>(
            SELECT COUNT(*) FROM production_transactions source
-            WHERE source.employee_id=result.employee_id AND source.site_id=?
+            WHERE ${pieceRateProductionScope('source')} AND source.employee_id=result.employee_id AND source.site_id=?
               AND source.status='POSTED' AND source.business_date BETWEEN ? AND ?
          )) productionCountDrift,
        (SELECT COUNT(*) FROM payroll_production_details detail
          JOIN payroll_employee_results result ON result.id=detail.payroll_employee_result_id
          LEFT JOIN production_transactions source ON source.id=detail.production_transaction_id
         WHERE result.payroll_run_id=pr.id AND (
-          source.id IS NULL OR source.status<>'POSTED' OR source.site_id<>? OR
+          source.id IS NULL OR NOT ${pieceRateProductionScope('source')} OR source.status<>'POSTED' OR source.site_id<>? OR
           source.business_date NOT BETWEEN ? AND ? OR
           NOT (source.gross_amount<=>detail.amount_snapshot) OR
           NOT (source.quantity<=>detail.quantity_snapshot) OR
@@ -461,7 +462,7 @@ export async function inspectPayrollRunIntegrity(
           SELECT source_population.employee_id
             FROM (
               SELECT source.employee_id FROM production_transactions source
-               WHERE source.site_id=? AND source.status='POSTED'
+               WHERE ${pieceRateProductionScope('source')} AND source.site_id=? AND source.status='POSTED'
                  AND source.business_date BETWEEN ? AND ?
               UNION
               SELECT recurring.employee_id FROM employee_payroll_components recurring

@@ -346,7 +346,7 @@ async function loadFilterOptions(auth: AuthContext) {
     ),
     pool.query<RowDataPacket[]>(
       `SELECT code value,name label FROM employee_types
-       WHERE is_active=1 AND payroll_basis='PIECE_RATE' ORDER BY name`
+       WHERE is_active=1 AND code IN ('BORONGAN','TRAINING') ORDER BY name`
     ),
     pool.query<RowDataPacket[]>(
       `SELECT uid value,name label FROM production_sections
