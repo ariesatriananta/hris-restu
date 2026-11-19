@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { categoryEffectiveDate, productionCategory } from './production-category.js'
 import { productionSiteCode } from './production-foundation.js'
 
 const fields = {
@@ -7,13 +8,15 @@ const fields = {
   sortOrder: z.number().int().min(0).max(4294967295).default(0),
 }
 export const productionDefectInput = z.object(fields).strict()
-export const productionBrandInput = z.object({ site: productionSiteCode, ...fields }).strict()
+const categoryFields = { productionCategory: productionCategory.optional(), categoryEffectiveFrom: categoryEffectiveDate.optional() }
+const hasCategory = (value: { productionCategory?: string; categoryEffectiveFrom?: string }) => !value.categoryEffectiveFrom || Boolean(value.productionCategory)
+export const productionBrandInput = z.object({ site: productionSiteCode, ...fields, ...categoryFields }).strict().refine(hasCategory, { path: ['categoryEffectiveFrom'], message: 'Pilih kategori sebelum tanggal berlaku.' })
 export const productionMasterUpdateInput = z.object({
   name: fields.name.optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(4294967295).optional(),
 }).strict().refine(value => Object.keys(value).length>0, 'Isi perubahan master.')
-export const productionBrandUpdateInput = productionMasterUpdateInput
+export const productionBrandUpdateInput = z.object({ name: fields.name.optional(), isActive: z.boolean().optional(), sortOrder: fields.sortOrder.optional(), ...categoryFields }).strict().refine(value => Object.keys(value).length > 0, 'Isi perubahan master.').refine(hasCategory, { path: ['categoryEffectiveFrom'], message: 'Pilih kategori sebelum tanggal berlaku.' })
 
 // Optional API metadata; all interactive forms require brand, only Linting requires weights.
 const grams = z.union([z.string(), z.number()])

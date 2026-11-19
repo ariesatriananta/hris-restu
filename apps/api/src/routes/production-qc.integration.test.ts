@@ -5,9 +5,10 @@ import { errorHandler } from '../lib/errors.js'
 import { productionQcRouter } from './production-qc.js'
 
 const mocks = vi.hoisted(() => ({
-  query:vi.fn(),execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),destroy:vi.fn(),audit:vi.fn(),
+  query:vi.fn(),execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),destroy:vi.fn(),audit:vi.fn(),category:vi.fn(),
 }))
 vi.mock('../db.js', () => ({ pool:{ query:mocks.query,getConnection:async()=>mocks } }))
+vi.mock('../lib/production-category.js', async importOriginal => ({ ...await importOriginal<typeof import('../lib/production-category.js')>(), setProductionCategory: mocks.category }))
 vi.mock('../lib/audit.js', () => ({ writeAudit:mocks.audit }))
 vi.mock('../middleware/authenticate.js', () => ({
   authenticate:(_req:express.Request,_res:express.Response,next:express.NextFunction)=>next(),
@@ -41,6 +42,30 @@ function createQuery(sql: unknown) {
 }
 beforeEach(()=>{ vi.clearAllMocks(); mocks.query.mockReset().mockImplementation(createQuery); mocks.execute.mockReset().mockResolvedValue([{ insertId:1 }]); mocks.audit.mockResolvedValue(undefined) })
 describe('QC master APIs',()=>{
+  it('maps an initial brand category atomically',async()=>{
+    const response=await request('/brands','POST',{site:'JEPARA',name:'Brand',productionCategory:'REGULER',categoryEffectiveFrom:'2026-11-01'})
+    expect(response.status).toBe(201)
+    expect(mocks.category).toHaveBeenCalledWith(mocks,{kind:'BRAND',entityId:1,category:'REGULER',effectiveFrom:'2026-11-01',actorId:7})
+    expect(mocks.execute.mock.calls[0][0]).toContain('production_category) VALUES(?,?,?,?,?,?,?,?,NULL)')
+    expect(mocks.commit).toHaveBeenCalledOnce()
+  })
+  it('updates category without changing brand identity and audits it',async()=>{
+    mocks.query.mockResolvedValueOnce([[{id:3,uid,code:'BR-0001',name:'Old',isActive:1,sortOrder:0,site:'JEPARA',siteId:2,productionCategory:'REGULER',categoryEffectiveFrom:'2026-11-01'}]])
+    expect((await request('/brands/'+uid,'PATCH',{productionCategory:'PREMIUM'})).status).toBe(204)
+    expect(mocks.category).toHaveBeenCalledWith(mocks,{kind:'BRAND',entityId:3,category:'PREMIUM',effectiveFrom:undefined,actorId:7})
+    expect(mocks.audit.mock.calls[0][0]).toMatchObject({beforeData:{productionCategory:'REGULER',categoryEffectiveFrom:'2026-11-01'},afterData:{productionCategory:'PREMIUM'}})
+  })
+  it('rejects invalid category or orphan effective date and forbids category on defects',async()=>{
+    for (const [path,method,body] of [
+      ['/brands','POST',{site:'JEPARA',name:'X',productionCategory:'OTHER'}],
+      ['/brands','POST',{site:'JEPARA',name:'X',categoryEffectiveFrom:'2026-11-01'}],
+      ['/brands/'+uid,'PATCH',{categoryEffectiveFrom:'2026-11-01'}],
+      ['/defects','POST',{name:'X',productionCategory:'REGULER'}],
+      ['/defects/'+uid,'PATCH',{productionCategory:'REGULER'}],
+    ] as const) expect((await request(path,method,body)).status).toBe(422)
+    expect(mocks.category).not.toHaveBeenCalled()
+    expect(mocks.query).not.toHaveBeenCalled()
+  })
   it('requires view and manage permissions',async()=>{
     expect((await request('/brands','GET',undefined,[])).status).toBe(403)
     expect((await request('/defects','POST',{name:'Cowong'},['production.view'])).status).toBe(403)
@@ -71,6 +96,7 @@ describe('QC master APIs',()=>{
     expect(response.status).toBe(201)
     expect(response.body).toEqual(expect.objectContaining({code:'BR-0001'}))
     expect(mocks.execute.mock.calls[0][1]).toContain(2)
+    expect(mocks.category).toHaveBeenCalledWith(mocks,{kind:'BRAND',entityId:1,category:'REGULER',effectiveFrom:undefined,actorId:7})
     expect(mocks.audit.mock.calls[0][0]).toMatchObject({siteId:2,action:'CREATE'})
     expect(mocks.commit).toHaveBeenCalledOnce()
     expect(mocks.query.mock.calls[0]).toEqual(['SELECT GET_LOCK(?, 10) acquired',['hris:production-qc-code:brands']])

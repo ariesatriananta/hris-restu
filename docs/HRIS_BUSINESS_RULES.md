@@ -827,3 +827,13 @@ jumlah hari Alpha/Izin`. Kalkulasi dibulatkan `HALF_UP` ke Rp1 per komponen
 - QC yang tidak dikirim mempertahankan snapshot lama. Master nonaktif yang sudah dipakai boleh dipertahankan dengan snapshot asal; master baru wajib aktif dan brand sesuai site.
 - Edit QC pasangan melalui anggota Linting; brand ikut diperbarui pada Batil dalam transaksi yang sama. Berat dan defect khusus Linting. Ganti pekerja/pekerjaan pasangan tetap melalui void dan scan ulang.
 - Detail kontrak dan uji operasional: [Koreksi Transaksi Produksi](PRODUCTION_TRANSACTION_CORRECTION.md).
+
+
+### Kategori Reguler/Premium dan Attendance Rate - M1
+
+- Modul dan Brand memiliki kategori `REGULER`/`PREMIUM`; master baru default Reguler dengan histori hari ini WIB. Data lama tanpa pemetaan tetap NULL (Belum dipetakan) sampai pemetaan form/SQL Owner, tanpa asumsi dari nama master.
+- Modul mengelompokkan roster/karyawan; Brand mengelompokkan hasil produksi. Satu modul diasumsikan satu kategori per hari.
+- Histori kategori bertanggal menjaga pembacaan laporan lampau. Kategori dan tanggal efektif periode terakhir dapat dikoreksi termasuk hari sama/backdate, dengan audit sebelum/sesudah. Pergantian kategori setelah awal periode terakhir membuat periode baru; perubahan tanggal saja atau koreksi pada awal periode yang sama/lebih awal memperbarui periode terakhir dan menyesuaikan akhir periode sebelumnya H-1. Tanggal tidak boleh di masa depan atau menabrak awal periode sebelumnya. Koreksi dapat mengubah pengelompokan laporan pada periode terkait.
+- Kategori tersimpan di master hanya keadaan sekarang; laporan lampau harus membaca histori kategori, bersama histori employment dan pekerjaan utama efektif.
+- Fondasi M1 tidak mengubah data transaksi, Attendance, Payroll atau eligibility Training. Dashboard Attendance Rate dan perbaikan Training dikerjakan pada milestone berikutnya.
+- Migrasi Owner, kontrak dan rencana milestone: [ATTENDANCE_RATE.md](ATTENDANCE_RATE.md).

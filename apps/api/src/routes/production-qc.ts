@@ -1,14 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { Router } from 'express'
-import type { RowDataPacket } from 'mysql2'
+import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { PoolConnection } from 'mysql2/promise'
 import { z } from 'zod'
 import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
 import { ApiError } from '../lib/errors.js'
+import { setProductionCategory } from '../lib/production-category.js'
 import { isQc } from '../lib/production-module-access.js'
 import { booleanFilter, pageParams, productionSiteCode } from '../lib/production-foundation.js'
-import { productionBrandInput, productionMasterUpdateInput, productionDefectInput } from '../lib/production-qc.js'
+import { productionBrandInput, productionBrandUpdateInput, productionMasterUpdateInput, productionDefectInput } from '../lib/production-qc.js'
 import { authenticate, requirePermission, type AuthContext } from '../middleware/authenticate.js'
 
 function globalAccess(auth: AuthContext) {
@@ -49,7 +50,7 @@ productionQcRouter.get('/qc-options', requirePermission('production.view'), asyn
       if (!allowed.length) throw new ApiError(403, 'Akses modul Produksi pada site ini ditolak.')
     }
     const [brands] = await pool.query<RowDataPacket[]>(
-      'SELECT b.uid,b.code,b.name,b.sort_order sortOrder FROM production_brands b JOIN sites s ON s.id=b.site_id WHERE s.code=? AND b.is_active=1 ORDER BY b.sort_order,b.id', [site])
+      'SELECT b.uid,b.code,b.name,b.sort_order sortOrder,b.production_category productionCategory FROM production_brands b JOIN sites s ON s.id=b.site_id WHERE s.code=? AND b.is_active=1 ORDER BY b.sort_order,b.id', [site])
     const [defects] = await pool.query<RowDataPacket[]>(
       'SELECT uid,code,name,sort_order sortOrder FROM production_defects WHERE is_active=1 ORDER BY sort_order,id')
     res.json({ brands, defects })
@@ -83,7 +84,7 @@ for (const kind of ['brands', 'defects'] as const) {
       const from = table+' m'+(brand ? ' JOIN sites s ON s.id=m.site_id' : '')
       const clause = where.join(' AND ')
       const [count] = await pool.query<RowDataPacket[]>('SELECT COUNT(*) total FROM '+from+' WHERE '+clause, params)
-      const [items] = await pool.query<RowDataPacket[]>('SELECT m.uid,m.code,m.name,m.is_active=1 isActive,m.sort_order sortOrder'+(brand ? ',s.code site' : '')+' FROM '+from+' WHERE '+clause+' ORDER BY m.created_at DESC,m.id DESC LIMIT ? OFFSET ?', [...params,pageSize,(page-1)*pageSize])
+      const [items] = await pool.query<RowDataPacket[]>('SELECT m.uid,m.code,m.name,m.is_active=1 isActive,m.sort_order sortOrder'+(brand ? ',s.code site,m.production_category productionCategory,(SELECT DATE_FORMAT(ch.effective_from,\'%Y-%m-%d\') FROM production_brand_category_histories ch WHERE ch.brand_id=m.id AND ch.effective_to IS NULL LIMIT 1) categoryEffectiveFrom' : '')+' FROM '+from+' WHERE '+clause+' ORDER BY m.created_at DESC,m.id DESC LIMIT ? OFFSET ?', [...params,pageSize,(page-1)*pageSize])
       res.json({ items: items.map(item => ({ ...item,isActive:Boolean(Number(item.isActive)) })), total: Number(count[0]?.total ?? 0), page, pageSize })
     } catch (error) { next(error) }
   })
@@ -94,7 +95,8 @@ for (const kind of ['brands', 'defects'] as const) {
     let codeLockHeld = false
     try {
       const auth = res.locals.auth as AuthContext
-      const input = brand ? productionBrandInput.parse(req.body) : productionDefectInput.parse(req.body)
+      const brandInput = brand ? productionBrandInput.parse(req.body) : undefined
+      const input = brandInput ?? productionDefectInput.parse(req.body)
       const site = brand ? productionSiteCode.parse(req.body.site) : undefined
       if (site) enforceSite(auth, site)
       connection = await pool.getConnection()
@@ -114,9 +116,10 @@ for (const kind of ['brands', 'defects'] as const) {
       if (sequence > 18446744073709551615n) throw new ApiError(409, 'Nomor kode master sudah mencapai batas.')
       const code = prefix+String(sequence).padStart(4,'0')
       const values = [uid,code,...(brand ? [sid] : []),input.name,input.isActive ? 1 : 0,input.sortOrder,auth.id,auth.id]
-      await connection.execute('INSERT INTO '+table+'(uid,code,'+(brand ? 'site_id,' : '')+'name,is_active,sort_order,created_by,updated_by) VALUES('+values.map(() => '?').join(',')+')', values)
+      const [inserted] = await connection.execute<ResultSetHeader>('INSERT INTO '+table+'(uid,code,'+(brand ? 'site_id,' : '')+'name,is_active,sort_order,created_by,updated_by'+(brand ? ',production_category' : '')+') VALUES('+values.map(() => '?').join(',')+(brand ? ',NULL' : '')+')', values)
+      if (brandInput) await setProductionCategory(connection, { kind: 'BRAND', entityId: inserted.insertId, category: brandInput.productionCategory ?? 'REGULER', effectiveFrom: brandInput.categoryEffectiveFrom, actorId: auth.id })
       await writeAudit({ auth, request: req, module: 'PRODUCTION', siteId: sid, action: 'CREATE', table, recordUid: uid,
-        description: brand ? 'Menambah Brand Produksi.' : 'Menambah Defect Produksi.', afterData: { ...input,code } }, connection)
+        description: brand ? 'Menambah Brand Produksi.' : 'Menambah Defect Produksi.', afterData: { ...input,code,...(brand ? { productionCategory: brandInput?.productionCategory ?? 'REGULER' } : {}) } }, connection)
       await connection.commit()
       res.status(201).json({ uid,code })
     } catch (error) { if (connection) await connection.rollback(); next(error) }
@@ -138,12 +141,13 @@ for (const kind of ['brands', 'defects'] as const) {
   productionQcRouter.patch('/'+kind+'/:uid', requirePermission('production.manage_master'), async (req, res, next) => {
     let connection: PoolConnection | undefined
     try {
-      const changes = productionMasterUpdateInput.parse(req.body)
+      const brandChanges = brand ? productionBrandUpdateInput.parse(req.body) : undefined
+      const changes = brandChanges ?? productionMasterUpdateInput.parse(req.body)
       const uid = uidParam(req.params.uid)
       const auth = res.locals.auth as AuthContext
       connection = await pool.getConnection()
       await connection.beginTransaction()
-      const [rows] = await connection.query<RowDataPacket[]>('SELECT m.id,m.uid,m.code,m.name,m.is_active=1 isActive,m.sort_order sortOrder'+(brand ? ',m.site_id siteId,s.code site' : '')+' FROM '+table+' m'+(brand ? ' JOIN sites s ON s.id=m.site_id' : '')+' WHERE m.uid=? FOR UPDATE', [uid])
+      const [rows] = await connection.query<RowDataPacket[]>('SELECT m.id,m.uid,m.code,m.name,m.is_active=1 isActive,m.sort_order sortOrder'+(brand ? ',m.site_id siteId,s.code site,m.production_category productionCategory,(SELECT DATE_FORMAT(ch.effective_from,\'%Y-%m-%d\') FROM production_brand_category_histories ch WHERE ch.brand_id=m.id AND ch.effective_to IS NULL LIMIT 1) categoryEffectiveFrom' : '')+' FROM '+table+' m'+(brand ? ' JOIN sites s ON s.id=m.site_id' : '')+' WHERE m.uid=? FOR UPDATE', [uid])
       const current = rows[0]
       if (!current) throw new ApiError(404, 'Master Produksi tidak ditemukan.')
       if (brand && !globalAccess(auth) && !auth.siteAccess.includes(String(current.site))) throw new ApiError(404, 'Master Produksi tidak ditemukan.')
@@ -154,11 +158,12 @@ for (const kind of ['brands', 'defects'] as const) {
       }
       await connection.execute('UPDATE '+table+' SET name=?,is_active=?,sort_order=?,updated_by=? WHERE id=?',
         [input.name,input.isActive ? 1 : 0,input.sortOrder,auth.id,current.id])
+      if (brandChanges?.productionCategory) await setProductionCategory(connection, { kind: 'BRAND', entityId: Number(current.id), category: brandChanges.productionCategory, effectiveFrom: brandChanges.categoryEffectiveFrom, actorId: auth.id })
       await writeAudit({ auth, request: req, module: 'PRODUCTION', siteId: brand ? Number(current.siteId) : null,
         action: 'UPDATE', table, recordId: Number(current.id), recordUid: uid,
         description: brand ? 'Memperbarui Brand Produksi.' : 'Memperbarui Defect Produksi.',
-        beforeData: { code:current.code,name:current.name,isActive:Boolean(Number(current.isActive)),sortOrder:current.sortOrder },
-        afterData: input }, connection)
+        beforeData: { code:current.code,name:current.name,isActive:Boolean(Number(current.isActive)),sortOrder:current.sortOrder,...(brand ? { productionCategory: current.productionCategory, categoryEffectiveFrom: current.categoryEffectiveFrom } : {}) },
+        afterData: { ...input,...(brandChanges?.productionCategory ? { productionCategory: brandChanges.productionCategory, categoryEffectiveFrom: brandChanges.categoryEffectiveFrom } : {}) } }, connection)
       await connection.commit()
       res.status(204).end()
     } catch (error) { if (connection) await connection.rollback(); next(error) }

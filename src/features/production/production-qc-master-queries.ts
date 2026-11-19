@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api-client'
 import type { PaginatedProductionResult, ProductionSite } from './domain'
+import type { ProductionCategory } from './production-category'
 
 export type QcMasterKind = 'brands' | 'defects'
 export type QcMasterItem = {
@@ -15,12 +16,16 @@ export type QcMasterItem = {
   isActive: boolean
   sortOrder: number
   site?: ProductionSite
+  productionCategory?: ProductionCategory | null
+  categoryEffectiveFrom?: string | null
 }
 export type QcMasterInput = {
   name: string
   isActive: boolean
   sortOrder: number
   site?: ProductionSite
+  productionCategory?: ProductionCategory
+  categoryEffectiveFrom?: string
 }
 
 export function useQcMasterList(

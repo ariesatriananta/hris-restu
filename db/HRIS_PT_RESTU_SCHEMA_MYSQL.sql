@@ -313,6 +313,7 @@ CREATE TABLE production_modules (
   code VARCHAR(30) NOT NULL,
   name VARCHAR(100) NOT NULL,
   description VARCHAR(255) NULL,
+  production_category VARCHAR(20) NULL DEFAULT 'REGULER',
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   created_by BIGINT UNSIGNED NULL,
@@ -322,8 +323,29 @@ CREATE TABLE production_modules (
   UNIQUE KEY uq_production_modules_uid (uid),
   UNIQUE KEY uq_production_modules_site_code (site_id, code),
   KEY idx_production_modules_site_active (site_id, is_active),
+  CONSTRAINT chk_production_module_category CHECK (production_category IS NULL OR production_category IN ('REGULER','PREMIUM')),
   CONSTRAINT chk_production_modules_active CHECK (is_active IN (0, 1)),
   CONSTRAINT fk_production_modules_site FOREIGN KEY (site_id) REFERENCES sites (id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE production_module_category_histories (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  module_id BIGINT UNSIGNED NOT NULL,
+  category VARCHAR(20) NOT NULL,
+  effective_from DATE NOT NULL,
+  effective_to DATE NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_prod_module_category_uid (uid),
+  UNIQUE KEY uq_prod_module_category_start (module_id,effective_from),
+  KEY idx_prod_module_category_dates (module_id,effective_from,effective_to),
+  CONSTRAINT chk_prod_module_category CHECK (category IN ('REGULER','PREMIUM')),
+  CONSTRAINT chk_prod_module_category_dates CHECK (effective_to IS NULL OR effective_to>=effective_from),
+  CONSTRAINT fk_prod_module_category_master FOREIGN KEY (module_id) REFERENCES production_modules(id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE user_production_module_access (
@@ -1907,6 +1929,7 @@ CREATE TABLE production_brands (
   code VARCHAR(40) NOT NULL,
   site_id BIGINT UNSIGNED NOT NULL,
   name VARCHAR(150) NOT NULL,
+  production_category VARCHAR(20) NULL DEFAULT 'REGULER',
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   sort_order INT UNSIGNED NOT NULL DEFAULT 0,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -1918,8 +1941,29 @@ CREATE TABLE production_brands (
   UNIQUE KEY uq_production_brand_code (code),
   UNIQUE KEY uq_production_brand_site_name (site_id,name),
   KEY idx_production_brand_options (site_id,is_active,sort_order),
+  CONSTRAINT chk_production_brand_category CHECK (production_category IS NULL OR production_category IN ('REGULER','PREMIUM')),
   CONSTRAINT chk_production_brand_active CHECK (is_active IN (0,1)),
   CONSTRAINT fk_production_brand_site FOREIGN KEY (site_id) REFERENCES sites(id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE production_brand_category_histories (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  uid CHAR(36) NOT NULL,
+  brand_id BIGINT UNSIGNED NOT NULL,
+  category VARCHAR(20) NOT NULL,
+  effective_from DATE NOT NULL,
+  effective_to DATE NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_prod_brand_category_uid (uid),
+  UNIQUE KEY uq_prod_brand_category_start (brand_id,effective_from),
+  KEY idx_prod_brand_category_dates (brand_id,effective_from,effective_to),
+  CONSTRAINT chk_prod_brand_category CHECK (category IN ('REGULER','PREMIUM')),
+  CONSTRAINT chk_prod_brand_category_dates CHECK (effective_to IS NULL OR effective_to>=effective_from),
+  CONSTRAINT fk_prod_brand_category_master FOREIGN KEY (brand_id) REFERENCES production_brands(id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE production_defects (

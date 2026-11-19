@@ -4,6 +4,7 @@ import {
   getCoreRowModel,
   getSortedRowModel,
   useReactTable,
+  type Column,
   type ColumnDef,
 } from '@tanstack/react-table'
 import { LoaderCircle, PencilLine, Plus } from 'lucide-react'
@@ -47,6 +48,13 @@ import {
 } from '@/components/data-table'
 import type { ProductionSite } from './domain'
 import {
+  productionCategoryLabel,
+  productionCategoryToday,
+  productionCategorySaveError,
+  type ProductionCategory,
+} from './production-category'
+import { ProductionCategoryFields } from './production-category-fields'
+import {
   useQcMasterList,
   useSaveQcMaster,
   type QcMasterItem,
@@ -80,13 +88,28 @@ function MasterDialog({
   )
   const [order, setOrder] = useState(String(item?.sortOrder ?? 0))
   const [active, setActive] = useState(item?.isActive ?? true)
+  const [category, setCategory] = useState<ProductionCategory | null>(
+    item ? (item.productionCategory ?? null) : 'REGULER'
+  )
+  const [categoryDate, setCategoryDate] = useState(
+    () => item?.categoryEffectiveFrom ?? productionCategoryToday()
+  )
+  const categoryChanged =
+    brand &&
+    Boolean(
+      category &&
+      (category !== item?.productionCategory ||
+        categoryDate !== item?.categoryEffectiveFrom)
+    )
   const command = useSaveQcMaster(kind)
   const valid =
     name.trim().length > 0 &&
     name.trim().length <= 150 &&
     /^\d+$/.test(order) &&
     Number(order) <= 2147483647 &&
-    (!brand || Boolean(site))
+    (!brand || Boolean(site)) &&
+    (!categoryChanged ||
+      Boolean(categoryDate && categoryDate <= productionCategoryToday()))
   const save = () => {
     if (!valid || command.isPending) return
     command.mutate(
@@ -97,6 +120,12 @@ function MasterDialog({
           sortOrder: Number(order),
           isActive: active,
           ...(brand && !item && site ? { site } : {}),
+          ...(categoryChanged && category
+            ? {
+                productionCategory: category,
+                categoryEffectiveFrom: categoryDate,
+              }
+            : {}),
         },
       },
       {
@@ -104,9 +133,12 @@ function MasterDialog({
           toast.success(`${title} berhasil disimpan.`)
           onClose()
         },
-        onError: () =>
+        onError: (error) =>
           toast.error(
-            `${title} gagal disimpan. Pastikan nama belum digunakan${brand ? ' di site ini' : ''}.`
+            productionCategorySaveError(
+              error,
+              `${title} gagal disimpan. Pastikan nama belum digunakan${brand ? ' di site ini' : ''}.`
+            )
           ),
       }
     )
@@ -170,6 +202,17 @@ function MasterDialog({
               disabled={command.isPending}
             />
           </div>
+          {brand && (
+            <ProductionCategoryFields
+              value={category}
+              previousValue={item?.productionCategory}
+              allowUnmapped={Boolean(item) && !item?.productionCategory}
+              effectiveFrom={categoryDate}
+              onChange={setCategory}
+              onDateChange={setCategoryDate}
+              disabled={command.isPending}
+            />
+          )}
           <div className='grid gap-4 sm:grid-cols-2'>
             <div className='space-y-2'>
               <Label htmlFor='qc-master-order'>Urutan tampil</Label>
@@ -284,6 +327,21 @@ export function ProductionQcMasterPanel({
         ),
       },
       ...(brand ? [{ accessorKey: 'site', header: 'Site' }] : []),
+      ...(brand
+        ? [
+            {
+              accessorKey: 'productionCategory',
+              header: ({ column }: { column: Column<QcMasterItem> }) => (
+                <DataTableColumnHeader
+                  column={column}
+                  title='Kategori Produksi'
+                />
+              ),
+              cell: ({ row }: { row: { original: QcMasterItem } }) =>
+                productionCategoryLabel(row.original.productionCategory),
+            },
+          ]
+        : []),
       {
         accessorKey: 'sortOrder',
         header: ({ column }) => (

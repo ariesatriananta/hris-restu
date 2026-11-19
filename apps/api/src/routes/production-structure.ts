@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { Router } from 'express'
-import type { RowDataPacket } from 'mysql2'
+import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import { z } from 'zod'
 import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
 import { ApiError } from '../lib/errors.js'
 import { canViewProductionWages } from '../lib/production-access-policy.js'
+import { categoryEffectiveDate, productionCategory, setProductionCategory } from '../lib/production-category.js'
 import { isQc } from '../lib/production-module-access.js'
 import {
   authenticate,
@@ -16,7 +17,18 @@ import {
 const siteCode = z.enum(['JEPARA', 'SEMARANG', 'KLATEN'])
 const optional = z.string().trim().max(255).optional().nullable().transform((value) => value ?? undefined)
 const active = z.boolean().optional()
-const moduleInput = z.object({ site: siteCode, code: z.string().trim().min(1).max(30), name: z.string().trim().min(1).max(100), description: optional, isActive: active }).strict()
+const moduleInput = z.object({ site: siteCode, code: z.string().trim().min(1).max(30), name: z.string().trim().min(1).max(100), description: optional, isActive: active, productionCategory: productionCategory.optional(), categoryEffectiveFrom: categoryEffectiveDate.optional() }).strict().refine(value => !value.categoryEffectiveFrom || Boolean(value.productionCategory), { path: ['categoryEffectiveFrom'], message: 'Pilih kategori sebelum tanggal berlaku.' })
+function parseModuleInput(value: unknown) {
+  const parsed = moduleInput.safeParse(value)
+  if (!parsed.success) {
+    const labels: Record<string, string> = { site: 'Site', code: 'Kode modul', name: 'Nama modul', description: 'Deskripsi', isActive: 'Status aktif', productionCategory: 'Kategori produksi', categoryEffectiveFrom: 'Tanggal berlaku kategori' }
+    const issue = parsed.error.issues[0]
+    const field = String(issue.path[0] ?? '')
+    const detail = field === 'isActive' ? 'harus berupa pilihan aktif/nonaktif.' : issue.message
+    throw new ApiError(422, `${labels[field] ?? 'Data modul'}: ${detail}`)
+  }
+  return parsed.data
+}
 const sectionInput = z.object({ code: z.string().trim().min(1).max(30), name: z.string().trim().min(1).max(100), description: optional, isActive: active }).strict()
 const mappingInput = z.object({ moduleUid: z.string().uuid(), sectionUid: z.string().uuid(), isActive: active }).strict()
 const unitInput = z.object({ code: z.string().trim().min(1).max(30), name: z.string().trim().min(1).max(100), decimalPrecision: z.number().int().min(0).max(4).default(2), isActive: active }).strict()
@@ -268,33 +280,45 @@ productionStructureRouter.get('/modules', requirePermission('employees.view'), a
     const scope = scopeWhere(res.locals.auth as AuthContext); where.push(scope.sql); values.push(...scope.params)
     const clause = where.join(' AND ')
     const [count] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) total FROM production_modules m JOIN sites s ON s.id=m.site_id WHERE ${clause}`, values)
-    const [rows] = await pool.query<RowDataPacket[]>(`SELECT m.uid,m.code,m.name,m.description,m.is_active isActive,s.code site FROM production_modules m JOIN sites s ON s.id=m.site_id WHERE ${clause} ORDER BY m.created_at DESC,m.id DESC LIMIT ? OFFSET ?`, [...values, pageSize, (page - 1) * pageSize])
-    res.json({ items: rows, total: Number(count[0].total), page, pageSize })
+    const [rows] = await pool.query<RowDataPacket[]>(`SELECT m.uid,m.code,m.name,m.description,m.is_active isActive,s.code site,m.production_category productionCategory,(SELECT DATE_FORMAT(ch.effective_from,'%Y-%m-%d') FROM production_module_category_histories ch WHERE ch.module_id=m.id AND ch.effective_to IS NULL LIMIT 1) categoryEffectiveFrom FROM production_modules m JOIN sites s ON s.id=m.site_id WHERE ${clause} ORDER BY m.created_at DESC,m.id DESC LIMIT ? OFFSET ?`, [...values, pageSize, (page - 1) * pageSize])
+    res.json({ items: rows.map(row => ({ ...row, isActive: Boolean(Number(row.isActive)) })), total: Number(count[0].total), page, pageSize })
   } catch (error) { next(error) }
 })
 
 productionStructureRouter.post('/modules', requirePermission('employees.manage'), async (req, res, next) => {
+  let conn: Awaited<ReturnType<typeof pool.getConnection>> | undefined
   try {
-    const input = moduleInput.parse(req.body); const auth = res.locals.auth as AuthContext; enforceSite(auth, input.site)
-    const [sites] = await pool.query<RowDataPacket[]>('SELECT id FROM sites WHERE code=? AND is_active=1', [input.site])
+    const input = parseModuleInput(req.body); const auth = res.locals.auth as AuthContext; enforceSite(auth, input.site)
+    conn = await pool.getConnection()
+    await conn.beginTransaction()
+    const [sites] = await conn.query<RowDataPacket[]>('SELECT id FROM sites WHERE code=? AND is_active=1 FOR UPDATE', [input.site])
     if (!sites[0]) throw new ApiError(422, 'Site tidak valid atau tidak aktif.')
     const uid = randomUUID()
-    await pool.execute('INSERT INTO production_modules(uid,site_id,code,name,description,is_active,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?)', [uid, sites[0].id, input.code.toUpperCase(), input.name, input.description ?? null, input.isActive === false ? 0 : 1, auth.id, auth.id])
-    await writeAudit({ auth, request: req, action: 'CREATE', table: 'production_modules', recordUid: uid, description: `Menambah modul produksi ${input.name}.` })
+    const [inserted] = await conn.execute<ResultSetHeader>('INSERT INTO production_modules(uid,site_id,code,name,description,is_active,created_by,updated_by,production_category) VALUES(?,?,?,?,?,?,?,?,NULL)', [uid, sites[0].id, input.code.toUpperCase(), input.name, input.description ?? null, input.isActive === false ? 0 : 1, auth.id, auth.id])
+    await setProductionCategory(conn, { kind: 'MODULE', entityId: inserted.insertId, category: input.productionCategory ?? 'REGULER', effectiveFrom: input.categoryEffectiveFrom, actorId: auth.id })
+    await writeAudit({ auth, request: req, siteId: Number(sites[0].id), action: 'CREATE', table: 'production_modules', recordUid: uid, description: `Menambah modul produksi ${input.name}.`, afterData: { ...input, productionCategory: input.productionCategory ?? 'REGULER' } }, conn)
+    await conn.commit()
     res.status(201).json({ uid })
-  } catch (error) { next(error) }
+  } catch (error) { if (conn) await conn.rollback(); next(error) }
+  finally { conn?.release() }
 })
 
 productionStructureRouter.patch('/modules/:uid', requirePermission('employees.manage'), async (req, res, next) => {
+  let conn: Awaited<ReturnType<typeof pool.getConnection>> | undefined
   try {
-    const input = moduleInput.parse(req.body); const auth = res.locals.auth as AuthContext; const uid = routeParam(req.params.uid)
-    const [rows] = await pool.query<RowDataPacket[]>('SELECT m.id,s.code site FROM production_modules m JOIN sites s ON s.id=m.site_id WHERE m.uid=?', [uid])
+    const input = parseModuleInput(req.body); const auth = res.locals.auth as AuthContext; const uid = routeParam(req.params.uid)
+    conn = await pool.getConnection()
+    await conn.beginTransaction()
+    const [rows] = await conn.query<RowDataPacket[]>('SELECT m.id,m.production_category productionCategory,(SELECT DATE_FORMAT(ch.effective_from,\'%Y-%m-%d\') FROM production_module_category_histories ch WHERE ch.module_id=m.id AND ch.effective_to IS NULL LIMIT 1) categoryEffectiveFrom,s.code site FROM production_modules m JOIN sites s ON s.id=m.site_id WHERE m.uid=? FOR UPDATE', [uid])
     if (!rows[0]) throw new ApiError(404, 'Modul tidak ditemukan.')
     enforceSite(auth, rows[0].site); if (rows[0].site !== input.site) throw new ApiError(422, 'Site Modul tidak dapat diubah.')
-    await pool.execute('UPDATE production_modules SET code=?,name=?,description=?,is_active=?,updated_by=? WHERE id=?', [input.code.toUpperCase(), input.name, input.description ?? null, input.isActive === false ? 0 : 1, auth.id, rows[0].id])
-    await writeAudit({ auth, request: req, action: 'UPDATE', table: 'production_modules', recordUid: uid, description: `Memperbarui modul produksi ${input.name}.` })
+    await conn.execute('UPDATE production_modules SET code=?,name=?,description=?,is_active=?,updated_by=? WHERE id=?', [input.code.toUpperCase(), input.name, input.description ?? null, input.isActive === false ? 0 : 1, auth.id, rows[0].id])
+    if (input.productionCategory) await setProductionCategory(conn, { kind: 'MODULE', entityId: Number(rows[0].id), category: input.productionCategory, effectiveFrom: input.categoryEffectiveFrom, actorId: auth.id })
+    await writeAudit({ auth, request: req, action: 'UPDATE', table: 'production_modules', recordUid: uid, description: `Memperbarui modul produksi ${input.name}.`, beforeData: { productionCategory: rows[0].productionCategory, categoryEffectiveFrom: rows[0].categoryEffectiveFrom }, afterData: input }, conn)
+    await conn.commit()
     res.status(204).end()
-  } catch (error) { next(error) }
+  } catch (error) { if (conn) await conn.rollback(); next(error) }
+  finally { conn?.release() }
 })
 
 productionStructureRouter.delete('/modules/:uid', requirePermission('employees.manage'), async (req, res, next) => {
@@ -308,6 +332,7 @@ productionStructureRouter.delete('/modules/:uid', requirePermission('employees.m
     enforceSite(auth, module.site)
     await ensureUnused(conn, [
       { sql: 'SELECT id FROM production_module_sections WHERE production_module_id=? LIMIT 1 FOR UPDATE', params: [module.id], label: 'pemetaan Modul dan Bagian' },
+      { sql: 'SELECT id FROM production_module_category_histories WHERE module_id=? LIMIT 1 FOR UPDATE', params: [module.id], label: 'histori kategori produksi' },
     ])
     await conn.execute('DELETE FROM production_modules WHERE id=?', [module.id])
     await writeAudit({ auth, request: req, siteId: module.siteId, action: 'DELETE', table: 'production_modules', recordId: module.id, recordUid: uid, description: `Menghapus Modul produksi ${module.name}.` }, conn)

@@ -40,6 +40,13 @@ import {
 } from '@/components/data-table'
 import { Main } from '@/components/layout/main'
 import { employeeKeys } from '@/features/employees/data/queries'
+import {
+  productionCategoryLabel,
+  productionCategoryToday,
+  productionCategorySaveError,
+  type ProductionCategory,
+} from '@/features/production/production-category'
+import { ProductionCategoryFields } from '@/features/production/production-category-fields'
 import { ProductionMasterTable } from './production-master-table'
 
 type Module = {
@@ -49,6 +56,8 @@ type Module = {
   description?: string
   isActive: boolean
   site: string
+  productionCategory?: ProductionCategory | null
+  categoryEffectiveFrom?: string | null
 }
 type Section = {
   uid: string
@@ -291,6 +300,7 @@ export function ProductionStructurePage({
                 name: '',
                 site: 'JEPARA',
                 isActive: true,
+                productionCategory: 'REGULER',
               })
             }
           />
@@ -478,11 +488,13 @@ export function ProductionStructurePage({
           )}
         </TabsContent>
       </Tabs>
-      <ModuleDialog
-        value={module}
-        onClose={() => setModule(undefined)}
-        onSaved={refresh}
-      />
+      {module && (
+        <ModuleDialog
+          value={module}
+          onClose={() => setModule(undefined)}
+          onSaved={refresh}
+        />
+      )}
       <DepartmentDialog
         value={department}
         onClose={() => setDepartment(undefined)}
@@ -723,6 +735,14 @@ function moduleColumns(
       ),
     },
     {
+      accessorKey: 'productionCategory',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Kategori Produksi' />
+      ),
+      cell: ({ row }) =>
+        productionCategoryLabel(row.original.productionCategory),
+    },
+    {
       accessorKey: 'isActive',
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title='Status' />
@@ -897,9 +917,10 @@ function ModuleDialog({
   onClose: () => void
   onSaved: () => void
 }) {
-  const [form, setForm] = useState<Module>()
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setForm(value), [value])
+  const [form, setForm] = useState<Module | undefined>(value)
+  const [categoryDate, setCategoryDate] = useState(
+    () => value?.categoryEffectiveFrom ?? productionCategoryToday()
+  )
   const open = Boolean(value)
   const model = form ?? value
   const mutation = useMutation({
@@ -909,7 +930,15 @@ function ModuleDialog({
         code: body.code,
         name: body.name,
         description: body.description,
-        isActive: body.isActive,
+        isActive: Boolean(body.isActive),
+        ...(body.productionCategory &&
+        (body.productionCategory !== value?.productionCategory ||
+          categoryDate !== value?.categoryEffectiveFrom)
+          ? {
+              productionCategory: body.productionCategory,
+              categoryEffectiveFrom: categoryDate,
+            }
+          : {}),
       }
       if (body.uid)
         await apiClient.patch(
@@ -923,7 +952,10 @@ function ModuleDialog({
       onSaved()
       onClose()
     },
-    onError: () => toast.error('Modul produksi gagal disimpan.'),
+    onError: (error) =>
+      toast.error(
+        productionCategorySaveError(error, 'Modul produksi gagal disimpan.')
+      ),
   })
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -966,11 +998,32 @@ function ModuleDialog({
               value={model.description ?? ''}
               onChange={(description) => setForm({ ...model, description })}
             />
+            <ProductionCategoryFields
+              value={model.productionCategory}
+              previousValue={value?.uid ? value.productionCategory : null}
+              allowUnmapped={Boolean(value?.uid) && !value?.productionCategory}
+              effectiveFrom={categoryDate}
+              onChange={(productionCategory) =>
+                setForm({ ...model, productionCategory })
+              }
+              onDateChange={setCategoryDate}
+              disabled={mutation.isPending}
+            />
             <Active
               active={model.isActive}
               onChange={(isActive) => setForm({ ...model, isActive })}
             />
-            <Button disabled={mutation.isPending}>Simpan</Button>
+            <Button
+              disabled={
+                mutation.isPending ||
+                Boolean(
+                  model.productionCategory &&
+                  (!categoryDate || categoryDate > productionCategoryToday())
+                )
+              }
+            >
+              Simpan
+            </Button>
           </form>
         )}
       </DialogContent>
