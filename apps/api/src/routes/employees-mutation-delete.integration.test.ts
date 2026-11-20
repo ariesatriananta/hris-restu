@@ -1,5 +1,6 @@
 import express from 'express'
 import type { AddressInfo } from 'node:net'
+import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { errorHandler } from '../lib/errors.js'
 import type { AuthContext } from '../middleware/authenticate.js'
@@ -147,7 +148,7 @@ describe('hapus mutasi terakhir', () => {
     mocks.execute.mockResolvedValue([{ affectedRows: 1 }])
   })
 
-  it('memulihkan histori, profil, dan assignment dalam satu transaksi', async () => {
+  it('memulihkan histori dan profil tanpa membuka assignment dalam satu transaksi', async () => {
     mocks.query
       .mockResolvedValueOnce([[mutationRow()]])
       .mockResolvedValueOnce([[{ id: 42 }]])
@@ -179,8 +180,8 @@ describe('hapus mutasi terakhir', () => {
     expect(await response.json()).toMatchObject({
       deleted: true,
       restoredHistoryUid: previousRow().uid,
-      restoredShiftAssignments: 1,
-      restoredJobAssignments: 1,
+      restoredShiftAssignments: 0,
+      restoredJobAssignments: 0,
     })
     expect(mocks.commit).toHaveBeenCalledOnce()
     expect(mocks.audit).toHaveBeenCalledWith(
@@ -196,6 +197,66 @@ describe('hapus mutasi terakhir', () => {
         String(sql).includes('DELETE FROM employee_employment_histories')
       )
     ).toBe(true)
+    expect(
+      mocks.execute.mock.calls.some(([sql]) =>
+        /UPDATE employee_(shift|job)_assignments/.test(String(sql))
+      )
+    ).toBe(false)
+  })
+
+  it.each([
+    ['shift', 7],
+    ['shift', 99],
+    ['job', 7],
+    ['job', 99],
+    ['job', null],
+  ])('menolak assignment %s berakhir H-1 tanpa menebak asal tanggalnya (actor %s)', async (kind, actor) => {
+    const db = new DatabaseSync(':memory:')
+    db.exec(`
+      CREATE TABLE shifts (id INTEGER, site_id INTEGER);
+      INSERT INTO shifts VALUES (1,1);
+      CREATE TABLE employee_shift_assignments (employee_id INTEGER,shift_id INTEGER,effective_to TEXT,updated_by INTEGER);
+      CREATE TABLE employee_job_assignments (employee_id INTEGER,site_id INTEGER,status TEXT,effective_from TEXT,effective_to TEXT,updated_by INTEGER);
+    `)
+    if (kind === 'shift') {
+      db.prepare('INSERT INTO employee_shift_assignments VALUES(10,1,?,?)').run('2026-09-18', actor)
+    } else {
+      db.prepare("INSERT INTO employee_job_assignments VALUES(10,1,'ACTIVE','2026-01-01',?,?)").run('2026-09-18', actor)
+    }
+    mocks.query
+      .mockResolvedValueOnce([[mutationRow()]])
+      .mockResolvedValueOnce([[{ id: 42 }]])
+      .mockResolvedValueOnce([[previousRow()]])
+      .mockResolvedValueOnce([[{}]])
+      .mockImplementationOnce(async (sql: string, params: Array<string | number | null>) => [
+        [db.prepare(sql.replaceAll('<=>', 'IS')).get(...params)],
+      ])
+    try {
+      const response = await removeMutation()
+      expect(response.status).toBe(409)
+      expect(await response.json()).toMatchObject({
+        message: expect.stringContaining('tanggal akhir asli'),
+      })
+      expect(mocks.execute).not.toHaveBeenCalled()
+      expect(mocks.rollback).toHaveBeenCalledOnce()
+      expect(mocks.commit).not.toHaveBeenCalled()
+      expect(mocks.audit).not.toHaveBeenCalled()
+    } finally {
+      db.close()
+    }
+  })
+
+  it('menolak assignment pekerjaan masa depan yang sudah dibatalkan', async () => {
+    mocks.query
+      .mockResolvedValueOnce([[mutationRow()]])
+      .mockResolvedValueOnce([[{ id: 42 }]])
+      .mockResolvedValueOnce([[previousRow()]])
+      .mockResolvedValueOnce([[{}]])
+      .mockResolvedValueOnce([[{ ambiguousShifts: 0, ambiguousJobs: 0, cancelledFutureJobs: 1 }]])
+    const response = await removeMutation()
+    expect(response.status).toBe(409)
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(mocks.rollback).toHaveBeenCalledOnce()
   })
 
   it('menolak rollback ketika Attendance sudah memakai mutasi', async () => {

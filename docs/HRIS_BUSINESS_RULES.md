@@ -86,6 +86,12 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
 - Data kandidat Tidak Lolos dipertahankan sebagai arsip dan tidak dihapus
   otomatis. Hanya satu lamaran yang belum selesai boleh aktif untuk NIK yang
   sama pada satu waktu.
+- Form publik tetap memakai Turnstile wajib pada production, termasuk retry.
+  Rate limit IP melindungi dari banjir request tanpa membatasi satu koneksi
+  bersama menjadi lima pelamar per jam. Batas pemeriksaan/pengiriman berulang
+  berlaku per NIK setelah verifikasi keamanan; retry dengan idempotency key
+  yang sama tidak menambah kuota pengiriman NIK, tetapi tetap diperiksa
+  Turnstile, batas IP dan kesamaan payload oleh service idempotency.
 - Foto diri, KTP, dan KK kandidat merupakan data privat. Berkas tidak boleh
   memiliki alamat publik permanen dan hanya boleh dibuka oleh pengguna internal
   yang memiliki permission Rekrutmen serta akses ke site kandidat.
@@ -118,6 +124,21 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   kontrak atau perubahan terjadwal, lalu membuat seluruh kontrak baru sebagai
   `DRAFT` dalam satu transaksi atomik. Perpanjangan tidak mengubah kontrak lama
   dan tidak boleh mengaktifkan kontrak baru tanpa pemeriksaan berikutnya.
+- Kontrak terakhir untuk aksi lifecycle dan coverage mengabaikan kontrak
+  `CANCELLED`. Draft perpanjangan yang dibatalkan tidak boleh menghalangi
+  perpanjangan atau penyelesaian status dari kontrak sebelumnya; arsip batal
+  tetap tampil pada daftar riwayat.
+- Penyelesaian status dari kontrak `EXPIRED` hanya menerima tanggal efektif
+  antara tanggal akhir kontrak dan hari ini (inklusif). Tanggal SQL harus
+  dinormalisasi ke `YYYY-MM-DD` sebelum validasi, termasuk saat driver
+  database mengembalikan objek Date.
+- Hapus mutasi tidak boleh menebak tanggal akhir asli penugasan dari H-1 dan
+  identitas pembuat. Bila ada Shift site sebelumnya atau pekerjaan aktif yang
+  berakhir H-1, atau pekerjaan masa depan yang dibatalkan, pemulihan tanpa
+  bukti asal ditolak seluruhnya. Gunakan koreksi penugasan/mutasi koreksi.
+  Mutasi tanpa dependensi tersebut tetap dapat dihapus setelah seluruh
+  pengaman Attendance, Produksi, Payroll dan histori berikutnya terpenuhi;
+  penghapusan tidak membuka penugasan menjadi tanpa batas.
 - Cetak template kontrak produksi tahap pertama hanya untuk kombinasi karyawan `BORONGAN` dengan kontrak `PKWT`.
 - Kontrak `ACTIVE` tidak dapat dikoreksi periodenya. Salah aktivasi hanya dapat dibatalkan menjadi `CANCELLED` bila belum memiliki tanda tangan/lampiran dan belum digunakan oleh attendance, produksi, payroll, histori lanjutan, atau status kerja terjadwal; selain itu gunakan Terminasi lalu buat kontrak baru.
 - Aktivasi kontrak membuat status karyawan `ACTIVE` efektif sejak tanggal mulai kontrak, termasuk ketika HR terlambat menjalankan aktivasi. Aktivasi ditolak bila penyelarasan mundur akan melewati histori employment yang lebih baru.

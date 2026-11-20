@@ -195,6 +195,21 @@ Aturan teknis M2 yang harus dipertahankan pada milestone berikutnya:
   endpoint ditutup apabila konfigurasi Turnstile atau bucket privat belum
   lengkap.
 - Rate limit dipisahkan untuk konfigurasi, pemeriksaan identitas, dan submit.
+- Penyesuaian 20 November 2026 untuk WiFi/NAT bersama: konfigurasi 120/menit/IP,
+  check 120/menit/IP, submit 60/menit/IP. Batas agregat tetap dihitung untuk
+  request invalid/retry dan berjalan sebelum Turnstile/upload.
+- Setelah schema dan Turnstile valid, check dibatasi 10/15 menit/NIK dan
+  submit 5 operasi berbeda/jam/NIK, lintas IP maupun site. Retry memakai
+  idempotency key yang sudah diterima limiter tidak memakai slot NIK baru,
+  termasuk saat lima slot habis. Ini bukan izin melewati Turnstile atau
+  pemeriksaan kesamaan biodata/checksum pada service submission.
+- NIK/IP di key limiter memakai HMAC dengan salt acak per proses, bukan
+  identitas mentah. Setiap limiter menyimpan maksimal 10.000 key; memori
+  penuh menolak key baru dengan Retry-After tanpa mengusir kuota aktif.
+  Limiter masih lokal per proses seperti sebelumnya: restart mereset kuota,
+  dan beberapa instance memiliki kuota masing-masing; tidak menambah Redis
+  atau perubahan schema. Batas terpusat lintas instance membutuhkan storage
+  bersama pada pekerjaan terpisah jika deployment kelak memerlukannya.
 - File maksimal 5 MB per unggahan, isi aslinya wajib JPG, PNG, atau WebP, dan
   gambar maksimal 25 juta piksel. Server memproses ulang gambar menjadi JPG
   agar metadata perangkat dan lokasi tidak ikut disimpan.

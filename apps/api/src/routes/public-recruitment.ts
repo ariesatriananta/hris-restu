@@ -1,8 +1,8 @@
+import { z } from 'zod'
 import { Router, type RequestHandler } from 'express'
 import multer, { MulterError } from 'multer'
-import { z } from 'zod'
-import { ApiError } from '../lib/errors.js'
 import { educationLevelSchema } from '../lib/education-level.js'
+import { ApiError } from '../lib/errors.js'
 import { sanitizeRecruitmentImage } from '../lib/recruitment-images.js'
 import {
   assertPublicRecruitmentConfigured,
@@ -71,36 +71,62 @@ const submissionSchema = identitySchema.omit({ turnstileToken: true }).extend({
 const configLimit = createPublicRateLimit({
   namespace: 'recruitment-config',
   windowMs: 60_000,
-  limit: 60,
+  limit: 120,
 })
 const checkLimit = createPublicRateLimit({
   namespace: 'recruitment-check',
-  windowMs: 15 * 60_000,
-  limit: 10,
+  windowMs: 60_000,
+  limit: 120,
 })
 const submitLimit = createPublicRateLimit({
   namespace: 'recruitment-submit',
+  windowMs: 60_000,
+  limit: 60,
+})
+
+// Apply identity limits only after schema validation and Turnstile verification.
+const checkIdentityLimit = createPublicRateLimit({
+  namespace: 'recruitment-check-identity',
+  windowMs: 15 * 60_000,
+  limit: 10,
+  key: (_req, res) =>
+    (res.locals.recruitmentIdentity as z.infer<typeof identitySchema>)
+      .nationalIdNumber,
+})
+const submitIdentityLimit = createPublicRateLimit({
+  namespace: 'recruitment-submit-identity',
   windowMs: 60 * 60_000,
   limit: 5,
+  key: (_req, res) =>
+    (res.locals.recruitmentSubmission as z.infer<typeof submissionSchema>)
+      .nationalIdNumber,
+  attemptKey: (_req, res) =>
+    (res.locals.recruitmentSubmission as z.infer<typeof submissionSchema>)
+      .idempotencyKey,
 })
 
 export const publicRecruitmentRouter = Router()
 
 function token(req: Parameters<RequestHandler>[0]) {
   const raw = req.params.siteToken
-  return Array.isArray(raw) ? raw[0] ?? '' : raw ?? ''
+  return Array.isArray(raw) ? (raw[0] ?? '') : (raw ?? '')
 }
 
 async function resolveSite(siteToken: string) {
   assertPublicRecruitmentConfigured()
   const siteCode = recruitmentSiteCodeFromToken(siteToken)
-  if (!siteCode) throw new ApiError(404, 'Tautan Form Data Pelamar tidak valid.')
+  if (!siteCode)
+    throw new ApiError(404, 'Tautan Form Data Pelamar tidak valid.')
   const site = await findPublicRecruitmentSite(siteCode)
   if (!site) throw new ApiError(404, 'Tautan Form Data Pelamar tidak valid.')
   return site
 }
 
-function multipartUpload(req: Parameters<RequestHandler>[0], res: Parameters<RequestHandler>[1], next: Parameters<RequestHandler>[2]) {
+function multipartUpload(
+  req: Parameters<RequestHandler>[0],
+  res: Parameters<RequestHandler>[1],
+  next: Parameters<RequestHandler>[2]
+) {
   upload.fields([
     { name: 'photo', maxCount: 1 },
     { name: 'ktp', maxCount: 1 },
@@ -126,36 +152,57 @@ function fileFromRequest(
   return files?.[field]?.[0]
 }
 
-publicRecruitmentRouter.get('/:siteToken/config', configLimit, async (req, res, next) => {
-  try {
-    const site = await resolveSite(token(req))
-    res.json(await publicRecruitmentConfig(site))
-  } catch (error) {
-    next(error)
+publicRecruitmentRouter.get(
+  '/:siteToken/config',
+  configLimit,
+  async (req, res, next) => {
+    try {
+      const site = await resolveSite(token(req))
+      res.json(await publicRecruitmentConfig(site))
+    } catch (error) {
+      next(error)
+    }
   }
-})
+)
 
-publicRecruitmentRouter.post('/:siteToken/check', checkLimit, async (req, res, next) => {
-  try {
-    const site = await resolveSite(token(req))
-    const input = identitySchema.parse(req.body)
-    await verifyRecruitmentTurnstile({
-      token: input.turnstileToken,
-      remoteIp: req.ip,
-      expectedAction: 'recruitment-check',
-    })
-    res.json(
-      await checkRecruitmentEligibility({
-        siteId: site.id,
-        nationalIdNumber: input.nationalIdNumber,
-        familyCardNumber: input.familyCardNumber,
-        birthDate: input.birthDate,
+publicRecruitmentRouter.post(
+  '/:siteToken/check',
+  checkLimit,
+  async (req, res, next) => {
+    try {
+      res.locals.recruitmentSite = await resolveSite(token(req))
+      const input = identitySchema.parse(req.body)
+      await verifyRecruitmentTurnstile({
+        token: input.turnstileToken,
+        remoteIp: req.ip,
+        expectedAction: 'recruitment-check',
       })
-    )
-  } catch (error) {
-    next(error)
+      res.locals.recruitmentIdentity = input
+      next()
+    } catch (error) {
+      next(error)
+    }
+  },
+  checkIdentityLimit,
+  async (_req, res, next) => {
+    try {
+      const site = res.locals.recruitmentSite as PublicSite
+      const input = res.locals.recruitmentIdentity as z.infer<
+        typeof identitySchema
+      >
+      res.json(
+        await checkRecruitmentEligibility({
+          siteId: site.id,
+          nationalIdNumber: input.nationalIdNumber,
+          familyCardNumber: input.familyCardNumber,
+          birthDate: input.birthDate,
+        })
+      )
+    } catch (error) {
+      next(error)
+    }
   }
-})
+)
 
 const verifySubmitTurnstile: RequestHandler = async (req, _res, next) => {
   try {
@@ -187,7 +234,6 @@ publicRecruitmentRouter.post(
   multipartUpload,
   async (req, res, next) => {
     try {
-      const site = res.locals.recruitmentSite as PublicSite
       if (typeof req.body.payload !== 'string') {
         throw new ApiError(422, 'Data pelamar belum lengkap.')
       }
@@ -197,7 +243,19 @@ publicRecruitmentRouter.post(
       } catch {
         throw new ApiError(422, 'Data pelamar belum valid.')
       }
-      const submission = submissionSchema.parse(rawPayload)
+      res.locals.recruitmentSubmission = submissionSchema.parse(rawPayload)
+      next()
+    } catch (error) {
+      next(error)
+    }
+  },
+  submitIdentityLimit,
+  async (req, res, next) => {
+    try {
+      const site = res.locals.recruitmentSite as PublicSite
+      const submission = res.locals.recruitmentSubmission as z.infer<
+        typeof submissionSchema
+      >
       const rawFiles = {
         PHOTO: fileFromRequest(req, 'photo'),
         KTP: fileFromRequest(req, 'ktp'),
@@ -210,8 +268,14 @@ publicRecruitmentRouter.post(
         )
       }
       const sanitizedEntries = await Promise.all(
-        (Object.entries(rawFiles) as [RecruitmentFileKind, Express.Multer.File][]).map(
-          async ([kind, file]) => [kind, await sanitizeRecruitmentImage(file)] as const
+        (
+          Object.entries(rawFiles) as [
+            RecruitmentFileKind,
+            Express.Multer.File,
+          ][]
+        ).map(
+          async ([kind, file]) =>
+            [kind, await sanitizeRecruitmentImage(file)] as const
         )
       )
       const result = await createRecruitmentSubmission({

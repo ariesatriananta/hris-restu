@@ -1096,7 +1096,9 @@ export async function closeExpiredContractEmployeeStatus(
   try {
     await conn.beginTransaction()
     const [rows] = await conn.query<RowDataPacket[]>(
-      `SELECT c.id,c.uid,c.employee_id,c.start_date,c.end_date,c.status,
+      `SELECT c.id,c.uid,c.employee_id,
+              DATE_FORMAT(c.start_date,'%Y-%m-%d') start_date,
+              DATE_FORMAT(c.end_date,'%Y-%m-%d') end_date,c.status,
               e.uid employeeUid,e.current_site_id siteId,s.code site,es.code employeeStatus
        FROM employee_contracts c
        JOIN employees e ON e.id=c.employee_id
@@ -1133,7 +1135,7 @@ export async function closeExpiredContractEmployeeStatus(
     await assertNoOpenScheduledStatusChange(conn, contract.employee_id)
     const [newerContracts] = await conn.query<RowDataPacket[]>(
       `SELECT id FROM employee_contracts
-       WHERE employee_id=?
+       WHERE employee_id=? AND status<>'CANCELLED'
          AND (start_date>? OR (start_date=? AND id>?))
        LIMIT 1 FOR UPDATE`,
       [

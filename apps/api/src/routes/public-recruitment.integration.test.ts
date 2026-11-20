@@ -1,7 +1,7 @@
 import express from 'express'
 import type { AddressInfo } from 'node:net'
 import sharp from 'sharp'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, errorHandler } from '../lib/errors.js'
 import { publicRecruitmentRouter } from './public-recruitment.js'
 
@@ -38,7 +38,10 @@ async function request(path: string, options: RequestInit = {}) {
   await new Promise<void>((resolve) => server.once('listening', resolve))
   try {
     const port = (server.address() as AddressInfo).port
-    return await fetch(`http://127.0.0.1:${port}/api/public/recruitment${path}`, options)
+    return await fetch(
+      `http://127.0.0.1:${port}/api/public/recruitment${path}`,
+      options
+    )
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve()))
@@ -63,15 +66,189 @@ const payload = {
   idempotencyKey: 'f197b67b-a82a-4fec-91dd-f06efc5cf41e',
 }
 
+let testTime = Date.now()
+const identityRequest = (nationalIdNumber = payload.nationalIdNumber) => ({
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({
+    ...payload,
+    nationalIdNumber,
+    turnstileToken: 'valid-token',
+  }),
+})
+
+async function submissionRequest(
+  nationalIdNumber: string,
+  idempotencyKey: string
+) {
+  const image = await sharp({
+    create: { width: 2, height: 2, channels: 3, background: '#ffffff' },
+  })
+    .png()
+    .toBuffer()
+  const form = new FormData()
+  form.set(
+    'payload',
+    JSON.stringify({ ...payload, nationalIdNumber, idempotencyKey })
+  )
+  for (const field of ['photo', 'ktp', 'kk']) {
+    form.set(field, new Blob([image], { type: 'image/png' }), `${field}.png`)
+  }
+  return request('/valid-site-token-123456789/submit', {
+    method: 'POST',
+    headers: { 'x-turnstile-token': 'valid-token' },
+    body: form,
+  })
+}
+
 describe('Public recruitment API', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    testTime += 2 * 60 * 60_000
+    vi.spyOn(Date, 'now').mockReturnValue(testTime)
     mocks.siteCode.mockReturnValue('JEPARA')
     mocks.findSite.mockResolvedValue(site)
     mocks.verifyTurnstile.mockResolvedValue(undefined)
     mocks.readConfig.mockResolvedValue({ company: { name: 'RSIA' }, site })
-    mocks.check.mockResolvedValue({ canSubmit: true, priorRejectedApplication: null })
-    mocks.create.mockResolvedValue({ applicationNumber: 'APL-JEPARA-1', replayed: false })
+    mocks.check.mockResolvedValue({
+      canSubmit: true,
+      priorRejectedApplication: null,
+    })
+    mocks.create.mockResolvedValue({
+      applicationNumber: 'APL-JEPARA-1',
+      replayed: false,
+    })
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('melayani banyak pelamar berbeda dari satu IP tanpa menghabiskan kuota identitas lain', async () => {
+    for (let index = 0; index < 20; index++) {
+      const response = await request(
+        '/valid-site-token-123456789/check',
+        identityRequest(String(3300000000000000 + index))
+      )
+      expect(response.status).toBe(200)
+    }
+    expect(mocks.check).toHaveBeenCalledTimes(20)
+    expect(mocks.verifyTurnstile).toHaveBeenCalledTimes(20)
+    for (let index = 0; index < 8; index++) {
+      const response = await submissionRequest(
+        String(3300000000000000 + index),
+        crypto.randomUUID()
+      )
+      expect(response.status).toBe(201)
+    }
+    expect(mocks.create).toHaveBeenCalledTimes(8)
+    expect(mocks.verifyTurnstile).toHaveBeenCalledTimes(28)
+  })
+
+  it('membatasi pengecekan berulang per NIK dan memulihkan kuota setelah waktunya habis', async () => {
+    for (let index = 0; index < 10; index++) {
+      expect(
+        (await request('/valid-site-token-123456789/check', identityRequest()))
+          .status
+      ).toBe(200)
+    }
+    const blocked = await request(
+      '/valid-site-token-123456789/check',
+      identityRequest()
+    )
+    expect(blocked.status).toBe(429)
+    expect(blocked.headers.get('retry-after')).toBe('900')
+    expect(mocks.check).toHaveBeenCalledTimes(10)
+    expect(
+      (
+        await request(
+          '/valid-site-token-123456789/check',
+          identityRequest('3300000000000011')
+        )
+      ).status
+    ).toBe(200)
+    vi.mocked(Date.now).mockReturnValue(testTime + 15 * 60_000)
+    expect(
+      (await request('/valid-site-token-123456789/check', identityRequest()))
+        .status
+    ).toBe(200)
+  })
+
+  it('retry pengiriman yang sama tidak memakai slot NIK baru tetapi Turnstile tetap diperiksa', async () => {
+    const firstKey = crypto.randomUUID()
+    expect(
+      (await submissionRequest(payload.nationalIdNumber, firstKey)).status
+    ).toBe(201)
+    mocks.create.mockResolvedValue({
+      applicationNumber: 'APL-JEPARA-1',
+      replayed: true,
+    })
+    for (let index = 0; index < 7; index++) {
+      expect(
+        (await submissionRequest(payload.nationalIdNumber, firstKey)).status
+      ).toBe(200)
+    }
+    expect(mocks.create).toHaveBeenCalledTimes(8)
+    expect(mocks.verifyTurnstile).toHaveBeenCalledTimes(8)
+    for (let index = 0; index < 4; index++) {
+      expect(
+        (await submissionRequest(payload.nationalIdNumber, crypto.randomUUID()))
+          .status
+      ).toBe(200)
+    }
+    const blocked = await submissionRequest(
+      payload.nationalIdNumber,
+      crypto.randomUUID()
+    )
+    expect(blocked.status).toBe(429)
+    expect(blocked.headers.get('retry-after')).toBe('3600')
+    expect(mocks.create).toHaveBeenCalledTimes(12)
+    // Existing accepted operation may still retry when all five distinct slots are used.
+    expect(
+      (await submissionRequest(payload.nationalIdNumber, firstKey)).status
+    ).toBe(200)
+    mocks.verifyTurnstile.mockRejectedValueOnce(
+      new ApiError(422, 'Verifikasi keamanan gagal.')
+    )
+    expect(
+      (await submissionRequest(payload.nationalIdNumber, firstKey)).status
+    ).toBe(422)
+    expect(mocks.create).toHaveBeenCalledTimes(13)
+  })
+
+  it('Turnstile gagal tidak memakai kuota NIK dan tidak memproses submission', async () => {
+    mocks.verifyTurnstile.mockRejectedValue(
+      new ApiError(422, 'Verifikasi keamanan gagal.')
+    )
+    for (let index = 0; index < 6; index++) {
+      expect(
+        (await submissionRequest(payload.nationalIdNumber, crypto.randomUUID()))
+          .status
+      ).toBe(422)
+    }
+    expect(mocks.create).not.toHaveBeenCalled()
+    mocks.verifyTurnstile.mockResolvedValue(undefined)
+    expect(
+      (await submissionRequest(payload.nationalIdNumber, crypto.randomUUID()))
+        .status
+    ).toBe(201)
+  })
+
+  it('batas IP masih menghentikan banjir request sebelum panggilan Turnstile', async () => {
+    for (let index = 0; index < 120; index++) {
+      expect(
+        (
+          await request(
+            '/valid-site-token-123456789/check',
+            identityRequest(String(3300000000000000 + index))
+          )
+        ).status
+      ).toBe(200)
+    }
+    const blocked = await request(
+      '/valid-site-token-123456789/check',
+      identityRequest('3300000000000999')
+    )
+    expect(blocked.status).toBe(429)
+    expect(blocked.headers.get('retry-after')).toBe('60')
+    expect(mocks.verifyTurnstile).toHaveBeenCalledTimes(120)
   })
 
   it('menolak token site yang tidak valid tanpa menjalankan Turnstile', async () => {
@@ -115,7 +292,11 @@ describe('Public recruitment API', () => {
     const form = new FormData()
     form.set('payload', JSON.stringify(payload))
     for (const field of ['photo', 'ktp', 'kk']) {
-      form.set(field, new Blob(['not-an-image'], { type: 'image/jpeg' }), `${field}.jpg`)
+      form.set(
+        field,
+        new Blob(['not-an-image'], { type: 'image/jpeg' }),
+        `${field}.jpg`
+      )
     }
     const response = await request('/valid-site-token-123456789/submit', {
       method: 'POST',

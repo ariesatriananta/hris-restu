@@ -3377,55 +3377,38 @@ employeesRouter.delete(
         throw new ApiError(409, `Mutasi ${history.employeeNumber} belum aman dihapus karena terdapat ${blockers.join(', ')} sejak ${history.effectiveFrom}.`)
       }
 
+      // Legacy mutation records do not retain the assignment's original end date.
+      // An H-1 end date (even by the same actor) is not proof that this mutation
+      // closed it. Never reopen an assignment by guessing its previous range.
       const [ambiguousAssignments] = await conn.query<RowDataPacket[]>(
         `SELECT
           (SELECT COUNT(*) FROM employee_shift_assignments assignment
              JOIN shifts shift_row ON shift_row.id=assignment.shift_id
-            WHERE ?='TRANSFER' AND assignment.employee_id=? AND shift_row.site_id=?
-              AND assignment.effective_to=?
-              AND NOT (assignment.updated_by <=> ?)) ambiguousShifts,
+            WHERE assignment.employee_id=? AND shift_row.site_id=?
+              AND assignment.effective_to=?) ambiguousShifts,
           (SELECT COUNT(*) FROM employee_job_assignments assignment
             WHERE assignment.employee_id=? AND assignment.site_id=?
-              AND assignment.status='ACTIVE' AND assignment.effective_to=?
-              AND NOT (assignment.updated_by <=> ?)) ambiguousJobs,
+              AND assignment.status='ACTIVE' AND assignment.effective_to=?) ambiguousJobs,
           (SELECT COUNT(*) FROM employee_job_assignments assignment
             WHERE assignment.employee_id=? AND assignment.status='CANCELLED'
               AND assignment.effective_from>=?) cancelledFutureJobs`,
         [
-          history.change_type,
           history.employee_id,
           previous.site_id,
           expectedPreviousEnd,
-          history.created_by,
           history.employee_id,
           previous.site_id,
           expectedPreviousEnd,
-          history.created_by,
           history.employee_id,
           history.effectiveFrom,
         ]
       )
       const ambiguous = ambiguousAssignments[0] ?? {}
       if (Number(ambiguous.ambiguousShifts) || Number(ambiguous.ambiguousJobs) || Number(ambiguous.cancelledFutureJobs)) {
-        throw new ApiError(409, 'Assignment yang terdampak tidak dapat dibuktikan berasal dari mutasi ini. Koreksi assignment terlebih dahulu agar histori tetap aman.')
+        throw new ApiError(409, 'Mutasi tidak dapat dihapus karena tanggal akhir asli penugasan Shift/pekerjaan tidak dapat dipastikan. Periksa dan koreksi penugasan terlebih dahulu, atau gunakan mutasi koreksi. Tidak ada data yang diubah.')
       }
-
-      const [restoredShifts] = await conn.execute<ResultSetHeader>(
-        `UPDATE employee_shift_assignments assignment
-           JOIN shifts shift_row ON shift_row.id=assignment.shift_id
-            SET assignment.effective_to=NULL,assignment.updated_by=?
-          WHERE assignment.employee_id=? AND shift_row.site_id=?
-            AND ?='TRANSFER' AND assignment.effective_to=?
-            AND (assignment.updated_by <=> ?)`,
-        [auth.id, history.employee_id, previous.site_id, history.change_type, expectedPreviousEnd, history.created_by]
-      )
-      const [restoredJobs] = await conn.execute<ResultSetHeader>(
-        `UPDATE employee_job_assignments
-            SET effective_to=NULL,updated_by=?
-          WHERE employee_id=? AND site_id=? AND status='ACTIVE'
-            AND effective_to=? AND (updated_by <=> ?)`,
-        [auth.id, history.employee_id, previous.site_id, expectedPreviousEnd, history.created_by]
-      )
+      const restoredShifts = { affectedRows: 0 }
+      const restoredJobs = { affectedRows: 0 }
 
       const [appliedSchedules] = await conn.query<RowDataPacket[]>(
         `SELECT id FROM scheduled_employee_mutations
@@ -4095,7 +4078,7 @@ employeesRouter.post(
           contract.endDate
         )
         const [newer] = await conn.query<RowDataPacket[]>(
-          'SELECT id FROM employee_contracts WHERE employee_id=? AND (start_date>? OR (start_date=? AND id>?)) LIMIT 1 FOR UPDATE',
+          'SELECT id FROM employee_contracts WHERE employee_id=? AND status<>\'CANCELLED\' AND (start_date>? OR (start_date=? AND id>?)) LIMIT 1 FOR UPDATE',
           [
             contract.employee_id,
             contract.start_date,
@@ -5199,10 +5182,10 @@ function contractFrom() {
   return `FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id JOIN employees e ON e.id=c.employee_id JOIN employee_statuses currentEs ON currentEs.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id LEFT JOIN files f ON f.id=c.issued_file_id`
 }
 function contractCoverageFrom() {
-  return `FROM employees e JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id LEFT JOIN employee_contracts c ON c.employee_id=e.id AND NOT EXISTS(SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=e.id AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id))) LEFT JOIN contract_types ct ON ct.id=c.contract_type_id LEFT JOIN files f ON f.id=c.issued_file_id`
+  return `FROM employees e JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id LEFT JOIN employee_contracts c ON c.employee_id=e.id AND c.status<>'CANCELLED' AND NOT EXISTS(SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=e.id AND newer.status<>'CANCELLED' AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id))) LEFT JOIN contract_types ct ON ct.id=c.contract_type_id LEFT JOIN files f ON f.id=c.issued_file_id`
 }
 function contractSelect() {
-  return `SELECT c.id internalContractId,c.uid,e.uid employeeUid,e.full_name employeeName,et.code employeeType,currentEs.code employeeStatus,s.code site,pm.name productionModule,ps.name productionSection,c.contract_number contractNumber,ct.code contractType,c.sequence_number sequenceNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.status,DATE_FORMAT(c.terminated_at,'%Y-%m-%d') terminatedAt,c.termination_reason terminationReason,c.position_name_snapshot positionNameSnapshot,c.site_name_snapshot siteNameSnapshot,c.salary_or_rate_notes salaryOrRateNotes,c.notes,NOT EXISTS(SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=c.employee_id AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id))) isLatestForEmployee,(SELECT COUNT(*) FROM employee_contracts activeContract WHERE activeContract.employee_id=c.employee_id AND activeContract.status='ACTIVE' AND activeContract.start_date<=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')) AND (activeContract.end_date IS NULL OR activeContract.end_date>=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')))) activeValidContractCount,0 isMissingContract,0 isCoverageIssue,f.uid issuedFileUid,f.original_name issuedFileName,f.mime_type issuedFileMimeType,f.size_bytes issuedFileSizeBytes,f.extension issuedFileExtension,f.storage_path issuedFilePath ${contractFrom()} JOIN employee_types et ON et.id=e.employee_type_id`
+  return `SELECT c.id internalContractId,c.uid,e.uid employeeUid,e.full_name employeeName,et.code employeeType,currentEs.code employeeStatus,s.code site,pm.name productionModule,ps.name productionSection,c.contract_number contractNumber,ct.code contractType,c.sequence_number sequenceNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,c.status,DATE_FORMAT(c.terminated_at,'%Y-%m-%d') terminatedAt,c.termination_reason terminationReason,c.position_name_snapshot positionNameSnapshot,c.site_name_snapshot siteNameSnapshot,c.salary_or_rate_notes salaryOrRateNotes,c.notes,NOT EXISTS(SELECT 1 FROM employee_contracts newer WHERE newer.employee_id=c.employee_id AND newer.status<>'CANCELLED' AND (newer.start_date>c.start_date OR (newer.start_date=c.start_date AND newer.id>c.id))) isLatestForEmployee,(SELECT COUNT(*) FROM employee_contracts activeContract WHERE activeContract.employee_id=c.employee_id AND activeContract.status='ACTIVE' AND activeContract.start_date<=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')) AND (activeContract.end_date IS NULL OR activeContract.end_date>=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')))) activeValidContractCount,0 isMissingContract,0 isCoverageIssue,f.uid issuedFileUid,f.original_name issuedFileName,f.mime_type issuedFileMimeType,f.size_bytes issuedFileSizeBytes,f.extension issuedFileExtension,f.storage_path issuedFilePath ${contractFrom()} JOIN employee_types et ON et.id=e.employee_type_id`
 }
 function contractCoverageSelect() {
   return `SELECT COALESCE(c.uid,e.uid) uid,e.uid employeeUid,e.full_name employeeName,et.code employeeType,es.code employeeStatus,s.code site,pm.name productionModule,ps.name productionSection,COALESCE(c.contract_number,'Belum ada kontrak') contractNumber,COALESCE(ct.code,'MISSING') contractType,COALESCE(c.sequence_number,0) sequenceNumber,DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate,DATE_FORMAT(c.signed_date,'%Y-%m-%d') signedDate,COALESCE(c.status,'MISSING') status,DATE_FORMAT(c.terminated_at,'%Y-%m-%d') terminatedAt,c.termination_reason terminationReason,c.position_name_snapshot positionNameSnapshot,c.site_name_snapshot siteNameSnapshot,c.salary_or_rate_notes salaryOrRateNotes,c.notes,1 isLatestForEmployee,(SELECT COUNT(*) FROM employee_contracts activeContract WHERE activeContract.employee_id=e.id AND activeContract.status='ACTIVE' AND activeContract.start_date<=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')) AND (activeContract.end_date IS NULL OR activeContract.end_date>=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')))) activeValidContractCount,(c.id IS NULL) isMissingContract,1 isCoverageIssue,f.uid issuedFileUid,f.original_name issuedFileName,f.mime_type issuedFileMimeType,f.size_bytes issuedFileSizeBytes,f.extension issuedFileExtension,f.storage_path issuedFilePath ${contractCoverageFrom()}`
