@@ -12,10 +12,11 @@ import {
   useSaveDocument,
   useSaveEmployee,
 } from '../data/queries'
-import type { Employee, EmployeeDocument } from '../domain'
+import type { Employee } from '../domain'
 import { EmployeeForm } from './employee-form'
 import {
   saveEmployeeRegistration,
+  selectIdentityDocuments,
   type EmployeeSaveProgress,
 } from './employee-registration-save'
 
@@ -51,7 +52,8 @@ function EmployeeFormPageContent({
   if (isEdit && documents.isError)
     return <Main>Dokumen identitas gagal dimuat. Silakan coba lagi.</Main>
 
-  const identityDocuments = byIdentityType(documents.data)
+  const identitySelection = selectIdentityDocuments(documents.data, employeeUid)
+  const identityDocuments = identitySelection.selected
 
   return (
     <Main className='max-w-5xl'>
@@ -82,6 +84,16 @@ function EmployeeFormPageContent({
           simpan kembali untuk melanjutkan pada karyawan yang sama.
         </p>
       )}
+      {identitySelection.ambiguous.length > 0 && (
+        <p
+          role='alert'
+          className='mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs'
+        >
+          Ada lebih dari satu dokumen {identitySelection.ambiguous.join('/')}{' '}
+          aktif. Rapikan melalui menu Dokumen sebelum mengubah nomor atau file
+          identitas tersebut.
+        </p>
+      )}
       <EmployeeForm
         employee={
           savedEmployee ?? (isEdit ? (employee.data ?? undefined) : undefined)
@@ -91,6 +103,20 @@ function EmployeeFormPageContent({
         submitLabel={savedUid && !isEdit ? 'Lanjutkan penyimpanan' : undefined}
         onSubmit={async (input, files) => {
           if (submitting.current) return
+          const blocked = identitySelection.ambiguous.filter((type) =>
+            type === 'KTP'
+              ? Boolean(files.nationalId) ||
+                (input.nationalIdNumber ?? '') !==
+                  (employee.data?.nationalIdNumber ?? '')
+              : Boolean(files.familyCard) ||
+                (input.familyCardNumber ?? '') !==
+                  (employee.data?.familyCardNumber ?? '')
+          )
+          if (blocked.length) {
+            const message = `Terdapat beberapa dokumen ${blocked.join('/')} aktif. Rapikan melalui menu Dokumen terlebih dahulu.`
+            toast.error(message)
+            throw new Error(message)
+          }
           submitting.current = true
           setIsSaving(true)
           setPartialFailure(false)
@@ -138,11 +164,4 @@ function EmployeeFormPageContent({
       />
     </Main>
   )
-}
-
-function byIdentityType(documents?: EmployeeDocument[]) {
-  return {
-    KTP: documents?.find((document) => document.documentType === 'KTP'),
-    KK: documents?.find((document) => document.documentType === 'KK'),
-  }
 }

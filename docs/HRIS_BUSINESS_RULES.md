@@ -34,6 +34,28 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   ini hanya berada di memori form, tidak menyimpan file pribadi di localStorage.
   Jika halaman ditutup/dimuat ulang, lanjutkan melalui detail/ubah karyawan yang
   sudah dibuat, bukan tambah karyawan baru.
+- Saat Edit Karyawan mengubah atau mengosongkan NIK/nomor KK tanpa file baru,
+  nomor pada satu dokumen KTP/KK aktif milik karyawan tersebut ikut diperbarui
+  memakai UID dan file lama. Nama, tanggal, status dan catatan dokumen
+  dipertahankan. Nomor yang tidak berubah tidak ditulis ulang; dokumen tidak
+  dibuat bila tidak ada dokumen aktif maupun file baru. Dokumen arsip,
+  expired/revoked, jenis lain dan milik karyawan lain tidak dipilih otomatis.
+  Jika ada beberapa KTP/KK aktif untuk jenis yang sama, perubahan nomor/file
+  jenis tersebut ditolak sebelum profil disimpan; rapikan melalui menu
+  Dokumen terlebih dahulu. Perubahan profil lain tetap diperbolehkan.
+  Gagal menyimpan nomor dokumen tetap memakai alur penyimpanan parsial/retry
+  yang sudah ada; update yang sudah selesai diingat selama form terbuka.
+- Pembuatan dokumen dari form registrasi maupun Tambah Dokumen memakai
+  idempotency key yang dipertahankan selama retry pada form yang sama. API
+  memakai unique UID dokumen sebagai kunci operasi: key + metadata/file/target
+  sama mengembalikan dokumen yang sudah tersimpan, bukan INSERT baru. Key yang
+  dipakai untuk data berbeda ditolak; muat ulang dokumen tersimpan lalu ubah
+  melalui aksi Edit. Dokumen dan audit CREATE/UPDATE harus memakai transaksi
+  yang sama, dengan pemeriksaan akses site setelah mengunci karyawan.
+  Beberapa dokumen sejenis tetap boleh diarsipkan dengan key operasi berbeda.
+  Caller API lama tanpa key tetap diterima, tetapi retry idempoten membutuhkan
+  key yang sama. Tidak ada penyimpanan berkas pribadi ke localStorage atau
+  pembersihan duplikat lama secara otomatis.
 - Tanggal bergabung karyawan yang sudah tersimpan tidak boleh diubah melalui
   form Edit Karyawan biasa. Selama data registrasi masih memenuhi syarat
   Koreksi Data Registrasi, perubahan tanggal wajib sekaligus memperbarui

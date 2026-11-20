@@ -579,6 +579,7 @@ const documentInput = z.object({
   documentType: z.string().trim().min(1), documentNumber: optional, name: z.string().trim().min(1), fileUid: z.string().uuid(),
   issuedDate: optionalDate, expiryDate: optionalDate, status: z.enum(['ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED']), notes: optional,
 }).refine((value) => !value.issuedDate || !value.expiryDate || value.expiryDate >= value.issuedDate, { message: 'Tanggal dokumen tidak valid.', path: ['expiryDate'] })
+const documentCreateInput = documentInput.safeExtend({ idempotencyKey: z.string().uuid().optional() })
 const scheduledStatusChangeInput = z.object({
   action: z.enum(['TERMINATE', 'RESIGN']),
   effectiveDate: z.string().date(),
@@ -5091,90 +5092,106 @@ employeesRouter.post(
     }
   }
 )
+// Lock the parent first, matching employee cleanup/mutation lock order.
+async function documentEmployee(conn: PoolConnection, auth: AuthContext, employeeUid: string) {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    'SELECT e.id,s.id siteId,s.code site FROM employees e JOIN sites s ON s.id=e.current_site_id WHERE e.uid=? FOR UPDATE',
+    [employeeUid]
+  )
+  if (!rows[0]) throw new ApiError(404, 'Karyawan tidak ditemukan.')
+  enforceSite(auth, rows[0].site)
+  return rows[0]
+}
+async function documentFileId(conn: PoolConnection, uid: string) {
+  const [rows] = await conn.query<RowDataPacket[]>('SELECT id FROM files WHERE uid=?', [uid])
+  if (!rows[0]) throw new ApiError(422, 'File tidak ditemukan.')
+  return Number(rows[0].id)
+}
+function documentValues(input: z.infer<typeof documentInput>, fileId: number) {
+  return [input.documentType, empty(input.documentNumber), input.name, fileId,
+    empty(input.issuedDate), empty(input.expiryDate), input.status, empty(input.notes)]
+}
 employeesRouter.post(
   '/:uid/documents',
   requirePermission('documents.manage'),
   async (req, res, next) => {
+    let conn: PoolConnection | undefined
     try {
-      const input = documentInput.parse(req.body)
+      const input = documentCreateInput.parse(req.body)
       const auth = res.locals.auth as AuthContext
-      const employee = await employeeAccess(routeParam(req.params.uid), auth)
-      const uid = randomUUID()
-      await pool.execute(
-        'INSERT INTO employee_documents(uid,employee_id,document_type,document_number,name,file_id,issued_date,expiry_date,status,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
-        [
-          uid,
-          employee.id,
-          input.documentType,
-          empty(input.documentNumber),
-          input.name,
-          await fileId(input.fileUid),
-          empty(input.issuedDate),
-          empty(input.expiryDate),
-          input.status,
-          empty(input.notes),
-          auth.id,
-          auth.id,
-        ]
+      conn = await pool.getConnection()
+      await conn.beginTransaction()
+      const employee = await documentEmployee(conn, auth, routeParam(req.params.uid))
+      // The existing unique public UID also acts as the creation operation key.
+      const uid = input.idempotencyKey ?? randomUUID()
+      const [existing] = await conn.query<RowDataPacket[]>(
+        `SELECT employee_id employeeId,document_type documentType,document_number documentNumber,
+          name,file_id fileId,DATE_FORMAT(issued_date,'%Y-%m-%d') issuedDate,
+          DATE_FORMAT(expiry_date,'%Y-%m-%d') expiryDate,status,notes
+         FROM employee_documents WHERE uid=? FOR UPDATE`, [uid]
       )
-      await writeAudit({
-        auth,
-        request: req,
-        siteId: employee.siteId,
-        action: 'CREATE',
-        table: 'employee_documents',
-        recordUid: uid,
-        description: `Menambah dokumen ${input.name}.`,
-      })
+      const values = documentValues(input, await documentFileId(conn, input.fileUid))
+      if (existing[0]) {
+        const row = existing[0]
+        const stored = [row.documentType, row.documentNumber, row.name, Number(row.fileId),
+          row.issuedDate, row.expiryDate, row.status, row.notes]
+        if (Number(row.employeeId) !== Number(employee.id) || JSON.stringify(stored) !== JSON.stringify(values)) {
+          throw new ApiError(409, 'Kunci penyimpanan dokumen sudah digunakan untuk data berbeda. Muat ulang dokumen yang tersimpan sebelum mengubahnya.')
+        }
+        await conn.commit()
+        res.status(200).json({ uid })
+        return
+      }
+      await conn.execute(
+        'INSERT INTO employee_documents(uid,employee_id,document_type,document_number,name,file_id,issued_date,expiry_date,status,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+        [uid, employee.id, ...values, auth.id, auth.id]
+      )
+      await writeAudit({ auth, request: req, siteId: employee.siteId, action: 'CREATE',
+        table: 'employee_documents', recordUid: uid, description: `Menambah dokumen ${input.name}.`,
+      }, conn)
+      await conn.commit()
       res.status(201).json({ uid })
     } catch (error) {
+      if (conn) await conn.rollback()
       next(error)
-    }
+    } finally { conn?.release() }
   }
 )
 employeesRouter.patch(
   '/documents/:documentUid',
   requirePermission('documents.manage'),
   async (req, res, next) => {
+    let conn: PoolConnection | undefined
     try {
       const input = documentInput.parse(req.body)
       const auth = res.locals.auth as AuthContext
       const documentUid = routeParam(req.params.documentUid)
-      const [rows] = await pool.query<RowDataPacket[]>(
-        'SELECT d.id,s.id siteId,s.code site FROM employee_documents d JOIN employees e ON e.id=d.employee_id JOIN sites s ON s.id=e.current_site_id WHERE d.uid=?',
-        [documentUid]
+      conn = await pool.getConnection()
+      await conn.beginTransaction()
+      const [owners] = await conn.query<RowDataPacket[]>(
+        'SELECT e.uid FROM employees e WHERE e.id=(SELECT employee_id FROM employee_documents WHERE uid=?)', [documentUid]
+      )
+      if (!owners[0]) throw new ApiError(404, 'Dokumen tidak ditemukan.')
+      const employee = await documentEmployee(conn, auth, String(owners[0].uid))
+      const [rows] = await conn.query<RowDataPacket[]>(
+        'SELECT id FROM employee_documents WHERE uid=? AND employee_id=? FOR UPDATE', [documentUid, employee.id]
       )
       if (!rows[0]) throw new ApiError(404, 'Dokumen tidak ditemukan.')
-      enforceSite(auth, rows[0].site)
-      await pool.execute(
+      const values = documentValues(input, await documentFileId(conn, input.fileUid))
+      await conn.execute(
         'UPDATE employee_documents SET document_type=?,document_number=?,name=?,file_id=?,issued_date=?,expiry_date=?,status=?,notes=?,updated_by=? WHERE id=?',
-        [
-          input.documentType,
-          empty(input.documentNumber),
-          input.name,
-          await fileId(input.fileUid),
-          empty(input.issuedDate),
-          empty(input.expiryDate),
-          input.status,
-          empty(input.notes),
-          auth.id,
-          rows[0].id,
-        ]
+        [...values, auth.id, rows[0].id]
       )
-      await writeAudit({
-        auth,
-        request: req,
-        siteId: rows[0].siteId,
-        action: 'UPDATE',
-        table: 'employee_documents',
-        recordId: rows[0].id,
-        recordUid: documentUid,
+      await writeAudit({ auth, request: req, siteId: employee.siteId, action: 'UPDATE',
+        table: 'employee_documents', recordId: rows[0].id, recordUid: documentUid,
         description: `Memperbarui dokumen ${input.name}.`,
-      })
+      }, conn)
+      await conn.commit()
       res.status(204).end()
     } catch (error) {
+      if (conn) await conn.rollback()
       next(error)
-    }
+    } finally { conn?.release() }
   }
 )
 

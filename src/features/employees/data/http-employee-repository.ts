@@ -187,8 +187,12 @@ export const httpEmployeeRepository: EmployeeRepository = {
       )
     ).data
   },
-  async saveDocument(input, uid) {
-    const body = { ...input, fileUid: input.file.uid }
+  async saveDocument(input, uid, idempotencyKey) {
+    const body = {
+      ...input,
+      fileUid: input.file.uid,
+      ...(!uid && { idempotencyKey: idempotencyKey ?? crypto.randomUUID() }),
+    }
     if (uid) {
       await apiClient.patch(`/employees/documents/${uid}`, body)
       return { ...input, uid }

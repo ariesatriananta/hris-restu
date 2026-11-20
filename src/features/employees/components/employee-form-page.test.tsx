@@ -3,8 +3,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { apiClient } from '@/lib/api-client'
-import type { EmployeeInput } from '../domain'
+import type { EmployeeDocument, EmployeeInput } from '../domain'
 import { EmployeeFormPage } from './employee-form-page'
+import type { EmployeeFiles } from './employee-registration-save'
 
 const { navigate } = vi.hoisted(() => ({ navigate: vi.fn() }))
 vi.mock('@tanstack/react-router', async (original) => ({
@@ -25,30 +26,146 @@ const files = {
   nationalId: new File(['test'], 'test-ktp.jpg', { type: 'image/jpeg' }),
   familyCard: new File(['test'], 'test-kk.jpg', { type: 'image/jpeg' }),
 }
+let submittedInput = input
+let submittedFiles: EmployeeFiles = files
 vi.mock('@/features/employees/components/employee-form', () => ({
   EmployeeForm: ({
     onSubmit,
     isPending,
     submitLabel,
   }: {
-    onSubmit: (
-      input: EmployeeInput,
-      files: { nationalId: File; familyCard: File }
-    ) => Promise<void>
+    onSubmit: (input: EmployeeInput, files: EmployeeFiles) => Promise<void>
     isPending: boolean
     submitLabel?: string
   }) => (
     <button
       disabled={isPending}
       onClick={() => {
-        void onSubmit(input, files).catch(() => undefined)
+        void onSubmit(submittedInput, submittedFiles).catch(() => undefined)
       }}
     >
       {submitLabel ?? 'Simpan formulir uji'}
     </button>
   ),
 }))
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  submittedInput = input
+  submittedFiles = files
+})
+
+const activeDocument: EmployeeDocument = {
+  uid: 'active-ktp',
+  employeeUid: 'existing-employee',
+  documentType: 'KTP',
+  documentNumber: 'OLD-ID',
+  name: 'CUSTOM KTP',
+  status: 'ACTIVE',
+  notes: 'PRESERVE',
+  file: {
+    uid: 'stored-file',
+    originalName: 'stored.pdf',
+    mimeType: 'application/pdf',
+    sizeBytes: 100,
+  },
+}
+function editSetup(documents: EmployeeDocument[]) {
+  const employee = {
+    ...input,
+    nationalIdNumber: 'OLD-ID',
+    uid: 'existing-employee',
+    employeeNumber: 'TEST-001',
+    barcode: 'TEST-001',
+  }
+  vi.spyOn(apiClient, 'get').mockImplementation(async (url) => ({
+    data: url.endsWith('/documents') ? documents : employee,
+  }))
+  const patch = vi.spyOn(apiClient, 'patch').mockResolvedValue({ status: 204 })
+  const post = vi.spyOn(apiClient, 'post').mockResolvedValue({ data: {} })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  navigate.mockReset()
+  return { patch, post, client }
+}
+
+it('edit without a new file updates only the active identity document after archived rows', async () => {
+  submittedInput = { ...input, nationalIdNumber: 'NEW-ID' }
+  submittedFiles = {}
+  const { patch, post, client } = editSetup([
+    { ...activeDocument, uid: 'archived-ktp', status: 'ARCHIVED' },
+    activeDocument,
+  ])
+  const screen = await render(
+    <QueryClientProvider client={client}>
+      <EmployeeFormPage employeeUid='existing-employee' />
+    </QueryClientProvider>
+  )
+  await screen.getByRole('button', { name: 'Simpan formulir uji' }).click()
+  await expect.poll(() => navigate.mock.calls.length).toBe(1)
+  expect(patch).toHaveBeenCalledWith(
+    '/employees/documents/active-ktp',
+    expect.objectContaining({
+      documentNumber: 'NEW-ID',
+      fileUid: 'stored-file',
+      name: 'CUSTOM KTP',
+      notes: 'PRESERVE',
+    })
+  )
+  expect(patch.mock.calls.some(([url]) => url.includes('archived-ktp'))).toBe(
+    false
+  )
+  expect(post).not.toHaveBeenCalled()
+  client.clear()
+})
+
+it('blocks ambiguous active KTP changes before saving profile or any document', async () => {
+  submittedInput = { ...input, nationalIdNumber: 'NEW-ID' }
+  submittedFiles = {}
+  const { patch, post, client } = editSetup([
+    activeDocument,
+    { ...activeDocument, uid: 'duplicate-ktp' },
+  ])
+  const screen = await render(
+    <QueryClientProvider client={client}>
+      <EmployeeFormPage employeeUid='existing-employee' />
+    </QueryClientProvider>
+  )
+  await expect
+    .element(screen.getByRole('alert'))
+    .toHaveTextContent('lebih dari satu dokumen KTP aktif')
+  await screen.getByRole('button', { name: 'Simpan formulir uji' }).click()
+  expect(patch).not.toHaveBeenCalled()
+  expect(post).not.toHaveBeenCalled()
+  expect(navigate).not.toHaveBeenCalled()
+  client.clear()
+})
+
+it('allows unrelated profile changes when active identity documents are ambiguous', async () => {
+  submittedInput = {
+    ...input,
+    fullName: 'UPDATED NAME',
+    nationalIdNumber: 'OLD-ID',
+  }
+  submittedFiles = {}
+  const { patch, client } = editSetup([
+    activeDocument,
+    { ...activeDocument, uid: 'duplicate-ktp' },
+  ])
+  const screen = await render(
+    <QueryClientProvider client={client}>
+      <EmployeeFormPage employeeUid='existing-employee' />
+    </QueryClientProvider>
+  )
+  await screen.getByRole('button', { name: 'Simpan formulir uji' }).click()
+  await expect.poll(() => navigate.mock.calls.length).toBe(1)
+  expect(patch).toHaveBeenCalledTimes(1)
+  expect(patch).toHaveBeenCalledWith(
+    '/employees/existing-employee',
+    expect.objectContaining({ fullName: 'UPDATED NAME' })
+  )
+  client.clear()
+})
 
 it('keeps the created employee and completed KTP when the user retries a failed KK from the page', async () => {
   navigate.mockReset()

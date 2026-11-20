@@ -580,10 +580,12 @@ export function useSaveDocument() {
     mutationFn: ({
       input,
       uid,
+      idempotencyKey,
     }: {
       input: Omit<EmployeeDocument, 'uid'>
       uid?: string
-    }) => httpEmployeeRepository.saveDocument(input, uid),
+      idempotencyKey?: string
+    }) => httpEmployeeRepository.saveDocument(input, uid, idempotencyKey),
     onSuccess: () => invalidate(queryClient),
   })
 }

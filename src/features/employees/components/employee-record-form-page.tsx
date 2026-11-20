@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useRef,
   useState,
   type ReactNode,
   type SelectHTMLAttributes,
@@ -488,6 +489,11 @@ function DocumentForm({
   onSaved: () => void
 }) {
   const save = useSaveDocument()
+  const [creationKey] = useState(() => crypto.randomUUID())
+  const uploaded = useRef<
+    | { file: File; employeeUid: string; attachment: EmployeeDocument['file'] }
+    | undefined
+  >(undefined)
   const [file, setFile] = useState<File>()
   const form = useForm<DocumentValues>({
     resolver: zodResolver(documentSchema),
@@ -510,34 +516,54 @@ function DocumentForm({
   const expiryDate = useWatch({ control: form.control, name: 'expiryDate' })
   const { confirmation } = useUnsavedChanges(form.formState.isDirty)
   const submit = async (value: DocumentValues) => {
-    const attachment = file
-      ? await uploadEmployeeFile(file, value.employeeUid)
-      : record?.file
-    if (!attachment) {
-      form.setError('root', { message: 'File dokumen wajib dipilih.' })
-      return
+    form.clearErrors('root')
+    try {
+      if (
+        file &&
+        (uploaded.current?.file !== file ||
+          uploaded.current.employeeUid !== value.employeeUid)
+      ) {
+        uploaded.current = {
+          file,
+          employeeUid: value.employeeUid,
+          attachment: await uploadEmployeeFile(file, value.employeeUid),
+        }
+      }
+      const attachment = file ? uploaded.current?.attachment : record?.file
+      if (!attachment) {
+        form.setError('root', { message: 'File dokumen wajib dipilih.' })
+        return
+      }
+      await save.mutateAsync({
+        uid: record?.uid,
+        idempotencyKey: record ? undefined : creationKey,
+        input: {
+          ...value,
+          documentNumber: value.documentNumber || undefined,
+          issuedDate: value.issuedDate || undefined,
+          expiryDate: value.expiryDate || undefined,
+          notes: value.notes || undefined,
+          file: attachment,
+        },
+      })
+      toast.success(record ? 'Dokumen diperbarui.' : 'Dokumen ditambahkan.')
+      form.reset(value)
+      onSaved()
+    } catch (error) {
+      form.setError('root', {
+        message: apiMessage(
+          error,
+          'Dokumen belum dapat disimpan. Coba kembali untuk melanjutkan penyimpanan.'
+        ),
+      })
     }
-    await save.mutateAsync({
-      uid: record?.uid,
-      input: {
-        ...value,
-        documentNumber: value.documentNumber || undefined,
-        issuedDate: value.issuedDate || undefined,
-        expiryDate: value.expiryDate || undefined,
-        notes: value.notes || undefined,
-        file: attachment,
-      },
-    })
-    toast.success(record ? 'Dokumen diperbarui.' : 'Dokumen ditambahkan.')
-    form.reset(value)
-    onSaved()
   }
   return (
     <RecordLayout
       title={record ? 'Ubah dokumen' : 'Tambah dokumen'}
       description='Kelola metadata dan file dokumen karyawan.'
       formId='document-form'
-      pending={save.isPending}
+      pending={save.isPending || form.formState.isSubmitting}
       submitLabel='Simpan dokumen'
       onCancel={onBack}
       confirmation={confirmation}
@@ -545,7 +571,9 @@ function DocumentForm({
       <form
         id='document-form'
         className='grid gap-4 pb-24 sm:grid-cols-2'
-        onSubmit={form.handleSubmit(submit)}
+        onSubmit={(event) => {
+          void form.handleSubmit(submit)(event)
+        }}
       >
         <EmployeePicker
           value={selectedEmployeeUid}

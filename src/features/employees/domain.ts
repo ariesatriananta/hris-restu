@@ -662,7 +662,8 @@ export interface EmployeeRepository {
   documents(employeeUid?: string): Promise<EmployeeDocument[]>
   saveDocument(
     input: Omit<EmployeeDocument, 'uid'>,
-    uid?: string
+    uid?: string,
+    idempotencyKey?: string
   ): Promise<EmployeeDocument>
   reset(): Promise<void>
 }
