@@ -63,6 +63,19 @@ const validDate = (value: string) =>
   format(parseISO(value), 'yyyy-MM-dd') === value &&
   value >= '1000-01-15'
 
+const categorySurface = (category: Category) =>
+  category === 'REGULER'
+    ? 'border-positive bg-card'
+    : category === 'PREMIUM'
+      ? 'border-warning bg-card'
+      : 'border-primary bg-card'
+const categoryText = (category: Category) =>
+  category === 'REGULER'
+    ? 'text-[color-mix(in_srgb,var(--positive)_80%,var(--foreground))] dark:text-positive'
+    : category === 'PREMIUM'
+      ? 'text-amber-600 dark:text-warning'
+      : 'text-primary'
+
 function GroupCard({ group }: { group: AttendanceRateGroup }) {
   const Icon = group.employeeType === 'TRAINING' ? GraduationCap : Users
   return (
@@ -74,8 +87,8 @@ function GroupCard({ group }: { group: AttendanceRateGroup }) {
         className={cn(
           'flex items-center justify-between gap-2 border-b px-3 py-2.5',
           group.category === 'REGULER'
-            ? 'border-positive/40 bg-positive/5'
-            : 'border-primary/30 bg-primary/5'
+            ? 'border-positive bg-positive/5'
+            : 'border-warning bg-warning/5'
         )}
       >
         <h2 className='flex min-w-0 items-center gap-1.5 text-xs font-semibold'>
@@ -84,7 +97,13 @@ function GroupCard({ group }: { group: AttendanceRateGroup }) {
         </h2>
         <Badge
           variant='outline'
-          className='shrink-0 px-1.5 text-[10px] font-normal'
+          className={cn(
+            'shrink-0 px-1.5 text-[10px] font-normal',
+            group.category === 'REGULER'
+              ? 'border-positive/60 bg-positive/10'
+              : 'border-warning/60 bg-warning/10',
+            categoryText(group.category)
+          )}
         >
           Rate{' '}
           {group.ratePercent === null
@@ -137,13 +156,11 @@ function AverageCard({ average }: { average: AttendanceRateAverage }) {
     <div
       className={cn(
         'rounded-lg border px-2 py-2.5 text-center',
-        average.category === 'REGULER'
-          ? 'border-positive/40'
-          : 'border-primary/30'
+        categorySurface(average.category)
       )}
       title={`${number(average.quantityPcs, 2)} PCS / ${number(average.presentDays)} hari-orang hadir; ${number(average.transactions)} setoran`}
     >
-      <p className='text-[11px] text-muted-foreground'>
+      <p className={cn('text-[11px]', categoryText(average.category))}>
         AVG {typeName(average.employeeType)} {categoryName(average.category)}
       </p>
       <p
@@ -151,7 +168,7 @@ function AverageCard({ average }: { average: AttendanceRateAverage }) {
           'mt-1 font-semibold tabular-nums',
           average.averagePcs === null
             ? 'text-base text-muted-foreground'
-            : 'text-lg text-primary'
+            : cn('text-lg', categoryText(average.category))
         )}
       >
         {average.averagePcs === null ? '—' : number(average.averagePcs, 2)}
@@ -174,18 +191,11 @@ export function AttendanceRateReportView({
       className='mx-auto w-full max-w-7xl space-y-3'
       data-testid='attendance-rate-report'
     >
-      <div className='rounded-lg bg-gradient-to-r from-primary to-primary/80 px-4 py-3 text-center text-primary-foreground'>
+      <div className='rounded-lg bg-gradient-to-r from-blue-800 to-amber-900 px-4 py-3 text-center text-white dark:from-blue-950 dark:to-amber-950'>
         <h1 className='text-lg font-semibold'>Monitoring Attendance Rate</h1>
         <p className='mt-0.5 text-xs opacity-90'>
           {report.site.name} · {dateLabel(report.date)}
         </p>
-      </div>
-      <div className='flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border bg-muted/40 px-3 py-2 text-[11px]'>
-        <span>Hadir / roster · Training & Borong · Termasuk hari libur</span>
-        <span className='font-medium'>
-          Sumber AVG: {dateLabel(report.referenceWeek.from)} –{' '}
-          {dateLabel(report.referenceWeek.to)}
-        </span>
       </div>
       {(report.warnings.length > 0 || unmapped > 0) && (
         <details className='rounded-lg border border-warning/50 bg-warning/5 px-3 py-2 text-xs'>
@@ -226,10 +236,10 @@ export function AttendanceRateReportView({
             className={cn(
               'rounded-lg border px-3 py-2.5 text-center',
               total.employeeType === 'TRAINING'
-                ? 'border-warning/50'
+                ? categorySurface('PREMIUM')
                 : total.employeeType === 'BORONGAN'
-                  ? 'border-positive/50'
-                  : 'border-primary/40'
+                  ? categorySurface('REGULER')
+                  : categorySurface('TOTAL')
             )}
             aria-label={`${typeName(total.employeeType)} Rate`}
           >
@@ -240,9 +250,13 @@ export function AttendanceRateReportView({
             <p
               className={cn(
                 'my-1 text-2xl font-bold tabular-nums',
-                total.employeeType === 'BORONGAN'
-                  ? 'text-positive'
-                  : 'text-primary'
+                categoryText(
+                  total.employeeType === 'TRAINING'
+                    ? 'PREMIUM'
+                    : total.employeeType === 'BORONGAN'
+                      ? 'REGULER'
+                      : 'TOTAL'
+                )
               )}
             >
               {total.ratePercent === null
@@ -256,7 +270,10 @@ export function AttendanceRateReportView({
         ))}
       </div>
       <section aria-label='Rata-rata hasil Linting'>
-        <h2 className='mb-1.5 text-xs font-semibold'>
+        <h2
+          className='mb-1.5 text-xs font-semibold'
+          title={`Sumber AVG: ${dateLabel(report.referenceWeek.from)} - ${dateLabel(report.referenceWeek.to)}`}
+        >
           Rata-rata Linting{' '}
           <span className='font-normal text-muted-foreground'>
             · minggu sumber
@@ -277,9 +294,21 @@ export function AttendanceRateReportView({
         {report.estimates.map((estimate) => (
           <section
             key={estimate.job.code}
-            className='rounded-lg border border-primary/30 p-2.5'
+            className={cn(
+              'rounded-lg border bg-card p-2.5',
+              estimate.job.code === 'BORONGAN-LINTING'
+                ? 'border-purple-500 dark:border-purple-400'
+                : 'border-warning'
+            )}
           >
-            <h2 className='mb-2 flex items-center justify-center gap-1.5 text-xs font-semibold text-primary'>
+            <h2
+              className={cn(
+                'mb-2 flex items-center justify-center gap-1.5 text-xs font-semibold',
+                estimate.job.code === 'BORONGAN-LINTING'
+                  ? 'text-purple-600 dark:text-purple-400'
+                  : 'text-amber-600 dark:text-warning'
+              )}
+            >
               <Boxes className='size-4' />
               Estimasi Box {estimate.job.name}
             </h2>
@@ -289,9 +318,13 @@ export function AttendanceRateReportView({
                   key={item.category}
                   className={cn(
                     'rounded-md border px-1.5 py-2 text-center',
-                    item.category === 'TOTAL'
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'bg-muted/40'
+                    estimate.job.code === 'BORONGAN-LINTING'
+                      ? item.category === 'TOTAL'
+                        ? 'border-purple-600 bg-purple-600 text-white dark:border-purple-700 dark:bg-purple-700'
+                        : 'border-purple-400 bg-purple-50 dark:border-purple-500 dark:bg-purple-500/10'
+                      : item.category === 'TOTAL'
+                        ? 'border-amber-600 bg-amber-600 text-white dark:border-amber-700 dark:bg-amber-700'
+                        : 'border-warning bg-warning/10'
                   )}
                   title={`Estimasi memakai AVG ${estimate.job.name} sendiri, terpisah untuk Training dan Borong.`}
                 >
@@ -403,17 +436,67 @@ function AttendanceRateBody({
   }
   return (
     <Main className='space-y-4'>
-      <div className='flex flex-wrap items-start justify-between gap-3'>
+      <div className='flex flex-wrap items-center justify-between gap-3'>
         <div>
           <h1 className='text-2xl font-bold tracking-tight'>Attendance Rate</h1>
           <p className='mt-1 text-sm text-muted-foreground'>
             Kehadiran dan estimasi kapasitas produksi harian per site.
           </p>
         </div>
-        <div className='flex gap-2'>
+        <div
+          className='grid w-full grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap lg:w-auto'
+          data-testid='attendance-rate-toolbar'
+        >
+          <div className='min-w-0 sm:w-44 sm:flex-none'>
+            <Label className='sr-only' htmlFor='attendance-rate-site'>
+              Site
+            </Label>
+            <Select
+              value={site ?? ''}
+              onValueChange={(next) => update({ site: next })}
+              disabled={
+                !sites.length ||
+                (sites.length === 1 && sites[0].code === site) ||
+                options.isError
+              }
+            >
+              <SelectTrigger id='attendance-rate-site' className='h-9 w-full'>
+                <SelectValue placeholder='Pilih site' />
+              </SelectTrigger>
+              <SelectContent>
+                {sites.map((item) => (
+                  <SelectItem key={item.uid} value={item.code}>
+                    {item.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className='min-w-0 sm:w-44 sm:flex-none'>
+            <Label className='sr-only' htmlFor='attendance-rate-date'>
+              Tanggal
+            </Label>
+            <DatePicker
+              id='attendance-rate-date'
+              triggerClassName='h-9 text-xs sm:text-sm'
+              selected={date && validDate(date) ? parseISO(date) : undefined}
+              disabled={!options.data || options.isError}
+              disabledDates={(value) => {
+                const day = format(value, 'yyyy-MM-dd')
+                return (
+                  day < '1000-01-15' || day > (options.data?.serverToday ?? '')
+                )
+              }}
+              onSelect={(value) => {
+                if (value) update({ date: format(value, 'yyyy-MM-dd') })
+              }}
+            />
+          </div>
+
           <Button
             variant='outline'
             size='sm'
+            className='h-9'
             onClick={refresh}
             disabled={refreshing}
           >
@@ -423,54 +506,13 @@ function AttendanceRateBody({
           <Button
             variant='outline'
             size='sm'
+            className='h-9'
             disabled={!current}
             onClick={() => setScreenshot(true)}
           >
             <Camera className='size-4' />
             Mode Screenshot
           </Button>
-        </div>
-      </div>
-      <div className='flex flex-wrap gap-3'>
-        <div className='w-full space-y-1 sm:w-56'>
-          <Label htmlFor='attendance-rate-site'>Site</Label>
-          <Select
-            value={site ?? ''}
-            onValueChange={(next) => update({ site: next })}
-            disabled={
-              !sites.length ||
-              (sites.length === 1 && sites[0].code === site) ||
-              options.isError
-            }
-          >
-            <SelectTrigger id='attendance-rate-site' className='w-full'>
-              <SelectValue placeholder='Pilih site' />
-            </SelectTrigger>
-            <SelectContent>
-              {sites.map((item) => (
-                <SelectItem key={item.uid} value={item.code}>
-                  {item.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className='w-full space-y-1 sm:w-56'>
-          <Label htmlFor='attendance-rate-date'>Tanggal</Label>
-          <DatePicker
-            id='attendance-rate-date'
-            selected={date && validDate(date) ? parseISO(date) : undefined}
-            disabled={!options.data || options.isError}
-            disabledDates={(value) => {
-              const day = format(value, 'yyyy-MM-dd')
-              return (
-                day < '1000-01-15' || day > (options.data?.serverToday ?? '')
-              )
-            }}
-            onSelect={(value) => {
-              if (value) update({ date: format(value, 'yyyy-MM-dd') })
-            }}
-          />
         </div>
       </div>
       {options.isError || report.isError ? (

@@ -152,7 +152,28 @@ describe('Attendance Rate operational dashboard', () => {
       .toHaveTextContent('Site Klaten')
     await expect
       .element(screen.getByTestId('attendance-rate-report'))
-      .toHaveTextContent('9 November 2026 – 15 November 2026')
+      .not.toHaveTextContent('9 November 2026 – 15 November 2026')
+    await expect
+      .element(screen.getByTestId('attendance-rate-report'))
+      .not.toHaveTextContent('Hadir / roster')
+    const siteBounds = screen
+      .getByRole('combobox', { name: 'Site', exact: true })
+      .element()
+      .getBoundingClientRect()
+    const dateBounds = document
+      .getElementById('attendance-rate-date')!
+      .getBoundingClientRect()
+    const refreshBounds = screen
+      .getByRole('button', { name: 'Refresh', exact: true })
+      .element()
+      .getBoundingClientRect()
+    expect(siteBounds.y).toBe(dateBounds.y)
+    expect(dateBounds.y).toBe(refreshBounds.y)
+    expect(siteBounds.right).toBeLessThanOrEqual(dateBounds.left)
+    expect(dateBounds.right).toBeLessThanOrEqual(refreshBounds.left)
+    expect(siteBounds.height).toBe(36)
+    expect(dateBounds.height).toBe(36)
+    expect(refreshBounds.height).toBe(36)
     expect(
       screen
         .getByTestId('attendance-rate-report')
@@ -323,12 +344,38 @@ describe('Attendance Rate operational dashboard', () => {
     await page.screenshot({
       path: '../../../artifacts/attendance-rate/desktop.png',
     })
+    document.documentElement.classList.add('dark')
+    await page.screenshot({
+      path: '../../../artifacts/attendance-rate/desktop-dark.png',
+    })
+    document.documentElement.classList.remove('dark')
     await userEvent.keyboard('{Escape}')
     await expect.element(screen.getByRole('dialog')).not.toBeInTheDocument()
     await page.viewport(375, 812)
-    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(375)
+    await expect
+      .poll(() => document.documentElement.scrollWidth)
+      .toBeLessThanOrEqual(375)
+    const mobileSite = screen
+      .getByRole('combobox', { name: 'Site', exact: true })
+      .element()
+      .getBoundingClientRect()
+    const mobileDate = document
+      .getElementById('attendance-rate-date')!
+      .getBoundingClientRect()
+    const mobileRefresh = screen
+      .getByRole('button', { name: 'Refresh', exact: true })
+      .element()
+      .getBoundingClientRect()
+    expect(mobileSite.width).toBeGreaterThan(100)
+    expect(mobileSite.y).toBe(mobileDate.y)
+    expect(mobileRefresh.y).toBeGreaterThanOrEqual(mobileDate.bottom)
     await page.screenshot({
       path: '../../../artifacts/attendance-rate/mobile.png',
     })
+    document.documentElement.classList.add('dark')
+    await page.screenshot({
+      path: '../../../artifacts/attendance-rate/mobile-dark.png',
+    })
+    document.documentElement.classList.remove('dark')
   })
 })
