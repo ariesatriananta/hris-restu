@@ -80,7 +80,7 @@ export interface Employee {
   productionSectionUid?: string
   productionSectionCode?: string
   productionSection?: string
-  joinDate: string
+  joinDate: string | null
   joinDateTraining?: string
   joinDateBorong?: string
   permanentDate?: string
@@ -351,6 +351,7 @@ export interface EmployeeInput extends Omit<
   | 'productionSection'
 > {
   photo?: MockFileAttachment
+  joinDate: string
   productionModuleSectionUid?: string
   educationLevel: EducationLevel
 }

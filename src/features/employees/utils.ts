@@ -1,4 +1,4 @@
-export const formatDate = (value?: string) => {
+export const formatDate = (value?: string | null) => {
   if (!value) return '—'
 
   // MySQL DATE dapat sampai sebagai YYYY-MM-DD atau ISO datetime dari API.
@@ -38,6 +38,7 @@ export const statusLabel = (value: string) =>
     HARIAN: 'Harian',
     BULANAN: 'Bulanan',
     TRAINING: 'Training',
+    LEGACY_UNKNOWN: '-',
     JEPARA: 'Jepara',
     SEMARANG: 'Semarang',
     KLATEN: 'Klaten',

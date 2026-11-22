@@ -1168,7 +1168,9 @@ function BatchContractTableRow({
       <TableCell className='py-1 align-top'>
         <DatePicker
           selected={dateFromInput(row.input.startDate)}
-          disabledDates={(date) => dateToInput(date) < row.employee.joinDate}
+          disabledDates={(date) =>
+            Boolean(row.employee.joinDate && dateToInput(date) < row.employee.joinDate)
+          }
           onSelect={(date) => onChange({ startDate: dateToInput(date) })}
           triggerClassName='h-8 px-2 text-xs'
         />

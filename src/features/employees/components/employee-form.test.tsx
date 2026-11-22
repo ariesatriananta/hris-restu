@@ -13,6 +13,32 @@ vi.mock('@/hooks/use-unsaved-changes', () => ({
 }))
 
 describe('EmployeeForm', () => {
+  it('tetap menolak tanggal kosong pada arsip legacy tanpa mengarang tanggal', async () => {
+    const onSubmit = vi.fn()
+    const employee = {
+      uid: 'ca0a0392-71e3-4c52-af44-0c83c8296ee1',
+      employeeNumber: 'LEG-KLT-000001',
+      barcode: 'LEG-KLT-000001',
+      fullName: 'Arsip Fiktif',
+      employeeType: 'TRAINING',
+      employeeStatus: 'INACTIVE',
+      site: 'KLATEN',
+      joinDate: null,
+      gender: 'MALE',
+      educationLevel: 'SENIOR_SECONDARY',
+    } satisfies Employee
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const screen = await render(
+      <QueryClientProvider client={client}>
+        <EmployeeForm employee={employee} onSubmit={onSubmit} onCancel={() => {}} disableLookupQuery />
+      </QueryClientProvider>
+    )
+    await expect.element(screen.getByLabelText('Tanggal bergabung')).toHaveValue('')
+    await userEvent.click(screen.getByRole('button', { name: 'Simpan perubahan' }))
+    await expect.element(screen.getByText('Tanggal bergabung wajib diisi.')).toBeVisible()
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
   it('mengirim field pribadi opsional melalui schema Zod', async () => {
     const onSubmit = vi.fn()
     const employee = {

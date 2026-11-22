@@ -500,7 +500,7 @@ CREATE TABLE employees (
   tax_number VARCHAR(30) NULL,
   bpjs_health_number VARCHAR(30) NULL,
   bpjs_employment_number VARCHAR(30) NULL,
-  join_date DATE NOT NULL,
+  join_date DATE NULL DEFAULT NULL COMMENT 'NULL only for owner-imported legacy archives with unknown join date; normal registration requires a date.',
   join_date_training DATE NULL,
   join_date_borong DATE NULL,
   permanent_date DATE NULL,
@@ -529,7 +529,8 @@ CREATE TABLE employees (
   CONSTRAINT chk_employees_marital CHECK (marital_status IS NULL OR marital_status IN ('SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED', 'BELUM_KAWIN', 'KAWIN', 'CERAI_HIDUP', 'CERAI_MATI')),
   CONSTRAINT chk_employees_education_level CHECK (education_level IS NULL OR education_level IN ('NO_SCHOOLING','NOT_COMPLETED_PRIMARY','PRIMARY','JUNIOR_SECONDARY','SENIOR_SECONDARY','DIPLOMA_I_II','DIPLOMA_III','DIPLOMA_IV_BACHELOR','MASTER','DOCTORATE')),
   CONSTRAINT chk_employees_rtrw CHECK (rtrw IS NULL OR rtrw REGEXP '^[0-9]{3}/[0-9]{3}$'),
-  CONSTRAINT chk_employees_training_join_date CHECK (join_date_training IS NULL OR join_date_training >= join_date),
+  CONSTRAINT chk_employees_training_join_date CHECK (join_date_training IS NULL OR join_date_training >= join_date OR (join_date_borong IS NOT NULL AND join_date_borong=join_date)),
+  CONSTRAINT chk_employees_join_phase_order CHECK (join_date_training IS NULL OR join_date_borong IS NULL OR join_date_training<=join_date_borong),
   CONSTRAINT chk_employees_borong_join_date CHECK (join_date_borong IS NULL OR join_date_borong >= join_date),
   CONSTRAINT chk_employees_dates CHECK (resign_date IS NULL OR resign_date >= join_date),
   CONSTRAINT fk_employees_type FOREIGN KEY (employee_type_id) REFERENCES employee_types (id) ON UPDATE CASCADE ON DELETE RESTRICT,
@@ -2856,6 +2857,10 @@ VALUES
   (UUID(), 'HARIAN', 'Karyawan Harian', 'TIME_BASED', 'WEEKLY', 'Karyawan dengan tarif harian berdasarkan Attendance PRESENT.'),
   (UUID(), 'BULANAN', 'Karyawan Bulanan', 'TIME_BASED', 'MONTHLY', 'Staff/non-produksi yang dibayar bulanan dan dapat menggunakan aturan shift.'),
   (UUID(), 'TRAINING', 'Pekerja Training', 'TIME_BASED', 'WEEKLY', 'Pekerja masa pelatihan dengan tarif harian; hasil Produksi hanya untuk monitoring.');
+
+-- Reserved import-only archive type. Never expose in operational selectors.
+INSERT INTO employee_types(uid,code,name,payroll_basis,pay_frequency,is_active,description)
+VALUES(UUID(),'LEGACY_UNKNOWN','-','TIME_BASED','WEEKLY',0,'Khusus arsip legacy import Owner; jenis sumber kosong.');
 
 INSERT INTO payroll_policy_versions(
   uid,site_id,employee_type_code,wage_basis,pay_frequency,cutoff_type,

@@ -9,6 +9,20 @@ EMPLOYEE_BATCH_DELETE.md, dan cleanup di routes/employees.ts.
 
 ## Keputusan lanjutan Owner
 
+- Persiapan import legacy: hanya kolom B Excel menjadi sumber Employee ID;
+  kolom AQ diabaikan. ID kosong direncanakan memakai nomor khusus LEG-KLT,
+  tanpa mengambil sequence registrasi normal. Mapping/import belum dieksekusi.
+- Join date Borong mengikuti tanggal borong; Training mengikuti tanggal training.
+  Dua tanggal sumber tetap dipertahankan. Untuk arsip legacy nonaktif/resign
+  yang tidak memiliki tanggal, Owner menyetujui NULL, tanpa tanggal rekaan.
+  Migration: `db/migrations/20261122_employee_legacy_nullable_join_date.sql`.
+  Validasi tanggal wajib pada UI/API biasa tetap berlaku; unknown date ditampilkan
+  sebagai tanda kosong. Sequence join_date tetap NOT NULL. Migration disiapkan,
+  bukan dieksekusi oleh agen. Master LEGACY_UNKNOWN dan SQL import disiapkan
+  terpisah setelah audit mapping; pengecualian nullable bukan izin aktivasi arsip.
+  Hasil persiapan final 23 November: lihat
+  [EMPLOYEE_KLATEN_IMPORT_RUNBOOK.md](EMPLOYEE_KLATEN_IMPORT_RUNBOOK.md).
+
 - Rekrutmen demo ikut dihapus, termasuk kandidat, relasi file dan status events.
 - Metadata files dan objek R2 demo juga ingin dibersihkan, dengan pengecualian
   logo/template/aset konfigurasi. Sebelum menghapus metadata, simpan manifest

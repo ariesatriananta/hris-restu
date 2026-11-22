@@ -3,6 +3,7 @@ import { Router, type Request } from 'express'
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { PoolConnection } from 'mysql2/promise'
 import { randomUUID } from 'node:crypto'
+import { employeeJoinDateIssue } from '../lib/employee-join-dates.js'
 import { env } from '../config.js'
 import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
@@ -94,8 +95,10 @@ const employeeInputShape = {
   joinDateTraining: apiOptionalDate, joinDateBorong: apiOptionalDate,
 }
 const employeeInput = z.object(employeeInputShape).strict()
-  .refine((value) => !value.joinDateTraining || value.joinDateTraining >= value.joinDate, { path: ['joinDateTraining'], message: 'Tanggal join training tidak boleh sebelum tanggal bergabung.' })
-  .refine((value) => !value.joinDateBorong || value.joinDateBorong >= value.joinDate, { path: ['joinDateBorong'], message: 'Tanggal join borong tidak boleh sebelum tanggal bergabung.' })
+  .superRefine((value, ctx) => {
+    const issue = employeeJoinDateIssue(value)
+    if (issue) ctx.addIssue({ code: 'custom', path: [issue.field], message: issue.message })
+  })
 const {
   employeeStatus: _employeeStatus,
   photoUid: _photoUid,
@@ -3117,12 +3120,8 @@ employeesRouter.post('/:uid/registration-correction', requirePermission('employe
     try {
       await conn.beginTransaction()
       await assertRegistrationCorrectionAllowed(conn, employee.id)
-      if (employee.joinDateTraining && employee.joinDateTraining < target.joinDate) {
-        throw new ApiError(422, 'Tanggal bergabung baru tidak boleh setelah tanggal join training.')
-      }
-      if (employee.joinDateBorong && employee.joinDateBorong < target.joinDate) {
-        throw new ApiError(422, 'Tanggal bergabung baru tidak boleh setelah tanggal join borong.')
-      }
+      const joinIssue = employeeJoinDateIssue({ ...target, joinDateTraining: employee.joinDateTraining, joinDateBorong: employee.joinDateBorong })
+      if (joinIssue) throw new ApiError(422, joinIssue.message)
       const [histories] = await conn.query<RowDataPacket[]>(
         "SELECT id,uid FROM employee_employment_histories WHERE employee_id=? AND change_type='INITIAL' AND effective_to IS NULL FOR UPDATE",
         [employee.id]
@@ -3191,8 +3190,8 @@ employeesRouter.patch('/:uid', requirePermission('employees.manage'), async (req
     if (input.joinDate !== current.joinDate) throw new ApiError(422, 'Tanggal bergabung hanya dapat diubah melalui Koreksi Data Registrasi.')
     const joinDateTraining = input.joinDateTraining === undefined ? current.joinDateTraining : input.joinDateTraining
     const joinDateBorong = input.joinDateBorong === undefined ? current.joinDateBorong : input.joinDateBorong
-    if (joinDateTraining && joinDateTraining < input.joinDate) throw new ApiError(422, 'Tanggal join training tidak boleh sebelum tanggal bergabung.')
-    if (joinDateBorong && joinDateBorong < input.joinDate) throw new ApiError(422, 'Tanggal join borong tidak boleh sebelum tanggal bergabung.')
+    const joinIssue = employeeJoinDateIssue({ ...input, joinDateTraining, joinDateBorong })
+    if (joinIssue) throw new ApiError(422, joinIssue.message)
     await pool.execute(`UPDATE employees SET full_name=?,nickname=?,national_id_number=?,family_card_number=?,gender=?,birth_place=?,birth_date=?,marital_status=?,religion=?,education_level=?,address=?,rtrw=?,kelurahan=?,kecamatan=?,city=?,province=?,postal_code=?,phone=?,email=?,emergency_contact_name=?,emergency_contact_phone=?,emergency_contact_relation=?,bank_name=?,bank_account_number=?,bank_account_name=?,tax_number=?,bpjs_health_number=?,bpjs_employment_number=?,join_date=?,join_date_training=IF(?,?,join_date_training),join_date_borong=IF(?,?,join_date_borong),permanent_date=?,photo_file_id=?,notes=?,updated_by=? WHERE id=?`, [input.fullName,empty(input.nickname),empty(input.nationalIdNumber),empty(input.familyCardNumber),input.gender,empty(input.birthPlace),empty(input.birthDate),empty(input.maritalStatus),empty(input.religion),input.educationLevel,empty(input.address),empty(input.rtrw),empty(input.kelurahan),empty(input.kecamatan),empty(input.city),empty(input.province),empty(input.postalCode),empty(input.phone),empty(input.email),empty(input.emergencyContactName),empty(input.emergencyContactPhone),empty(input.emergencyContactRelation),empty(input.bankName),empty(input.bankAccountNumber),empty(input.bankAccountName),empty(input.taxNumber),empty(input.bpjsHealthNumber),empty(input.bpjsEmploymentNumber),input.joinDate,input.joinDateTraining !== undefined,input.joinDateTraining ?? null,input.joinDateBorong !== undefined,input.joinDateBorong ?? null,empty(input.permanentDate),photoId,empty(input.notes),auth.id,current.id])
     await writeAudit({ auth, request: req, siteId: current.siteId, action: 'UPDATE', table: 'employees', recordId: current.id, recordUid: uid, description: `Memperbarui karyawan ${current.employeeNumber}.` })
     res.status(204).end()

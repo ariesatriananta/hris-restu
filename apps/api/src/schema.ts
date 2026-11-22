@@ -38,7 +38,8 @@ export const employees = mysqlTable('employees', {
   kelurahan: varchar('kelurahan', { length: 100 }),
   kecamatan: varchar('kecamatan', { length: 100 }),
   email: varchar('email', { length: 191 }),
-  joinDate: date('join_date', { mode: 'string' }).notNull(),
+  // Unknown historical date on owner-imported legacy archives only.
+  joinDate: date('join_date', { mode: 'string' }),
   joinDateTraining: date('join_date_training', { mode: 'string' }),
   joinDateBorong: date('join_date_borong', { mode: 'string' }),
 }, (table) => [uniqueIndex('uq_employees_email').on(table.email)])

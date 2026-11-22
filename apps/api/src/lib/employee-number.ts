@@ -57,10 +57,10 @@ export async function reserveEmployeeNumber(
   const [existingRows] = await connection.query<RowDataPacket[]>(
     `SELECT COALESCE(MAX(CAST(RIGHT(employee_number, 3) AS UNSIGNED)), 0) maxSequence
      FROM employees
-     WHERE current_site_id = ?
-       AND join_date = ?
-       AND employee_number LIKE ?`,
-    [input.siteId, input.joinDate, `${formattedPrefix}%`]
+     WHERE employee_number LIKE ?`,
+    // Legacy IDs and transferred employees keep the original encoded date/site.
+    // Reserve in the global number namespace, independently of current placement.
+    [`${formattedPrefix}%`]
   )
   const lastSequence = Math.max(
     Number(rows[0]?.lastSequence ?? 0),

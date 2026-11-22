@@ -609,7 +609,10 @@ export function EmployeeForm({
               </>
             )}
             {employee ? (
-              <Field label='Tanggal bergabung'>
+              <Field
+                label='Tanggal bergabung'
+                error={form.formState.errors.joinDate?.message}
+              >
                 <FormDatePicker
                   control={form.control}
                   name='joinDate'
@@ -823,7 +826,7 @@ function FormDatePicker({
   )
 }
 
-function dateInput(value?: string) {
+function dateInput(value?: string | null) {
   return value ? value.slice(0, 10) : ''
 }
 

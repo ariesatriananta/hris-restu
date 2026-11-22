@@ -15,6 +15,26 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
 ## Aturan bisnis penting
 
 - Jenis karyawan operasional: `BORONGAN`, `HARIAN`, `BULANAN`, dan `TRAINING`.
+- Master `LEGACY_UNKNOWN` berlabel `-` adalah marker arsip import Owner, selalu
+  nonaktif dan tidak menjadi pilihan registrasi/mutasi/onboarding operasional.
+  Arsip ini bukan peserta Attendance/Produksi/Payroll. Labelnya pada data arsip
+  tampil `-`, bukan menambah opsi jenis karyawan ke UI.
+- Fase tanggal Training/Borong: Training tidak boleh setelah Borong. Tanggal
+  Training boleh sebelum join_date khusus Borongan bila join_date sama dengan
+  tanggal join Borong. Alur lama dengan join_date sejak awal Training tetap valid.
+  Registrasi/edit biasa tetap wajib tanggal; NULL khusus arsip legacy unknown.
+- Generator Employee ID memeriksa namespace prefix/tanggal pada nomor yang sudah
+  tersimpan secara global, termasuk karyawan pindah site atau join_date yang
+  berbeda dari tanggal dalam ID. Sequence import diselaraskan berdasarkan tanggal
+  pada nomor historis; nomor arsip LEG-KLT tidak mengambil urutan registrasi biasa.
+- Cutover Klaten 23 November 2026: Owner menyetujui rekonstruksi PKWT 12 bulan
+  berantai bagi 395 aktif dari join_date Borong (akhir = awal berikutnya - 1 hari).
+  Kontrak lama EXPIRED, satu kontrak yang mencakup baseline ACTIVE. Tidak mengklaim
+  dokumen telah ditandatangani. Employment/shift/pekerjaan hanya snapshot sejak
+  baseline pilot, bukan histori penempatan rekaan. Shift 06:00-15:00 Senin-Jumat;
+  satu pekerjaan utama sesuai Bagian. Arsip tidak mendapat kontrak/assignment.
+  Ini pengecualian import Owner satu kali, tidak mengubah onboarding normal.
+  Detail dan data quality: [EMPLOYEE_KLATEN_IMPORT_RUNBOOK.md](EMPLOYEE_KLATEN_IMPORT_RUNBOOK.md).
 - Skema upah memisahkan basis kalkulasi dan frekuensi pembayaran:
   `BORONGAN = PIECE_RATE/WEEKLY`, `HARIAN = TIME_BASED/WEEKLY`,
   `TRAINING = TIME_BASED/WEEKLY`, dan `BULANAN = TIME_BASED/MONTHLY`.
@@ -56,6 +76,14 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   Caller API lama tanpa key tetap diterima, tetapi retry idempoten membutuhkan
   key yang sama. Tidak ada penyimpanan berkas pribadi ke localStorage atau
   pembersihan duplikat lama secara otomatis.
+- Pengecualian arsip legacy import Owner (22 November 2026): `employees.join_date`
+  boleh NULL bila tanggal masuk memang tidak tersedia pada sumber dan karyawan
+  diarsipkan nonaktif/resign. NULL berarti tidak diketahui, bukan tanggal import;
+  tanggal/histori awal tidak boleh dikarang. Registrasi, edit, koreksi registrasi
+  dan import melalui API/UI biasa tetap mewajibkan tanggal valid. Read model
+  menerima NULL dan menampilkan tanda kosong. Migration dijalankan Owner;
+  perubahan ini tidak otomatis memasukkan arsip, mengubah status maupun membuka
+  hak Attendance/Produksi. Aktifasi arsip harus didahului kelengkapan data nyata.
 - Tanggal bergabung karyawan yang sudah tersimpan tidak boleh diubah melalui
   form Edit Karyawan biasa. Selama data registrasi masih memenuhi syarat
   Koreksi Data Registrasi, perubahan tanggal wajib sekaligus memperbarui
