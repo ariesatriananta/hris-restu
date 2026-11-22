@@ -186,13 +186,13 @@ Konfigurasi yang wajib diisi pada environment API tujuan sebelum form dibuka:
 - `RECRUITMENT_TURNSTILE_SITE_KEY`: kunci publik Turnstile untuk browser.
 - `RECRUITMENT_TURNSTILE_SECRET_KEY`: kunci rahasia yang hanya berada di API.
 - `RECRUITMENT_TURNSTILE_EXPECTED_HOSTNAME`: nama host form publik yang sah.
-- `RECRUITMENT_R2_BUCKET_NAME`: bucket privat khusus dokumen Rekrutmen.
-- `RECRUITMENT_R2_KEY_PREFIX`: awalan folder objek privat Rekrutmen.
+- `RECRUITMENT_R2_BUCKET_NAME`: bucket dokumen Rekrutmen; boleh sama dengan bucket utama sesuai keputusan Owner 21 November 2026.
+- `RECRUITMENT_R2_KEY_PREFIX`: folder terpisah, contoh `hris-rsia-recruitment/`. Default kode lama tidak diubah agar path deployment lama tetap berlaku.
 
 Aturan teknis M2 yang harus dipertahankan pada milestone berikutnya:
 
 - Turnstile diverifikasi oleh API sebelum file diproses. Pada production,
-  endpoint ditutup apabila konfigurasi Turnstile atau bucket privat belum
+  endpoint ditutup apabila konfigurasi Turnstile atau bucket Rekrutmen belum
   lengkap.
 - Rate limit dipisahkan untuk konfigurasi, pemeriksaan identitas, dan submit.
 - Penyesuaian 20 November 2026 untuk WiFi/NAT bersama: konfigurasi 120/menit/IP,
@@ -213,8 +213,11 @@ Aturan teknis M2 yang harus dipertahankan pada milestone berikutnya:
 - File maksimal 5 MB per unggahan, isi aslinya wajib JPG, PNG, atau WebP, dan
   gambar maksimal 25 juta piksel. Server memproses ulang gambar menjadi JPG
   agar metadata perangkat dan lokasi tidak ikut disimpan.
-- Bucket Rekrutmen tidak memakai alamat publik. Tabel `files` hanya menyimpan
-  lokasi internal dengan visibility `INTERNAL`.
+- Kebijakan storage diperbarui 21 November 2026: boleh satu bucket publik
+  dengan dua folder terpisah. API tidak mengirim URL objek kandidat, dan
+  metadata visibility tetap `INTERNAL`, tetapi flag itu tidak membatasi URL
+  storage publik. Owner menerima akses langsung bagi orang yang memiliki
+  tautan. Lihat `R2_STORAGE_SETUP.md` untuk pengaturan dan pemindahan data.
 - Satu NIK dikunci selama submit untuk mencegah dua proses bersamaan. Kunci
   idempotensi yang sama hanya boleh mengembalikan nomor bukti lama jika seluruh
   biodata dan checksum ketiga gambar juga sama.

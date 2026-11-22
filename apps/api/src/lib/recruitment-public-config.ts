@@ -46,11 +46,24 @@ export function recruitmentPublicTokensBySite() {
 }
 
 export function privateRecruitmentBucket() {
-  if (
-    !env.RECRUITMENT_R2_BUCKET_NAME ||
-    env.RECRUITMENT_R2_BUCKET_NAME === env.R2_BUCKET_NAME
-  ) {
+  if (!env.RECRUITMENT_R2_BUCKET_NAME) {
     throw new ApiError(503, 'Form Data Pelamar belum siap digunakan.')
+  }
+  // Owner-approved shared bucket. Keep object namespaces separate; application
+  // authorization still applies, but public bucket URLs bypass that authorization.
+  if (env.RECRUITMENT_R2_BUCKET_NAME === env.R2_BUCKET_NAME) {
+    const recruitment = privateRecruitmentPrefix()
+    const main = env.R2_KEY_PREFIX.replace(/^\/+|\/+$/g, '') + '/'
+    if (
+      main === '/' ||
+      recruitment.startsWith(main) ||
+      main.startsWith(recruitment)
+    ) {
+      throw new ApiError(
+        503,
+        'Folder Rekrutmen dan file aplikasi harus terpisah pada bucket bersama.'
+      )
+    }
   }
   return env.RECRUITMENT_R2_BUCKET_NAME
 }
@@ -68,5 +81,12 @@ export function assertPublicRecruitmentConfigured() {
 }
 
 export function privateRecruitmentPrefix() {
-  return env.RECRUITMENT_R2_KEY_PREFIX.replace(/^\/+|\/+$/g, '') + '/'
+  const prefix = env.RECRUITMENT_R2_KEY_PREFIX.replace(/^\/+|\/+$/g, '')
+  if (
+    !prefix ||
+    prefix.split('/').some((part) => !part || part === '.' || part === '..')
+  ) {
+    throw new ApiError(503, 'Folder penyimpanan Rekrutmen belum valid.')
+  }
+  return prefix + '/'
 }

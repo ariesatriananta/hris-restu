@@ -114,9 +114,14 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
   berlaku per NIK setelah verifikasi keamanan; retry dengan idempotency key
   yang sama tidak menambah kuota pengiriman NIK, tetapi tetap diperiksa
   Turnstile, batas IP dan kesamaan payload oleh service idempotency.
-- Foto diri, KTP, dan KK kandidat merupakan data privat. Berkas tidak boleh
-  memiliki alamat publik permanen dan hanya boleh dibuka oleh pengguna internal
-  yang memiliki permission Rekrutmen serta akses ke site kandidat.
+- Keputusan Owner 21 November 2026: berkas kandidat boleh memakai bucket yang
+  sama dengan file aplikasi, dengan prefix folder terpisah. Bucket publik
+  diterima beserta konsekuensinya: pemilik tautan objek dapat membuka berkas
+  tanpa login. Ini menggantikan syarat lama bucket Rekrutmen wajib privat.
+  API/UI tetap tidak membagikan URL objek kandidat; pembukaan melalui aplikasi
+  tetap memeriksa permission Rekrutmen dan site. Turnstile tetap wajib pada
+  production. Nama helper lama berawalan private dipertahankan untuk
+  kompatibilitas kode; bukan jaminan ACL storage privat.
 - HR Officer hanya dapat melihat dan mengelola kandidat pada site aksesnya,
   sedangkan Super Admin dapat mengelola seluruh site. Pembatasan ini wajib
   berlaku di API, bukan hanya pada menu atau tampilan.

@@ -2,7 +2,7 @@
 
 ## Kesimpulan
 
-Audit awal menemukan dua masalah integritas lifecycle berprioritas tinggi, satu risiko privasi bersyarat konfigurasi storage, serta empat masalah operasional. Temuan 1, 2, 4, 5, 6 dan 7 telah diperbaiki pada kode sesuai batas pengaman di bawah; temuan 3 ditunda atas arahan Owner. Ini bukan pernyataan bebas bug atau sertifikasi seluruh skenario produksi.
+Audit awal menemukan dua masalah integritas lifecycle berprioritas tinggi, satu risiko privasi bersyarat konfigurasi storage, serta empat masalah operasional. Temuan 1, 2, 4, 5, 6 dan 7 telah diperbaiki pada kode sesuai batas pengaman di bawah; risiko temuan 3 diterima Owner pada 21 November 2026 untuk konfigurasi bucket bersama publik. Ini bukan pernyataan bebas bug atau sertifikasi seluruh skenario produksi.
 
 ## Status setelah perbaikan lifecycle
 
@@ -12,7 +12,7 @@ Perbaikan kode 20 November 2026, atas instruksi Owner setelah audit. Uraian temu
 | --- | --- | --- |
 | 1 | Batas tanggal kontrak Expired | Selesai pada kode: SQL DATE diproyeksikan sebagai YYYY-MM-DD; tanggal sebelum akhir kontrak atau setelah hari ini ditolak. |
 | 2 | Hapus mutasi membuka assignment tanpa batas | Selesai dengan pengaman: UPDATE pembuka assignment dihapus. Jika ada assignment H-1/pekerjaan masa depan batal yang asalnya tidak dapat dibuktikan, seluruh penghapusan ditolak tanpa perubahan data. Mutasi tanpa dependensi tetap dapat dihapus. |
-| 3 | Risiko URL publik KTP/KK | Ditunda atas arahan Owner; kebijakan bucket aktual juga belum diverifikasi. |
+| 3 | Risiko URL publik KTP/KK | Risiko diterima Owner 21 November 2026: bucket bersama boleh publik; tidak diklaim sudah dibuat privat. Jalur API berizin tetap dipertahankan. |
 | 4 | Kontrak batal menghalangi kontrak sebelumnya | Selesai pada kode: flag latest, coverage, penjadwalan status, dan penutupan Expired mengabaikan kontrak CANCELLED; arsip batal tetap tersedia. |
 | 5 | Nomor dokumen tidak sinkron saat edit NIK/KK | Selesai pada alur form Edit Karyawan: nomor disinkronkan tanpa upload ulang pada satu dokumen aktif milik karyawan; metadata/file dipertahankan, arsip tidak dipilih, kasus aktif ganda diblokir sebelum perubahan nomor/file. |
 | 6 | Retry dokumen dapat menduplikasi | Selesai pada kode: create memakai key stabil dan unique UID; replay identik mengembalikan record lama, metadata berbeda ditolak; CREATE/UPDATE dan audit atomik. |
