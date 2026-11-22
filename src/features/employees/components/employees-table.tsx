@@ -81,6 +81,7 @@ export function EmployeesTable({
   onboardingByEmployeeUid,
   onContinueOnboarding,
   lookups,
+  onViewContract,
 }: {
   data: PaginatedResult<Employee>
   columns: ColumnDef<Employee>[]
@@ -92,6 +93,7 @@ export function EmployeesTable({
   onboardingByEmployeeUid?: Map<string, EmployeeOnboardingReadinessItem>
   onContinueOnboarding?: (item: EmployeeOnboardingReadinessItem) => void
   lookups?: EmployeeLookups
+  onViewContract?: (employee: Employee) => void
 }) {
   const [sorting, setSorting] = useState<SortingState>([])
   const { effectiveSites } = useSiteScopeFilter(
@@ -146,7 +148,21 @@ export function EmployeesTable({
   )
   const tableState = useTableUrlState({
     search,
-    navigate,
+    // An absent status gets the route's ACTIVE default. Keep an explicit []
+    // when cleared so users can still view all statuses and use Reset.
+    navigate: (options) => {
+      const update = options.search
+      if (typeof update !== 'function') return navigate(options)
+      navigate({
+        ...options,
+        search: (previous) => {
+          const next = update(previous)
+          return 'employeeStatus' in next && next.employeeStatus === undefined
+            ? { ...next, employeeStatus: [] }
+            : next
+        },
+      })
+    },
     globalFilter: { key: 'filter' },
     columnFilters: [
       { columnId: 'site', searchKey: 'site', type: 'array' },
@@ -325,6 +341,27 @@ export function EmployeesTable({
                       {statusLabel(employee.employeeStatus)}
                     </Badge>
                   </div>
+                  {employee.contractSummary && (
+                    <div className='mt-2 text-xs'>
+                      <p className='font-medium'>
+                        <Button
+                          type='button'
+                          variant='link'
+                          className='h-auto p-0 text-left text-xs font-medium whitespace-normal'
+                          onClick={() => onViewContract?.(employee)}
+                        >
+                          {employee.contractSummary.contractNumber}
+                        </Button>
+                      </p>
+                      <p className='text-[11px] text-muted-foreground'>
+                        {statusLabel(employee.contractSummary.contractType)} ·{' '}
+                        {formatDate(employee.contractSummary.startDate)} –{' '}
+                        {employee.contractSummary.endDate
+                          ? formatDate(employee.contractSummary.endDate)
+                          : 'Tanpa akhir'}
+                      </p>
+                    </div>
+                  )}
                   <div className='mt-3 flex items-center justify-between gap-2 text-sm'>
                     <div>
                       <p>

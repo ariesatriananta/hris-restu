@@ -215,7 +215,7 @@ main: BEGIN
     start_date,end_date,status,site_name_snapshot,terms_json,notes)
   SELECT x.uid,e.id,x.contract_number,ct.id,x.sequence_number,x.start_date,x.end_date,x.status,s.name,
     JSON_OBJECT('legacyImport',JSON_OBJECT('sourceHash','__SOURCE_HASH__','reconstructed',true,'signedDocument',false)),
-    'Rekonstruksi import disetujui Owner: kontrak 12 bulan berantai dari join date. Bukan bukti dokumen bertanda tangan.'
+    'Masa kontrak 12 bulan, dengan perpanjangan mengikuti periode kontrak sebelumnya.'
   FROM _klt_contract_source x JOIN employees e ON e.uid=x.employee_uid
     JOIN contract_types ct ON ct.code=x.type_code JOIN sites s ON s.id=v_site;
   INSERT INTO employee_contract_lifecycle_events(uid,contract_id,from_status,to_status,effective_date,reason,source)

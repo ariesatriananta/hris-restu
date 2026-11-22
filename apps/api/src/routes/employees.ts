@@ -5,6 +5,7 @@ import type { PoolConnection } from 'mysql2/promise'
 import { randomUUID } from 'node:crypto'
 import { employeeJoinDateIssue } from '../lib/employee-join-dates.js'
 import { googleDriveDocument } from '../lib/google-drive-document.js'
+import { contractNotesForDisplay } from '../lib/contract-notes.js'
 import { env } from '../config.js'
 import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
@@ -1409,7 +1410,27 @@ employeesRouter.get('/', requirePermission('employees.view'), async (req, res, n
     const clause = where.join(' AND ')
     const [count] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) total FROM employees e JOIN employee_types et ON et.id=e.employee_type_id JOIN employee_statuses es ON es.id=e.employee_status_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id LEFT JOIN production_modules pm ON pm.id=pms.production_module_id LEFT JOIN production_sections ps ON ps.id=pms.production_section_id WHERE ${clause}`, values)
     const [rows] = await pool.query<RowDataPacket[]>(`${employeeSelect} WHERE ${clause} ORDER BY e.created_at DESC, e.id DESC LIMIT ? OFFSET ?`, [...values, pageSize, (page - 1) * pageSize])
-    res.json({ items: rows.map(mapEmployee), total: Number(count[0].total), page, pageSize })
+    // Enrich only this page in one query; do not fetch contracts per row or
+    // join one-to-many histories into the paginated employee/count queries.
+    const contractsByEmployee = new Map<string, RowDataPacket>()
+    if (rows.length) {
+      const today = businessDate()
+      const [contracts] = await pool.query<RowDataPacket[]>(
+        `SELECT e.uid employeeUid,c.uid,c.contract_number contractNumber,ct.code contractType,
+          DATE_FORMAT(c.start_date,'%Y-%m-%d') startDate,DATE_FORMAT(c.end_date,'%Y-%m-%d') endDate
+         FROM employees e JOIN employee_contracts c ON c.id=(
+           SELECT candidate.id FROM employee_contracts candidate
+           WHERE candidate.employee_id=e.id AND candidate.status<>'CANCELLED'
+           ORDER BY (candidate.status='ACTIVE' AND candidate.start_date<=?
+             AND (candidate.end_date IS NULL OR candidate.end_date>=?)) DESC,
+             candidate.start_date DESC,candidate.id DESC LIMIT 1
+         ) JOIN contract_types ct ON ct.id=c.contract_type_id
+         WHERE e.uid IN (${rows.map(() => '?').join(',')})`,
+        [today, today, ...rows.map((row) => row.uid)]
+      )
+      for (const { employeeUid, ...contract } of contracts) contractsByEmployee.set(employeeUid, contract as RowDataPacket)
+    }
+    res.json({ items: rows.map((row) => ({ ...mapEmployee(row), contractSummary: contractsByEmployee.get(row.uid) })), total: Number(count[0].total), page, pageSize })
   } catch (error) { next(error) }
 })
 
@@ -5253,6 +5274,7 @@ function mapContract(row: RowDataPacket) {
     endDate < today
   return {
     ...contract,
+    notes: contractNotesForDisplay(contract.notes),
     employeeName,
     site,
     employeeType,

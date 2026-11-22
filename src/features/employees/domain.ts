@@ -62,6 +62,13 @@ export interface MockFileAttachment {
   url?: string
 }
 export interface Employee {
+  contractSummary?: {
+    uid: string
+    contractNumber: string
+    contractType: string
+    startDate: string
+    endDate?: string | null
+  }
   uid: string
   employeeNumber: string
   barcode: string
@@ -341,6 +348,7 @@ export interface EmployeeDocument {
 }
 export interface EmployeeInput extends Omit<
   Employee,
+  | 'contractSummary'
   | 'uid'
   | 'photo'
   | 'employeeNumber'

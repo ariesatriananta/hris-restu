@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Route } from '@/routes/_authenticated/karyawan/data-karyawan'
 import { describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import type { NavigateFn } from '@/hooks/use-table-url-state'
@@ -82,6 +83,31 @@ function Harness({
 }
 
 describe('EmployeesTable production filters', () => {
+  it('defaults the route to Active while allowing explicit empty and archive statuses', () => {
+    const schema = Route.options.validateSearch as {
+      parse(input: unknown): { employeeStatus: string[] }
+    }
+    expect(schema.parse({}).employeeStatus).toEqual(['ACTIVE'])
+    expect(schema.parse({ employeeStatus: [] }).employeeStatus).toEqual([])
+    expect(
+      schema.parse({ employeeStatus: ['RESIGNED'] }).employeeStatus
+    ).toEqual(['RESIGNED'])
+  })
+
+  it('clearing the default status writes an explicit empty array so the route does not reapply Active', async () => {
+    const onNavigate = vi.fn()
+    const screen = await render(
+      <Harness
+        initialSearch={{ employeeStatus: ['ACTIVE'], page: 3 }}
+        onNavigate={onNavigate}
+      />
+    )
+    await screen.getByRole('button', { name: /^Status/ }).click()
+    await screen.getByRole('option', { name: 'Aktif', exact: true }).click()
+    expect(onNavigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ employeeStatus: [], page: undefined })
+    )
+  })
   it('opsi Modul mengikuti Site dan Bagian dideduplikasi; pilihan tersimpan di URL', async () => {
     const onNavigate = vi.fn()
     const screen = await render(

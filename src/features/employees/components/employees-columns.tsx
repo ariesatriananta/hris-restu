@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
 import { ArrowRightCircle, ClipboardPenLine, Eye, Pencil } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   DataTableActionButton,
   DataTableColumnHeader,
@@ -19,7 +20,8 @@ export function createEmployeeColumns(
   onCorrectRegistration: (employee: Employee) => void,
   returnTo?: string,
   onboardingByEmployeeUid = new Map<string, EmployeeOnboardingReadinessItem>(),
-  onContinueOnboarding?: (item: EmployeeOnboardingReadinessItem) => void
+  onContinueOnboarding?: (item: EmployeeOnboardingReadinessItem) => void,
+  onViewContract?: (employee: Employee) => void
 ): ColumnDef<Employee>[] {
   return [
     {
@@ -124,6 +126,38 @@ export function createEmployeeColumns(
       meta: {
         label: 'Status',
       },
+    },
+    {
+      id: 'contractSummary',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Kontrak' />
+      ),
+      enableSorting: false,
+      cell: ({ row }) => {
+        const contract = row.original.contractSummary
+        if (!contract)
+          return (
+            <span className='text-muted-foreground'>Belum ada kontrak</span>
+          )
+        return (
+          <div>
+            <Button
+              type='button'
+              variant='link'
+              className='h-auto p-0 text-left text-xs font-medium whitespace-normal'
+              onClick={() => onViewContract?.(row.original)}
+            >
+              {contract.contractNumber}
+            </Button>
+            <p className='text-[11px] leading-3 whitespace-nowrap text-muted-foreground'>
+              {statusLabel(contract.contractType)} ·{' '}
+              {formatDate(contract.startDate)} –{' '}
+              {contract.endDate ? formatDate(contract.endDate) : 'Tanpa akhir'}
+            </p>
+          </div>
+        )
+      },
+      meta: { label: 'Kontrak' },
     },
     {
       id: 'actions',

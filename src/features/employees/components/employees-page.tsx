@@ -33,6 +33,7 @@ import type {
   EmployeeListParams,
   EmployeeOnboardingReadinessItem,
 } from '../domain'
+import { ContractDetailDrawer } from './contract-detail-drawer'
 import { EmployeeBatchDeleteDialog } from './employee-batch-delete-dialog'
 import { EmployeeImportDialog } from './employee-import-dialog'
 import { EmployeeKpiCards } from './employee-kpi-cards'
@@ -87,6 +88,7 @@ export function EmployeesPage({
   const returnTo = currentListReturnTo()
   const routerNavigate = useNavigate()
   const [correctionEmployee, setCorrectionEmployee] = useState<Employee>()
+  const [contractEmployee, setContractEmployee] = useState<Employee>()
   const [importOpen, setImportOpen] = useState(false)
   const [onboardingOpen, setOnboardingOpen] = useState(false)
   const onboardingByEmployeeUid = useMemo(
@@ -113,7 +115,8 @@ export function EmployeesPage({
         setCorrectionEmployee,
         returnTo,
         onboardingByEmployeeUid,
-        (item) => continueEmployeeOnboarding([item], routerNavigate, returnTo)
+        (item) => continueEmployeeOnboarding([item], routerNavigate, returnTo),
+        setContractEmployee
       ),
     [onboardingByEmployeeUid, returnTo, routerNavigate]
   )
@@ -224,6 +227,7 @@ export function EmployeesPage({
             isFetching={query.isFetching}
             onboardingByEmployeeUid={onboardingByEmployeeUid}
             onContinueOnboarding={(item) => continueOnboarding([item])}
+            onViewContract={setContractEmployee}
           />
           <RegistrationCorrectionDialog
             employee={correctionEmployee}
@@ -235,6 +239,14 @@ export function EmployeesPage({
         </>
       )}
       <EmployeeImportDialog open={importOpen} onOpenChange={setImportOpen} />
+      <ContractDetailDrawer
+        contractUid={contractEmployee?.contractSummary?.uid}
+        employee={contractEmployee}
+        open={Boolean(contractEmployee?.contractSummary?.uid)}
+        onOpenChange={(open) => {
+          if (!open) setContractEmployee(undefined)
+        }}
+      />
       {canDeleteBatch && (
         <EmployeeBatchDeleteDialog
           open={batchDeleteOpen}

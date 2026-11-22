@@ -36,12 +36,13 @@ import {
   formatDate,
   statusLabel,
 } from '../utils'
+import { ContractDeleteAction } from './contract-delete-action'
 import { ContractLifecycleActionButtons } from './contract-lifecycle-action-buttons'
 import { contractLifecycleErrorMessage } from './contract-lifecycle-error'
-import { ContractDeleteAction } from './contract-delete-action'
 
 type ContractDetailDrawerProps = {
   contract?: EmployeeContract
+  contractUid?: string
   open: boolean
   onOpenChange: (open: boolean) => void
   employee?: {
@@ -53,13 +54,16 @@ type ContractDetailDrawerProps = {
 
 export function ContractDetailDrawer({
   contract: contractSummary,
+  contractUid,
   open,
   onOpenChange,
   employee,
 }: ContractDetailDrawerProps) {
   const returnTo = currentListReturnTo()
   const transition = useTransitionContract()
-  const contractDetail = useContract(contractSummary?.uid ?? '')
+  const contractDetail = useContract(
+    open ? (contractUid ?? contractSummary?.uid ?? '') : ''
+  )
   const contract = contractDetail.data ?? contractSummary
   const [action, setAction] = useState<
     | 'schedule'
@@ -127,6 +131,22 @@ export function ContractDetailDrawer({
             Rincian kontrak kerja dan lampiran yang diterbitkan.
           </SheetDescription>
         </SheetHeader>
+        {open && !contract && contractDetail.isPending && (
+          <p className='px-4 text-sm text-muted-foreground'>
+            Memuat detail kontrak...
+          </p>
+        )}
+        {open && !contract && contractDetail.isError && (
+          <div className='space-y-2 px-4 text-sm'>
+            <p>Detail kontrak belum dapat dimuat.</p>
+            <Button
+              variant='outline'
+              onClick={() => void contractDetail.refetch()}
+            >
+              Coba lagi
+            </Button>
+          </div>
+        )}
         {contract && (
           <div className='min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pb-4'>
             {contractDetail.isError && (
@@ -188,6 +208,59 @@ export function ContractDetailDrawer({
                     <Printer /> Cetak Template Kontrak
                   </Button>
                 )}
+            </DetailSection>
+            <DetailSection title='Dokumen kontrak fisik'>
+              {contractDetail.isPending ? (
+                <p className='text-sm text-muted-foreground'>
+                  Memuat dokumen kontrak...
+                </p>
+              ) : contractDetail.isError ? (
+                <div className='space-y-2 text-sm'>
+                  <p>Status dokumen belum dapat dimuat.</p>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => void contractDetail.refetch()}
+                  >
+                    Coba lagi
+                  </Button>
+                </div>
+              ) : contract.issuedFile?.url ? (
+                <div className='space-y-3 rounded-md border p-3'>
+                  <Badge variant='secondary'>Sudah diupload</Badge>
+                  <p className='text-sm font-medium break-words'>
+                    {contract.issuedFile.originalName}
+                  </p>
+                  <AttachmentPreview
+                    url={contract.issuedFile.url}
+                    mimeType={contract.issuedFile.mimeType}
+                    originalName={contract.issuedFile.originalName}
+                  />
+                  <div className='flex flex-wrap gap-2'>
+                    <Button size='sm' variant='outline' asChild>
+                      <a
+                        href={contract.issuedFile.url}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                      >
+                        <ExternalLink /> Buka file
+                      </a>
+                    </Button>
+                    <Button size='sm' variant='outline' asChild>
+                      <a href={contract.issuedFile.url} download>
+                        <Download /> Download
+                      </a>
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className='space-y-2 rounded-md border border-dashed p-3'>
+                  <Badge variant='outline'>Belum diupload</Badge>
+                  <p className='text-sm text-muted-foreground'>
+                    Scan kontrak fisik asli bertanda tangan belum diupload.
+                  </p>
+                </div>
+              )}
             </DetailSection>
             {['DRAFT', 'SCHEDULED'].includes(contract.status) && (
               <section className='space-y-2 border-t pt-4'>
@@ -483,41 +556,6 @@ export function ContractDetailDrawer({
               ) : (
                 <p className='text-sm text-muted-foreground'>
                   Belum ada koreksi yang tercatat.
-                </p>
-              )}
-            </DetailSection>
-
-            <DetailSection title='Scan kontrak asli bertanda tangan'>
-              {contract.issuedFile?.url ? (
-                <div className='rounded-md border p-3'>
-                  <p className='mb-3 text-sm font-medium'>
-                    {contract.issuedFile.originalName}
-                  </p>
-                  <AttachmentPreview
-                    url={contract.issuedFile.url}
-                    mimeType={contract.issuedFile.mimeType}
-                    originalName={contract.issuedFile.originalName}
-                  />
-                  <div className='flex flex-wrap gap-2'>
-                    <Button size='sm' variant='outline' asChild>
-                      <a
-                        href={contract.issuedFile.url}
-                        target='_blank'
-                        rel='noreferrer'
-                      >
-                        <ExternalLink /> Buka file
-                      </a>
-                    </Button>
-                    <Button size='sm' variant='outline' asChild>
-                      <a href={contract.issuedFile.url} download>
-                        <Download /> Download
-                      </a>
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <p className='text-sm text-muted-foreground'>
-                  Belum ada scan kontrak asli.
                 </p>
               )}
             </DetailSection>

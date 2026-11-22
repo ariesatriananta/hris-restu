@@ -15,7 +15,7 @@ export const Route = createFileRoute('/_authenticated/karyawan/data-karyawan')({
       .optional(),
     employeeStatus: z
       .array(z.enum(['ACTIVE', 'LEAVE', 'RESIGNED', 'INACTIVE']))
-      .optional(),
+      .default(['ACTIVE']),
   }),
   component: RouteComponent,
 })
