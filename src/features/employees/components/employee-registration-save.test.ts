@@ -86,6 +86,42 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks())
 
 describe('registration attachment retry', () => {
+  it('preserves an external source on identity number edit and replaces it on upload', async () => {
+    progress.employeeUid = employee.uid
+    const document: EmployeeDocument = {
+      uid: 'synthetic-drive-doc',
+      employeeUid: employee.uid,
+      documentType: 'KTP',
+      name: 'KTP',
+      status: 'ACTIVE',
+      externalUrl: 'https://drive.google.com/file/d/synthetic_file_123456/view',
+    }
+    await run(
+      {},
+      { ...input, nationalIdNumber: 'UPDATED-ID' },
+      { KTP: document }
+    )
+    expect(patch).toHaveBeenCalledWith(
+      `/employees/documents/${document.uid}`,
+      expect.objectContaining({
+        externalUrl: document.externalUrl,
+        fileUid: undefined,
+        documentNumber: 'UPDATED-ID',
+      })
+    )
+    expect(upload).not.toHaveBeenCalled()
+    patch.mockClear()
+    await run(
+      { nationalId: new File(['x'], 'replacement.png', { type: 'image/png' }) },
+      input,
+      { KTP: document }
+    )
+    expect(patch).toHaveBeenCalledWith(
+      `/employees/documents/${document.uid}`,
+      expect.objectContaining({ fileUid: 'replacement.png' })
+    )
+    expect(patch.mock.calls[0][1]).not.toHaveProperty('externalUrl')
+  })
   const existingDocument = (type: 'KTP' | 'KK'): EmployeeDocument => ({
     uid: `existing-${type}`,
     employeeUid: employee.uid,
@@ -120,7 +156,7 @@ describe('registration attachment retry', () => {
         `/employees/documents/${document.uid}`,
         expect.objectContaining({
           ...metadata,
-          fileUid: document.file.uid,
+          fileUid: document.file?.uid,
           documentNumber: type === 'KTP' ? 'UPDATED-ID' : 'UPDATED-KK',
         })
       )
@@ -187,7 +223,7 @@ describe('registration attachment retry', () => {
       `/employees/documents/${document.uid}`,
       expect.objectContaining({
         documentNumber: undefined,
-        fileUid: document.file.uid,
+        fileUid: document.file?.uid,
       })
     )
     expect(upload).not.toHaveBeenCalled()

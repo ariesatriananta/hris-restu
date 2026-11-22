@@ -41,6 +41,7 @@ import {
   useHistories,
   useScheduledMutations,
 } from '../data/queries'
+import type { EmployeeDocument } from '../domain'
 import { educationLevelLabel } from '../education-level'
 import {
   contractStatusBadgeClassName,
@@ -58,6 +59,7 @@ import {
 } from './employee-assignment-tabs'
 import { EmployeeCurrentSummary } from './employee-current-summary'
 import { EmployeeDeleteAction } from './employee-delete-action'
+import { EmployeeDocumentPreview } from './employee-document-preview'
 import { EmployeeIdCard } from './id-card'
 import { MutationDeleteDialog } from './mutation-delete-dialog'
 import { MutationDetailDrawer } from './mutation-detail-drawer'
@@ -304,6 +306,7 @@ export function EmployeeDetail({
                   />
                   <IdentityPhotoCard
                     title='Foto KTP'
+                    document={findIdentityDocument(documents.data, 'KTP')}
                     attachment={
                       findIdentityDocument(documents.data, 'KTP')?.file
                     }
@@ -313,6 +316,7 @@ export function EmployeeDetail({
                   />
                   <IdentityPhotoCard
                     title='Foto KK'
+                    document={findIdentityDocument(documents.data, 'KK')}
                     attachment={
                       findIdentityDocument(documents.data, 'KK')?.file
                     }
@@ -526,9 +530,9 @@ export function EmployeeDetail({
               }}
               items={documents.data?.map((item) => ({
                 actionLabel: item.documentNumber ?? item.name,
-                label: `${item.name} · ${statusLabel(item.status)} · ${item.file.originalName}`,
+                label: `${item.name} · ${statusLabel(item.status)} · ${item.externalUrl ? 'Google Drive' : (item.file?.originalName ?? '')}`,
                 edit: `/karyawan/dokumen/${item.uid}/ubah`,
-                file: item.file.url,
+                actions: <EmployeeDocumentPreview document={item} />,
               }))}
             />
             <Card>
@@ -644,6 +648,7 @@ function Records({
   items?: {
     label: string
     content?: ReactNode
+    actions?: ReactNode
     actionLabel?: string
     edit?: string
     renew?: {
@@ -702,6 +707,7 @@ function Records({
                       : 'flex gap-1'
                   }
                 >
+                  {item.actions}
                   {item.onDetail && (
                     <DataTableActionButton
                       onClick={item.onDetail}
@@ -831,12 +837,14 @@ function IdentityPhotoCard({
   emptyText,
   employeeUid,
   returnTo,
+  document,
 }: {
   title: string
   attachment?: { url?: string; mimeType: string; originalName: string }
   emptyText: string
   employeeUid: string
   returnTo?: string
+  document?: EmployeeDocument
 }) {
   const isImage = attachment?.mimeType.startsWith('image/')
   return (
@@ -855,11 +863,19 @@ function IdentityPhotoCard({
           ) : (
             <div className='flex size-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground'>
               <ImageIcon className='size-8' />
-              <span>{attachment ? attachment.originalName : emptyText}</span>
+              <span>
+                {document?.externalUrl
+                  ? 'Dokumen tersedia di Google Drive'
+                  : attachment
+                    ? attachment.originalName
+                    : emptyText}
+              </span>
             </div>
           )}
         </div>
-        {attachment?.url ? (
+        {document?.externalUrl ? (
+          <EmployeeDocumentPreview document={document} />
+        ) : attachment?.url ? (
           <Button asChild variant='outline' size='sm' className='w-full'>
             <a href={attachment.url} target='_blank' rel='noreferrer'>
               <ExternalLink /> Buka foto

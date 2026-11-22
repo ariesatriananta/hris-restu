@@ -4,6 +4,7 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { PoolConnection } from 'mysql2/promise'
 import { randomUUID } from 'node:crypto'
 import { employeeJoinDateIssue } from '../lib/employee-join-dates.js'
+import { googleDriveDocument } from '../lib/google-drive-document.js'
 import { env } from '../config.js'
 import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
@@ -579,9 +580,11 @@ const contractRenewalBatchInput = z.object({
   })
 })
 const documentInput = z.object({
-  documentType: z.string().trim().min(1), documentNumber: optional, name: z.string().trim().min(1), fileUid: z.string().uuid(),
+  documentType: z.string().trim().min(1), documentNumber: optional, name: z.string().trim().min(1), fileUid: z.string().uuid().optional(),
+  externalUrl: z.string().trim().max(1000).refine((url) => Boolean(googleDriveDocument(url)), 'Gunakan tautan file Google Drive HTTPS yang valid.').optional(),
   issuedDate: optionalDate, expiryDate: optionalDate, status: z.enum(['ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED']), notes: optional,
-}).refine((value) => !value.issuedDate || !value.expiryDate || value.expiryDate >= value.issuedDate, { message: 'Tanggal dokumen tidak valid.', path: ['expiryDate'] })
+}).refine((value) => Boolean(value.fileUid) !== Boolean(value.externalUrl), { message: 'Pilih satu sumber dokumen: upload file atau tautan Google Drive.', path: ['externalUrl'] })
+  .refine((value) => !value.issuedDate || !value.expiryDate || value.expiryDate >= value.issuedDate, { message: 'Tanggal dokumen tidak valid.', path: ['expiryDate'] })
 const documentCreateInput = documentInput.safeExtend({ idempotencyKey: z.string().uuid().optional() })
 const scheduledStatusChangeInput = z.object({
   action: z.enum(['TERMINATE', 'RESIGN']),
@@ -5106,9 +5109,10 @@ async function documentFileId(conn: PoolConnection, uid: string) {
   if (!rows[0]) throw new ApiError(422, 'File tidak ditemukan.')
   return Number(rows[0].id)
 }
-function documentValues(input: z.infer<typeof documentInput>, fileId: number) {
+function documentValues(input: z.infer<typeof documentInput>, fileId: number | null) {
   return [input.documentType, empty(input.documentNumber), input.name, fileId,
-    empty(input.issuedDate), empty(input.expiryDate), input.status, empty(input.notes)]
+    empty(input.issuedDate), empty(input.expiryDate), input.status, empty(input.notes),
+    input.externalUrl ? googleDriveDocument(input.externalUrl)!.url : null]
 }
 employeesRouter.post(
   '/:uid/documents',
@@ -5126,14 +5130,14 @@ employeesRouter.post(
       const [existing] = await conn.query<RowDataPacket[]>(
         `SELECT employee_id employeeId,document_type documentType,document_number documentNumber,
           name,file_id fileId,DATE_FORMAT(issued_date,'%Y-%m-%d') issuedDate,
-          DATE_FORMAT(expiry_date,'%Y-%m-%d') expiryDate,status,notes
+          DATE_FORMAT(expiry_date,'%Y-%m-%d') expiryDate,status,notes,external_url externalUrl
          FROM employee_documents WHERE uid=? FOR UPDATE`, [uid]
       )
-      const values = documentValues(input, await documentFileId(conn, input.fileUid))
+      const values = documentValues(input, input.fileUid ? await documentFileId(conn, input.fileUid) : null)
       if (existing[0]) {
         const row = existing[0]
-        const stored = [row.documentType, row.documentNumber, row.name, Number(row.fileId),
-          row.issuedDate, row.expiryDate, row.status, row.notes]
+        const stored = [row.documentType, row.documentNumber, row.name, row.fileId == null ? null : Number(row.fileId),
+          row.issuedDate, row.expiryDate, row.status, row.notes, row.externalUrl]
         if (Number(row.employeeId) !== Number(employee.id) || JSON.stringify(stored) !== JSON.stringify(values)) {
           throw new ApiError(409, 'Kunci penyimpanan dokumen sudah digunakan untuk data berbeda. Muat ulang dokumen yang tersimpan sebelum mengubahnya.')
         }
@@ -5142,7 +5146,7 @@ employeesRouter.post(
         return
       }
       await conn.execute(
-        'INSERT INTO employee_documents(uid,employee_id,document_type,document_number,name,file_id,issued_date,expiry_date,status,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO employee_documents(uid,employee_id,document_type,document_number,name,file_id,issued_date,expiry_date,status,notes,external_url,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [uid, employee.id, ...values, auth.id, auth.id]
       )
       await writeAudit({ auth, request: req, siteId: employee.siteId, action: 'CREATE',
@@ -5176,9 +5180,9 @@ employeesRouter.patch(
         'SELECT id FROM employee_documents WHERE uid=? AND employee_id=? FOR UPDATE', [documentUid, employee.id]
       )
       if (!rows[0]) throw new ApiError(404, 'Dokumen tidak ditemukan.')
-      const values = documentValues(input, await documentFileId(conn, input.fileUid))
+      const values = documentValues(input, input.fileUid ? await documentFileId(conn, input.fileUid) : null)
       await conn.execute(
-        'UPDATE employee_documents SET document_type=?,document_number=?,name=?,file_id=?,issued_date=?,expiry_date=?,status=?,notes=?,updated_by=? WHERE id=?',
+        'UPDATE employee_documents SET document_type=?,document_number=?,name=?,file_id=?,issued_date=?,expiry_date=?,status=?,notes=?,external_url=?,updated_by=? WHERE id=?',
         [...values, auth.id, rows[0].id]
       )
       await writeAudit({ auth, request: req, siteId: employee.siteId, action: 'UPDATE',
@@ -5290,10 +5294,10 @@ function addBusinessDays(date: string, days: number) {
   return value.toISOString().slice(0, 10)
 }
 function documentFrom() {
-  return `FROM employee_documents d JOIN employees e ON e.id=d.employee_id JOIN sites s ON s.id=e.current_site_id JOIN files f ON f.id=d.file_id`
+  return `FROM employee_documents d JOIN employees e ON e.id=d.employee_id JOIN sites s ON s.id=e.current_site_id LEFT JOIN files f ON f.id=d.file_id`
 }
 function documentSelect() {
-  return `SELECT d.uid,e.uid employeeUid,e.full_name employeeName,s.code site,d.document_type documentType,d.document_number documentNumber,d.name,DATE_FORMAT(d.issued_date,'%Y-%m-%d') issuedDate,DATE_FORMAT(d.expiry_date,'%Y-%m-%d') expiryDate,d.status,d.notes,f.uid fileUid,f.original_name originalName,f.mime_type mimeType,f.size_bytes sizeBytes,f.extension,f.storage_path filePath ${documentFrom()}`
+  return `SELECT d.uid,e.uid employeeUid,e.full_name employeeName,s.code site,d.document_type documentType,d.document_number documentNumber,d.name,DATE_FORMAT(d.issued_date,'%Y-%m-%d') issuedDate,DATE_FORMAT(d.expiry_date,'%Y-%m-%d') expiryDate,d.status,d.notes,d.external_url externalUrl,f.uid fileUid,f.original_name originalName,f.mime_type mimeType,f.size_bytes sizeBytes,f.extension,f.storage_path filePath ${documentFrom()}`
 }
 function mapDocument(row: RowDataPacket) {
   const {
@@ -5303,6 +5307,7 @@ function mapDocument(row: RowDataPacket) {
     sizeBytes,
     extension,
     filePath,
+    externalUrl,
     employeeName,
     site,
     ...document
@@ -5311,13 +5316,15 @@ function mapDocument(row: RowDataPacket) {
     ...document,
     employeeName,
     site,
-    file: {
+    externalUrl: externalUrl ? googleDriveDocument(externalUrl)?.url : undefined,
+    externalPreviewUrl: externalUrl ? googleDriveDocument(externalUrl)?.previewUrl : undefined,
+    file: fileUid ? {
       uid: fileUid,
       originalName,
       mimeType,
       sizeBytes: Number(sizeBytes),
       extension,
       url: fileUrl(filePath),
-    },
+    } : undefined,
   }
 }

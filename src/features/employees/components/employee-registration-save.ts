@@ -36,7 +36,7 @@ export type EmployeeSaveProgress = {
       IdentityType,
       {
         file?: File
-        attachment: MockFileAttachment
+        attachment?: MockFileAttachment
         saved?: EmployeeDocument
         creationKey?: string
       }
@@ -150,6 +150,8 @@ export async function saveEmployeeRegistration({
         uid,
         input: { ...metadata, documentNumber: entry.number },
       })
+      // External documents have no uploaded attachment. Preserve their source
+      // when only the identity number changes; a later upload replaces it.
       progress.documents[entry.type] = {
         ...progress.documents[entry.type],
         attachment: saved.file,
@@ -167,9 +169,11 @@ export async function saveEmployeeRegistration({
       }
     }
     const uploaded = progress.documents[entry.type]!
+    const attachment = uploaded.attachment
+    if (!attachment) throw new Error('File dokumen belum selesai diupload.')
     const current = uploaded.saved ?? previous
     if (
-      current?.file.uid === uploaded.attachment.uid &&
+      current?.file?.uid === attachment.uid &&
       (current.documentNumber ?? '') === (entry.number ?? '')
     )
       continue
@@ -187,7 +191,7 @@ export async function saveEmployeeRegistration({
         expiryDate: current?.expiryDate,
         status: current?.status ?? 'ACTIVE',
         notes: current?.notes,
-        file: uploaded.attachment,
+        file: attachment,
       },
     })
   }

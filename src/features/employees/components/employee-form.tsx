@@ -9,13 +9,14 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { DatePicker } from '@/components/date-picker'
 import { useEmployeeLookups } from '../data/queries'
-import { educationLevelOptions, educationLevelValues } from '../education-level'
 import type {
   Employee,
   EmployeeDocument,
   EmployeeInput,
   MockFileAttachment,
 } from '../domain'
+import { educationLevelOptions, educationLevelValues } from '../education-level'
+import { EmployeeDocumentPreview } from './employee-document-preview'
 import { FormActionBar } from './form-action-bar'
 
 const optionalText = z.string().optional()
@@ -741,6 +742,9 @@ export function EmployeeForm({
               label='Foto KTP'
               description='Foto atau scan KTP yang terbaca jelas.'
               attachment={nationalIdPhoto}
+              externalDocument={
+                !nationalIdFile ? identityDocuments?.KTP : undefined
+              }
               disabled={Boolean(inheritedRecruitmentDocuments?.length)}
               inherited={inheritedRecruitmentDocuments?.includes('KTP')}
               onSelect={(file) => {
@@ -752,6 +756,9 @@ export function EmployeeForm({
               label='Foto KK'
               description='Foto atau scan Kartu Keluarga yang terbaca jelas.'
               attachment={familyCardPhoto}
+              externalDocument={
+                !familyCardFile ? identityDocuments?.KK : undefined
+              }
               disabled={Boolean(inheritedRecruitmentDocuments?.length)}
               inherited={inheritedRecruitmentDocuments?.includes('KK')}
               onSelect={(file) => {
@@ -932,6 +939,7 @@ function ImageUploadCard({
   disabled = false,
   inherited = false,
   onSelect,
+  externalDocument,
 }: {
   label: string
   description: string
@@ -939,6 +947,7 @@ function ImageUploadCard({
   disabled?: boolean
   inherited?: boolean
   onSelect: (file: File) => void
+  externalDocument?: EmployeeDocument
 }) {
   const url = attachment?.temporaryUrl ?? attachment?.url
   return (
@@ -950,11 +959,16 @@ function ImageUploadCard({
           <div className='flex size-full items-center justify-center px-6 text-center text-sm text-muted-foreground'>
             {inherited
               ? `${label} siap disalin dari pendaftaran.`
-              : `Belum ada ${label.toLowerCase()}.`}
+              : externalDocument?.externalUrl
+                ? 'Dokumen tersedia di Google Drive.'
+                : `Belum ada ${label.toLowerCase()}.`}
           </div>
         )}
       </div>
       <div className='space-y-2 p-3'>
+        {externalDocument?.externalUrl && (
+          <EmployeeDocumentPreview document={externalDocument} />
+        )}
         <div>
           <p className='font-medium'>{label}</p>
           <p className='text-xs text-muted-foreground'>{description}</p>

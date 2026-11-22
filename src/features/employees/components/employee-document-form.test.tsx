@@ -17,6 +17,41 @@ vi.mock('./employee-picker', () => ({
 }))
 afterEach(() => vi.restoreAllMocks())
 
+it('creates a Google Drive document without uploading to R2', async () => {
+  navigate.mockReset()
+  const post = vi
+    .spyOn(apiClient, 'post')
+    .mockResolvedValue({ data: { uid: 'synthetic-document' } })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  const screen = await render(
+    <QueryClientProvider client={client}>
+      <EmployeeRecordFormPage
+        kind='document'
+        employeeUid='synthetic-employee'
+      />
+    </QueryClientProvider>
+  )
+  await screen.getByLabelText('Tipe dokumen').fill('KTP')
+  await screen.getByLabelText('Nama dokumen').fill('KTP Google Drive')
+  await screen.getByLabelText('Sumber dokumen').selectOptions('DRIVE')
+  await screen
+    .getByRole('textbox', { name: 'Tautan Google Drive', exact: true })
+    .fill('https://drive.google.com/file/d/synthetic_file_123456/view')
+  await screen.getByRole('button', { name: 'Simpan dokumen' }).click()
+  await expect.poll(() => navigate.mock.calls.length).toBe(1)
+  expect(post).toHaveBeenCalledTimes(1)
+  expect(post).toHaveBeenCalledWith(
+    '/employees/synthetic-employee/documents',
+    expect.objectContaining({
+      externalUrl: 'https://drive.google.com/file/d/synthetic_file_123456/view',
+      fileUid: undefined,
+    })
+  )
+  client.clear()
+})
+
 it('reuses the uploaded file and creation key when the manual document form retries a lost response', async () => {
   navigate.mockReset()
   const documents = new Map<string, string>()

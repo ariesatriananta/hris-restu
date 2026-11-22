@@ -333,7 +333,9 @@ export interface EmployeeDocument {
   expiryDate?: string
   status: DocumentStatus
   notes?: string
-  file: MockFileAttachment
+  file?: MockFileAttachment
+  externalUrl?: string
+  externalPreviewUrl?: string
   employeeName?: string
   site?: SiteCode
 }

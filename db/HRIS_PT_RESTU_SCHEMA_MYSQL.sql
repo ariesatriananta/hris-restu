@@ -1283,7 +1283,8 @@ CREATE TABLE employee_documents (
   document_type VARCHAR(50) NOT NULL,
   document_number VARCHAR(100) NULL,
   name VARCHAR(150) NOT NULL,
-  file_id BIGINT UNSIGNED NOT NULL,
+  file_id BIGINT UNSIGNED NULL,
+  external_url VARCHAR(1000) NULL,
   issued_date DATE NULL,
   expiry_date DATE NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
@@ -1297,9 +1298,14 @@ CREATE TABLE employee_documents (
   KEY idx_employee_documents_employee_type (employee_id, document_type),
   KEY idx_employee_documents_expiry (expiry_date),
   CONSTRAINT chk_employee_documents_status CHECK (status IN ('ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED')),
+  CONSTRAINT chk_employee_documents_source CHECK (
+    (file_id IS NOT NULL AND external_url IS NULL)
+    OR (file_id IS NULL AND external_url IS NOT NULL AND external_url LIKE 'https://drive.google.com/file/d/%')
+  ),
   CONSTRAINT chk_employee_documents_dates CHECK (expiry_date IS NULL OR issued_date IS NULL OR expiry_date >= issued_date),
   CONSTRAINT fk_employee_documents_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON UPDATE CASCADE ON DELETE RESTRICT,
-  CONSTRAINT fk_employee_documents_file FOREIGN KEY (file_id) REFERENCES files (id) ON UPDATE CASCADE ON DELETE RESTRICT
+  -- file_id is covered by CHECK; MariaDB disallows ON UPDATE CASCADE here.
+  CONSTRAINT fk_employee_documents_file FOREIGN KEY (file_id) REFERENCES files (id) ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE generated_documents (

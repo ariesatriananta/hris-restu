@@ -8,10 +8,11 @@ import { employeesRouter } from './employees.js'
 
 const mocks = vi.hoisted(() => ({
   getConnection: vi.fn(),
+  query: vi.fn(),
   audit: vi.fn(),
   auth: {} as AuthContext,
 }))
-vi.mock('../db.js', () => ({ pool: { getConnection: mocks.getConnection } }))
+vi.mock('../db.js', () => ({ pool: { getConnection: mocks.getConnection, query: mocks.query } }))
 vi.mock('../config.js', () => ({
   env: { R2_PUBLIC_BASE_URL: 'https://files.example.test' },
 }))
@@ -67,7 +68,7 @@ async function request(path: string, payload: unknown = body, method = 'POST') {
       {
         method,
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: method === 'GET' ? undefined : JSON.stringify(payload),
       }
     )
   } finally {
@@ -85,14 +86,15 @@ beforeEach(() => {
   db.function('DATE_FORMAT', { varargs: true }, (value) => value)
   db.exec(`
     CREATE TABLE sites(id INTEGER PRIMARY KEY,code TEXT);
-    CREATE TABLE employees(id INTEGER PRIMARY KEY,uid TEXT UNIQUE,current_site_id INTEGER);
-    CREATE TABLE files(id INTEGER PRIMARY KEY,uid TEXT UNIQUE);
-    CREATE TABLE employee_documents(id INTEGER PRIMARY KEY,uid TEXT UNIQUE,employee_id INTEGER,document_type TEXT,document_number TEXT,name TEXT,file_id INTEGER,issued_date TEXT,expiry_date TEXT,status TEXT,notes TEXT,created_by INTEGER,updated_by INTEGER);
+    CREATE TABLE employees(id INTEGER PRIMARY KEY,uid TEXT UNIQUE,current_site_id INTEGER,full_name TEXT DEFAULT 'Synthetic employee');
+    CREATE TABLE files(id INTEGER PRIMARY KEY,uid TEXT UNIQUE,original_name TEXT DEFAULT 'synthetic.pdf',mime_type TEXT DEFAULT 'application/pdf',size_bytes INTEGER DEFAULT 4,extension TEXT DEFAULT 'pdf',storage_path TEXT DEFAULT 'synthetic/file.pdf');
+    CREATE TABLE employee_documents(id INTEGER PRIMARY KEY,uid TEXT UNIQUE,employee_id INTEGER,document_type TEXT,document_number TEXT,name TEXT,file_id INTEGER,issued_date TEXT,expiry_date TEXT,status TEXT,notes TEXT,external_url TEXT,created_by INTEGER,updated_by INTEGER);
     CREATE TABLE audits(action TEXT,record_uid TEXT);
     INSERT INTO sites VALUES(1,'KLATEN'),(2,'JEPARA');
   `)
-  db.prepare('INSERT INTO employees VALUES(1,?,1),(2,?,2)').run(employee, other)
-  db.prepare('INSERT INTO files VALUES(1,?)').run(fileUid)
+  db.prepare('INSERT INTO employees(id,uid,current_site_id) VALUES(1,?,1),(2,?,2)').run(employee, other)
+  db.prepare('INSERT INTO files(id,uid) VALUES(1,?)').run(fileUid)
+  mocks.query.mockImplementation(async (sql: string, params: SQLInputValue[] = []) => [db.prepare(sql).all(...params)])
   mocks.auth = {
     id: 7,
     roles: ['HR_OFFICER'],
@@ -149,6 +151,40 @@ beforeEach(() => {
 afterEach(() => db.close())
 
 describe('employee document atomic create and retry', () => {
+  it('reads Drive documents without a files row, preserves R2 URLs and enforces site access', async () => {
+    const external = { ...body, fileUid: undefined, externalUrl: 'https://drive.google.com/open?id=synthetic_file_123456' }
+    await request(`/${employee}/documents`, external)
+    mocks.auth.permissions.push('employees.view')
+    const drive = await request(`/documents/${key}`, undefined, 'GET')
+    expect(drive.status).toBe(200)
+    expect(await drive.json()).toMatchObject({ externalUrl: 'https://drive.google.com/file/d/synthetic_file_123456/view', externalPreviewUrl: 'https://drive.google.com/file/d/synthetic_file_123456/preview' })
+    await request(`/documents/${key}`, body, 'PATCH')
+    const uploaded = await (await request(`/documents/${key}`, undefined, 'GET')).json() as { file: { url: string } }
+    expect(uploaded.file.url).toBe('https://files.example.test/synthetic/file.pdf')
+    expect(uploaded).not.toHaveProperty('externalUrl')
+    mocks.auth.siteAccess = ['JEPARA']
+    expect((await request(`/documents/${key}`, undefined, 'GET')).status).toBe(403)
+  })
+  it('stores Drive links without files and keeps retry and source replacement atomic', async () => {
+    const external = { ...body, fileUid: undefined, externalUrl: 'https://drive.google.com/open?id=synthetic_file_123456' }
+    expect((await request(`/${employee}/documents`, external)).status).toBe(201)
+    expect((await request(`/${employee}/documents`, external)).status).toBe(200)
+    expect(db.prepare('SELECT file_id,external_url FROM employee_documents').get()).toMatchObject({ file_id: null, external_url: 'https://drive.google.com/file/d/synthetic_file_123456/view' })
+    expect((await request(`/documents/${key}`, body, 'PATCH')).status).toBe(204)
+    expect(db.prepare('SELECT file_id,external_url FROM employee_documents').get()).toMatchObject({ file_id: 1, external_url: null })
+    expect((await request(`/documents/${key}`, external, 'PATCH')).status).toBe(204)
+    expect(count()).toBe(1)
+  })
+  it('rejects missing/dual sources, unsafe hosts, folder links and cross-site Drive documents', async () => {
+    for (const payload of [
+      { ...body, fileUid: undefined },
+      { ...body, externalUrl: 'https://drive.google.com/file/d/synthetic_file_123456/view' },
+      { ...body, fileUid: undefined, externalUrl: 'https://drive.google.com.evil.test/file/d/synthetic_file_123456/view' },
+      { ...body, fileUid: undefined, externalUrl: 'https://drive.google.com/drive/folders/synthetic_file_123456' },
+    ]) expect((await request(`/${employee}/documents`, payload)).status).toBe(422)
+    expect((await request(`/${other}/documents`, { ...body, fileUid: undefined, externalUrl: 'https://drive.google.com/file/d/synthetic_file_123456/view' })).status).toBe(403)
+    expect(count()).toBe(0)
+  })
   it('returns the same UID after a lost successful response, without a second document/audit', async () => {
     expect((await request(`/${employee}/documents`)).status).toBe(201)
     const replay = await request(`/${employee}/documents`)
@@ -207,7 +243,7 @@ describe('employee document atomic create and retry', () => {
   it('rejects changed file or employee with the same key without leaking stored data', async () => {
     expect((await request(`/${employee}/documents`)).status).toBe(201)
     const secondFile = '55555555-5555-4555-8555-555555555555'
-    db.prepare('INSERT INTO files VALUES(2,?)').run(secondFile)
+    db.prepare('INSERT INTO files(id,uid) VALUES(2,?)').run(secondFile)
     expect(
       (
         await request(`/${employee}/documents`, {

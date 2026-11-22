@@ -14,6 +14,12 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
 
 ## Aturan bisnis penting
 
+- Dokumen karyawan memiliki tepat satu sumber: upload R2 atau tautan file
+  Google Drive HTTPS tervalidasi. Tautan eksternal tidak dimasukkan ke tabel
+  `files`; tidak memalsukan tipe/ukuran file. Preview memiliki tombol buka
+  langsung; permission/site tetap diperiksa API. Import tautan legacy memakai
+  UID deterministik dan tidak menimpa dokumen existing atau keputusan arsip.
+
 - Jenis karyawan operasional: `BORONGAN`, `HARIAN`, `BULANAN`, dan `TRAINING`.
 - Master `LEGACY_UNKNOWN` berlabel `-` adalah marker arsip import Owner, selalu
   nonaktif dan tidak menjadi pilihan registrasi/mutasi/onboarding operasional.

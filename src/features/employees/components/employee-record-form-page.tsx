@@ -39,6 +39,7 @@ import {
   contractTypeRequiresEndDate,
   isSelectableContractType,
 } from '../employee-contract-policy'
+import { EmployeeDocumentPreview } from './employee-document-preview'
 import { EmployeePicker } from './employee-picker'
 import { FormActionBar } from './form-action-bar'
 
@@ -508,17 +509,27 @@ function DocumentForm({
       notes: record?.notes ?? '',
     },
   })
+  const [source, setSource] = useState<'UPLOAD' | 'DRIVE'>(
+    record?.externalUrl ? 'DRIVE' : 'UPLOAD'
+  )
+  const [externalUrl, setExternalUrl] = useState(record?.externalUrl ?? '')
   const selectedEmployeeUid = useWatch({
     control: form.control,
     name: 'employeeUid',
   })
   const issuedDate = useWatch({ control: form.control, name: 'issuedDate' })
   const expiryDate = useWatch({ control: form.control, name: 'expiryDate' })
-  const { confirmation } = useUnsavedChanges(form.formState.isDirty)
+  const { confirmation } = useUnsavedChanges(
+    form.formState.isDirty ||
+      Boolean(file) ||
+      source !== (record?.externalUrl ? 'DRIVE' : 'UPLOAD') ||
+      externalUrl !== (record?.externalUrl ?? '')
+  )
   const submit = async (value: DocumentValues) => {
     form.clearErrors('root')
     try {
       if (
+        source === 'UPLOAD' &&
         file &&
         (uploaded.current?.file !== file ||
           uploaded.current.employeeUid !== value.employeeUid)
@@ -529,9 +540,22 @@ function DocumentForm({
           attachment: await uploadEmployeeFile(file, value.employeeUid),
         }
       }
-      const attachment = file ? uploaded.current?.attachment : record?.file
-      if (!attachment) {
-        form.setError('root', { message: 'File dokumen wajib dipilih.' })
+      const attachment =
+        source === 'UPLOAD'
+          ? file
+            ? uploaded.current?.attachment
+            : record?.file
+          : undefined
+      if (
+        (source === 'UPLOAD' && !attachment) ||
+        (source === 'DRIVE' && !externalUrl.trim())
+      ) {
+        form.setError('root', {
+          message:
+            source === 'DRIVE'
+              ? 'Tautan Google Drive wajib diisi.'
+              : 'File dokumen wajib dipilih.',
+        })
         return
       }
       await save.mutateAsync({
@@ -544,6 +568,7 @@ function DocumentForm({
           expiryDate: value.expiryDate || undefined,
           notes: value.notes || undefined,
           file: attachment,
+          externalUrl: source === 'DRIVE' ? externalUrl.trim() : undefined,
         },
       })
       toast.success(record ? 'Dokumen diperbarui.' : 'Dokumen ditambahkan.')
@@ -619,12 +644,44 @@ function DocumentForm({
           values={['ACTIVE', 'EXPIRED', 'REVOKED', 'ARCHIVED']}
           {...form.register('status')}
         />
-        <Field label='File dokumen' error={form.formState.errors.root?.message}>
-          <Input
-            type='file'
-            accept='.pdf,.docx,image/jpeg,image/png,image/webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-            onChange={(e) => setFile(e.target.files?.[0])}
-          />
+        <Field label='Sumber dokumen'>
+          <select
+            aria-label='Sumber dokumen'
+            className='h-9 w-full rounded-md border bg-background px-3 text-sm'
+            value={source}
+            onChange={(event) =>
+              setSource(event.target.value as 'UPLOAD' | 'DRIVE')
+            }
+          >
+            <option value='UPLOAD'>Upload file</option>
+            <option value='DRIVE'>Tautan Google Drive</option>
+          </select>
+        </Field>
+        <Field
+          label={source === 'DRIVE' ? 'Tautan Google Drive' : 'File dokumen'}
+          error={form.formState.errors.root?.message}
+        >
+          {source === 'DRIVE' ? (
+            <Input
+              key='drive'
+              type='url'
+              value={externalUrl}
+              onChange={(event) => setExternalUrl(event.target.value)}
+              placeholder='https://drive.google.com/file/d/…/view'
+            />
+          ) : (
+            <Input
+              key='upload'
+              type='file'
+              accept='.pdf,.docx,image/jpeg,image/png,image/webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+              onChange={(e) => setFile(e.target.files?.[0])}
+            />
+          )}
+          {record && (
+            <div className='mt-2'>
+              <EmployeeDocumentPreview document={record} />
+            </div>
+          )}
         </Field>
         <div className='sm:col-span-2'>
           <Field label='Catatan'>

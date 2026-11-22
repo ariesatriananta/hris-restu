@@ -177,3 +177,10 @@ Teruji dengan data sintetis pada MariaDB 10.4.32 terpisah melalui
 guard database/konfirmasi/snapshot, rollback error di akhir, hasil penempatan,
 snapshot kontrak, replay tanpa perubahan, dan pemulihan SQL_SAFE_UPDATES.
 Test hanya memakai server disposable 127.0.0.1:33479; tidak membaca DATABASE_URL.
+
+## Dokumen KTP/KK dari Drive
+
+Follow-up pengaitan link Excel tanpa migrasi file fisik tersedia di
+[EMPLOYEE_LEGACY_DRIVE_DOCUMENTS.md](EMPLOYEE_LEGACY_DRIVE_DOCUMENTS.md).
+Jalankan migration sumber dokumen dulu, lalu owner-run SQL link dalam mode
+PREVIEW sebelum EXECUTE. Tidak perlu menjalankan import karyawan ulang.

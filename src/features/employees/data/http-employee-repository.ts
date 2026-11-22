@@ -190,7 +190,7 @@ export const httpEmployeeRepository: EmployeeRepository = {
   async saveDocument(input, uid, idempotencyKey) {
     const body = {
       ...input,
-      fileUid: input.file.uid,
+      fileUid: input.file?.uid,
       ...(!uid && { idempotencyKey: idempotencyKey ?? crypto.randomUUID() }),
     }
     if (uid) {
