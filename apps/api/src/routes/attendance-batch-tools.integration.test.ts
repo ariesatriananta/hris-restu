@@ -299,6 +299,22 @@ describe('Attendance batch tools API', () => {
     expect(mocks.query).not.toHaveBeenCalled()
   })
 
+  it('menolak import untuk histori jenis arsip walaupun izin Attendance aktif', async () => {
+    mocks.connectionQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('LEFT JOIN employees employee')) return [[{
+        rowNumber: 2, employeeId: 10, employeeUid: 'employee-uid', employeeNumber: 'PKDS-001',
+        historyId: 20, assignmentId: 30, employeeType: 'LEGACY_UNKNOWN', allowsAttendance: 1,
+      }]]
+      return [[]]
+    })
+    const response = await post('/import/preview', { rows: [{
+      rowNumber: 2, businessDate: '2026-09-03', employeeNumber: 'PKDS-001', employeeName: 'Siti',
+      status: 'HADIR', clockIn: '07:05', clockOut: '', notes: '',
+    }] })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ data: { valid: 0, invalid: 1, rows: [{ valid: false, message: expect.stringContaining('tidak eligible') }] } })
+  })
+
   it('memvalidasi import jam tidak lengkap sebagai abnormal yang siap diproses', async () => {
     mocks.connectionQuery.mockImplementation(async (sql: string) => {
       if (
@@ -315,7 +331,7 @@ describe('Attendance batch tools API', () => {
               employeeName: 'Siti',
               historyId: 20,
               siteId: 1,
-              allowsAttendance: 1,
+              allowsAttendance: 1, employeeType: 'BORONGAN',
               site: 'JEPARA',
               siteName: 'Site Jepara',
               siteActive: 1,
@@ -396,7 +412,7 @@ describe('Attendance batch tools API', () => {
                 employeeName: 'Siti',
                 historyId: 20,
                 siteId: 1,
-                allowsAttendance: 1,
+                allowsAttendance: 1, employeeType: 'BORONGAN',
                 site: 'JEPARA',
                 siteName: 'Site Jepara',
                 siteActive: 1,

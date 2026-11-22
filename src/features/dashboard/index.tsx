@@ -67,6 +67,7 @@ const longDate = new Intl.DateTimeFormat('id-ID', {
 const time = new Intl.DateTimeFormat('id-ID', {
   hour: '2-digit',
   minute: '2-digit',
+  timeZone: 'Asia/Jakarta',
 })
 
 const chartTooltipStyle = {

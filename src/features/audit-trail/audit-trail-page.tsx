@@ -638,6 +638,7 @@ function formatDateTime(value: string) {
   return new Intl.DateTimeFormat('id-ID', {
     dateStyle: 'medium',
     timeStyle: 'medium',
+    timeZone: 'Asia/Jakarta',
   }).format(new Date(value))
 }
 function summary(result: AuditListResult) {

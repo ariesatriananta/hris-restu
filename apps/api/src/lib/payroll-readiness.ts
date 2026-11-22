@@ -205,7 +205,7 @@ async function evaluatePieceRatePayrollReadiness(
 
   const [integrityRows] = await executor.query<RowDataPacket[]>(
     `SELECT
-       CURRENT_DATE() dbToday,
+       DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00'),'%Y-%m-%d') dbToday,
        (SELECT COUNT(*)
           FROM attendance_corrections ac
           JOIN attendance_records ar ON ar.id=ac.attendance_record_id
@@ -645,7 +645,7 @@ async function evaluateTimeBasedPayrollReadiness(
       periodEnd: period.periodEnd,
     }))
   const [integrityRows] = await executor.query<RowDataPacket[]>(
-    `SELECT CURRENT_DATE() dbToday,
+    `SELECT DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00'),'%Y-%m-%d') dbToday,
        (SELECT COUNT(*) FROM attendance_corrections correction
          JOIN attendance_records attendance ON attendance.id=correction.attendance_record_id
         WHERE attendance.site_id=? AND attendance.business_date BETWEEN ? AND ?

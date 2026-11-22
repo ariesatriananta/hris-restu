@@ -462,7 +462,7 @@ async function loadRevisionRows(auth: AuthContext, input: RecapInput) {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT pr.uid revisionUid,pr.revision_type revisionType,
             pr.revision_number revisionNumber,pr.reason,
-            DATE_FORMAT(pr.revised_at,'%Y-%m-%dT%H:%i:%s+07:00') revisedAt,
+            DATE_FORMAT(pr.revised_at,'%Y-%m-%dT%H:%i:%sZ') revisedAt,
             COALESCE(actor.full_name,'User tidak tersedia') revisedBy,
             pt.transaction_number sourceTransactionNumber,
             replacement.transaction_number replacementTransactionNumber,

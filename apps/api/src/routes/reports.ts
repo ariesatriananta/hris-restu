@@ -957,12 +957,12 @@ const payrollFinalDatasetSql = `SELECT
   DATE_FORMAT(pp.period_start,'%Y-%m-%d') periodStart,
   DATE_FORMAT(pp.period_end,'%Y-%m-%d') periodEnd,
   DATE_FORMAT(pp.payment_date,'%Y-%m-%d') paymentDate,
-  CONCAT(DATE_FORMAT(pp.closed_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') closedAt,
+  CONCAT(DATE_FORMAT(pp.closed_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') closedAt,
   pp.payroll_basis payrollBasis,pp.pay_frequency payFrequency,
   pp.employee_type_code periodEmployeeType,
   s.uid siteUid,s.code siteCode,s.name siteName,
   run.uid runUid,run.run_number runNumber,
-  CONCAT(DATE_FORMAT(run.calculation_finished_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') calculationFinishedAt,
+  CONCAT(DATE_FORMAT(run.calculation_finished_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') calculationFinishedAt,
   result.uid resultUid,employee.uid employeeUid,
   result.employee_number_snapshot employeeNumber,
   result.employee_name_snapshot employeeName,
@@ -1091,13 +1091,13 @@ const attendanceClassificationDatasetSql = `SELECT
   DATE_FORMAT(acr.end_date,'%Y-%m-%d') endDate,
   DATEDIFF(acr.end_date,acr.start_date)+1 calendarDays,
   acr.approval_status approvalStatus,
-  CONCAT(DATE_FORMAT(acr.requested_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') requestedAt,
+  CONCAT(DATE_FORMAT(acr.requested_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') requestedAt,
   requester.full_name requestedByName,
   CASE WHEN acr.reviewed_at IS NULL THEN NULL
-       ELSE CONCAT(DATE_FORMAT(acr.reviewed_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') END reviewedAt,
+       ELSE CONCAT(DATE_FORMAT(acr.reviewed_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') END reviewedAt,
   reviewer.full_name reviewedByName,
   CASE WHEN acr.cancelled_at IS NULL THEN NULL
-       ELSE CONCAT(DATE_FORMAT(acr.cancelled_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') END cancelledAt,
+       ELSE CONCAT(DATE_FORMAT(acr.cancelled_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') END cancelledAt,
   canceller.full_name cancelledByName,
   (SELECT COUNT(*) FROM employee_employment_histories history_count
     WHERE history_count.employee_id=acr.employee_id
@@ -1230,13 +1230,13 @@ const attendanceCorrectionDatasetSql = `SELECT
        ELSE CONCAT(DATE_FORMAT(ac.new_clock_out_at,'%Y-%m-%dT%H:%i:%s.%f'),'+07:00') END newClockOutAt,
   ac.old_status oldStatus,ac.new_status newStatus,
   ac.approval_status approvalStatus,
-  CONCAT(DATE_FORMAT(ac.requested_at,'%Y-%m-%dT%H:%i:%s.%f'),'+07:00') requestedAt,
+  CONCAT(DATE_FORMAT(ac.requested_at,'%Y-%m-%dT%H:%i:%s.%f'),'Z') requestedAt,
   requester.full_name requestedByName,
   CASE WHEN ac.reviewed_at IS NULL THEN NULL
-       ELSE CONCAT(DATE_FORMAT(ac.reviewed_at,'%Y-%m-%dT%H:%i:%s.%f'),'+07:00') END reviewedAt,
+       ELSE CONCAT(DATE_FORMAT(ac.reviewed_at,'%Y-%m-%dT%H:%i:%s.%f'),'Z') END reviewedAt,
   reviewer.full_name reviewedByName,
   CASE WHEN ac.applied_at IS NULL THEN NULL
-       ELSE CONCAT(DATE_FORMAT(ac.applied_at,'%Y-%m-%dT%H:%i:%s.%f'),'+07:00') END appliedAt,
+       ELSE CONCAT(DATE_FORMAT(ac.applied_at,'%Y-%m-%dT%H:%i:%s.%f'),'Z') END appliedAt,
   (eh.site_id=ar.site_id) historySiteMatches,
   (SELECT COUNT(*) FROM employee_employment_histories history_count
     WHERE history_count.employee_id=ar.employee_id
@@ -3088,9 +3088,9 @@ FROM (
     d.device_type deviceType,d.location_description locationDescription,
     d.is_active isActive,(d.device_token_hash IS NOT NULL) isAttendanceActivated,
     CASE WHEN d.activated_at IS NULL THEN NULL
-         ELSE CONCAT(DATE_FORMAT(d.activated_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') END activatedAt,
+         ELSE CONCAT(DATE_FORMAT(d.activated_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') END activatedAt,
     CASE WHEN d.last_seen_at IS NULL THEN NULL
-         ELSE CONCAT(DATE_FORMAT(d.last_seen_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') END lastSeenAt,
+         ELSE CONCAT(DATE_FORMAT(d.last_seen_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') END lastSeenAt,
     s.uid siteUid,s.code siteCode,s.name siteName,
     COUNT(ase.id) totalScans,
     COALESCE(SUM(ase.event_type='CLOCK_IN'),0) clockInScans,

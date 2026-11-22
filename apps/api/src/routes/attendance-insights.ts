@@ -316,7 +316,7 @@ attendanceInsightsRouter.get(
           pool.query<RowDataPacket[]>(
             `SELECT ac.uid,ac.correction_type correctionType,ac.approval_status status,
                     ac.reason description,
-                    DATE_FORMAT(ac.requested_at,'%Y-%m-%dT%H:%i:%s+07:00') occurredAt,
+                    DATE_FORMAT(ac.requested_at,'%Y-%m-%dT%H:%i:%sZ') occurredAt,
                     requester.full_name actorName,ac.review_notes reviewNotes
                FROM attendance_corrections ac
                JOIN users requester ON requester.id=ac.requested_by
@@ -326,7 +326,7 @@ attendanceInsightsRouter.get(
           pool.query<RowDataPacket[]>(
             `SELECT acr.uid,acr.classification_type classificationType,
                     acr.approval_status status,acr.reason description,
-                    DATE_FORMAT(acr.requested_at,'%Y-%m-%dT%H:%i:%s+07:00') occurredAt,
+                    DATE_FORMAT(acr.requested_at,'%Y-%m-%dT%H:%i:%sZ') occurredAt,
                     requester.full_name actorName,acd.outcome detailOutcome
                FROM attendance_classification_details acd
                JOIN attendance_classification_requests acr ON acr.id=acd.request_id
@@ -338,7 +338,7 @@ attendanceInsightsRouter.get(
           ),
           pool.query<RowDataPacket[]>(
             `SELECT afr.uid,afr.status,afr.reason description,
-                    DATE_FORMAT(afr.started_at,'%Y-%m-%dT%H:%i:%s+07:00') occurredAt,
+                    DATE_FORMAT(afr.started_at,'%Y-%m-%dT%H:%i:%sZ') occurredAt,
                     requester.full_name actorName,afr.trigger_type triggerType
                FROM attendance_daily_finalization_runs afr
                LEFT JOIN users requester ON requester.id=afr.requested_by

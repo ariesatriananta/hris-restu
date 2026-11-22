@@ -222,7 +222,7 @@ export async function validateAttendanceImportRows(
             employee.id employeeId,employee.uid employeeUid,
             employee.employee_number employeeNumber,employee.full_name employeeName,
             history.id historyId,history.site_id siteId,
-            status.allows_attendance allowsAttendance,
+            status.allows_attendance allowsAttendance,history_type.code employeeType,
             site.code site,site.name siteName,site.is_active siteActive,
             assignment.id assignmentId,assignment.work_days_json workDays,
             shift.id shiftId,shift.name shiftName,shift.site_id shiftSiteId,
@@ -266,6 +266,7 @@ export async function validateAttendanceImportRows(
         AND history.effective_from<=input.business_date
         AND (history.effective_to IS NULL OR history.effective_to>=input.business_date)
        LEFT JOIN employee_statuses status ON status.id=history.employee_status_id
+       LEFT JOIN employee_types history_type ON history_type.id=history.employee_type_id
        LEFT JOIN sites site ON site.id=history.site_id
        LEFT JOIN employee_shift_assignments assignment
          ON assignment.employee_id=employee.id
@@ -369,7 +370,7 @@ export async function validateAttendanceImportRows(
           Number(row.historyId) === historyId &&
           Number(row.assignmentId) === assignmentId
       )!
-      if (Number(context.allowsAttendance) !== 1) {
+      if (Number(context.allowsAttendance) !== 1 || !['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING'].includes(String(context.employeeType))) {
         throw new ApiError(
           422,
           'Karyawan tidak eligible untuk Attendance pada tanggal tersebut.'

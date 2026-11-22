@@ -162,8 +162,8 @@ function jsonValue(value: unknown) {
 
 const manualProjection = `SELECT manual.id,manual.uid,manual.payroll_period_id periodId,
   manual.status,manual.amount,manual.notes,manual.idempotency_key idempotencyKey,
-  CONCAT(DATE_FORMAT(manual.created_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') createdAt,
-  IF(manual.cancelled_at IS NULL,NULL,CONCAT(DATE_FORMAT(manual.cancelled_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00')) cancelledAt,
+  CONCAT(DATE_FORMAT(manual.created_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') createdAt,
+  IF(manual.cancelled_at IS NULL,NULL,CONCAT(DATE_FORMAT(manual.cancelled_at,'%Y-%m-%dT%H:%i:%s.000'),'Z')) cancelledAt,
   manual.cancellation_reason cancellationReason,
   e.uid employeeUid,e.employee_number employeeNumber,e.full_name fullName,
   pct.uid componentTypeUid,pct.code componentCode,pct.name componentName,
@@ -269,7 +269,7 @@ payrollSimulationsRouter.get(
         `SELECT revision.uid,revision.revision_type revisionType,
                 revision.before_data beforeData,revision.after_data afterData,
                 revision.reason,
-                CONCAT(DATE_FORMAT(revision.revised_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') revisedAt,
+                CONCAT(DATE_FORMAT(revision.revised_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') revisedAt,
                 actor.uid revisedByUid,COALESCE(actor.full_name,'Pengguna tidak tersedia') revisedByName
            FROM payroll_period_manual_component_revisions revision
            JOIN payroll_period_manual_components manual

@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs'
 import { safeSpreadsheetText } from './payroll-output.js'
+import { wibExportTimestamp } from './storage-time.js'
 
 export type EmployeeReportExportRow = {
   employeeNumber: string
@@ -553,9 +554,9 @@ export async function buildAttendanceClassificationReportWorkbook(
       row.endDate,
       row.calendarDays,
       attendanceApprovalStatusLabel(row.approvalStatus),
-      row.requestedAt,
+      wibExportTimestamp(row.requestedAt),
       safeSpreadsheetText(row.requestedByName),
-      row.reviewedAt ?? '',
+      wibExportTimestamp(row.reviewedAt),
       safeSpreadsheetText(row.reviewedByName),
       row.detailCount,
       row.appliedCount,
@@ -625,11 +626,11 @@ export async function buildAttendanceCorrectionReportWorkbook(
       attendanceStatusLabel(row.oldStatus),
       attendanceStatusLabel(row.newStatus),
       attendanceApprovalStatusLabel(row.approvalStatus),
-      row.requestedAt,
+      wibExportTimestamp(row.requestedAt),
       safeSpreadsheetText(row.requestedByName),
-      row.reviewedAt ?? '',
+      wibExportTimestamp(row.reviewedAt),
       safeSpreadsheetText(row.reviewedByName),
-      row.appliedAt ?? '',
+      wibExportTimestamp(row.appliedAt),
       row.historyStatus === 'VALID'
         ? 'Valid'
         : row.historyStatus === 'AMBIGUOUS'
@@ -771,7 +772,7 @@ export async function buildAuditActivityReportWorkbook(
   input.rows.forEach((row, index) =>
     sheet.addRow([
       index + 1,
-      row.occurredAt,
+      wibExportTimestamp(row.occurredAt),
       safeSpreadsheetText(row.actorName),
       safeSpreadsheetText(row.actorUsername),
       safeSpreadsheetText(row.siteName),

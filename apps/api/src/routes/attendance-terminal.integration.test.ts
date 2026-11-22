@@ -105,6 +105,22 @@ function auth(overrides: Partial<AuthContext> = {}): AuthContext {
 }
 
 describe('Attendance terminal API integration', () => {
+  it('menolak jenis arsip walaupun status dan izin Attendance aktif', async () => {
+    const conn = connection()
+    conn.query.mockImplementation(async (sqlValue: unknown) => {
+      const sql = String(sqlValue)
+      if (sql.includes('scanTimestamp')) return [[{ scanTimestamp: '2026-11-23 08:00:00', currentDate: '2026-11-23', previousDate: '2026-11-22', currentTime: '08:00:00' }]]
+      if (sql.includes('FROM scan_devices d')) return [[{ id: 10, uid: 'device-smg', siteId: 2, isActive: 1, site: 'SEMARANG' }]]
+      if (sql.includes('FROM attendance_scan_events ase')) return [[]]
+      if (sql.includes('FROM employees e')) return [[{ id: 20, employeeType: 'LEGACY_UNKNOWN', employeeStatus: 'ACTIVE', allowsAttendance: 1, site: 'SEMARANG' }]]
+      throw new Error('Unexpected database access after archive rejection')
+    })
+    mocks.getConnection.mockResolvedValue(conn)
+    const response = await postScan(auth())
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({ result: 'REJECTED', message: 'Jenis karyawan arsip tidak dapat digunakan untuk Attendance.' })
+    expect(conn.execute.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO attendance_records'))).toBe(false)
+  })
   beforeEach(() => {
     mocks.getConnection.mockReset()
     mocks.resolveCalendar.mockReset()
@@ -192,6 +208,7 @@ describe('Attendance terminal API integration', () => {
           employeeNumber: scanBody.barcode,
           fullName: 'Karyawan Demo',
           employeeStatus: 'ACTIVE',
+          employeeType: 'BORONGAN',
           allowsAttendance: 1,
           siteId: 2,
           site: 'SEMARANG',

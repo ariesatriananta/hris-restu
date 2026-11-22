@@ -718,8 +718,8 @@ productionFoundationRouter.get(
       const sites = csvValues(req.query.site).filter((value) => productionSiteCode.options.includes(value as never))
       if (sites.length) { where.push(`s.code IN (${sites.map(() => '?').join(',')})`); values.push(...sites) }
       const status = String(req.query.status ?? '')
-      if (status === 'ACTIVE') where.push('(policy.effective_to IS NULL OR policy.effective_to>=CURDATE())')
-      if (status === 'INACTIVE') where.push('policy.effective_to<CURDATE()')
+      if (status === 'ACTIVE') where.push("(policy.effective_to IS NULL OR policy.effective_to>=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')))")
+      if (status === 'INACTIVE') where.push("policy.effective_to<DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00'))")
       const clause = where.join(' AND ')
       const from = `FROM production_quantity_deduction_policies policy
         JOIN sites s ON s.id=policy.site_id
@@ -731,7 +731,7 @@ productionFoundationRouter.get(
                 CAST(policy.percentage AS CHAR) percentage,
                 DATE_FORMAT(policy.effective_from,'%Y-%m-%d') effectiveFrom,
                 DATE_FORMAT(policy.effective_to,'%Y-%m-%d') effectiveTo,
-                CASE WHEN policy.effective_to IS NOT NULL AND policy.effective_to<CURDATE()
+                CASE WHEN policy.effective_to IS NOT NULL AND policy.effective_to<DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00'))
                      THEN 'INACTIVE' ELSE 'ACTIVE' END status,policy.notes
            ${from} WHERE ${clause}
           ORDER BY s.code,policy.effective_from DESC,policy.id DESC

@@ -523,7 +523,7 @@ attendanceFinalizationsRouter.get(
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT s.id siteId,s.code site,r.uid,r.status rawStatus,r.trigger_type source,
                 r.summary,r.warnings,r.error_message errorMessage,
-                DATE_FORMAT(COALESCE(r.finished_at,r.started_at),'%Y-%m-%dT%H:%i:%s+07:00') lastRunAt
+                DATE_FORMAT(COALESCE(r.finished_at,r.started_at),'%Y-%m-%dT%H:%i:%sZ') lastRunAt
            FROM sites s
            LEFT JOIN attendance_daily_finalization_runs r ON r.id=(
              SELECT latest.id FROM attendance_daily_finalization_runs latest

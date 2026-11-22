@@ -360,7 +360,7 @@ const policySelect = `SELECT policy.id,policy.uid,policy.policy_year policyYear,
  policy.health_wage_ceiling healthWageCeiling,policy.jp_wage_ceiling jpWageCeiling,
  policy.rounding_unit roundingUnit,policy.regulation_reference regulationReference,
  policy.notes,policy.status,
- CONCAT(DATE_FORMAT(policy.updated_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') updatedAt
+ CONCAT(DATE_FORMAT(policy.updated_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') updatedAt
  FROM payroll_bpjs_policies policy`
 
 export const payrollBpjsRouter = Router()

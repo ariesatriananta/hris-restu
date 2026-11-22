@@ -159,6 +159,15 @@ describe('cronConflict', () => {
 })
 
 describe('contractReconciliationDecision', () => {
+  it('preserves dormant imported archives but keeps real conflicts and explicit rehire workflows visible', () => {
+    const archive = { currentStatus: 'INACTIVE',activeContracts: 0,nonCancelledContracts: 0,endedContracts: 0,legacyArchiveOrigin: true,employeeType: 'TRAINING' }
+    expect(contractReconciliationDecision(archive)).toBe('PRESERVE_TERMINAL')
+    expect(contractReconciliationDecision({ ...archive,legacyArchiveOrigin: false })).toBe('CONFLICT')
+    expect(contractReconciliationDecision({ ...archive,activeContracts: 1,nonCancelledContracts: 1 })).toBe('CONFLICT')
+    expect(contractReconciliationDecision({ ...archive,nonCancelledContracts: 1 })).toBe('INACTIVE')
+    expect(contractReconciliationDecision({ ...archive,currentStatus: 'ACTIVE',activeContracts: 1,nonCancelledContracts: 1 })).toBe('ACTIVE')
+    expect(contractReconciliationDecision({ ...archive,employeeType: 'LEGACY_UNKNOWN',currentStatus: 'ACTIVE',activeContracts: 1,nonCancelledContracts: 1 })).toBe('CONFLICT')
+  })
   it.each([
     ['kontrak berakhir hari ini masih aktif', { currentStatus: 'ACTIVE', activeContracts: 1, nonCancelledContracts: 1, endedContracts: 0 }, 'ACTIVE'],
     ['kontrak berakhir tanpa pengganti menjadi nonaktif', { currentStatus: 'ACTIVE', activeContracts: 0, nonCancelledContracts: 1, endedContracts: 1 }, 'INACTIVE'],

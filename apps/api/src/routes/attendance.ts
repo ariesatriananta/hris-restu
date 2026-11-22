@@ -513,7 +513,7 @@ attendanceRouter.get(
     try {
       const { page, pageSize } = pageParams(req.query.page, req.query.pageSize)
       const today = jakartaBusinessDate()
-      const where = ["es.code='ACTIVE'", 'es.allows_attendance=1']
+      const where = ["es.code='ACTIVE'", 'es.allows_attendance=1', "et.code IN ('BORONGAN','HARIAN','BULANAN','TRAINING')"]
       const values: unknown[] = []
       const query = String(req.query.query ?? '').trim()
       if (query) {
@@ -771,7 +771,7 @@ attendanceRouter.post(
       }
       const placeholders = input.employeeUids.map(() => '?').join(',')
       const [employees] = await conn.query<RowDataPacket[]>(
-        `SELECT e.id,e.uid,e.full_name fullName,s.code site,es.code employeeStatus,
+        `SELECT e.id,e.uid,e.full_name fullName,s.code site,es.code employeeStatus,et.code employeeType,
                 es.allows_attendance allowsAttendance,
                 (SELECT COUNT(*) FROM employee_shift_assignments allesa
                   WHERE allesa.employee_id=e.id) assignmentCount,
@@ -791,6 +791,7 @@ attendanceRouter.post(
            FROM employees e
            JOIN sites s ON s.id=e.current_site_id
            JOIN employee_statuses es ON es.id=e.employee_status_id
+           JOIN employee_types et ON et.id=e.employee_type_id
           WHERE e.uid IN (${placeholders})
           FOR UPDATE`,
         [
@@ -833,6 +834,9 @@ attendanceRouter.post(
       let invalidatedFinalizationCount = 0
       const createdUids: string[] = []
       for (const employee of employees) {
+        if (!employeeTypes.includes(employee.employeeType)) {
+          throw new ApiError(422, 'Jenis karyawan arsip tidak dapat diberi penugasan Shift.')
+        }
         if (employee.employeeStatus !== 'ACTIVE' || !employee.allowsAttendance) {
           throw new ApiError(
             422,

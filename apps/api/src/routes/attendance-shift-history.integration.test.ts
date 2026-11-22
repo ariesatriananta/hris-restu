@@ -145,7 +145,7 @@ function queryResult(sqlValue: unknown) {
         {
           id: 31,
           siteId: 1,
-          status: 'ACTIVE',
+          status: 'ACTIVE', employeeType: 'BORONGAN',
           allowsAttendance: 1,
           effectiveFrom: '2026-08-01',
           effectiveTo: null,
@@ -365,7 +365,7 @@ describe('Attendance historical shift API', () => {
         employeeId = values[0] === secondUid ? 12 : 11
         return [[{ id: employeeId, uid: values[0], employeeNumber: `EMP-${employeeId}`, fullName: 'Karyawan Uji' }]]
       }
-      if (employeeId === 12 && sql.includes('FROM employee_employment_histories eh')) return [[{ id: 32, siteId: 1, status: 'ACTIVE', allowsAttendance: 1, effectiveFrom: '2026-08-05', effectiveTo: null }]]
+      if (employeeId === 12 && sql.includes('FROM employee_employment_histories eh')) return [[{ id: 32, siteId: 1, status: 'ACTIVE', employeeType: 'BORONGAN', allowsAttendance: 1, effectiveFrom: '2026-08-05', effectiveTo: null }]]
       return batchQuery(sql)
     })
     const conn = batchConnection(query)
@@ -401,6 +401,19 @@ describe('Attendance historical shift API', () => {
     expect(result.timeline).toEqual([
       expect.objectContaining({ change: 'REPLACEMENT', sourceUid: null }),
     ])
+  })
+
+  it('menolak rencana Shift untuk jenis arsip walaupun status Attendance aktif', async () => {
+    mocks.query.mockImplementation((sqlValue: unknown) => {
+      const result = queryResult(sqlValue)
+      if (String(sqlValue).includes('history.change_type historyChangeType')) {
+        Object.assign(result[0][0], { employeeType: 'LEGACY_UNKNOWN' })
+      }
+      return result
+    })
+    const response = await post('/shift-assignment-plans/preview', { employeeUids: [body.employeeUid] })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ validCount: 0, invalidCount: 1, items: [{ valid: false, issues: expect.arrayContaining(['Jenis karyawan arsip tidak dapat diberi penugasan Shift.']) }] })
   })
 
   it('menyiapkan rencana Shift massal dengan rekomendasi per karyawan', async () => {
@@ -605,7 +618,7 @@ describe('Attendance historical shift API', () => {
             {
               id: 31,
               siteId: 1,
-              status: 'ACTIVE',
+              status: 'ACTIVE', employeeType: 'BORONGAN',
               allowsAttendance: 1,
               effectiveFrom: '2026-08-01',
               effectiveTo: '2099-12-31',

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildAttendanceClassificationReportWorkbook,
   buildAttendanceCorrectionReportWorkbook,
+  buildAuditActivityReportWorkbook,
   buildContractReportWorkbook,
   buildEmployeeReportWorkbook,
   buildMutationReportWorkbook,
@@ -10,6 +11,20 @@ import {
 } from './report-workbooks.js'
 
 describe('report workbooks', () => {
+  it('mengekspor waktu audit UTC sebagai tanggal dan jam WIB', async () => {
+    const buffer = await buildAuditActivityReportWorkbook({
+      title: 'Aktivitas', periodLabel: '2026-11-25',
+      generatedAt: '2026-11-25T03:30:00+07:00', generatedBy: 'HR', filters: {},
+      rows: [{ occurredAt: '2026-11-24T20:15:30.000Z', actorName: 'HR',
+        actorUsername: 'hr',siteName: 'Site Uji',module: 'EMPLOYEES',action: 'UPDATE',
+        tableName: 'employees',recordUid: null,description: 'Perubahan data',reason: null,requestId: null }],
+    })
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(Uint8Array.from(buffer).buffer)
+    expect(workbook.getWorksheet('Aktivitas Pengguna')!.getCell('B2').value)
+      .toBe('2026-11-25 03:15:30 WIB')
+  })
+
   it('mengamankan teks laporan karyawan dari formula spreadsheet', async () => {
     const buffer = await buildEmployeeReportWorkbook({
       title: 'Posisi Karyawan',

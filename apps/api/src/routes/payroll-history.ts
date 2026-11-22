@@ -69,8 +69,8 @@ const runColumns = (alias: string, prefix: string) => `${alias}.uid ${prefix}Uid
  ${alias}.total_piece_rate_amount ${prefix}PieceRate,${alias}.total_earnings ${prefix}Earnings,
  ${alias}.total_basic_salary_amount ${prefix}BasicSalary,
  ${alias}.total_deductions ${prefix}Deductions,${alias}.total_net_pay ${prefix}NetPay,
- CONCAT(DATE_FORMAT(${alias}.calculation_started_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') ${prefix}StartedAt,
- IF(${alias}.calculation_finished_at IS NULL,NULL,CONCAT(DATE_FORMAT(${alias}.calculation_finished_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00')) ${prefix}FinishedAt`
+ CONCAT(DATE_FORMAT(${alias}.calculation_started_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') ${prefix}StartedAt,
+ IF(${alias}.calculation_finished_at IS NULL,NULL,CONCAT(DATE_FORMAT(${alias}.calculation_finished_at,'%Y-%m-%dT%H:%i:%s.000'),'Z')) ${prefix}FinishedAt`
 
 async function loadRun(auth: AuthContext, runUid: string, executor: Pick<typeof pool,'query'>=pool) {
   const [rows]=await executor.query<RowDataPacket[]>(`SELECT pr.id runId,pr.payroll_period_id periodId,pp.uid periodUid,
@@ -239,7 +239,7 @@ payrollHistoryRouter.get('/history',requirePermission('payroll.view'),async(req,
   const [rows]=await pool.query<RowDataPacket[]>(`SELECT pp.uid,pp.period_code periodCode,pp.period_name periodName,DATE_FORMAT(pp.period_start,'%Y-%m-%d') periodStart,
     DATE_FORMAT(pp.period_end,'%Y-%m-%d') periodEnd,DATE_FORMAT(pp.payment_date,'%Y-%m-%d') paymentDate,pp.status,pp.payroll_basis payrollBasis,
     pp.pay_frequency payFrequency,pp.employee_type_code employeeType,
-    CONCAT(DATE_FORMAT(pp.created_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') createdAt,IF(pp.closed_at IS NULL,NULL,CONCAT(DATE_FORMAT(pp.closed_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00')) closedAt,
+    CONCAT(DATE_FORMAT(pp.created_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') createdAt,IF(pp.closed_at IS NULL,NULL,CONCAT(DATE_FORMAT(pp.closed_at,'%Y-%m-%dT%H:%i:%s.000'),'Z')) closedAt,
     s.code siteCode,s.name siteName,COUNT(allrun.id) runCount,SUM(allrun.status='COMPLETED') completedRunCount,SUM(allrun.status='FAILED') failedRunCount,
     ${runColumns('current','current')},(pp.current_run_id=current.id) currentIsCurrent FROM payroll_periods pp JOIN sites s ON s.id=pp.site_id
     LEFT JOIN payroll_runs allrun ON allrun.payroll_period_id=pp.id LEFT JOIN payroll_runs current ON current.id=pp.current_run_id

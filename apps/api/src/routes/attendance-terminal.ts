@@ -128,7 +128,7 @@ async function attendanceResponse(
             DATE_FORMAT(ar.clock_out_at,'%Y-%m-%dT%H:%i:%s+07:00') clockOutAt,
             ar.late_minutes lateMinutes,ar.early_leave_minutes earlyLeaveMinutes,
             ar.worked_minutes workedMinutes,ar.attendance_status attendanceStatus,
-            DATE_FORMAT(NOW(3),'%Y-%m-%d %H:%i:%s') asOf,
+            DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(3),'+00:00','+07:00'),'%Y-%m-%d %H:%i:%s') asOf,
             DATE_FORMAT(
               CASE WHEN sh.crosses_midnight=1
                    THEN DATE_ADD(TIMESTAMP(ar.business_date,sh.end_time),INTERVAL 1 DAY)
@@ -206,11 +206,12 @@ attendanceTerminalRouter.post(
 
       await conn.beginTransaction()
       const [timeRows] = await conn.query<RowDataPacket[]>(
-        `SELECT DATE_FORMAT(NOW(3),'%Y-%m-%d %H:%i:%s.%f') scanTimestamp,
-                DATE_FORMAT(NOW(3),'%Y-%m-%dT%H:%i:%s+07:00') scannedAt,
-                DATE_FORMAT(CURDATE(),'%Y-%m-%d') currentDate,
-                DATE_FORMAT(DATE_SUB(CURDATE(),INTERVAL 1 DAY),'%Y-%m-%d') previousDate,
-                TIME_FORMAT(CURTIME(3),'%H:%i:%s') currentTime`
+        `SELECT DATE_FORMAT(wib.now,'%Y-%m-%d %H:%i:%s.%f') scanTimestamp,
+                DATE_FORMAT(wib.now,'%Y-%m-%dT%H:%i:%s+07:00') scannedAt,
+                DATE_FORMAT(wib.now,'%Y-%m-%d') currentDate,
+                DATE_FORMAT(DATE_SUB(wib.now,INTERVAL 1 DAY),'%Y-%m-%d') previousDate,
+                TIME_FORMAT(wib.now,'%H:%i:%s') currentTime
+           FROM (SELECT CONVERT_TZ(UTC_TIMESTAMP(3),'+00:00','+07:00') now) wib`
       )
       const time = timeRows[0]
       const scanTime = String(time.scanTimestamp)
@@ -256,8 +257,8 @@ attendanceTerminalRouter.post(
           throw new ApiError(409, 'Idempotency key sudah dipakai untuk scan lain.')
         }
         await conn.execute(
-          'UPDATE scan_devices SET last_seen_at=?,updated_by=? WHERE id=?',
-          [scanTime, auth.id, device.id]
+          'UPDATE scan_devices SET last_seen_at=UTC_TIMESTAMP(3),updated_by=? WHERE id=?',
+          [auth.id, device.id]
         )
         await conn.commit()
         if (
@@ -298,8 +299,8 @@ attendanceTerminalRouter.post(
           message
         )
         await conn.execute(
-          'UPDATE scan_devices SET last_seen_at=?,updated_by=? WHERE id=?',
-          [scanTime, auth.id, device.id]
+          'UPDATE scan_devices SET last_seen_at=UTC_TIMESTAMP(3),updated_by=? WHERE id=?',
+          [auth.id, device.id]
         )
         await conn.commit()
         res.status(422).json({
@@ -313,10 +314,11 @@ attendanceTerminalRouter.post(
 
       const [employeeRows] = await conn.query<RowDataPacket[]>(
         `SELECT e.id,e.uid,e.employee_number employeeNumber,e.full_name fullName,
-                es.code employeeStatus,es.allows_attendance allowsAttendance,
+                es.code employeeStatus,es.allows_attendance allowsAttendance,et.code employeeType,
                 s.id siteId,s.code site
            FROM employees e
            JOIN employee_statuses es ON es.id=e.employee_status_id
+           JOIN employee_types et ON et.id=e.employee_type_id
            JOIN sites s ON s.id=e.current_site_id
           WHERE e.barcode=?
           FOR UPDATE`,
@@ -325,6 +327,9 @@ attendanceTerminalRouter.post(
       const employee = employeeRows[0]
       if (!employee) return await reject('Barcode karyawan tidak dikenali.')
       eventContext.employeeId = employee.id
+      if (!['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING'].includes(String(employee.employeeType))) {
+        return await reject('Jenis karyawan arsip tidak dapat digunakan untuk Attendance.')
+      }
       if (
         employee.employeeStatus !== 'ACTIVE' ||
         Number(employee.allowsAttendance) !== 1
@@ -744,8 +749,8 @@ attendanceTerminalRouter.post(
         successMessage
       )
       await conn.execute(
-        'UPDATE scan_devices SET last_seen_at=?,updated_by=? WHERE id=?',
-        [scanTime, auth.id, device.id]
+        'UPDATE scan_devices SET last_seen_at=UTC_TIMESTAMP(3),updated_by=? WHERE id=?',
+        [auth.id, device.id]
       )
       const response = await attendanceResponse(
         conn,

@@ -306,10 +306,12 @@ export function booleanFilter(value: unknown) {
 }
 
 export function assignmentStatusSql(alias = 'a') {
+  // Business dates are WIB, even when the hosting/MySQL session runs in UTC.
+  const today = "DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00'))"
   return `CASE
     WHEN ${alias}.status='CANCELLED' THEN 'CANCELLED'
-    WHEN ${alias}.effective_from>CURDATE() THEN 'UPCOMING'
-    WHEN ${alias}.effective_to IS NOT NULL AND ${alias}.effective_to<CURDATE() THEN 'ENDED'
+    WHEN ${alias}.effective_from>${today} THEN 'UPCOMING'
+    WHEN ${alias}.effective_to IS NOT NULL AND ${alias}.effective_to<${today} THEN 'ENDED'
     ELSE 'ACTIVE'
   END`
 }

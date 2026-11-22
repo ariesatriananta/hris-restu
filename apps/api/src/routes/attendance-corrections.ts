@@ -810,11 +810,11 @@ attendanceCorrectionsRouter.get(
                 DATE_FORMAT(ac.new_clock_out_at,'%Y-%m-%dT%H:%i:%s+07:00') newClockOutAt,
                 ac.old_status oldStatus,ac.new_status newStatus,ac.reason,
                 ac.approval_status approvalStatus,requester.full_name requestedByName,
-                DATE_FORMAT(ac.requested_at,'%Y-%m-%dT%H:%i:%s+07:00') requestedAt,
+                DATE_FORMAT(ac.requested_at,'%Y-%m-%dT%H:%i:%sZ') requestedAt,
                 reviewer.full_name reviewedByName,
-                DATE_FORMAT(ac.reviewed_at,'%Y-%m-%dT%H:%i:%s+07:00') reviewedAt,
+                DATE_FORMAT(ac.reviewed_at,'%Y-%m-%dT%H:%i:%sZ') reviewedAt,
                 ac.review_notes reviewNotes,
-                DATE_FORMAT(ac.applied_at,'%Y-%m-%dT%H:%i:%s+07:00') appliedAt
+                DATE_FORMAT(ac.applied_at,'%Y-%m-%dT%H:%i:%sZ') appliedAt
            ${from}
           WHERE ${where.join(' AND ')}
           ORDER BY ac.requested_at DESC,ac.id DESC
@@ -854,11 +854,11 @@ attendanceCorrectionsRouter.get(
                 DATE_FORMAT(ac.new_clock_out_at,'%Y-%m-%dT%H:%i:%s+07:00') newClockOutAt,
                 ac.old_status oldStatus,ac.new_status newStatus,ac.reason,
                 ac.approval_status approvalStatus,requester.full_name requestedByName,
-                DATE_FORMAT(ac.requested_at,'%Y-%m-%dT%H:%i:%s+07:00') requestedAt,
+                DATE_FORMAT(ac.requested_at,'%Y-%m-%dT%H:%i:%sZ') requestedAt,
                 reviewer.full_name reviewedByName,
-                DATE_FORMAT(ac.reviewed_at,'%Y-%m-%dT%H:%i:%s+07:00') reviewedAt,
+                DATE_FORMAT(ac.reviewed_at,'%Y-%m-%dT%H:%i:%sZ') reviewedAt,
                 ac.review_notes reviewNotes,
-                DATE_FORMAT(ac.applied_at,'%Y-%m-%dT%H:%i:%s+07:00') appliedAt
+                DATE_FORMAT(ac.applied_at,'%Y-%m-%dT%H:%i:%sZ') appliedAt
            FROM attendance_corrections ac
            JOIN attendance_records ar ON ar.id=ac.attendance_record_id
            JOIN employees e ON e.id=ar.employee_id

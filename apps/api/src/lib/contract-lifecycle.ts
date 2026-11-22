@@ -2,6 +2,7 @@ import type { RowDataPacket } from 'mysql2'
 import type { PoolConnection } from 'mysql2/promise'
 import { randomUUID } from 'node:crypto'
 import { pool } from '../db.js'
+import { legacyArchiveOriginSql } from './employee-archive-policy.js'
 import type { AuthContext } from '../middleware/authenticate.js'
 import { writeAudit, writeSystemAudit } from './audit.js'
 import {
@@ -1667,6 +1668,8 @@ export async function reconcileContracts() {
       e.current_site_id siteId,
       es.code currentStatus,
       e.resign_date resignDate,
+      et.code employeeType,
+      MAX(${legacyArchiveOriginSql()}) legacyArchiveOrigin,
       COUNT(DISTINCT active_contract.id) activeContracts,
       COUNT(DISTINCT any_contract.id) nonCancelledContracts,
       COUNT(DISTINCT ended_contract.id) endedContracts,
@@ -1678,6 +1681,7 @@ export async function reconcileContracts() {
       GROUP_CONCAT(DISTINCT active_contract.contract_number ORDER BY active_contract.contract_number SEPARATOR ', ') activeContractNumbers
      FROM employees e
      JOIN employee_statuses es ON es.id=e.employee_status_id
+     JOIN employee_types et ON et.id=e.employee_type_id
      JOIN sites s ON s.id=e.current_site_id
      LEFT JOIN employee_contracts active_contract
        ON active_contract.employee_id=e.id
@@ -1690,7 +1694,7 @@ export async function reconcileContracts() {
      LEFT JOIN employee_contracts ended_contract
        ON ended_contract.employee_id=e.id
       AND ended_contract.status IN ('EXPIRED','TERMINATED')
-     GROUP BY e.id,e.uid,e.employee_number,e.full_name,s.code,e.current_site_id,es.code,e.resign_date`,
+     GROUP BY e.id,e.uid,e.employee_number,e.full_name,s.code,e.current_site_id,es.code,e.resign_date,et.code`,
     [today, today]
   )
   let activatedEmployees = 0
@@ -1709,6 +1713,8 @@ export async function reconcileContracts() {
     const nonCancelledContracts = Number(employee.nonCancelledContracts)
     const endedContracts = Number(employee.endedContracts)
     const decision = contractReconciliationDecision({
+      employeeType: employee.employeeType,
+      legacyArchiveOrigin: Boolean(Number(employee.legacyArchiveOrigin)),
       currentStatus: String(employee.currentStatus),
       activeContracts,
       nonCancelledContracts,
@@ -1719,6 +1725,7 @@ export async function reconcileContracts() {
       if (conflicts.length < 50) {
         conflicts.push(
           cronConflict({
+            employeeType: employee.employeeType,
             employeeUid: employee.employeeUid,
             employeeNumber: employee.employeeNumber,
             fullName: employee.fullName,

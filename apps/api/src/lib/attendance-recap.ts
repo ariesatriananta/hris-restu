@@ -248,7 +248,7 @@ export async function loadAttendanceRecapProjection(
             ar.late_minutes lateMinutes,ar.early_leave_minutes earlyLeaveMinutes,
             ar.worked_minutes workedMinutes,ar.clock_in_source clockInSource,
             ar.clock_out_source clockOutSource,ar.is_corrected isCorrected,ar.notes,
-            DATE_FORMAT(NOW(3),'%Y-%m-%d %H:%i:%s') asOf,
+            DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(3),'+00:00','+07:00'),'%Y-%m-%d %H:%i:%s') asOf,
             DATE_FORMAT(CASE WHEN sh.crosses_midnight=1
               THEN DATE_ADD(TIMESTAMP(d.business_date,sh.end_time),INTERVAL 1 DAY)
               ELSE TIMESTAMP(d.business_date,sh.end_time) END,'%Y-%m-%d %H:%i:%s') scheduledEndAt

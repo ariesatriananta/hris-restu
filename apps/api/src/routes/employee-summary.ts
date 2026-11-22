@@ -2,6 +2,7 @@ import { Router } from 'express'
 import type { RowDataPacket } from 'mysql2'
 import { z } from 'zod'
 import { pool } from '../db.js'
+import { actionableEmployeeSql } from '../lib/employee-archive-policy.js'
 import {
   requirePermission,
   type AuthContext,
@@ -80,9 +81,10 @@ employeeSummaryRouter.get(
           COALESCE(SUM(es.code='ACTIVE' AND et.code='TRAINING'),0) activeTrainingEmployees,
           COALESCE(SUM(
             es.code<>'RESIGNED'
+            AND ${actionableEmployeeSql()}
             AND (
               e.current_position_id IS NULL
-              OR e.current_production_module_section_id IS NULL
+              OR (et.code IN ('BORONGAN','TRAINING') AND e.current_production_module_section_id IS NULL)
             )
           ),0) incompletePlacementEmployees
         FROM employees e

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { Router } from 'express'
 import type { RowDataPacket } from 'mysql2'
 import { pool } from '../db.js'
+import { wibDayUtcBoundary } from '../lib/storage-time.js'
 import { ApiError } from '../lib/errors.js'
 import {
   authenticate,
@@ -23,7 +24,7 @@ const actions = [
   'CLOSE',
   'OTHER',
 ] as const
-const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const date = z.string().date()
 const listInput = z.object({
   search: z.string().trim().max(150).default(''),
   module: z.string().trim().max(500).optional(),
@@ -110,7 +111,7 @@ function formatRow(row: RowDataPacket, detail = false) {
 
 const select = `SELECT al.uid,al.module,al.action,al.table_name tableName,al.record_uid recordUid,al.description,al.reason,
   al.before_data beforeData,al.after_data afterData,al.request_id requestId,al.ip_address ipAddress,al.user_agent userAgent,
-  DATE_FORMAT(al.occurred_at,'%Y-%m-%dT%H:%i:%s+07:00') occurredAt,
+  DATE_FORMAT(al.occurred_at,'%Y-%m-%dT%H:%i:%s.%fZ') occurredAt,
   u.uid userUid,u.full_name userName,u.username,s.uid siteUid,s.code siteCode,s.name siteName
   FROM audit_logs al LEFT JOIN users u ON u.id=al.user_id LEFT JOIN sites s ON s.id=al.site_id`
 
@@ -206,11 +207,11 @@ systemAuditTrailRouter.get('/entries', async (req, res, next) => {
     }
     if (input.dateFrom) {
       where.push('al.occurred_at>=?')
-      params.push(`${input.dateFrom} 00:00:00`)
+      params.push(wibDayUtcBoundary(input.dateFrom))
     }
     if (input.dateTo) {
-      where.push('al.occurred_at<DATE_ADD(?,INTERVAL 1 DAY)')
-      params.push(`${input.dateTo} 00:00:00`)
+      where.push('al.occurred_at<?')
+      params.push(wibDayUtcBoundary(input.dateTo, true))
     }
     const predicate = where.join(' AND ')
     const [count] = await pool.query<RowDataPacket[]>(

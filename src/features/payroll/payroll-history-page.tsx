@@ -23,6 +23,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { formatWibDateTime } from '@/lib/business-time'
 import { cn } from '@/lib/utils'
 import { useKpiVisibility } from '@/hooks/use-kpi-visibility'
 import { useSiteScopeFilter } from '@/hooks/use-site-scope-filter'
@@ -112,9 +113,7 @@ function localDate(value: string) {
 }
 
 function localDateTime(value: string | null) {
-  return value
-    ? format(parseISO(value), 'd MMM yyyy, HH.mm', { locale: id })
-    : 'Belum selesai'
+  return value ? formatWibDateTime(value) : 'Belum selesai'
 }
 
 function apiError(error: unknown, fallback: string) {

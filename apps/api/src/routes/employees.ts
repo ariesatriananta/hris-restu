@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { employeeJoinDateIssue } from '../lib/employee-join-dates.js'
 import { googleDriveDocument } from '../lib/google-drive-document.js'
 import { contractNotesForDisplay } from '../lib/contract-notes.js'
+import { actionableEmployeeSql, employeeNoteInput, employeeNotesForDisplay, legacyArchiveOriginSql, legacyImportSql } from '../lib/employee-archive-policy.js'
 import { env } from '../config.js'
 import { pool } from '../db.js'
 import { writeAudit } from '../lib/audit.js'
@@ -625,7 +626,7 @@ const empty = (value?: string) => value?.trim() || null
 function enforceSite(auth: AuthContext, site: string) { if (!auth.roles.includes('SUPER_ADMIN') && !auth.siteAccess.includes(site)) throw new ApiError(403, 'Akses site ditolak.') }
 function mapEmployee(row: RowDataPacket) {
   const { photoUid, photoName, photoMimeType, photoSizeBytes, photoExtension, photoPath, ...employee } = row
-  return { ...employee, canCorrectRegistration: Boolean(employee.canCorrectRegistration), photo: photoUid ? { uid: photoUid, originalName: photoName, mimeType: photoMimeType, sizeBytes: Number(photoSizeBytes), extension: photoExtension, url: fileUrl(photoPath) } : undefined }
+  return { ...employee, notes: employeeNotesForDisplay(employee.notes), canCorrectRegistration: Boolean(employee.canCorrectRegistration), photo: photoUid ? { uid: photoUid, originalName: photoName, mimeType: photoMimeType, sizeBytes: Number(photoSizeBytes), extension: photoExtension, url: fileUrl(photoPath) } : undefined }
 }
 const fileUrl = (path?: string) => path ? `${env.R2_PUBLIC_BASE_URL.replace(/\/$/, '')}/${path}` : undefined
 async function references(input: z.infer<typeof employeeInput> | z.infer<typeof mutationInput> | z.infer<typeof registrationCorrectionInput>, employeeStatus: string) {
@@ -891,7 +892,7 @@ async function createEmployeeInTransaction(
     prefix: String(refs.employeeNumberPrefix),
     joinDate: input.joinDate,
   })
-  await conn.execute(`INSERT INTO employees(uid,employee_number,employee_type_id,employee_status_id,current_site_id,current_department_id,current_position_id,current_work_group_id,current_production_module_section_id,full_name,nickname,national_id_number,family_card_number,gender,birth_place,birth_date,marital_status,religion,education_level,address,rtrw,kelurahan,kecamatan,city,province,postal_code,phone,email,emergency_contact_name,emergency_contact_phone,emergency_contact_relation,bank_name,bank_account_number,bank_account_name,tax_number,bpjs_health_number,bpjs_employment_number,join_date,join_date_training,join_date_borong,permanent_date,resign_date,resign_reason,photo_file_id,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [uid,employeeNumber,refs.typeId,refs.statusId,refs.siteId,refs.departmentId,refs.positionId,refs.workGroupId,refs.productionModuleSectionId,input.fullName,empty(input.nickname),empty(input.nationalIdNumber),empty(input.familyCardNumber),input.gender,empty(input.birthPlace),empty(input.birthDate),empty(input.maritalStatus),empty(input.religion),input.educationLevel,empty(input.address),empty(input.rtrw),empty(input.kelurahan),empty(input.kecamatan),empty(input.city),empty(input.province),empty(input.postalCode),empty(input.phone),empty(input.email),empty(input.emergencyContactName),empty(input.emergencyContactPhone),empty(input.emergencyContactRelation),empty(input.bankName),empty(input.bankAccountNumber),empty(input.bankAccountName),empty(input.taxNumber),empty(input.bpjsHealthNumber),empty(input.bpjsEmploymentNumber),input.joinDate,input.joinDateTraining ?? null,input.joinDateBorong ?? null,empty(input.permanentDate),empty(input.resignDate),empty(input.resignReason),null,empty(input.notes),auth.id,auth.id])
+  await conn.execute(`INSERT INTO employees(uid,employee_number,employee_type_id,employee_status_id,current_site_id,current_department_id,current_position_id,current_work_group_id,current_production_module_section_id,full_name,nickname,national_id_number,family_card_number,gender,birth_place,birth_date,marital_status,religion,education_level,address,rtrw,kelurahan,kecamatan,city,province,postal_code,phone,email,emergency_contact_name,emergency_contact_phone,emergency_contact_relation,bank_name,bank_account_number,bank_account_name,tax_number,bpjs_health_number,bpjs_employment_number,join_date,join_date_training,join_date_borong,permanent_date,resign_date,resign_reason,photo_file_id,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [uid,employeeNumber,refs.typeId,refs.statusId,refs.siteId,refs.departmentId,refs.positionId,refs.workGroupId,refs.productionModuleSectionId,input.fullName,empty(input.nickname),empty(input.nationalIdNumber),empty(input.familyCardNumber),input.gender,empty(input.birthPlace),empty(input.birthDate),empty(input.maritalStatus),empty(input.religion),input.educationLevel,empty(input.address),empty(input.rtrw),empty(input.kelurahan),empty(input.kecamatan),empty(input.city),empty(input.province),empty(input.postalCode),empty(input.phone),empty(input.email),empty(input.emergencyContactName),empty(input.emergencyContactPhone),empty(input.emergencyContactRelation),empty(input.bankName),empty(input.bankAccountNumber),empty(input.bankAccountName),empty(input.taxNumber),empty(input.bpjsHealthNumber),empty(input.bpjsEmploymentNumber),input.joinDate,input.joinDateTraining ?? null,input.joinDateBorong ?? null,empty(input.permanentDate),empty(input.resignDate),empty(input.resignReason),null,employeeNoteInput(input.notes),auth.id,auth.id])
   const [created] = await conn.query<RowDataPacket[]>('SELECT id FROM employees WHERE uid=?', [uid])
   await conn.execute(`INSERT INTO employee_employment_histories(uid,employee_id,site_id,department_id,position_id,work_group_id,production_module_section_id,employee_type_id,employee_status_id,effective_from,change_type,notes,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,'INITIAL',?,?,?)`, [randomUUID(),created[0].id,refs.siteId,refs.departmentId,refs.positionId,refs.workGroupId,refs.productionModuleSectionId,refs.typeId,refs.statusId,input.joinDate,'Penempatan awal.',auth.id,auth.id])
   await writeAudit({ auth, request, siteId: refs.siteId, action: 'CREATE', table: 'employees', recordId: created[0].id, recordUid: uid, description: `Membuat karyawan ${employeeNumber}.` }, conn)
@@ -1569,7 +1570,7 @@ employeesRouter.get(
                   ORDER BY (candidate.start_date<=?) DESC,
                            candidate.start_date ASC,candidate.id DESC
                   LIMIT 1)
-              WHERE ${scoped.sql}
+              WHERE ${scoped.sql} AND ${actionableEmployeeSql()}
            ) readiness
           WHERE (
             (readiness.employeeStatus='INACTIVE' AND readiness.resignDate IS NULL AND (
@@ -1917,6 +1918,7 @@ employeesRouter.get(
 
       if (coverage.includes('ACTIVE_WITHOUT_VALID_CONTRACT')) {
         const coverageWhere = [
+          actionableEmployeeSql(),
           `(
             (es.code='ACTIVE' AND NOT EXISTS (SELECT 1 FROM employee_contracts active_contract WHERE active_contract.employee_id=e.id AND active_contract.status='ACTIVE' AND active_contract.start_date<=? AND (active_contract.end_date IS NULL OR active_contract.end_date>=?)))
             OR
@@ -2128,11 +2130,13 @@ employeesRouter.get('/contracts/summary', requirePermission('employees.view'), a
       `SELECT COUNT(*) total
        FROM employees e
        JOIN employee_statuses es ON es.id=e.employee_status_id
+       JOIN employee_types et ON et.id=e.employee_type_id
        JOIN sites s ON s.id=e.current_site_id
        LEFT JOIN production_module_sections pms ON pms.id=e.current_production_module_section_id
        LEFT JOIN production_modules pm ON pm.id=pms.production_module_id
        LEFT JOIN production_sections ps ON ps.id=pms.production_section_id
        WHERE ${where.join(' AND ')}
+         AND ${actionableEmployeeSql()}
          AND (
            (
              es.code='ACTIVE'
@@ -2179,12 +2183,15 @@ employeesRouter.get('/contracts/conflicts', requirePermission('employees.view'),
         s.code site,
         es.code currentStatus,
         e.resign_date resignDate,
+        et.code employeeType,
+        MAX(${legacyArchiveOriginSql()}) legacyArchiveOrigin,
         COUNT(DISTINCT active_contract.id) activeContracts,
         COUNT(DISTINCT any_contract.id) nonCancelledContracts,
         GROUP_CONCAT(DISTINCT active_contract.contract_number ORDER BY active_contract.contract_number SEPARATOR ', ') activeContractNumbers
       FROM employees e
       JOIN sites s ON s.id=e.current_site_id
       JOIN employee_statuses es ON es.id=e.employee_status_id
+      JOIN employee_types et ON et.id=e.employee_type_id
       LEFT JOIN employee_contracts active_contract
         ON active_contract.employee_id=e.id
        AND active_contract.status='ACTIVE'
@@ -2194,13 +2201,14 @@ employeesRouter.get('/contracts/conflicts', requirePermission('employees.view'),
         ON any_contract.employee_id=e.id
        AND any_contract.status<>'CANCELLED'
       WHERE ${scope.sql}
-      GROUP BY e.id,e.uid,e.employee_number,e.full_name,s.code,es.code,e.resign_date`
+      GROUP BY e.id,e.uid,e.employee_number,e.full_name,s.code,es.code,e.resign_date,et.code`
     const conflictPredicate = `
       activeContracts>1
       OR (currentStatus IN ('RESIGNED','LEAVE') AND activeContracts>0)
       OR (currentStatus='ACTIVE' AND activeContracts=0)
       OR (currentStatus='INACTIVE' AND activeContracts>0)
-      OR (currentStatus='INACTIVE' AND resignDate IS NULL AND activeContracts=0 AND nonCancelledContracts=0)`
+      OR (currentStatus='INACTIVE' AND resignDate IS NULL AND activeContracts=0 AND nonCancelledContracts=0 AND employeeType<>'LEGACY_UNKNOWN' AND legacyArchiveOrigin=0)
+      OR (employeeType='LEGACY_UNKNOWN' AND (currentStatus='ACTIVE' OR activeContracts>0))`
     const values = [today, today, ...scope.params]
     const [countRows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) total FROM (${dataset}) conflicts WHERE ${conflictPredicate}`,
@@ -2215,7 +2223,7 @@ employeesRouter.get('/contracts/conflicts', requirePermission('employees.view'),
     )
     const total = Number(countRows[0]?.total ?? 0)
     res.json({
-      items: rows.map((row) => cronConflict({ employeeUid: String(row.employeeUid), employeeNumber: String(row.employeeNumber), fullName: String(row.fullName), site: String(row.site), currentStatus: String(row.currentStatus), activeContracts: Number(row.activeContracts), nonCancelledContracts: Number(row.nonCancelledContracts), activeContractNumbers: row.activeContractNumbers ? String(row.activeContractNumbers) : null })),
+      items: rows.map((row) => cronConflict({ employeeType: row.employeeType, employeeUid: String(row.employeeUid), employeeNumber: String(row.employeeNumber), fullName: String(row.fullName), site: String(row.site), currentStatus: String(row.currentStatus), activeContracts: Number(row.activeContracts), nonCancelledContracts: Number(row.nonCancelledContracts), activeContractNumbers: row.activeContractNumbers ? String(row.activeContractNumbers) : null })),
       ...paginationMeta(total, page, pageSize),
     })
   } catch (error) { next(error) }
@@ -3216,7 +3224,7 @@ employeesRouter.patch('/:uid', requirePermission('employees.manage'), async (req
     const joinDateBorong = input.joinDateBorong === undefined ? current.joinDateBorong : input.joinDateBorong
     const joinIssue = employeeJoinDateIssue({ ...input, joinDateTraining, joinDateBorong })
     if (joinIssue) throw new ApiError(422, joinIssue.message)
-    await pool.execute(`UPDATE employees SET full_name=?,nickname=?,national_id_number=?,family_card_number=?,gender=?,birth_place=?,birth_date=?,marital_status=?,religion=?,education_level=?,address=?,rtrw=?,kelurahan=?,kecamatan=?,city=?,province=?,postal_code=?,phone=?,email=?,emergency_contact_name=?,emergency_contact_phone=?,emergency_contact_relation=?,bank_name=?,bank_account_number=?,bank_account_name=?,tax_number=?,bpjs_health_number=?,bpjs_employment_number=?,join_date=?,join_date_training=IF(?,?,join_date_training),join_date_borong=IF(?,?,join_date_borong),permanent_date=?,photo_file_id=?,notes=?,updated_by=? WHERE id=?`, [input.fullName,empty(input.nickname),empty(input.nationalIdNumber),empty(input.familyCardNumber),input.gender,empty(input.birthPlace),empty(input.birthDate),empty(input.maritalStatus),empty(input.religion),input.educationLevel,empty(input.address),empty(input.rtrw),empty(input.kelurahan),empty(input.kecamatan),empty(input.city),empty(input.province),empty(input.postalCode),empty(input.phone),empty(input.email),empty(input.emergencyContactName),empty(input.emergencyContactPhone),empty(input.emergencyContactRelation),empty(input.bankName),empty(input.bankAccountNumber),empty(input.bankAccountName),empty(input.taxNumber),empty(input.bpjsHealthNumber),empty(input.bpjsEmploymentNumber),input.joinDate,input.joinDateTraining !== undefined,input.joinDateTraining ?? null,input.joinDateBorong !== undefined,input.joinDateBorong ?? null,empty(input.permanentDate),photoId,empty(input.notes),auth.id,current.id])
+    await pool.execute(`UPDATE employees SET full_name=?,nickname=?,national_id_number=?,family_card_number=?,gender=?,birth_place=?,birth_date=?,marital_status=?,religion=?,education_level=?,address=?,rtrw=?,kelurahan=?,kecamatan=?,city=?,province=?,postal_code=?,phone=?,email=?,emergency_contact_name=?,emergency_contact_phone=?,emergency_contact_relation=?,bank_name=?,bank_account_number=?,bank_account_name=?,tax_number=?,bpjs_health_number=?,bpjs_employment_number=?,join_date=?,join_date_training=IF(?,?,join_date_training),join_date_borong=IF(?,?,join_date_borong),permanent_date=?,photo_file_id=?,notes=IF(${legacyImportSql('employees')},JSON_SET(notes,'$.operationalNotes',?),?),updated_by=? WHERE id=?`, [input.fullName,empty(input.nickname),empty(input.nationalIdNumber),empty(input.familyCardNumber),input.gender,empty(input.birthPlace),empty(input.birthDate),empty(input.maritalStatus),empty(input.religion),input.educationLevel,empty(input.address),empty(input.rtrw),empty(input.kelurahan),empty(input.kecamatan),empty(input.city),empty(input.province),empty(input.postalCode),empty(input.phone),empty(input.email),empty(input.emergencyContactName),empty(input.emergencyContactPhone),empty(input.emergencyContactRelation),empty(input.bankName),empty(input.bankAccountNumber),empty(input.bankAccountName),empty(input.taxNumber),empty(input.bpjsHealthNumber),empty(input.bpjsEmploymentNumber),input.joinDate,input.joinDateTraining !== undefined,input.joinDateTraining ?? null,input.joinDateBorong !== undefined,input.joinDateBorong ?? null,empty(input.permanentDate),photoId,employeeNoteInput(input.notes),employeeNoteInput(input.notes),auth.id,current.id])
     await writeAudit({ auth, request: req, siteId: current.siteId, action: 'UPDATE', table: 'employees', recordId: current.id, recordUid: uid, description: `Memperbarui karyawan ${current.employeeNumber}.` })
     res.status(204).end()
   } catch (error) { next(error) }

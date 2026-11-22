@@ -307,7 +307,7 @@ dashboardRouter.get('/overview', async (req, res, next) => {
     const activitiesPromise = modules.length
       ? pool.query<RowDataPacket[]>(
           `SELECT al.uid,al.module,al.action,al.description,
-                  DATE_FORMAT(al.occurred_at,'%Y-%m-%dT%H:%i:%s+07:00') occurredAt,
+                  DATE_FORMAT(al.occurred_at,'%Y-%m-%dT%H:%i:%sZ') occurredAt,
                   COALESCE(s.name,'Lintas site') siteName
              FROM audit_logs al
              LEFT JOIN sites s ON s.id=al.site_id

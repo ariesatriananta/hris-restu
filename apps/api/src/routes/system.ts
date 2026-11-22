@@ -408,8 +408,8 @@ systemRouter.get(
         `SELECT uid,job_code jobCode,
                 DATE_FORMAT(business_date,'%Y-%m-%d') businessDate,
                 status,summary,error_message errorMessage,
-                DATE_FORMAT(started_at,'%Y-%m-%dT%H:%i:%s+07:00') startedAt,
-                DATE_FORMAT(finished_at,'%Y-%m-%dT%H:%i:%s+07:00') finishedAt,
+                DATE_FORMAT(started_at,'%Y-%m-%dT%H:%i:%sZ') startedAt,
+                DATE_FORMAT(finished_at,'%Y-%m-%dT%H:%i:%sZ') finishedAt,
                 CASE WHEN finished_at IS NULL THEN NULL
                      ELSE ROUND(TIMESTAMPDIFF(MICROSECOND,started_at,finished_at)/1000)
                 END durationMs
@@ -423,8 +423,8 @@ systemRouter.get(
         `SELECT uid,job_code jobCode,
                 DATE_FORMAT(business_date,'%Y-%m-%d') businessDate,
                 status,summary,error_message errorMessage,
-                DATE_FORMAT(started_at,'%Y-%m-%dT%H:%i:%s+07:00') startedAt,
-                DATE_FORMAT(finished_at,'%Y-%m-%dT%H:%i:%s+07:00') finishedAt,
+                DATE_FORMAT(started_at,'%Y-%m-%dT%H:%i:%sZ') startedAt,
+                DATE_FORMAT(finished_at,'%Y-%m-%dT%H:%i:%sZ') finishedAt,
                 CASE WHEN finished_at IS NULL THEN NULL
                      ELSE ROUND(TIMESTAMPDIFF(MICROSECOND,started_at,finished_at)/1000)
                 END durationMs
@@ -434,7 +434,7 @@ systemRouter.get(
       )
       const [overviewRows] = await pool.query<RowDataPacket[]>(
         `SELECT
-           (SELECT DATE_FORMAT(finished_at,'%Y-%m-%dT%H:%i:%s+07:00')
+           (SELECT DATE_FORMAT(finished_at,'%Y-%m-%dT%H:%i:%sZ')
               FROM cron_runs
              WHERE status='SUCCEEDED'
              ORDER BY finished_at DESC,id DESC LIMIT 1) lastSucceededAt,

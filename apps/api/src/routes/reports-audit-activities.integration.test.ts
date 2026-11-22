@@ -165,9 +165,11 @@ describe('Laporan Audit Aktivitas Pengguna API', () => {
     const sql = String(mocks.query.mock.calls[0]?.[0])
     expect(sql).toContain('s.code IN (?)')
     expect(sql).toContain('al.action IN (?)')
+    const rowSql = mocks.query.mock.calls.map(([query]) => String(query)).find((query) => query.includes('occurredAt'))
+    expect(rowSql).toContain("'Z') occurredAt")
     expect(mocks.query.mock.calls[0]?.[1]).toEqual([
-      '2026-08-01',
-      '2026-08-31',
+      '2026-07-31 17:00:00',
+      '2026-08-31 17:00:00',
       'JEPARA',
       'UPDATE',
     ])

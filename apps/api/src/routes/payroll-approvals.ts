@@ -111,9 +111,9 @@ const periodWorkflowProjection = `SELECT
   run.total_piece_rate_amount totalPieceRateAmount,run.total_earnings totalEarnings,
   run.total_deductions totalDeductions,run.total_net_pay totalNetPay,
   approval.id approvalId,approval.uid approvalUid,approval.status approvalStatus,
-  CONCAT(DATE_FORMAT(approval.requested_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') requestedAt,
+  CONCAT(DATE_FORMAT(approval.requested_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') requestedAt,
   requester.full_name requestedByName,approval.requested_by requestedBy,
-  IF(approval.reviewed_at IS NULL,NULL,CONCAT(DATE_FORMAT(approval.reviewed_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00')) reviewedAt,
+  IF(approval.reviewed_at IS NULL,NULL,CONCAT(DATE_FORMAT(approval.reviewed_at,'%Y-%m-%dT%H:%i:%s.000'),'Z')) reviewedAt,
   reviewer.full_name reviewedByName,approval.reviewed_by reviewedBy,approval.notes
  FROM payroll_periods pp
  JOIN sites s ON s.id=pp.site_id
@@ -160,9 +160,9 @@ async function findApproval(
        run.total_piece_rate_amount totalPieceRateAmount,run.total_earnings totalEarnings,
        run.total_deductions totalDeductions,run.total_net_pay totalNetPay,
        approval.id approvalId,approval.uid approvalUid,approval.status approvalStatus,
-       CONCAT(DATE_FORMAT(approval.requested_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') requestedAt,
+       CONCAT(DATE_FORMAT(approval.requested_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') requestedAt,
        requester.full_name requestedByName,approval.requested_by requestedBy,
-       IF(approval.reviewed_at IS NULL,NULL,CONCAT(DATE_FORMAT(approval.reviewed_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00')) reviewedAt,
+       IF(approval.reviewed_at IS NULL,NULL,CONCAT(DATE_FORMAT(approval.reviewed_at,'%Y-%m-%dT%H:%i:%s.000'),'Z')) reviewedAt,
        reviewer.full_name reviewedByName,approval.reviewed_by reviewedBy,approval.notes
      FROM payroll_approvals approval
      JOIN payroll_periods pp ON pp.id=approval.payroll_period_id
@@ -407,7 +407,7 @@ async function workflowDto(auth: AuthContext, periodUid: string) {
   const [historyRows] = await pool.query<RowDataPacket[]>(
     `SELECT action.uid,action.action_type action,action.reason,
             action.is_super_admin_override superAdminOverride,
-            CONCAT(DATE_FORMAT(action.performed_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') performedAt,
+            CONCAT(DATE_FORMAT(action.performed_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') performedAt,
             user.full_name performedByName
        FROM payroll_workflow_actions action
        JOIN users user ON user.id=action.performed_by
@@ -563,7 +563,7 @@ payrollApprovalsRouter.get(
                 site.code siteCode,site.name siteName,run.uid runUid,
                 run.run_number runNumber,run.employee_count employeeCount,
                 run.total_net_pay totalNetPay,
-                CONCAT(DATE_FORMAT(approval.requested_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') requestedAt,
+                CONCAT(DATE_FORMAT(approval.requested_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') requestedAt,
                 requester.full_name requestedByName,
                 EXISTS(SELECT 1 FROM payroll_workflow_actions action
                         WHERE action.payroll_approval_id=approval.id

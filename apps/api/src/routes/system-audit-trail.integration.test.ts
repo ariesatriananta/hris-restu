@@ -62,6 +62,14 @@ async function request(path: string, auth: AuthContext = admin) {
 describe('Audit Trail API', () => {
   beforeEach(() => mocks.query.mockReset())
 
+  it('filters the complete WIB calendar day using UTC storage boundaries', async () => {
+    mocks.query.mockResolvedValueOnce([[{ total: 0 }]]).mockResolvedValueOnce([[]])
+    const response = await request('/entries?dateFrom=2026-11-25&dateTo=2026-11-25')
+    expect(response.status).toBe(200)
+    expect(mocks.query.mock.calls[0][1]).toEqual(['2026-11-24 17:00:00', '2026-11-25 17:00:00'])
+    expect(String(mocks.query.mock.calls[1][0])).toContain("DATE_FORMAT(al.occurred_at,'%Y-%m-%dT%H:%i:%s.%fZ')")
+  })
+
   it('menolak pengguna tanpa izin audit.view', async () => {
     const response = await request('/entries', {
       ...admin,

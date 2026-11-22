@@ -31,6 +31,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
+import { formatWibDateTime } from '@/lib/business-time'
 import { cn } from '@/lib/utils'
 import {
   siteScopeLabel,
@@ -164,7 +165,7 @@ function date(value: string) {
 }
 
 function dateTime(value: string) {
-  return format(parseISO(value), 'd MMM yyyy, HH.mm', { locale: id })
+  return formatWibDateTime(value)
 }
 
 function apiError(error: unknown, fallback: string) {

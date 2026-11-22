@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { errorHandler } from '../lib/errors.js'
 import type { AuthContext } from '../middleware/authenticate.js'
 import { employeesRouter } from './employees.js'
+import { employeeSummaryRouter } from './employee-summary.js'
+import { klatenLegacySourceHash } from '../lib/employee-archive-policy.js'
 
 interface ContractList {
   total: number
@@ -69,6 +71,8 @@ vi.mock('../middleware/authenticate.js', () => ({
 async function request(path: string, body?: unknown) {
   const app = express()
   app.use(express.json())
+  app.use((_req, res, next) => { res.locals.auth = mocks.auth; next() })
+  app.use('/api/employees', employeeSummaryRouter)
   app.use('/api/employees', employeesRouter)
   app.use(errorHandler)
   const server = app.listen(0)
@@ -100,6 +104,8 @@ describe('contract lifecycle latest excludes cancelled history', () => {
     db.function('DATE_FORMAT', { varargs: true }, (value) => value)
     db.function('UTC_TIMESTAMP', () => '2026-11-20 00:00:00')
     db.function('CONVERT_TZ', { varargs: true }, (value) => value)
+    db.function('IF', (condition, yes, no) => condition ? yes : no)
+    db.function('JSON_UNQUOTE', value => value)
     db.exec(`
       CREATE TABLE employees(id INTEGER,uid TEXT,full_name TEXT,nickname TEXT,employee_number TEXT,employee_type_id INTEGER,employee_status_id INTEGER,current_site_id INTEGER,current_production_module_section_id INTEGER,resign_date TEXT);
       CREATE TABLE employee_types(id INTEGER,code TEXT);
@@ -119,7 +125,11 @@ describe('contract lifecycle latest excludes cancelled history', () => {
       INSERT INTO contract_types VALUES(1,'PKWT');
       INSERT INTO employees VALUES(1,'employee-a','SYNTHETIC EMPLOYEE',NULL,'TEST-001',1,1,1,NULL,NULL);
     `)
+    db.exec('ALTER TABLE employees ADD COLUMN notes TEXT')
+    db.exec('ALTER TABLE employees ADD COLUMN current_position_id INTEGER')
     const sqlForSqlite = (sql: string) => sql.replace(/\s+FOR UPDATE\b/gi, '')
+      .replace(/DATE_ADD\(\?, INTERVAL 7 DAY\)/g, "date(?,'+7 days')")
+      .replace(/GROUP_CONCAT\(DISTINCT active_contract.contract_number ORDER BY active_contract.contract_number SEPARATOR ', '\)/g, 'GROUP_CONCAT(DISTINCT active_contract.contract_number)')
     mocks.query.mockImplementation(
       async (sql: string, values: SQLInputValue[] = []) => [
         db.prepare(sqlForSqlite(sql)).all(...values),
@@ -143,6 +153,39 @@ describe('contract lifecycle latest excludes cancelled history', () => {
       `INSERT INTO employee_contracts(id,uid,employee_id,contract_type_id,contract_number,sequence_number,start_date,end_date,status) VALUES(?,?,1,1,?,?,?,'2099-12-31',?)`
     ).run(id, `contract-${id}`, `TEST-CONTRACT-${id}`, id, startDate, status)
   }
+
+  it.each(['TRAINING','LEGACY_UNKNOWN'])('excludes dormant %s archives from contract KPI, coverage and conflicts without hiding the employee', async employeeType => {
+    db.prepare('UPDATE employee_types SET code=?').run(employeeType)
+    db.exec("UPDATE employee_statuses SET code='INACTIVE'")
+    db.prepare('UPDATE employees SET notes=?').run(JSON.stringify({ legacyImport: { sourceHash: klatenLegacySourceHash,raw: { '12:STATUS (Aktif/Tidak Aktif)': 'NON AKTIF' } } }))
+    expect(await (await request('/contracts/summary')).json()).toMatchObject({ activeWithoutValidContract: 0 })
+    expect(await (await request('/contracts?coverage=ACTIVE_WITHOUT_VALID_CONTRACT')).json()).toMatchObject({ total: 0,items: [] })
+    expect(await (await request('/contracts/conflicts')).json()).toMatchObject({ total: 0,items: [] })
+    expect(await (await request('/summary')).json()).toMatchObject({ totalEmployees: 1,inactiveEmployees: 1,incompletePlacementEmployees: 0 })
+    expect(db.prepare('SELECT COUNT(*) n FROM employees').get()?.n).toBe(1)
+  })
+
+  it('keeps ordinary nonactive registrations actionable and real imported-archive contract conflicts visible', async () => {
+    db.exec("UPDATE employee_statuses SET code='INACTIVE'")
+    expect(await (await request('/summary')).json()).toMatchObject({ totalEmployees: 1,incompletePlacementEmployees: 1 })
+    expect(await (await request('/contracts/summary')).json()).toMatchObject({ activeWithoutValidContract: 1 })
+    expect(await (await request('/contracts?coverage=ACTIVE_WITHOUT_VALID_CONTRACT')).json()).toMatchObject({ total: 1 })
+    expect(await (await request('/contracts/conflicts')).json()).toMatchObject({ total: 1 })
+    db.prepare('UPDATE employees SET notes=?').run(JSON.stringify({ legacyImport: { sourceHash: klatenLegacySourceHash,raw: { '12:STATUS (Aktif/Tidak Aktif)': 'NON AKTIF' } } }))
+    contract(1,'ACTIVE','2026-01-01')
+    expect(await (await request('/contracts/conflicts')).json()).toMatchObject({ total: 1 })
+    expect(db.prepare('SELECT code FROM employee_statuses').get()?.code).toBe('INACTIVE')
+  })
+
+  it('requires production placement only for production types and still checks active imports', async () => {
+    db.exec('UPDATE employees SET current_position_id=1')
+    db.prepare('UPDATE employees SET notes=?').run(JSON.stringify({ legacyImport: { sourceHash: klatenLegacySourceHash,raw: { '12:STATUS (Aktif/Tidak Aktif)': 'AKTIF' } } }))
+    expect(await (await request('/summary')).json()).toMatchObject({ totalEmployees: 1,activeEmployees: 1,incompletePlacementEmployees: 1 })
+    db.exec("UPDATE employee_types SET code='HARIAN'")
+    expect(await (await request('/summary')).json()).toMatchObject({ incompletePlacementEmployees: 0 })
+    db.exec("UPDATE employee_types SET code='BULANAN'")
+    expect(await (await request('/summary')).json()).toMatchObject({ incompletePlacementEmployees: 0 })
+  })
 
   it('keeps expired predecessor renewable after cancelling its later draft, retaining both records', async () => {
     contract(1, 'EXPIRED', '2026-01-01')

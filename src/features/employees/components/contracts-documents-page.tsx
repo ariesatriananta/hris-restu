@@ -609,6 +609,8 @@ function ContractKpiCards({
     },
     {
       label: 'Perlu kontrak',
+      description:
+        'Karyawan operasional tanpa kontrak yang diperlukan. Arsip migrasi tanpa proses masuk kembali tidak termasuk.',
       value: data?.activeWithoutValidContract,
       icon: AlertTriangle,
       className: 'border-destructive/30 bg-destructive/5 text-destructive',
@@ -661,6 +663,7 @@ function ContractKpiCards({
             key={card.label}
             className={`min-h-[68px] rounded-lg border px-3 py-2.5 ${card.className}`}
             aria-label={card.label}
+            title={'description' in card ? card.description : undefined}
           >
             <div className='flex items-start justify-between gap-3'>
               <div>

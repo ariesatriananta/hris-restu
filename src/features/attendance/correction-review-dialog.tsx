@@ -257,6 +257,7 @@ function dateTimeLabel(value?: string | null) {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'Asia/Jakarta',
   }).format(new Date(value))
 }
 

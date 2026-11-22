@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildRecruitmentListParams,
+  formatRecruitmentDateTime,
   recruitmentConversionInput,
   recruitmentEmployeeDefaults,
   recruitmentActionLabel,
@@ -10,6 +11,13 @@ import {
 } from './utils'
 
 describe('Rekrutmen internal', () => {
+  it('menampilkan instant UTC dan offset eksplisit pada tanggal/jam WIB yang sama', () => {
+    const fromUtc = formatRecruitmentDateTime('2026-11-24T20:15:00.000Z')
+    expect(fromUtc).toBe(formatRecruitmentDateTime('2026-11-25T03:15:00+07:00'))
+    expect(fromUtc).toContain('25 Nov 2026')
+    expect(fromUtc).toMatch(/03[.:]15/)
+  })
+
   it('memetakan status dan dokumen ke bahasa operasional', () => {
     expect(recruitmentStatusLabel('IN_PROGRESS')).toBe('Diproses')
     expect(recruitmentActionLabel('REJECTED')).toBe('Nyatakan tidak lolos')

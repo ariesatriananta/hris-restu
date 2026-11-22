@@ -252,6 +252,7 @@ describe('Recruitment internal API', () => {
       String(sql).includes('ORDER BY rc.full_name ASC')
     )
     expect(listCall).toBeTruthy()
+    expect(String(listCall?.[0])).toContain("DATE_FORMAT(rc.submitted_at,'%Y-%m-%dT%H:%i:%s.%fZ')")
     expect(listCall?.[1]).toEqual([
       'JEPARA',
       'JEPARA',
@@ -260,8 +261,8 @@ describe('Recruitment internal API', () => {
       '%Pelamar%',
       '%Pelamar%',
       '%Pelamar%',
-      '2026-09-01 00:00:00',
-      '2026-09-04 00:00:00',
+      '2026-08-31 17:00:00',
+      '2026-09-04 17:00:00',
       'NEW',
       10,
       10,

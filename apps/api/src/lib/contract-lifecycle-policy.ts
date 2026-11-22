@@ -177,11 +177,20 @@ export type ContractReconciliationDecision =
   | 'CONFLICT'
 
 export function contractReconciliationDecision(input: {
+  employeeType?: string
+  legacyArchiveOrigin?: boolean
   currentStatus: string
   activeContracts: number
   nonCancelledContracts: number
   endedContracts: number
 }): ContractReconciliationDecision {
+  if (input.employeeType === 'LEGACY_UNKNOWN') {
+    return input.currentStatus === 'ACTIVE' || input.activeContracts > 0 ? 'CONFLICT' : 'PRESERVE_TERMINAL'
+  }
+  if (input.legacyArchiveOrigin && ['INACTIVE','RESIGNED'].includes(input.currentStatus)) {
+    if (input.activeContracts > 0) return 'CONFLICT'
+    if (input.nonCancelledContracts === 0) return 'PRESERVE_TERMINAL'
+  }
   if (input.activeContracts > 1) return 'CONFLICT'
   if (['RESIGNED', 'LEAVE'].includes(input.currentStatus)) {
     return input.activeContracts > 0 ? 'CONFLICT' : 'PRESERVE_TERMINAL'
@@ -243,6 +252,7 @@ export function classifyContractConflict(input: {
 }
 
 export function cronConflict(input: {
+  employeeType?: string
   employeeUid: string
   employeeNumber: string
   fullName: string
@@ -252,7 +262,7 @@ export function cronConflict(input: {
   nonCancelledContracts?: number
   activeContractNumbers?: string | null
 }) {
-  const code = classifyContractConflict(input)
+  const code = input.employeeType === 'LEGACY_UNKNOWN' ? 'EMPLOYEE_STATUS_CONTRACT_MISMATCH' : classifyContractConflict(input)
 
   return {
     employeeUid: input.employeeUid,
@@ -264,7 +274,9 @@ export function cronConflict(input: {
       ? 'warning'
       : 'danger') as ContractConflictSeverity,
     reason:
-      input.activeContracts > 1
+        input.employeeType === 'LEGACY_UNKNOWN'
+          ? 'Data arsip memiliki status Aktif atau kontrak aktif. Periksa jenis dan status karyawan sebelum diproses.'
+          : input.activeContracts > 1
         ? 'Lebih dari satu kontrak aktif yang masih berlaku.'
         : input.currentStatus === 'INACTIVE' &&
             input.activeContracts === 0 &&

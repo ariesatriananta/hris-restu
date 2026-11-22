@@ -1,9 +1,11 @@
 import { z } from 'zod'
+import { employeeNoteInput } from '../lib/employee-archive-policy.js'
 import { Router } from 'express'
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import type { PoolConnection } from 'mysql2/promise'
 import { createHash, randomUUID } from 'node:crypto'
 import { pool } from '../db.js'
+import { wibDayUtcBoundary } from '../lib/storage-time.js'
 import { writeAudit } from '../lib/audit.js'
 import {
   EmployeeNumberSequenceExhaustedError,
@@ -46,7 +48,7 @@ const allowedTransitions: Partial<
   IN_PROGRESS: ['PASSED', 'REJECTED'],
   PASSED: ['IN_PROGRESS', 'REJECTED'],
 }
-const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const date = z.string().date()
 const listInput = z.object({
   search: z.string().trim().max(150).default(''),
   site: z.string().trim().max(500).optional(),
@@ -251,7 +253,9 @@ function maskedNik(value: unknown) {
 }
 
 function candidateDate(alias: string, column: string) {
-  return `DATE_FORMAT(${alias}.${column},'%Y-%m-%dT%H:%i:%s.%f')`
+  // updated_at remains an opaque, microsecond-precision optimistic-lock token.
+  const zone = column === 'updated_at' ? '' : 'Z'
+  return `DATE_FORMAT(${alias}.${column},'%Y-%m-%dT%H:%i:%s.%f${zone}')`
 }
 
 function candidateAccessQuery(auth: AuthContext) {
@@ -331,7 +335,7 @@ const candidateBaseSelect = `SELECT rc.id,rc.site_id siteId,rc.uid,rc.applicatio
   ${candidateDate('rc', 'status_changed_at')} statusChangedAt,
   ${candidateDate('rc', 'updated_at')} updatedAt,
   ${candidateDate('rc', 'converted_at')} convertedAt,
-  DATE_FORMAT(CURRENT_DATE(),'%Y-%m-%d') today,
+  DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')),'%Y-%m-%d') today,
   s.uid siteUid,s.code siteCode,s.name siteName,e.uid employeeUid
   FROM recruitment_candidates rc
   JOIN sites s ON s.id=rc.site_id
@@ -775,7 +779,7 @@ recruitmentRouter.post(
           input.joinDateBorong ?? null,
           input.permanentDate ?? null,
           photoFileId,
-          empty(input.notes),
+          employeeNoteInput(input.notes),
           auth.id,
           auth.id,
         ]
@@ -974,11 +978,11 @@ recruitmentRouter.get('/candidates', async (req, res, next) => {
     }
     if (input.dateFrom) {
       commonWhere.push('rc.submitted_at>=?')
-      commonParams.push(`${input.dateFrom} 00:00:00`)
+      commonParams.push(wibDayUtcBoundary(input.dateFrom))
     }
     if (input.dateTo) {
-      commonWhere.push('rc.submitted_at<DATE_ADD(?,INTERVAL 1 DAY)')
-      commonParams.push(`${input.dateTo} 00:00:00`)
+      commonWhere.push('rc.submitted_at<?')
+      commonParams.push(wibDayUtcBoundary(input.dateTo, true))
     }
     const listWhere = [...commonWhere]
     const listParams = [...commonParams]

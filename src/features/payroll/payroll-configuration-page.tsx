@@ -21,6 +21,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { formatWibDateTime } from '@/lib/business-time'
 import { cn } from '@/lib/utils'
 import {
   siteScopeLabel,
@@ -130,7 +131,7 @@ function localDate(value: string | null) {
 }
 
 function localDateTime(value: string) {
-  return format(parseISO(value), 'd MMM yyyy, HH.mm', { locale: id })
+  return formatWibDateTime(value)
 }
 
 function money(value: string | null) {

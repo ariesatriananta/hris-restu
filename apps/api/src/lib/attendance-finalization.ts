@@ -499,7 +499,7 @@ export async function finalizeAttendanceDay(input: {
       await writeSystemAudit(audit, conn)
     }
     await conn.commit()
-    return { uid: runUid, site: String(site.code), businessDate: input.businessDate, rawStatus: 'SUCCEEDED', source: input.source, counts, warnings: [...warnings], startedAt: asOfJakarta, finishedAt }
+    return { uid: runUid, site: String(site.code), businessDate: input.businessDate, rawStatus: 'SUCCEEDED', source: input.source, counts, warnings: [...warnings], startedAt: new Date(`${asOfJakarta.replace(' ', 'T')}+07:00`).toISOString(), finishedAt: new Date(`${finishedAt.replace(' ', 'T')}+07:00`).toISOString() }
   } catch (error) {
     try {
       await conn.rollback()

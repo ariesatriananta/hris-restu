@@ -1298,8 +1298,8 @@ async function transactionResponse(conn: PoolConnection | Pool, transactionId: n
             pt.deducted_quantity deductedQuantity,pt.payable_quantity payableQuantity,
             pt.rate_snapshot rateSnapshot,pt.gross_amount grossAmount,
             pt.status,pt.entry_source entrySource,pt.notes,
-            DATE_FORMAT(pt.payroll_locked_at,'%Y-%m-%dT%H:%i:%s+07:00') payrollLockedAt,
-            DATE_FORMAT(pt.voided_at,'%Y-%m-%dT%H:%i:%s+07:00') voidedAt,
+            DATE_FORMAT(pt.payroll_locked_at,'%Y-%m-%dT%H:%i:%sZ') payrollLockedAt,
+            DATE_FORMAT(pt.voided_at,'%Y-%m-%dT%H:%i:%sZ') voidedAt,
             pt.void_reason voidReason,vu.uid voidedByUid,vu.full_name voidedByName,
             e.uid employeeUid,e.employee_number employeeNumber,e.full_name fullName,
             s.code site,s.name siteName,
@@ -2240,7 +2240,7 @@ async function revisionReplay(
             pr.replacement_transaction_id replacementId,
             pr.revision_number revisionNumber,pr.revision_type revisionType,
             pr.reason,pr.after_data afterData,
-            DATE_FORMAT(pr.revised_at,'%Y-%m-%dT%H:%i:%s+07:00') revisedAt
+            DATE_FORMAT(pr.revised_at,'%Y-%m-%dT%H:%i:%sZ') revisedAt
        FROM production_transaction_revisions pr
       WHERE pr.idempotency_key=? FOR UPDATE`,
     [idempotencyKey]
@@ -2288,7 +2288,7 @@ async function transactionLifecycle(
     `SELECT pr.uid,pr.revision_number revisionNumber,
             pr.revision_type revisionType,pr.reason,
             pr.before_data beforeData,pr.after_data afterData,
-            DATE_FORMAT(pr.revised_at,'%Y-%m-%dT%H:%i:%s+07:00') revisedAt,
+            DATE_FORMAT(pr.revised_at,'%Y-%m-%dT%H:%i:%sZ') revisedAt,
             replacement.uid replacementUid,ru.uid revisedByUid,
             ru.full_name revisedByName
        FROM production_transaction_revisions pr

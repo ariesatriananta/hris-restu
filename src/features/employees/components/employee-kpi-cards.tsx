@@ -48,7 +48,7 @@ export function EmployeeKpiCards({
       value: data?.inactiveEmployees,
       icon: CircleOff,
       description:
-        'Karyawan berstatus Tidak Aktif, termasuk data onboarding yang belum diaktifkan.',
+        'Seluruh karyawan Tidak Aktif, termasuk arsip migrasi dan registrasi baru. Jumlah ini bukan antrean onboarding.',
       className:
         'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-400',
       iconClassName: 'text-amber-600 dark:text-amber-400',
@@ -77,7 +77,7 @@ export function EmployeeKpiCards({
       value: data?.incompletePlacementEmployees,
       icon: MapPinCheckInside,
       description:
-        'Karyawan yang belum berstatus Resign dan belum memiliki jabatan atau penempatan bagian produksi yang lengkap.',
+        'Karyawan operasional yang belum memiliki jabatan, atau Borongan/Training yang belum memiliki bagian produksi. Arsip migrasi tanpa proses kontrak tidak termasuk.',
       className:
         'border-violet-500/30 bg-violet-500/5 text-violet-700 dark:text-violet-400',
       iconClassName: 'text-violet-600 dark:text-violet-400',

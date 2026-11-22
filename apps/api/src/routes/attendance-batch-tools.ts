@@ -176,6 +176,8 @@ export async function attendanceInputPreview(
               WHERE device.site_id=eh.site_id AND device.is_active=1
                 AND device.activated_at IS NOT NULL) deviceId
        FROM employee_employment_histories eh
+       JOIN employee_types history_type ON history_type.id=eh.employee_type_id
+        AND history_type.code IN ('BORONGAN','HARIAN','BULANAN','TRAINING')
        JOIN employee_statuses status
          ON status.id=eh.employee_status_id AND status.allows_attendance=1
        JOIN sites site ON site.id=eh.site_id
@@ -424,6 +426,8 @@ async function createInputTemporaryTables(
          ON history.employee_id=employee.id
         AND history.effective_from<=?
         AND (history.effective_to IS NULL OR history.effective_to>=?)
+       JOIN employee_types history_type ON history_type.id=history.employee_type_id
+        AND history_type.code IN ('BORONGAN','HARIAN','BULANAN','TRAINING')
        JOIN employee_statuses status
          ON status.id=history.employee_status_id AND status.allows_attendance=1
        JOIN sites site ON site.id=history.site_id AND site.is_active=1
@@ -1002,6 +1006,8 @@ attendanceBatchToolsRouter.get(
            JOIN employee_statuses status
              ON status.id=history.employee_status_id
             AND status.allows_attendance=1
+           JOIN employee_types history_type ON history_type.id=history.employee_type_id
+            AND history_type.code IN ('BORONGAN','HARIAN','BULANAN','TRAINING')
            JOIN sites site ON site.id=history.site_id AND site.is_active=1`,
         [referenceDate, referenceDate]
       )
@@ -1016,6 +1022,8 @@ attendanceBatchToolsRouter.get(
            JOIN employee_statuses status
              ON status.id=history.employee_status_id
             AND status.allows_attendance=1
+           JOIN employee_types history_type ON history_type.id=history.employee_type_id
+            AND history_type.code IN ('BORONGAN','HARIAN','BULANAN','TRAINING')
            JOIN sites site ON site.id=history.site_id AND site.is_active=1
           ORDER BY employee.full_name,employee.employee_number
           LIMIT 2000`,

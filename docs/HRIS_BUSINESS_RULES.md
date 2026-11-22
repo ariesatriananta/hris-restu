@@ -14,6 +14,14 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
 
 ## Aturan bisnis penting
 
+- Waktu bisnis memakai Asia/Jakarta (WIB), terlepas dari timezone OS Hostinger.
+  Timestamp teknis dari default SQL/API disimpan UTC dan dikirim dengan `Z`;
+  UI serta filter tanggal metadata memakai hari WIB. Kolom DATE/TIME kontrak,
+  shift, tanggal kerja dan tanggal efektif tidak digeser. Wall-clock operasional
+  Attendance/Produksi yang sudah berkontrak WIB tetap memakai konversi WIB
+  eksplisit, bukan mengikuti `NOW()`/`CURDATE()` session UTC. Rincian dan batasan
+  histori: [TIMEZONE_WIB.md](TIMEZONE_WIB.md).
+
 - Dokumen karyawan memiliki tepat satu sumber: upload R2 atau tautan file
   Google Drive HTTPS tervalidasi. Tautan eksternal tidak dimasukkan ke tabel
   `files`; tidak memalsukan tipe/ukuran file. Preview memiliki tombol buka
@@ -926,6 +934,15 @@ jumlah hari Alpha/Izin`. Kalkulasi dibulatkan `HALF_UP` ke Rp1 per komponen
 - Produksi yang terjadi saat jenis Training tidak boleh masuk detail nominal Payroll Borongan, termasuk bila karyawan menjadi Borongan di tengah periode. Scope diterapkan pada readiness, simulasi dan pemeriksaan approval menurut tanggal transaksi.
 - Snapshot monitoring Payroll Training dan periode TIME_BASED Training yang sedang dihitung/sudah CALCULATED, APPROVED atau CLOSED memblokir perubahan sumber terkait. Kunci Payroll yang sudah berlaku tetap dipertahankan.
 - Training tetap dibayar dari attendance dan tarif harian; nominal hasil Produksi merupakan informasi monitoring dan tidak menambah upah berbasis waktu. M2 tidak melakukan backfill/perubahan database. Detail dan uji Owner: [ATTENDANCE_RATE.md](ATTENDANCE_RATE.md).
+
+### Arsip migrasi dan antrean operasional (23 November 2026)
+
+- `LEGACY_UNKNOWN` adalah penanda arsip internal, bukan jenis operasional. Tidak masuk antrean onboarding/KPI penempatan/Perlu Kontrak; scan Attendance dan penugasan/import operasional menolak jenis ini walaupun statusnya salah menjadi Aktif. Kontrak aktif atau status Aktif pada jenis ini tetap menjadi konflik data.
+- Arsip Training/Borongan dari import Klaten yang disetujui dikenali dari metadata sumber terverifikasi dan status asli nonaktif/resign. Selama masih nonaktif/resign tanpa kontrak selain CANCELLED, arsip tidak dianggap onboarding baru. Registrasi biasa dan karyawan aktif hasil import tetap diperiksa normal. Draft/jadwal masuk kembali untuk jenis operasional tetap terlihat.
+- KPI Perlu Kontrak dan filter daftar kekurangan kontrak memakai populasi operasional yang sama. Total karyawan, nonaktif/resign dan seluruh histori tetap utuh. Bagian produksi wajib untuk kelengkapan penempatan Borongan/Training, bukan Harian/Bulanan.
+- Konflik kontrak nyata tetap ditampilkan. Rekonsiliasi tidak mengaktifkan arsip nonaktif yang mempunyai kontrak aktif secara diam-diam; kondisi tersebut perlu ditinjau. Arsip tanpa kontrak tidak menimbulkan konflik onboarding kosong.
+- Catatan operasional dapat diedit tanpa menghapus metadata asal import. API biasa tidak dapat membuat/mengganti penanda import melalui isian catatan. Eligibility transaksi dan laporan historis tetap mengikuti histori efektif tanggal, bukan pengecualian menyeluruh berdasarkan status sekarang.
+- Rincian implementasi dan pemeriksaan: [LEGACY_ARCHIVE_OPERATIONAL_READINESS_PLAN.md](LEGACY_ARCHIVE_OPERATIONAL_READINESS_PLAN.md).
 
 ### Attendance Rate dan kapasitas harian - M3 (20 November 2026)
 

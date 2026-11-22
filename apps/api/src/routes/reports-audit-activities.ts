@@ -1,3 +1,4 @@
+import { wibDayUtcBoundary } from '../lib/storage-time.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { Router } from 'express'
 import type { RowDataPacket } from 'mysql2'
@@ -76,8 +77,8 @@ function ensureSiteAccess(auth: AuthContext, requested: string[]) {
 }
 function predicate(input: Input, auth: AuthContext) {
   ensureSiteAccess(auth, input.sites)
-  const where = ['al.occurred_at>=TIMESTAMP(?)', 'al.occurred_at<DATE_ADD(TIMESTAMP(?),INTERVAL 1 DAY)']
-  const values: unknown[] = [input.dateFrom, input.dateTo]
+  const where = ['al.occurred_at>=?', 'al.occurred_at<?']
+  const values: unknown[] = [wibDayUtcBoundary(input.dateFrom), wibDayUtcBoundary(input.dateTo, true)]
   const allowedSites = auth.roles.includes('SUPER_ADMIN') ? input.sites : input.sites.length ? input.sites : auth.siteAccess
   if (allowedSites.length) {
     where.push(`s.code IN (${allowedSites.map(() => '?').join(',')})`)
@@ -105,7 +106,7 @@ function predicate(input: Input, auth: AuthContext) {
 
 const select = `SELECT al.uid activityUid,al.module,al.action,al.table_name tableName,
   al.record_uid recordUid,al.description,al.reason,al.request_id requestId,
-  CONCAT(DATE_FORMAT(al.occurred_at,'%Y-%m-%dT%H:%i:%s.'),LPAD(MICROSECOND(al.occurred_at) DIV 1000,3,'0'),'+07:00') occurredAt,
+  CONCAT(DATE_FORMAT(al.occurred_at,'%Y-%m-%dT%H:%i:%s.'),LPAD(MICROSECOND(al.occurred_at) DIV 1000,3,'0'),'Z') occurredAt,
   u.uid actorUid,u.full_name actorName,u.username actorUsername,
   s.uid siteUid,s.code siteCode,s.name siteName
   FROM audit_logs al LEFT JOIN users u ON u.id=al.user_id LEFT JOIN sites s ON s.id=al.site_id`

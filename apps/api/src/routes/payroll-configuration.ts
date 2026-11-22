@@ -157,8 +157,8 @@ async function assertEmployeeCoverage(conn: PoolConnection, input: { employeeUid
   if (!input.allowedTypes.includes(String(employee.employeeType))) throw new ApiError(422, `Master ini hanya berlaku untuk karyawan ${input.allowedTypes.join('/')} saat ini.`)
   const [contracts] = await conn.query<RowDataPacket[]>(
     `SELECT ct.code FROM employee_contracts c JOIN contract_types ct ON ct.id=c.contract_type_id
-      WHERE c.employee_id=? AND c.status='ACTIVE' AND c.start_date<=CURDATE()
-        AND (c.end_date IS NULL OR c.end_date>=CURDATE())`, [employee.id]
+      WHERE c.employee_id=? AND c.status='ACTIVE' AND c.start_date<=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00'))
+        AND (c.end_date IS NULL OR c.end_date>=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+07:00')))`, [employee.id]
   )
   const expected = employee.employeeType === 'TRAINING' ? ['TRAINING'] : ['PKWT', 'PKWTT']
   if (contracts.length !== 1 || !expected.includes(String(contracts[0].code))) throw new ApiError(422, 'Kontrak aktif tidak tunggal atau tidak sesuai dengan jenis karyawan.')

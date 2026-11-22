@@ -1,8 +1,6 @@
 import { useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
-import { format, parseISO } from 'date-fns'
 import { type ColumnDef } from '@tanstack/react-table'
-import { id } from 'date-fns/locale'
 import {
   CircleOff,
   LoaderCircle,
@@ -11,6 +9,7 @@ import {
   RotateCcw,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { formatWibDateTime } from '@/lib/business-time'
 import {
   siteScopeLabel,
   useSiteScopeFilter,
@@ -184,9 +183,7 @@ export function MinimumWageSection({
         ),
         cell: ({ row }) => (
           <span className='text-xs whitespace-nowrap text-muted-foreground'>
-            {format(parseISO(row.original.updatedAt), 'd MMM yyyy, HH.mm', {
-              locale: id,
-            })}
+            {formatWibDateTime(row.original.updatedAt)}
           </span>
         ),
       },

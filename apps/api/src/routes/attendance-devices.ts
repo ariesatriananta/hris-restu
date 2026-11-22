@@ -128,7 +128,7 @@ attendanceDevicesRouter.get(
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT d.uid,d.code,d.name,s.code site,s.name siteName,
                 d.device_type deviceType,d.location_description locationDescription,
-                DATE_FORMAT(d.last_seen_at,'%Y-%m-%dT%H:%i:%s+07:00') lastSeenAt,
+                DATE_FORMAT(d.last_seen_at,'%Y-%m-%dT%H:%i:%sZ') lastSeenAt,
                 d.is_active isActive,(d.device_token_hash IS NOT NULL) isActivated,
                 (d.device_token_hash IS NOT NULL) attendanceActivated,
                 (d.device_type IN ('MOBILE_CAMERA','USB_SCANNER','TERMINAL','OTHER')) productionSupported,

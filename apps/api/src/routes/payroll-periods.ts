@@ -131,8 +131,8 @@ const periodProjection = `SELECT pp.id,pp.uid,pp.site_id siteId,
   pp.deduct_bpjs deductBpjs,
   DATE_FORMAT(pp.bpjs_contribution_month,'%Y-%m') bpjsContributionMonth,
   ppps.policy_snapshot policySnapshot,
-  CONCAT(DATE_FORMAT(pp.created_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00') createdAt,
-  IF(pp.cancelled_at IS NULL,NULL,CONCAT(DATE_FORMAT(pp.cancelled_at,'%Y-%m-%dT%H:%i:%s.000'),'+07:00')) cancelledAt,
+  CONCAT(DATE_FORMAT(pp.created_at,'%Y-%m-%dT%H:%i:%s.000'),'Z') createdAt,
+  IF(pp.cancelled_at IS NULL,NULL,CONCAT(DATE_FORMAT(pp.cancelled_at,'%Y-%m-%dT%H:%i:%s.000'),'Z')) cancelledAt,
   pp.cancellation_reason cancellationReason,
   s.uid siteUid,s.code siteCode,s.name siteName
  FROM payroll_periods pp JOIN sites s ON s.id=pp.site_id

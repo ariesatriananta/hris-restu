@@ -8,12 +8,14 @@
 -- 2. uid : identifier publik. Aplikasi wajib mengisi UUID untuk setiap record.
 -- 3. created_by / updated_by secara logis mengacu ke users.id. Kolom audit tidak
 --    diberi foreign key agar histori tetap utuh saat akun dinonaktifkan/dihapus.
--- 4. Timestamp disimpan sebagai DATETIME(3) dengan timezone koneksi Asia/Jakarta.
+-- 4. Timestamp teknis DATETIME(3) disimpan UTC (koneksi +00:00).
+--    DATE/TIME bisnis serta wall-clock Attendance/Produksi mengikuti WIB eksplisit.
+--    API memberi offset/Z; UI dan filter hari memakai Asia/Jakarta.
 -- 5. Semua nominal uang menggunakan DECIMAL, bukan FLOAT/DOUBLE.
 -- ============================================================================
 
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
-SET time_zone = '+07:00';
+SET time_zone = '+00:00';
 SET FOREIGN_KEY_CHECKS = 0;
 
 CREATE DATABASE IF NOT EXISTS hris_pt_restu

@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
+import { formatWibDateTime } from '@/lib/business-time'
 import { cn } from '@/lib/utils'
 import { useKpiVisibility } from '@/hooks/use-kpi-visibility'
 import { type NavigateFn } from '@/hooks/use-table-url-state'
@@ -143,7 +144,7 @@ function date(value: string) {
   return format(parseISO(value), 'd MMM yyyy', { locale: id })
 }
 function formatDateTime(value: string) {
-  return format(parseISO(value), 'd MMM yyyy, HH.mm', { locale: id })
+  return formatWibDateTime(value)
 }
 function errorMessage(error: unknown, fallback: string) {
   return isAxiosError<{ message?: string }>(error)

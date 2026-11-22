@@ -756,9 +756,10 @@ function rejectedResult(
       (isAxiosError(error) && !error.response
         ? 'Tidak dapat terhubung ke server. Periksa koneksi internet.'
         : 'Scan gagal diproses.'),
-    time: new Intl.DateTimeFormat('id-ID', { timeStyle: 'medium' }).format(
-      new Date()
-    ),
+    time: new Intl.DateTimeFormat('id-ID', {
+      timeStyle: 'medium',
+      timeZone: 'Asia/Jakarta',
+    }).format(new Date()),
   }
 }
 function formatServerTime(value: string) {

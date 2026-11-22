@@ -973,6 +973,7 @@ function timeLabel(value: string | null) {
   return new Intl.DateTimeFormat('id-ID', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'Asia/Jakarta',
   }).format(date)
 }
 
@@ -982,6 +983,7 @@ function dateTimeLabel(value: string) {
   return new Intl.DateTimeFormat('id-ID', {
     dateStyle: 'medium',
     timeStyle: 'short',
+    timeZone: 'Asia/Jakarta',
   }).format(date)
 }
 

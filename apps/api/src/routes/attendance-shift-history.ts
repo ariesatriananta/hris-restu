@@ -190,12 +190,13 @@ async function loadHistoryContext(
   if (Number(shift.isActive) !== 1) blockers.push('Shift tujuan sudah nonaktif.')
 
   const [employmentRows] = await executor.query<RowDataPacket[]>(
-    `SELECT eh.id,eh.site_id siteId,es.code status,
+    `SELECT eh.id,eh.site_id siteId,es.code status,et.code employeeType,
             es.allows_attendance allowsAttendance,
             DATE_FORMAT(eh.effective_from,'%Y-%m-%d') effectiveFrom,
             DATE_FORMAT(eh.effective_to,'%Y-%m-%d') effectiveTo
        FROM employee_employment_histories eh
        JOIN employee_statuses es ON es.id=eh.employee_status_id
+       JOIN employee_types et ON et.id=eh.employee_type_id
       WHERE eh.employee_id=? AND eh.effective_from<=?
         AND (eh.effective_to IS NULL OR eh.effective_to>=?)
       ORDER BY eh.effective_from,eh.id${lockSql}`,
@@ -209,6 +210,7 @@ async function loadHistoryContext(
     )
     if (
       matches.length !== 1 ||
+      !['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING'].includes(String(matches[0].employeeType)) ||
       matches[0].status !== 'ACTIVE' ||
       Number(matches[0].allowsAttendance) !== 1 ||
       Number(matches[0].siteId) !== Number(shift.siteId)
@@ -794,6 +796,9 @@ async function previewShiftPlan(
         override?.workDays ?? recommendation.recommendedWorkDays
       const shift = base.shifts.find((item) => item.uid === shiftUid)
       const issues: string[] = []
+      if (!['BORONGAN', 'HARIAN', 'BULANAN', 'TRAINING'].includes(String(employee.employeeType))) {
+        issues.push('Jenis karyawan arsip tidak dapat diberi penugasan Shift.')
+      }
       if (
         employee.employeeStatus !== 'ACTIVE' ||
         Number(employee.allowsAttendance) !== 1
