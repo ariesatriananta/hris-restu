@@ -1,3 +1,5 @@
+import type { EducationLevel } from '@/features/employees/education-level'
+
 export type RecruitmentStatus =
   | 'NEW'
   | 'IN_PROGRESS'
@@ -24,9 +26,12 @@ export interface RecruitmentCandidateListItem {
   applicationNumber: string
   fullName: string
   nationalIdMasked: string
-  phone: string
+  legacyImport?: boolean
+  legacyEmployeeNumber?: string | null
+  missingFields?: string[]
+  phone: string | null
   status: RecruitmentStatus
-  submittedAt: string
+  submittedAt: string | null
   statusChangedAt: string
   site: RecruitmentSite
 }
@@ -57,6 +62,9 @@ export interface RecruitmentCandidateFile {
   originalName: string
   mimeType: string
   sizeBytes: number
+  sourceType?: 'UPLOAD' | 'GOOGLE_DRIVE'
+  externalUrl?: string | null
+  previewUrl?: string | null
 }
 
 export interface RecruitmentStatusEvent {
@@ -71,13 +79,13 @@ export interface RecruitmentStatusEvent {
 }
 
 export interface RecruitmentCandidateDetail extends RecruitmentCandidateListItem {
-  nationalIdNumber: string
-  familyCardNumber: string
-  gender: 'MALE' | 'FEMALE'
-  birthPlace: string
-  birthDate: string
+  nationalIdNumber: string | null
+  familyCardNumber: string | null
+  gender: 'MALE' | 'FEMALE' | null
+  birthPlace: string | null
+  birthDate: string | null
   educationLevel: EducationLevel | null
-  address: string
+  address: string | null
   email: string | null
   internalNotes: string | null
   updatedAt: string
@@ -105,6 +113,9 @@ export interface RecruitmentConversionPrefill {
     uid: string
     applicationNumber: string
     status: 'PASSED'
+    legacyImport?: boolean
+    legacyEmployeeNumber?: string | null
+    missingFields?: string[]
     updatedAt: string
     site: RecruitmentSite
     files: RecruitmentCandidateFile[]
@@ -119,16 +130,16 @@ export interface RecruitmentConversionPrefill {
     position: string | null
     workGroup: string | null
     productionModuleSectionUid: string | null
-    joinDate: string
-    gender: 'MALE' | 'FEMALE'
+    joinDate: string | null
+    gender: 'MALE' | 'FEMALE' | null
     birthPlace: string | null
     birthDate: string | null
     educationLevel: EducationLevel | null
     address: string | null
     phone: string | null
     email: string | null
-    nationalIdNumber: string
-    familyCardNumber: string
+    nationalIdNumber: string | null
+    familyCardNumber: string | null
     [key: string]: unknown
   }
 }
@@ -139,4 +150,3 @@ export interface RecruitmentConversionResult {
   employee: { uid: string; employeeNumber: string }
   replayed: boolean
 }
-import type { EducationLevel } from '@/features/employees/education-level'

@@ -190,3 +190,20 @@ export async function getRecruitmentFile(
     )
   ).data
 }
+
+export function useSaveLegacyRecruitmentDocument() {
+  const invalidate = useInvalidateRecruitment()
+  return useMutation({
+    mutationFn: ({
+      uid,
+      ...input
+    }: {
+      uid: string
+      kind: 'KTP' | 'KK'
+      externalUrl: string
+      currentUpdatedAt: string
+    }) =>
+      apiClient.put(`/recruitment/candidates/${uid}/legacy-documents`, input),
+    onSuccess: invalidate,
+  })
+}

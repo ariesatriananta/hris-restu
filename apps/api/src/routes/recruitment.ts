@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { googleDriveDocument } from '../lib/google-drive-document.js'
+import { recruitmentLegacy, recruitmentLegacyNumber, recruitmentMissingFields, recruitmentFile, recruitmentLegacyDefaults } from '../lib/recruitment-legacy.js'
 import { employeeNoteInput } from '../lib/employee-archive-policy.js'
 import { Router } from 'express'
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
@@ -330,7 +332,7 @@ const candidateBaseSelect = `SELECT rc.id,rc.site_id siteId,rc.uid,rc.applicatio
   rc.privacy_notice_version privacyNoticeVersion,
   ${candidateDate('rc', 'privacy_consent_at')} privacyConsentAt,
   rc.status,rc.applicant_rejection_reason applicantRejectionReason,
-  rc.internal_notes internalNotes,
+  rc.internal_notes internalNotes,rc.legacy_import_json legacyImportJson,
   ${candidateDate('rc', 'submitted_at')} submittedAt,
   ${candidateDate('rc', 'status_changed_at')} statusChangedAt,
   ${candidateDate('rc', 'updated_at')} updatedAt,
@@ -343,6 +345,41 @@ const candidateBaseSelect = `SELECT rc.id,rc.site_id siteId,rc.uid,rc.applicatio
 
 export const recruitmentRouter = Router()
 recruitmentRouter.use(authenticate, requirePermission('recruitment.view'))
+
+// Legacy Drive links remain external; no download or R2 mutation occurs here.
+recruitmentRouter.put('/candidates/:uid/legacy-documents', requirePermission('recruitment.manage'), async (req, res, next) => {
+  let conn: PoolConnection | undefined
+  try {
+    const uid = z.string().uuid().parse(req.params.uid)
+    const input = z.object({
+      kind: z.enum(['KTP','KK']), externalUrl: z.string().max(1000),
+      currentUpdatedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}$/),
+    }).strict().parse(req.body)
+    const drive = googleDriveDocument(input.externalUrl)
+    if (!drive) throw new ApiError(422, 'Gunakan tautan file Google Drive yang valid.')
+    const auth = res.locals.auth as AuthContext
+    const access = candidateAccessQuery(auth)
+    conn = await pool.getConnection()
+    await conn.beginTransaction()
+    const [rows] = await conn.query<RowDataPacket[]>(`${candidateBaseSelect} WHERE rc.uid=? AND ${access.sql} LIMIT 1 FOR UPDATE`, [uid,...access.params])
+    const candidate = rows[0]
+    if (!candidate) throw new ApiError(404, 'Kandidat tidak ditemukan.')
+    if (!recruitmentLegacy(candidate.legacyImportJson)) throw new ApiError(409, 'Perubahan tautan hanya tersedia untuk kandidat migrasi.')
+    if (candidate.status === 'CONVERTED' || candidate.employeeUid) throw new ApiError(409, 'Kandidat sudah menjadi karyawan.')
+    if (candidate.updatedAt !== input.currentUpdatedAt) throw new ApiError(409, 'Data kandidat sudah berubah. Muat ulang data terbaru.')
+    const [existing] = await conn.query<RowDataPacket[]>('SELECT file_id FROM recruitment_candidate_files WHERE candidate_id=? AND file_kind=? FOR UPDATE', [candidate.id,input.kind])
+    if (existing[0]?.file_id) throw new ApiError(409, 'Dokumen unggahan yang sudah ada tidak dapat ditimpa dengan tautan.')
+    await conn.execute(`INSERT INTO recruitment_candidate_files(uid,candidate_id,file_id,external_url,file_kind,created_by,updated_by)
+      VALUES(?,?,NULL,?,?,?,?) ON DUPLICATE KEY UPDATE external_url=VALUES(external_url),updated_by=VALUES(updated_by)`,
+    [randomUUID(),candidate.id,drive.url,input.kind,auth.id,auth.id])
+    await conn.execute('UPDATE recruitment_candidates SET updated_at=CURRENT_TIMESTAMP(3),updated_by=? WHERE id=?', [auth.id,candidate.id])
+    await writeAudit({ auth, request:req, module:'RECRUITMENT', siteId:Number(candidate.siteId), action:'UPDATE', table:'recruitment_candidate_files', recordUid:uid,
+      description:`Memperbarui tautan dokumen ${input.kind} kandidat.`, afterData:{candidateUid:uid,fileKind:input.kind} }, conn)
+    await conn.commit()
+    res.json({ success:true })
+  } catch (error) { if (conn) await conn.rollback(); next(error) }
+  finally { conn?.release() }
+})
 
 recruitmentRouter.get('/meta', async (_req, res, next) => {
   try {
@@ -419,9 +456,9 @@ recruitmentRouter.get(
       const [filesResult, employeeTypesResult, departmentsResult, positionsResult, workGroupsResult, modulesResult, sectionsResult] =
         await Promise.all([
           pool.query<RowDataPacket[]>(
-            `SELECT f.uid,rcf.file_kind kind,f.original_name originalName,
+            `SELECT COALESCE(f.uid,rcf.uid) uid,rcf.file_kind kind,rcf.external_url externalUrl,f.original_name originalName,
               f.mime_type mimeType,f.size_bytes sizeBytes
-             FROM recruitment_candidate_files rcf JOIN files f ON f.id=rcf.file_id
+             FROM recruitment_candidate_files rcf LEFT JOIN files f ON f.id=rcf.file_id
              WHERE rcf.candidate_id=? ORDER BY FIELD(rcf.file_kind,'PHOTO','KTP','KK')`,
             [candidate.id]
           ),
@@ -454,14 +491,10 @@ recruitmentRouter.get(
             [candidate.siteId]
           ),
         ])
-      const files = filesResult[0].map((row) => ({
-        uid: String(row.uid),
-        kind: String(row.kind),
-        originalName: String(row.originalName),
-        mimeType: String(row.mimeType),
-        sizeBytes: Number(row.sizeBytes),
-      }))
-      if (new Set(files.map((file) => file.kind)).size !== 3) {
+      const legacy = recruitmentLegacy(candidate.legacyImportJson)
+      if (candidate.legacyImportJson != null && !legacy) throw new ApiError(409, 'Sumber arsip kandidat tidak dikenali. Periksa data migrasi.')
+      const files = filesResult[0].map(recruitmentFile)
+      if (!legacy && new Set(files.map((file) => file.kind)).size !== 3) {
         throw new ApiError(
           409,
           'Foto, KTP, atau KK kandidat belum lengkap. Lengkapi arsip kandidat terlebih dahulu.'
@@ -473,6 +506,9 @@ recruitmentRouter.get(
           applicationNumber: String(candidate.applicationNumber),
           status: String(candidate.status),
           updatedAt: candidate.updatedAt,
+          legacyImport: Boolean(legacy),
+          legacyEmployeeNumber: recruitmentLegacyNumber(candidate.legacyImportJson),
+          missingFields: recruitmentMissingFields(candidate),
           site: {
             uid: String(candidate.siteUid),
             code: String(candidate.siteCode),
@@ -494,28 +530,28 @@ recruitmentRouter.get(
           joinDateTraining: null,
           joinDateBorong: null,
           permanentDate: null,
-          gender: String(candidate.gender),
-          birthPlace: String(candidate.birthPlace),
-          birthDate: String(candidate.birthDate),
+          gender: candidate.gender ? String(candidate.gender) : null,
+          birthPlace: candidate.birthPlace ? String(candidate.birthPlace) : null,
+          birthDate: candidate.birthDate ? String(candidate.birthDate) : null,
           educationLevel: candidate.educationLevel
             ? String(candidate.educationLevel)
             : null,
           maritalStatus: null,
           religion: null,
-          address: String(candidate.address),
+          address: candidate.address ? String(candidate.address) : null,
           rtrw: null,
           kelurahan: null,
           kecamatan: null,
           city: null,
           province: null,
           postalCode: null,
-          phone: String(candidate.phone),
+          phone: candidate.phone ? String(candidate.phone) : null,
           email: candidate.email ? String(candidate.email) : null,
           emergencyContactName: null,
           emergencyContactPhone: null,
           emergencyContactRelation: null,
-          nationalIdNumber: String(candidate.nationalIdNumber),
-          familyCardNumber: String(candidate.familyCardNumber),
+          nationalIdNumber: candidate.nationalIdNumber ? String(candidate.nationalIdNumber) : null,
+          familyCardNumber: candidate.familyCardNumber ? String(candidate.familyCardNumber) : null,
           taxNumber: null,
           bankName: null,
           bankAccountNumber: null,
@@ -523,6 +559,7 @@ recruitmentRouter.get(
           bpjsHealthNumber: null,
           bpjsEmploymentNumber: null,
           notes: null,
+          ...recruitmentLegacyDefaults(candidate.legacyImportJson),
         },
         lookups: {
           employeeTypes: employeeTypesResult[0],
@@ -639,28 +676,43 @@ recruitmentRouter.post(
         )
       }
 
+      const legacy = recruitmentLegacy(candidate.legacyImportJson)
+      if (candidate.legacyImportJson != null && !legacy) {
+        throw new ApiError(409, 'Sumber arsip kandidat tidak dikenali. Periksa data migrasi.')
+      }
+      if (legacy) {
+        const [duplicateCandidates] = await conn.query<RowDataPacket[]>(
+          "SELECT id FROM recruitment_candidates WHERE id<>? AND active_national_id_number=? LIMIT 1 FOR UPDATE",
+          [candidate.id, input.nationalIdNumber]
+        )
+        if (duplicateCandidates.length) throw new ApiError(409, 'NIK sudah digunakan oleh lamaran lain yang belum selesai. Periksa identitas kandidat.')
+      }
       const [sourceRows] = await conn.query<RowDataPacket[]>(
-        `SELECT rcf.file_kind kind,f.storage_path storagePath,
+        `SELECT rcf.file_kind kind,rcf.external_url externalUrl,f.storage_path storagePath,
           f.original_name originalName,f.mime_type mimeType,f.extension,
           f.size_bytes sizeBytes,f.checksum_sha256 checksumSha256
-         FROM recruitment_candidate_files rcf JOIN files f ON f.id=rcf.file_id
-         WHERE rcf.candidate_id=? AND f.visibility='INTERNAL'
+         FROM recruitment_candidate_files rcf LEFT JOIN files f ON f.id=rcf.file_id
+         WHERE rcf.candidate_id=? AND (f.visibility='INTERNAL' OR (rcf.file_id IS NULL AND rcf.external_url IS NOT NULL))
          ORDER BY FIELD(rcf.file_kind,'PHOTO','KTP','KK') FOR UPDATE`,
         [candidate.id]
       )
       const sourceByKind = new Map(
         sourceRows.map((row) => [String(row.kind), row])
       )
-      if (!['PHOTO', 'KTP', 'KK'].every((kind) => sourceByKind.has(kind))) {
+      if (!(legacy ? ['KTP', 'KK'] : ['PHOTO', 'KTP', 'KK']).every((kind) => sourceByKind.has(kind))) {
         throw new ApiError(
           409,
-          'Foto, KTP, atau KK kandidat belum lengkap. Konversi dibatalkan.'
+          legacy ? 'KTP atau KK kandidat belum lengkap. Lengkapi dokumen kandidat terlebih dahulu.' : 'Foto, KTP, atau KK kandidat belum lengkap. Konversi dibatalkan.'
         )
       }
 
+      const externalSources = sourceRows.filter((row) => row.externalUrl)
+      if (externalSources.some((row) => !legacy || !['KTP','KK'].includes(String(row.kind)) || !googleDriveDocument(String(row.externalUrl)))) {
+        throw new ApiError(409, 'Sumber dokumen kandidat tidak valid.')
+      }
       const sourceFiles = await Promise.all(
-        ['PHOTO', 'KTP', 'KK'].map(async (kind) => {
-          const source = sourceByKind.get(kind)!
+        sourceRows.filter((row) => !row.externalUrl).map(async (source) => {
+          const kind = String(source.kind)
           return {
             kind,
             source,
@@ -718,12 +770,17 @@ recruitmentRouter.post(
         copiedFileIds.set(file.kind, inserted.insertId)
       }
 
-      const employeeNumber = await reserveEmployeeNumber(conn, {
+      const legacyNumber = recruitmentLegacyNumber(candidate.legacyImportJson)
+      if (legacyNumber) {
+        const [numbers] = await conn.query<RowDataPacket[]>('SELECT id FROM employees WHERE employee_number=? FOR UPDATE', [legacyNumber])
+        if (numbers.length) throw new ApiError(409, 'Nomor karyawan arsip sudah digunakan. Periksa data sebelum konversi.')
+      }
+      const employeeNumber = legacyNumber ?? await reserveEmployeeNumber(conn, {
         siteId: Number(refs.siteId),
         prefix: String(refs.employeeNumberPrefix),
         joinDate: input.joinDate,
       })
-      const photoFileId = copiedFileIds.get('PHOTO')!
+      const photoFileId = copiedFileIds.get('PHOTO') ?? null
       const [employeeInsert] = await conn.execute<ResultSetHeader>(
         `INSERT INTO employees(
           uid,employee_number,employee_type_id,employee_status_id,current_site_id,
@@ -810,17 +867,18 @@ recruitmentRouter.post(
       for (const kind of ['KTP', 'KK'] as const) {
         await conn.execute(
           `INSERT INTO employee_documents(
-            uid,employee_id,document_type,document_number,name,file_id,status,
+            uid,employee_id,document_type,document_number,name,file_id,external_url,status,
             notes,created_by,updated_by)
-           VALUES (?,?,?,?,?,?,'ACTIVE',?,?,?)`,
+           VALUES (?,?,?,?,?,?,?,'ACTIVE',?,?,?)`,
           [
             randomUUID(),
             employeeInsert.insertId,
             kind,
             kind === 'KTP' ? input.nationalIdNumber : input.familyCardNumber,
             kind === 'KTP' ? 'Kartu Tanda Penduduk' : 'Kartu Keluarga',
-            copiedFileIds.get(kind)!,
-            'Disalin dari berkas Form Data Pelamar.',
+            copiedFileIds.get(kind) ?? null,
+            sourceByKind.get(kind)?.externalUrl ? googleDriveDocument(String(sourceByKind.get(kind)!.externalUrl))!.url : null,
+            legacy ? 'Dokumen kandidat dari data sebelumnya.' : 'Disalin dari berkas Form Data Pelamar.',
             auth.id,
             auth.id,
           ]
@@ -829,11 +887,13 @@ recruitmentRouter.post(
 
       const [candidateUpdate] = await conn.execute<ResultSetHeader>(
         `UPDATE recruitment_candidates
-         SET status='CONVERTED',employee_id=?,converted_at=CURRENT_TIMESTAMP(3),converted_by=?,
+         SET ${legacy ? 'national_id_number=?,family_card_number=?,gender=?,birth_place=?,birth_date=?,education_level=?,address=?,phone=?,' : ''}
+             status='CONVERTED',employee_id=?,converted_at=CURRENT_TIMESTAMP(3),converted_by=?,
              status_changed_at=CURRENT_TIMESTAMP(3),updated_by=?
          WHERE id=? AND status='PASSED' AND employee_id IS NULL
            AND updated_at=STR_TO_DATE(?,'%Y-%m-%dT%H:%i:%s.%f')`,
         [
+          ...(legacy ? [input.nationalIdNumber, input.familyCardNumber, input.gender === 'LAKI-LAKI' ? 'MALE' : input.gender === 'PEREMPUAN' ? 'FEMALE' : input.gender, input.birthPlace, input.birthDate, input.educationLevel, input.address, input.phone] : []),
           employeeInsert.insertId,
           auth.id,
           auth.id,
@@ -1009,7 +1069,7 @@ recruitmentRouter.get('/candidates', async (req, res, next) => {
       ),
       pool.query<RowDataPacket[]>(
         `SELECT rc.uid,rc.application_number applicationNumber,rc.full_name fullName,
-          rc.national_id_number nationalIdNumber,rc.phone,rc.status,
+          rc.national_id_number nationalIdNumber,rc.phone,rc.status,rc.legacy_import_json legacyImportJson,
           ${candidateDate('rc', 'submitted_at')} submittedAt,
           ${candidateDate('rc', 'status_changed_at')} statusChangedAt,
           s.uid siteUid,s.code siteCode,s.name siteName
@@ -1035,7 +1095,9 @@ recruitmentRouter.get('/candidates', async (req, res, next) => {
         applicationNumber: String(row.applicationNumber),
         fullName: String(row.fullName),
         nationalIdMasked: maskedNik(row.nationalIdNumber),
-        phone: String(row.phone),
+        phone: row.phone ? String(row.phone) : null,
+        legacyImport: Boolean(recruitmentLegacy(row.legacyImportJson)),
+        legacyEmployeeNumber: recruitmentLegacyNumber(row.legacyImportJson),
         status: String(row.status),
         submittedAt: row.submittedAt,
         statusChangedAt: row.statusChangedAt,
@@ -1076,10 +1138,10 @@ recruitmentRouter.get('/candidates/:uid', async (req, res, next) => {
     if (!candidate) throw new ApiError(404, 'Kandidat tidak ditemukan.')
     const [fileResult, historyResult] = await Promise.all([
       pool.query<RowDataPacket[]>(
-        `SELECT f.uid,rcf.file_kind kind,f.original_name originalName,
+        `SELECT COALESCE(f.uid,rcf.uid) uid,rcf.file_kind kind,rcf.external_url externalUrl,f.original_name originalName,
           f.mime_type mimeType,f.size_bytes sizeBytes
          FROM recruitment_candidate_files rcf
-         JOIN files f ON f.id=rcf.file_id
+         LEFT JOIN files f ON f.id=rcf.file_id
          WHERE rcf.candidate_id=? ORDER BY FIELD(rcf.file_kind,'PHOTO','KTP','KK')`,
         [candidate.id]
       ),
@@ -1102,19 +1164,22 @@ recruitmentRouter.get('/candidates/:uid', async (req, res, next) => {
       applicationNumber: String(candidate.applicationNumber),
       fullName: String(candidate.fullName),
       nationalIdMasked: maskedNik(candidate.nationalIdNumber),
-      nationalIdNumber: String(candidate.nationalIdNumber),
-      familyCardNumber: String(candidate.familyCardNumber),
-      gender: String(candidate.gender),
-      birthPlace: String(candidate.birthPlace),
-      birthDate: String(candidate.birthDate),
+      nationalIdNumber: candidate.nationalIdNumber ? String(candidate.nationalIdNumber) : null,
+      familyCardNumber: candidate.familyCardNumber ? String(candidate.familyCardNumber) : null,
+      gender: candidate.gender ? String(candidate.gender) : null,
+      birthPlace: candidate.birthPlace ? String(candidate.birthPlace) : null,
+      birthDate: candidate.birthDate ? String(candidate.birthDate) : null,
       educationLevel: candidate.educationLevel
         ? String(candidate.educationLevel)
         : null,
-      address: String(candidate.address),
-      phone: String(candidate.phone),
+      address: candidate.address ? String(candidate.address) : null,
+      phone: candidate.phone ? String(candidate.phone) : null,
       email: candidate.email ? String(candidate.email) : null,
       privacyConsentAt: candidate.privacyConsentAt,
-      privacyNoticeVersion: String(candidate.privacyNoticeVersion),
+      privacyNoticeVersion: candidate.privacyNoticeVersion ? String(candidate.privacyNoticeVersion) : null,
+      legacyImport: Boolean(recruitmentLegacy(candidate.legacyImportJson)),
+      legacyEmployeeNumber: recruitmentLegacyNumber(candidate.legacyImportJson),
+      missingFields: recruitmentMissingFields(candidate),
       status,
       applicantRejectionReason: candidate.applicantRejectionReason
         ? String(candidate.applicantRejectionReason)
@@ -1132,13 +1197,7 @@ recruitmentRouter.get('/candidates/:uid', async (req, res, next) => {
         code: String(candidate.siteCode),
         name: String(candidate.siteName),
       },
-      files: fileResult[0].map((row) => ({
-        uid: String(row.uid),
-        kind: String(row.kind),
-        originalName: String(row.originalName),
-        mimeType: String(row.mimeType),
-        sizeBytes: Number(row.sizeBytes),
-      })),
+      files: fileResult[0].map(recruitmentFile),
       statusHistory: historyResult[0].map((row) => ({
         uid: String(row.uid),
         fromStatus: row.fromStatus ? String(row.fromStatus) : null,

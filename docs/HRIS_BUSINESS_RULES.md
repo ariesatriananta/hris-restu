@@ -14,6 +14,23 @@ Project ini adalah HRIS internal PT Restu Sejati Inti Abadi untuk tiga site oper
 
 ## Aturan bisnis penting
 
+- Koreksi klasifikasi Klaten, 25 November 2026: 722 baris sumber `NON AKTIF`
+  ternyata calon yang belum pernah bekerja. Pemindahan ke Rekrutmen hanya untuk
+  hash import yang disepakati dan status saat ini INACTIVE; 395 Aktif dan 2.608
+  Resign tidak ikut. Snapshot lengkap sumber dan dokumen tetap disimpan pada
+  kandidat; nomor sequence tidak diturunkan. Owner menjalankan migration dan
+  SQL pemindahan terpisah setelah preview, bukan menjalankan ulang import awal.
+- Kandidat migrasi boleh menyimpan data yang belum diketahui sebagai NULL,
+  termasuk consent dan tanggal pengajuan. Ini bukan kelonggaran form publik:
+  pendaftaran baru tetap wajib lengkap dan Turnstile tetap berlaku. Dokumen
+  Drive kandidat migrasi tetap eksternal; file R2 normal tidak dipindahkan.
+- Konversi kandidat migrasi tetap mewajibkan data inti dan KTP/KK yang valid;
+  foto profil boleh ditambahkan setelah menjadi karyawan. Tanggal kerja/fase
+  pada sumber tidak otomatis menjadi tanggal mulai kerja baru. Nomor PSLO lama
+  yang valid dipertahankan jika belum dipakai; placeholder LEG-KLT diganti
+  nomor operasional dari generator. Snapshot asal tetap pada kandidat yang
+  terhubung, tanpa mengecualikan karyawan baru dari onboarding normal.
+
 - Waktu bisnis memakai Asia/Jakarta (WIB), terlepas dari timezone OS Hostinger.
   Timestamp teknis dari default SQL/API disimpan UTC dan dikirim dengan `Z`;
   UI serta filter tanggal metadata memakai hari WIB. Kolom DATE/TIME kontrak,

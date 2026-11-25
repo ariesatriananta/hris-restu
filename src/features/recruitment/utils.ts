@@ -38,7 +38,8 @@ export function recruitmentActionLabel(
   }[status]
 }
 
-export function formatRecruitmentDateTime(value: string) {
+export function formatRecruitmentDateTime(value: string | null) {
+  if (!value || Number.isNaN(Date.parse(value))) return '-'
   return new Intl.DateTimeFormat('id-ID', {
     dateStyle: 'medium',
     timeStyle: 'short',
@@ -107,4 +108,38 @@ export function recruitmentConversionInput(input: EmployeeInput) {
     ...conversionInput
   } = input
   return conversionInput
+}
+
+export function recruitmentMissingFieldLabel(field: string) {
+  return (
+    (
+      {
+        nationalIdNumber: 'NIK',
+        familyCardNumber: 'Nomor KK',
+        gender: 'Jenis kelamin',
+        birthPlace: 'Tempat lahir',
+        birthDate: 'Tanggal lahir',
+        educationLevel: 'Pendidikan terakhir',
+        address: 'Alamat',
+        phone: 'Nomor HP',
+        PHOTO: 'Foto pelamar',
+        KTP: 'Dokumen KTP',
+        KK: 'Dokumen KK',
+      } as Record<string, string>
+    )[field] ?? field
+  )
+}
+
+export function recruitmentUploadFileUid(
+  file?: import('./domain').RecruitmentCandidateFile
+) {
+  return file?.sourceType === 'GOOGLE_DRIVE' ? undefined : file?.uid
+}
+
+export function recruitmentRequiredDocumentsMissing(
+  files: import('./domain').RecruitmentCandidateFile[],
+  legacy = false
+) {
+  const required = legacy ? ['KTP', 'KK'] : ['PHOTO', 'KTP', 'KK']
+  return required.filter((kind) => !files.some((file) => file.kind === kind))
 }

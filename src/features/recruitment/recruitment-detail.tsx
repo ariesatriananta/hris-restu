@@ -12,6 +12,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -22,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Sheet,
@@ -31,11 +33,13 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
+import { EmployeeDocumentPreview } from '@/features/employees/components/employee-document-preview'
 import { educationLevelLabel } from '@/features/employees/education-level'
 import {
   getRecruitmentFile,
   useRecruitmentCandidate,
   useSaveRecruitmentNotes,
+  useSaveLegacyRecruitmentDocument,
   useTransitionRecruitmentCandidate,
 } from './data'
 import type {
@@ -48,6 +52,7 @@ import {
   formatFileSize,
   formatRecruitmentDateTime,
   recruitmentActionLabel,
+  recruitmentMissingFieldLabel,
   recruitmentFileLabel,
   recruitmentStatusLabel,
   visibleRecruitmentActions,
@@ -71,6 +76,11 @@ export function RecruitmentCandidateCard({
             <p className='text-xs text-muted-foreground'>
               {candidate.applicationNumber} · {candidate.site.name}
             </p>
+            {candidate.legacyImport && (
+              <Badge variant='secondary' className='mt-1'>
+                Data migrasi
+              </Badge>
+            )}
           </button>
           <RecruitmentStatusBadge status={candidate.status} />
         </div>
@@ -147,17 +157,44 @@ export function RecruitmentDetailSheet({
               <RecruitmentStatusBadge status={detail.status} />
             </div>
 
+            {detail.legacyImport && (
+              <div className='space-y-2 rounded-lg border bg-muted/30 p-3 text-sm'>
+                <Badge variant='secondary'>Data migrasi</Badge>
+                {detail.legacyEmployeeNumber && (
+                  <p>Nomor referensi: {detail.legacyEmployeeNumber}</p>
+                )}
+                <p>
+                  Data awal dipertahankan dari arsip. Lengkapi data wajib saat
+                  calon akan dibuat menjadi karyawan.
+                </p>
+                {Boolean(detail.missingFields?.length) && (
+                  <p>
+                    Belum dilengkapi:{' '}
+                    {detail.missingFields
+                      ?.map(recruitmentMissingFieldLabel)
+                      .join(', ')}
+                    .
+                  </p>
+                )}
+              </div>
+            )}
             <Section title='Biodata pelamar'>
               <dl className='grid gap-3 rounded-lg border p-4 sm:grid-cols-2'>
                 <Info label='NIK' value={detail.nationalIdNumber} />
                 <Info label='Nomor KK' value={detail.familyCardNumber} />
                 <Info
                   label='Jenis kelamin'
-                  value={detail.gender === 'MALE' ? 'Laki-laki' : 'Perempuan'}
+                  value={
+                    detail.gender === 'MALE'
+                      ? 'Laki-laki'
+                      : detail.gender === 'FEMALE'
+                        ? 'Perempuan'
+                        : '-'
+                  }
                 />
                 <Info
                   label='Tempat, tanggal lahir'
-                  value={`${detail.birthPlace}, ${dateLabel(detail.birthDate)}`}
+                  value={`${detail.birthPlace || '-'}, ${dateLabel(detail.birthDate)}`}
                 />
                 <Info
                   label='Pendidikan terakhir'
@@ -173,7 +210,7 @@ export function RecruitmentDetailSheet({
 
             <Section
               title='Dokumen pelamar'
-              description='Dokumen hanya dimuat saat dibuka dan tidak memiliki tautan permanen.'
+              description='Buka dokumen untuk melihat pratinjau. Dokumen Google Drive mengikuti izin akses dari pemiliknya.'
             >
               <div className='grid gap-3 sm:grid-cols-3'>
                 {detail.files.map((file) => (
@@ -186,6 +223,13 @@ export function RecruitmentDetailSheet({
               </div>
             </Section>
 
+            {detail.legacyImport && detail.canManage && !detail.employeeUid && (
+              <LegacyDocuments
+                key={`${detail.uid}:${detail.updatedAt}`}
+                uid={detail.uid}
+                currentUpdatedAt={detail.updatedAt}
+              />
+            )}
             <InternalNotes
               key={`${detail.uid}:${detail.updatedAt}`}
               uid={detail.uid}
@@ -327,6 +371,22 @@ function PrivateImage({
     },
     [url]
   )
+  if (file.sourceType === 'GOOGLE_DRIVE') {
+    return (
+      <div className='space-y-3 rounded-lg border p-3'>
+        <FileImage className='size-9 text-muted-foreground' aria-hidden />
+        <p className='text-sm font-medium'>{recruitmentFileLabel(file.kind)}</p>
+        <p className='text-xs text-muted-foreground'>Google Drive</p>
+        <EmployeeDocumentPreview
+          document={{
+            name: recruitmentFileLabel(file.kind),
+            externalUrl: file.externalUrl ?? undefined,
+            externalPreviewUrl: file.previewUrl ?? undefined,
+          }}
+        />
+      </div>
+    )
+  }
   const open = async () => {
     setLoading(true)
     setFailed(false)
@@ -563,11 +623,11 @@ function Section({
     </section>
   )
 }
-function Info({ label, value }: { label: string; value: string }) {
+function Info({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
       <p className='text-xs text-muted-foreground'>{label}</p>
-      <p className='text-sm font-medium break-words'>{value}</p>
+      <p className='text-sm font-medium break-words'>{value || '-'}</p>
     </div>
   )
 }
@@ -591,7 +651,8 @@ function State({
     </div>
   )
 }
-function dateLabel(value: string) {
+function dateLabel(value: string | null) {
+  if (!value) return '-'
   return new Intl.DateTimeFormat('id-ID', { dateStyle: 'long' }).format(
     new Date(`${value}T00:00:00`)
   )
@@ -600,4 +661,71 @@ function transitionIcon(status: RecruitmentStatus) {
   if (status === 'REJECTED') return <XCircle />
   if (status === 'PASSED') return <CheckCircle2 />
   return <ArrowRight />
+}
+
+function LegacyDocuments({
+  uid,
+  currentUpdatedAt,
+}: {
+  uid: string
+  currentUpdatedAt: string
+}) {
+  const [kind, setKind] = useState<'KTP' | 'KK'>('KTP')
+  const [externalUrl, setExternalUrl] = useState('')
+  const mutation = useSaveLegacyRecruitmentDocument()
+  return (
+    <Section
+      title='Lengkapi dokumen migrasi'
+      description='Tambahkan atau ganti tautan KTP/KK Google Drive yang dapat dibuka oleh HR.'
+    >
+      <form
+        className='space-y-3 rounded-lg border p-3'
+        onSubmit={(event) => {
+          event.preventDefault()
+          mutation.mutate(
+            { uid, kind, externalUrl: externalUrl.trim(), currentUpdatedAt },
+            {
+              onSuccess: () => toast.success('Dokumen disimpan.'),
+              onError: () =>
+                toast.error(
+                  'Dokumen gagal disimpan. Periksa tautan atau muat ulang data.'
+                ),
+            }
+          )
+        }}
+      >
+        <fieldset disabled={mutation.isPending} className='space-y-3'>
+          <div className='flex gap-4'>
+            {(['KTP', 'KK'] as const).map((value) => (
+              <label key={value} className='flex items-center gap-2 text-sm'>
+                <input
+                  type='radio'
+                  name='legacy-document-kind'
+                  checked={kind === value}
+                  onChange={() => setKind(value)}
+                />
+                {value}
+              </label>
+            ))}
+          </div>
+          <div className='space-y-2'>
+            <Label htmlFor='legacy-document-url'>
+              Tautan Google Drive {kind}
+            </Label>
+            <Input
+              id='legacy-document-url'
+              type='url'
+              required
+              placeholder='https://drive.google.com/file/d/?/view'
+              value={externalUrl}
+              onChange={(event) => setExternalUrl(event.target.value)}
+            />
+          </div>
+          <Button type='submit' size='sm' disabled={!externalUrl.trim()}>
+            <Save /> Simpan dokumen
+          </Button>
+        </fieldset>
+      </form>
+    </Section>
+  )
 }

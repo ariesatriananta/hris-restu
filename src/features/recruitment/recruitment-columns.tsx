@@ -25,6 +25,11 @@ export function createRecruitmentColumns(
           onClick={() => onDetail(row.original.uid)}
         >
           {row.original.fullName}
+          {row.original.legacyImport && (
+            <span className='ml-2 text-xs text-muted-foreground'>
+              Data migrasi
+            </span>
+          )}
           <span className='block text-xs font-normal text-muted-foreground'>
             {row.original.applicationNumber}
           </span>
@@ -51,7 +56,7 @@ export function createRecruitmentColumns(
       ),
       cell: ({ row }) => (
         <div>
-          <p>{row.original.phone}</p>
+          <p>{row.original.phone || '-'}</p>
           <p className='text-xs text-muted-foreground'>
             NIK {row.original.nationalIdMasked}
           </p>
@@ -108,7 +113,8 @@ export function createRecruitmentColumns(
       header: () => <span className='sr-only'>Aksi</span>,
       cell: ({ row }) => (
         <DataTableActionButton
-          label={`Lihat detail ${row.original.fullName}`}
+          label={`Lihat detail ${row.original.fullName}
+          {row.original.legacyImport && <span className='ml-2 text-xs text-muted-foreground'>Data migrasi</span>}`}
           onClick={() => onDetail(row.original.uid)}
         >
           <Eye />

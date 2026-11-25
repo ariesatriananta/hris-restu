@@ -7,7 +7,10 @@ import { safeInternalReturnTo } from '@/lib/list-return-to'
 import { Button } from '@/components/ui/button'
 import { Main } from '@/components/layout/main'
 import { EmployeeForm } from '@/features/employees/components/employee-form'
-import type { MockFileAttachment } from '@/features/employees/domain'
+import type {
+  EmployeeDocument,
+  MockFileAttachment,
+} from '@/features/employees/domain'
 import {
   useConvertRecruitmentCandidate,
   useRecruitmentConversionPrefill,
@@ -17,6 +20,9 @@ import type { RecruitmentCandidateFile } from './domain'
 import {
   recruitmentConversionInput,
   recruitmentEmployeeDefaults,
+  recruitmentRequiredDocumentsMissing,
+  recruitmentUploadFileUid,
+  recruitmentMissingFieldLabel,
 } from './utils'
 
 export function RecruitmentConversionPage({
@@ -35,9 +41,18 @@ export function RecruitmentConversionPage({
   const photoMeta = candidateFiles.find((file) => file.kind === 'PHOTO')
   const ktpMeta = candidateFiles.find((file) => file.kind === 'KTP')
   const kkMeta = candidateFiles.find((file) => file.kind === 'KK')
-  const photoBlob = useRecruitmentFileBlob(candidateUid, photoMeta?.uid)
-  const ktpBlob = useRecruitmentFileBlob(candidateUid, ktpMeta?.uid)
-  const kkBlob = useRecruitmentFileBlob(candidateUid, kkMeta?.uid)
+  const photoBlob = useRecruitmentFileBlob(
+    candidateUid,
+    recruitmentUploadFileUid(photoMeta)
+  )
+  const ktpBlob = useRecruitmentFileBlob(
+    candidateUid,
+    recruitmentUploadFileUid(ktpMeta)
+  )
+  const kkBlob = useRecruitmentFileBlob(
+    candidateUid,
+    recruitmentUploadFileUid(kkMeta)
+  )
   const photoAttachment = usePrivateFilePreview(photoMeta, photoBlob.data)
   const ktpAttachment = usePrivateFilePreview(ktpMeta, ktpBlob.data)
   const kkAttachment = usePrivateFilePreview(kkMeta, kkBlob.data)
@@ -74,13 +89,35 @@ export function RecruitmentConversionPage({
   }
 
   const source = prefill.data
-  const previewQueries = [photoBlob, ktpBlob, kkBlob]
-  const previewPending =
-    previewQueries.some((query) => query.isPending) ||
-    !photoAttachment ||
-    !ktpAttachment ||
-    !kkAttachment
-  const previewError = previewQueries.some((query) => query.isError)
+  const missingDocuments = recruitmentRequiredDocumentsMissing(
+    candidateFiles,
+    source.candidate.legacyImport
+  )
+  const previewQueries = [
+    [photoMeta, photoBlob],
+    [ktpMeta, ktpBlob],
+    [kkMeta, kkBlob],
+  ] as const
+  const uploadQueries = previewQueries
+    .filter(([file]) => recruitmentUploadFileUid(file))
+    .map(([, query]) => query)
+  const previewPending = uploadQueries.some((query) => query.isPending)
+  if (missingDocuments.length) {
+    return (
+      <Main className='max-w-3xl space-y-3'>
+        <h1 className='text-xl font-semibold'>Dokumen perlu dilengkapi</h1>
+        <p className='text-muted-foreground'>
+          Belum tersedia:{' '}
+          {missingDocuments.map(recruitmentMissingFieldLabel).join(', ')}.
+          Lengkapi dokumen melalui detail pelamar sebelum membuat karyawan.
+        </p>
+        <Button asChild variant='outline'>
+          <Link to={listReturnTo}>Kembali ke Rekrutmen</Link>
+        </Button>
+      </Main>
+    )
+  }
+  const previewError = uploadQueries.some((query) => query.isError)
 
   if (previewError) {
     return (
@@ -94,7 +131,7 @@ export function RecruitmentConversionPage({
             <Button
               variant='outline'
               onClick={() =>
-                void Promise.all(previewQueries.map((query) => query.refetch()))
+                void Promise.all(uploadQueries.map((query) => query.refetch()))
               }
             >
               <RefreshCcw /> Muat ulang foto
@@ -141,9 +178,9 @@ export function RecruitmentConversionPage({
         <div className='flex gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm'>
           <ShieldCheck className='mt-0.5 size-5 shrink-0 text-primary' />
           <p>
-            Karyawan dibuat dengan status <strong>Nonaktif</strong>. Foto, KTP,
-            dan KK dari lamaran disalin otomatis. Aktivasi tetap dilakukan
-            melalui proses kontrak yang berlaku.
+            Karyawan dibuat dengan status <strong>Nonaktif</strong>. Dokumen
+            yang tersedia dari lamaran disertakan otomatis. Aktivasi tetap
+            dilakukan melalui proses kontrak yang berlaku.
           </p>
         </div>
       </div>
@@ -151,6 +188,25 @@ export function RecruitmentConversionPage({
       <EmployeeForm
         createDefaults={createDefaults}
         lockCreateSite
+        identityDocuments={Object.fromEntries(
+          candidateFiles
+            .filter(
+              (file) =>
+                file.sourceType === 'GOOGLE_DRIVE' && file.kind !== 'PHOTO'
+            )
+            .map((file) => [
+              file.kind,
+              {
+                uid: file.uid,
+                employeeUid: '',
+                documentType: file.kind,
+                name: recruitmentMissingFieldLabel(file.kind),
+                status: 'ACTIVE',
+                externalUrl: file.externalUrl ?? undefined,
+                externalPreviewUrl: file.previewUrl ?? undefined,
+              } satisfies EmployeeDocument,
+            ])
+        )}
         inheritedRecruitmentDocuments={source.candidate.files.map(
           (file) => file.kind
         )}

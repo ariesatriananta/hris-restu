@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   buildRecruitmentListParams,
   formatRecruitmentDateTime,
+  recruitmentRequiredDocumentsMissing,
+  recruitmentUploadFileUid,
+  recruitmentMissingFieldLabel,
   recruitmentConversionInput,
   recruitmentEmployeeDefaults,
   recruitmentActionLabel,
@@ -95,5 +98,35 @@ describe('Rekrutmen internal', () => {
     })
     expect(result).not.toHaveProperty('employeeStatus')
     expect(result).not.toHaveProperty('photo')
+  })
+})
+
+describe('Dokumen calon migrasi', () => {
+  const file = {
+    uid: 'drive-ktp',
+    kind: 'KTP' as const,
+    originalName: 'KTP',
+    mimeType: 'application/octet-stream',
+    sizeBytes: 0,
+    sourceType: 'GOOGLE_DRIVE' as const,
+    externalUrl: 'https://drive.google.com/file/d/example/view',
+  }
+  it('tidak meminta blob R2 untuk Drive atau dokumen yang tidak ada', () => {
+    expect(recruitmentUploadFileUid(file)).toBeUndefined()
+    expect(recruitmentUploadFileUid()).toBeUndefined()
+    expect(recruitmentUploadFileUid({ ...file, sourceType: 'UPLOAD' })).toBe(
+      'drive-ktp'
+    )
+  })
+  it('foto opsional khusus migrasi, KTP dan KK tetap wajib', () => {
+    const files = [file, { ...file, uid: 'drive-kk', kind: 'KK' as const }]
+    expect(recruitmentRequiredDocumentsMissing(files, true)).toEqual([])
+    expect(recruitmentRequiredDocumentsMissing(files)).toEqual(['PHOTO'])
+    expect(recruitmentRequiredDocumentsMissing([], true)).toEqual(['KTP', 'KK'])
+  })
+  it('tanggal daftar tidak diketahui tidak ditampilkan sebagai tanggal palsu', () => {
+    expect(formatRecruitmentDateTime(null)).toBe('-')
+    expect(formatRecruitmentDateTime('invalid')).toBe('-')
+    expect(recruitmentMissingFieldLabel('nationalIdNumber')).toBe('NIK')
   })
 })

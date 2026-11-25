@@ -1132,17 +1132,17 @@ CREATE TABLE recruitment_candidates (
   idempotency_key VARCHAR(100) NOT NULL,
   site_id BIGINT UNSIGNED NOT NULL,
   full_name VARCHAR(150) NOT NULL,
-  national_id_number CHAR(16) NOT NULL,
-  family_card_number CHAR(16) NOT NULL,
+  national_id_number CHAR(16) NULL,
+  family_card_number CHAR(16) NULL,
   gender VARCHAR(10) NOT NULL,
-  birth_place VARCHAR(100) NOT NULL,
-  birth_date DATE NOT NULL,
+  birth_place VARCHAR(100) NULL,
+  birth_date DATE NULL,
   education_level VARCHAR(30) NULL,
-  address TEXT NOT NULL,
-  phone VARCHAR(30) NOT NULL,
+  address TEXT NULL,
+  phone VARCHAR(30) NULL,
   email VARCHAR(191) NULL,
-  privacy_consent_at DATETIME(3) NOT NULL,
-  privacy_notice_version VARCHAR(30) NOT NULL,
+  privacy_consent_at DATETIME(3) NULL,
+  privacy_notice_version VARCHAR(30) NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'NEW',
   active_national_id_number VARCHAR(16) GENERATED ALWAYS AS (
     CASE
@@ -1153,7 +1153,8 @@ CREATE TABLE recruitment_candidates (
   ) STORED,
   applicant_rejection_reason VARCHAR(500) NULL,
   internal_notes TEXT NULL,
-  submitted_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  submitted_at DATETIME(3) NULL DEFAULT CURRENT_TIMESTAMP(3),
+  legacy_import_json JSON NULL COMMENT 'Immutable owner-import snapshot; never accepted from public/HR payloads.',
   status_changed_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   employee_id BIGINT UNSIGNED NULL,
   converted_at DATETIME(3) NULL,
@@ -1171,6 +1172,10 @@ CREATE TABLE recruitment_candidates (
   KEY idx_recruitment_candidates_site_status_submitted (site_id,status,submitted_at),
   KEY idx_recruitment_candidates_nik_history (national_id_number,submitted_at),
   KEY idx_recruitment_candidates_name (full_name),
+  CONSTRAINT chk_recruitment_candidates_normal_required CHECK (legacy_import_json IS NOT NULL OR (
+    national_id_number IS NOT NULL AND family_card_number IS NOT NULL AND birth_place IS NOT NULL
+    AND birth_date IS NOT NULL AND address IS NOT NULL AND phone IS NOT NULL
+    AND privacy_consent_at IS NOT NULL AND privacy_notice_version IS NOT NULL AND submitted_at IS NOT NULL)),
   CONSTRAINT chk_recruitment_candidates_nik CHECK (national_id_number REGEXP '^[0-9]{16}$'),
   CONSTRAINT chk_recruitment_candidates_kk CHECK (family_card_number REGEXP '^[0-9]{16}$'),
   CONSTRAINT chk_recruitment_candidates_gender CHECK (gender IN ('MALE','FEMALE')),
@@ -1194,11 +1199,16 @@ CREATE TABLE recruitment_candidates (
   CONSTRAINT fk_recruitment_candidates_converted_by FOREIGN KEY (converted_by) REFERENCES users(id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Provenance is immutable, including attempts to replace/clear it or add it by UPDATE.
+CREATE TRIGGER recruitment_candidates_legacy_immutable BEFORE UPDATE ON recruitment_candidates
+FOR EACH ROW SET NEW.legacy_import_json=OLD.legacy_import_json;
+
 CREATE TABLE recruitment_candidate_files (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   uid CHAR(36) NOT NULL,
   candidate_id BIGINT UNSIGNED NOT NULL,
-  file_id BIGINT UNSIGNED NOT NULL,
+  file_id BIGINT UNSIGNED NULL,
+  external_url VARCHAR(1000) NULL,
   file_kind VARCHAR(20) NOT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   created_by BIGINT UNSIGNED NULL,
@@ -1210,8 +1220,11 @@ CREATE TABLE recruitment_candidate_files (
   UNIQUE KEY uq_recruitment_candidate_files_file (file_id),
   KEY idx_recruitment_candidate_files_candidate (candidate_id),
   CONSTRAINT chk_recruitment_candidate_files_kind CHECK (file_kind IN ('PHOTO','KTP','KK')),
+  CONSTRAINT chk_recruitment_candidate_files_source CHECK (
+    (file_id IS NOT NULL AND external_url IS NULL) OR
+    (file_id IS NULL AND external_url IS NOT NULL AND external_url REGEXP '^https://drive[.]google[.]com/file/d/[A-Za-z0-9_-]{10,200}/view([?]resourcekey=[A-Za-z0-9_-]{1,200})?$')),
   CONSTRAINT fk_recruitment_candidate_files_candidate FOREIGN KEY (candidate_id) REFERENCES recruitment_candidates(id) ON UPDATE CASCADE ON DELETE RESTRICT,
-  CONSTRAINT fk_recruitment_candidate_files_file FOREIGN KEY (file_id) REFERENCES files(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  CONSTRAINT fk_recruitment_candidate_files_file FOREIGN KEY (file_id) REFERENCES files(id) ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE recruitment_status_events (

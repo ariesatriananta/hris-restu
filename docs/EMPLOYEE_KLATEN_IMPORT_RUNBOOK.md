@@ -184,3 +184,69 @@ Follow-up pengaitan link Excel tanpa migrasi file fisik tersedia di
 [EMPLOYEE_LEGACY_DRIVE_DOCUMENTS.md](EMPLOYEE_LEGACY_DRIVE_DOCUMENTS.md).
 Jalankan migration sumber dokumen dulu, lalu owner-run SQL link dalam mode
 PREVIEW sebelum EXECUTE. Tidak perlu menjalankan import karyawan ulang.
+
+## Koreksi Nonaktif menjadi calon Rekrutmen — 25 November 2026
+
+Client mengonfirmasi 722 sumber NON AKTIF belum pernah bekerja. Ini mengoreksi
+klasifikasi sebelumnya; 395 Aktif dan 2.608 Resign tetap menjadi karyawan.
+Jangan memakai kondisi seluruh non-ACTIVE atau seluruh LEGACY_UNKNOWN.
+
+Preflight read-only menemukan 621 LEGACY_UNKNOWN + 101 Training; tidak ada
+kontrak, histori employment, shift, pekerjaan, attendance, produksi atau payroll
+pada kelompok tersebut. Ada 1.436 dokumen Drive (718 KTP + 718 KK), milik 718
+orang. Empat calon belum memiliki dokumen. Semua belum mempunyai foto profil.
+NIK field utama 140 kosong/tidak valid; 127 di antaranya masih punya nilai valid
+pada sumber asli yang dahulu dikarantina karena konflik. Tidak memulihkannya
+otomatis: ada 26 kelompok NIK sumber berulang (63 calon), dan NIK enam calon
+beririsan dengan karyawan aktif. Identitas wajib diverifikasi sebelum konversi.
+
+Urutan Owner:
+
+1. Backup DB dan hentikan semua API writer serta cron. Gunakan koneksi baru
+   dengan autocommit=1, FK aktif, tanpa transaksi lain yang terbuka.
+2. Jalankan `db/migrations/20261125_recruitment_legacy_candidates.sql` seluruhnya.
+   DDL autocommit; migration menambah dukungan snapshot legacy, field nullable
+   khusus legacy dan dokumen Drive. Tidak memindahkan data karyawan.
+3. Deploy API/frontend yang mendukungnya, tetapi writer tetap dihentikan sampai
+   SQL pemindahan selesai. Jangan membuka versi API lama ke schema baru.
+4. Di `db/maintenance/20261125_klaten_inactive_to_recruitment.sql`, isi
+   `@klt_move_database` dengan nama database persis. Biarkan mode PREVIEW dan
+   jalankan seluruh file. Hasil harus 722 calon dan 1.436 dokumen. PREVIEW tidak
+   mengubah data aplikasi, tetapi memerlukan izin routine/temporary table.
+5. Jika cocok, ubah mode EXECUTE, backup_confirmed=1 dan writers_stopped=1.
+   Jalankan seluruh file lagi. Transaksi memverifikasi snapshot lengkap,
+   kandidat NEW, dokumen dan event sebelum menghapus sumber karyawan/dokumen.
+   Error menggulung seluruh DML; tidak mematikan FK atau menghapus transaksi.
+6. Hasil sukses `KLATEN_INACTIVE_MOVED_TO_RECRUITMENT_COMMITTED`. Replay setelah
+   sukses menghasilkan `ALREADY_MOVED_NO_CHANGES`. Bila ditolak, jangan menghapus
+   guard atau mengubah angka scope supaya lolos; periksa perubahan sumber.
+7. Aktifkan API/cron lalu cek Rekrutmen: 722 kandidat Baru berlabel Data migrasi;
+   tanggal pengajuan yang tidak diketahui kosong, bukan tanggal migrasi.
+   Master karyawan sumber tersisa 3.003 (395 Aktif + 2.608 Resign), di luar
+   pendaftaran operasional baru setelah cutoff. Dokumen dan transaksi kelompok
+   yang dipertahankan tidak berubah.
+
+HR dapat melengkapi/mengganti tautan KTP/KK legacy melalui detail kandidat.
+Tautan harus file Google Drive yang valid; tidak menimpa berkas R2. Lanjutkan
+status seperti alur normal hingga Lolos, kemudian lengkapi data inti, tanggal
+mulai kerja dan penempatan pada form konversi. Foto profil tidak wajib khusus
+legacy; tambahkan melalui Ubah data karyawan setelah konversi jika diperlukan.
+Karyawan hasil konversi berstatus Nonaktif dan menjalani kontrak/onboarding
+normal, bukan mendapat pengecualian arsip dari metadata import lama.
+
+Snapshot berisi seluruh kolom asli employee dan employee_documents. Tidak
+memalsukan NIK, nomor KK, HP, consent, tanggal pengajuan, atau file R2. Rollback
+setelah COMMIT membutuhkan backup atau SQL pemulihan yang direview tersendiri;
+jangan menghapus kandidat yang sudah diproses untuk mengulang migrasi.
+
+Verifikasi implementasi 25 November: uji MariaDB 10.4.32 terpisah memakai data
+sintetis lulus untuk fresh schema, upgrade/replay migration, validasi kandidat
+normal, snapshot immutable, preview, perubahan scope/relasi, rollback setelah
+delete, pemindahan 722/1.436, sequence, replay pemindahan serta DOWN yang aman.
+Server uji sudah dihentikan; DB aplikasi tidak dimutasi.
+
+Kompilasi frontend/API dan lint lulus; 8 tes utils serta 3 tes render halaman
+konversi lulus. Regresi API: 1.356 tes lulus dan 2 dilewati; satu tes stress rate
+limiter 10.000 identitas melewati deadline default 5 detik. Ketiga tes limiter
+lulus saat dijalankan ulang dengan `--testTimeout=30000`, tanpa perubahan pada
+implementasi limiter, kuota, Turnstile atau asersi pengujian.

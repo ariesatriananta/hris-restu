@@ -324,6 +324,7 @@ describe('Recruitment internal API', () => {
       originalName: 'KTP.jpg',
       mimeType: 'image/jpeg',
       sizeBytes: 1234,
+      sourceType: 'UPLOAD', externalUrl: null, previewUrl: null,
     })
     expect(JSON.stringify(body)).not.toContain('storagePath')
     expect(body).not.toHaveProperty('id')

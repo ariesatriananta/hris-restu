@@ -672,7 +672,7 @@ export function EmployeeForm({
           <h3 className='font-semibold'>Foto karyawan dan identitas</h3>
           {inheritedRecruitmentDocuments?.length ? (
             <p className='rounded-md border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground'>
-              Foto pelamar, KTP, dan KK dari pendaftaran akan disalin otomatis
+              Dokumen yang tersedia dari pendaftaran akan disertakan otomatis
               saat data karyawan dibuat. Setelah tersimpan, dokumen dapat
               diperbarui dari detail karyawan.
             </p>
@@ -695,7 +695,9 @@ export function EmployeeForm({
                   {photo?.originalName ??
                     (inheritedRecruitmentDocuments?.includes('PHOTO')
                       ? 'Foto pelamar siap disalin dari pendaftaran.'
-                      : 'Belum ada foto. Pilih foto wajah yang jelas.')}
+                      : inheritedRecruitmentDocuments?.length
+                        ? 'Foto belum tersedia. Tambahkan melalui Ubah data setelah karyawan dibuat.'
+                        : 'Belum ada foto. Pilih foto wajah yang jelas.')}
                 </p>
               </div>
               <Input
@@ -717,9 +719,11 @@ export function EmployeeForm({
                 }}
               />
               <div className='flex flex-wrap items-center gap-2 text-xs text-muted-foreground'>
-                <span>
-                  PNG, JPG, atau WebP. Foto diunggah saat form disimpan.
-                </span>
+                {!inheritedRecruitmentDocuments?.length && (
+                  <span>
+                    PNG, JPG, atau WebP. Foto diunggah saat form disimpan.
+                  </span>
+                )}
                 {photo && !inheritedRecruitmentDocuments?.length && (
                   <Button
                     type='button'

@@ -1,6 +1,7 @@
 import express from 'express'
 import type { AddressInfo } from 'node:net'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { klatenLegacySourceHash } from '../lib/employee-archive-policy.js'
 import { errorHandler } from '../lib/errors.js'
 import type { AuthContext } from '../middleware/authenticate.js'
 import { recruitmentRouter } from './recruitment.js'
@@ -151,6 +152,9 @@ function conversionConnection(options?: {
   replay?: Record<string, unknown>
   duplicate?: Record<string, unknown>
   failEmployeeInsert?: boolean
+  sourceRows?: Record<string, unknown>[]
+  candidateDuplicate?: boolean
+  numberTaken?: boolean
 }) {
   let fileSequence = 100
   const conn = {
@@ -172,7 +176,9 @@ function conversionConnection(options?: {
     if (sql.includes('FROM production_module_sections pms')) return [[{ id: 8 }]]
     if (sql.includes('FROM employees') && sql.includes('national_id_number'))
       return [options?.duplicate ? [options.duplicate] : []]
-    if (sql.includes('FROM recruitment_candidate_files rcf')) return [sourceFiles]
+    if (sql.includes('FROM recruitment_candidates WHERE id<>')) return [options?.candidateDuplicate ? [{id:99}] : []]
+    if (sql.includes('FROM employees WHERE employee_number=')) return [options?.numberTaken ? [{id:99}] : []]
+    if (sql.includes('FROM recruitment_candidate_files rcf')) return [options?.sourceRows ?? sourceFiles]
     throw new Error(`Query belum dimock: ${sql.slice(0, 120)}`)
   })
   conn.execute.mockImplementation(async (sqlValue: unknown) => {
@@ -380,4 +386,63 @@ describe('Recruitment candidate conversion API', () => {
     ).toBe(403)
     expect(mocks.getConnection).not.toHaveBeenCalled()
   })
+  it('converts trusted legacy with Drive KTP/KK, optional photo, preserved real number and no R2 writes', async () => {
+    const meta = {sourceHash:klatenLegacySourceHash,sourceEmployee:{employee_number:'PSLO-9901-01001',notes:JSON.stringify({legacyImport:{sourceHash:klatenLegacySourceHash}})}}
+    const conn = conversionConnection({ candidateRows:[{...candidate(),legacyImportJson:meta}], sourceRows:['KTP','KK'].map(kind => ({kind,externalUrl:'https://drive.google.com/file/d/abcdefghijk/view'})) })
+    mocks.getConnection.mockResolvedValue(conn)
+    const response = await request(`/candidates/${candidateUid}/convert`, convertBody())
+    expect(response.status).toBe(201)
+    const result = await response.json() as {employee:{employeeNumber:string}}
+    expect(result.employee.employeeNumber).toBe('PSLO-9901-01001')
+    expect(mocks.reserveEmployeeNumber).not.toHaveBeenCalled()
+    expect(mocks.getPrivateObject).not.toHaveBeenCalled()
+    expect(mocks.putEmployeeObject).not.toHaveBeenCalled()
+    const docs = conn.execute.mock.calls.filter(([sql]) => String(sql).includes('INSERT INTO employee_documents'))
+    expect(docs).toHaveLength(2)
+    docs.forEach(([,values]) => expect(values).toContain('https://drive.google.com/file/d/abcdefghijk/view'))
+    const update = conn.execute.mock.calls.find(([sql]) => String(sql).includes('UPDATE recruitment_candidates'))
+    expect(update?.[1]).toContain(validInput.nationalIdNumber)
+    expect(conn.commit).toHaveBeenCalledOnce()
+  })
+
+  it('refuses untrusted provenance, missing legacy docs and another active candidate NIK', async () => {
+    const meta = {sourceHash:klatenLegacySourceHash,sourceEmployee:{employee_number:'LEG-KLT-123',notes:JSON.stringify({legacyImport:{sourceHash:klatenLegacySourceHash}})}}
+    for (const options of [
+      {candidateRows:[{...candidate(),legacyImportJson:{sourceHash:'untrusted'}}]},
+      {candidateRows:[{...candidate(),legacyImportJson:meta}],sourceRows:[]},
+      {candidateRows:[{...candidate(),legacyImportJson:meta}],candidateDuplicate:true},
+    ]) {
+      const conn=conversionConnection(options)
+      mocks.getConnection.mockResolvedValue(conn)
+      expect((await request(`/candidates/${candidateUid}/convert`,convertBody())).status).toBe(409)
+      expect(conn.commit).not.toHaveBeenCalled()
+      expect(conn.rollback).toHaveBeenCalled()
+    }
+    expect(mocks.putEmployeeObject).not.toHaveBeenCalled()
+  })
+
+  it('saves only canonical Drive links on trusted legacy and refuses stale or uploaded replacements', async () => {
+    const meta={sourceHash:klatenLegacySourceHash,sourceEmployee:{notes:JSON.stringify({legacyImport:{sourceHash:klatenLegacySourceHash}})}}
+    for (const mode of ['valid','stale','uploaded','normal','otherSite'] as const) {
+      const conn=conversionConnection()
+      conn.query.mockImplementation(async (sqlValue:unknown) => {
+        const sql=String(sqlValue)
+        if (sql.includes('FROM recruitment_candidates rc')) return [mode==='otherSite' ? [] : [{...candidate(),legacyImportJson:mode==='normal' ? null : meta,updatedAt:mode==='stale' ? 'other' : updatedAt}]]
+        if (sql.includes('FROM recruitment_candidate_files')) return [mode==='uploaded' ? [{file_id:100}] : []]
+        throw new Error('Unexpected query')
+      })
+      mocks.getConnection.mockResolvedValue(conn)
+      const response=await request(`/candidates/${candidateUid}/legacy-documents`,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'KTP',externalUrl:'https://drive.google.com/open?id=abcdefghijk',currentUpdatedAt:updatedAt})})
+      expect(response.status).toBe(mode==='valid' ? 200 : mode==='otherSite' ? 404 : 409)
+      if(mode==='valid') {
+        expect(conn.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO recruitment_candidate_files'),expect.arrayContaining(['https://drive.google.com/file/d/abcdefghijk/view']))
+        expect(conn.commit).toHaveBeenCalledOnce()
+      } else {
+        expect(conn.execute).not.toHaveBeenCalled()
+        expect(conn.rollback).toHaveBeenCalledOnce()
+      }
+    }
+    expect(mocks.putEmployeeObject).not.toHaveBeenCalled()
+  })
+
 })
