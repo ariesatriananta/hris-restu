@@ -1,4 +1,4 @@
-import { klatenLegacySourceHash } from './employee-archive-policy.js'
+import { klatenLegacySourceHash, klatenRefreshSourceHash } from './employee-archive-policy.js'
 import { googleDriveDocument } from './google-drive-document.js'
 
 function object(value: unknown): Record<string, unknown> | undefined {
@@ -13,7 +13,12 @@ export function recruitmentLegacy(value: unknown) {
   const meta = object(value)
   const employee = object(meta?.sourceEmployee)
   const original = object(object(employee?.notes)?.legacyImport)
-  if (meta?.sourceHash !== klatenLegacySourceHash || original?.sourceHash !== klatenLegacySourceHash || !employee) return undefined
+  if (!meta || !original || !employee || meta.sourceHash !== original.sourceHash) return undefined
+  if (meta.sourceHash === klatenRefreshSourceHash) {
+    if (meta.sourceSheet !== 'REKRUTMEN' || original.sourceSheet !== 'REKRUTMEN'
+      || !Number.isInteger(meta.sourceRow) || Number(meta.sourceRow) < 2
+      || meta.sourceRow !== original.sourceRow) return undefined
+  } else if (meta.sourceHash !== klatenLegacySourceHash) return undefined
   return { meta, employee }
 }
 

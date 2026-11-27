@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { klatenLegacySourceHash } from './employee-archive-policy.js'
+import { klatenLegacySourceHash, klatenRefreshSourceHash } from './employee-archive-policy.js'
 import { recruitmentLegacy, recruitmentLegacyDefaults, recruitmentLegacyNumber, recruitmentFile, recruitmentMissingFields } from './recruitment-legacy.js'
 
 const legacy = (number = 'PSLO-9901-01001') => ({
@@ -17,6 +17,18 @@ describe('trusted recruitment legacy provenance', () => {
     expect(recruitmentLegacyNumber(legacy())).toBe('PSLO-9901-01001')
     expect(recruitmentLegacyNumber(legacy('LEG-KLT-1234'))).toBeNull()
     expect(recruitmentLegacyNumber(legacy('PSLO-invalid'))).toBeNull()
+  })
+  it('accepts the new recruitment sheet only with matching source row and nested provenance', () => {
+    const origin = {sourceHash:klatenRefreshSourceHash,sourceSheet:'REKRUTMEN',sourceRow:4}
+    const refresh = {...origin,sourceEmployee:{employee_number:null,bank_name:'Bank Contoh',notes:JSON.stringify({legacyImport:origin})}}
+    expect(recruitmentLegacy(refresh)).toBeDefined()
+    expect(recruitmentLegacyNumber(refresh)).toBeNull()
+    expect(recruitmentLegacyDefaults(refresh)).toEqual(expect.objectContaining({bankName:'Bank Contoh',joinDate:null}))
+    for (const change of [{sourceSheet:'DATABASE KARYAWAN'},{sourceRow:5},{sourceRow:'4'},{sourceRow:1},{sourceHash:klatenLegacySourceHash}]) {
+      expect(recruitmentLegacy({...refresh,...change})).toBeUndefined()
+    }
+    expect(recruitmentLegacy({...refresh,sourceEmployee:{notes:JSON.stringify({legacyImport:{...origin,sourceSheet:'DATABASE KARYAWAN'}})}})).toBeUndefined()
+    expect(recruitmentLegacy({...refresh,sourceEmployee:{notes:JSON.stringify({legacyImport:{...origin,sourceHash:'other'}})}})).toBeUndefined()
   })
   it('preserves personal defaults but does not infer actual employment dates from unverified archives', () => {
     expect(recruitmentLegacyDefaults(legacy())).toEqual(expect.objectContaining({bankName:'Bank Contoh',joinDate:null,joinDateTraining:null,joinDateBorong:null}))

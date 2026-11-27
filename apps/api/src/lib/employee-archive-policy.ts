@@ -1,11 +1,19 @@
 // Recognize the approved import only. Ordinary nonactive registrations must
 // continue through onboarding; imported ACTIVE workers are operational too.
 export const klatenLegacySourceHash = 'f5b8dd224012b1f3f439e8bbed65f15146784ef2e0ec0b7e14a8af28fdf55afc'
+export const klatenRefreshSourceHash = '23072fdc7ad10b231390dd2ba71c54407d56aefc2042e67c177757dbaf4613da'
+function legacyFieldSql(employee: string, path: string) {
+  return `COALESCE(JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(${employee}.notes),${employee}.notes,'{}'),'$.legacyImport.${path}')),'')`
+}
+function refreshImportSql(employee: string) {
+  return `(${legacyFieldSql(employee, 'sourceHash')}='${klatenRefreshSourceHash}' AND ${legacyFieldSql(employee, 'sourceSheet')}='DATABASE KARYAWAN')`
+}
 export function legacyImportSql(employee = 'e') {
-  return `COALESCE(JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(${employee}.notes),${employee}.notes,'{}'),'$.legacyImport.sourceHash')),'')='${klatenLegacySourceHash}'`
+  return `(${legacyFieldSql(employee, 'sourceHash')}='${klatenLegacySourceHash}' OR ${refreshImportSql(employee)})`
 }
 export function legacyArchiveOriginSql(employee = 'e') {
-  return `(${legacyImportSql(employee)} AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(${employee}.notes),${employee}.notes,'{}'),'$.legacyImport.raw."12:STATUS (Aktif/Tidak Aktif)"')),'') IN ('NON AKTIF','RESIGN'))`
+  return `((${legacyFieldSql(employee, 'sourceHash')}='${klatenLegacySourceHash}' AND ${legacyFieldSql(employee, 'raw."12:STATUS (Aktif/Tidak Aktif)"')} IN ('NON AKTIF','RESIGN'))
+    OR (${refreshImportSql(employee)} AND UPPER(TRIM(${legacyFieldSql(employee, 'raw."14:STATUS (Aktif/Tidak Aktif)"')})) IN ('TIDAK AKTIF','RESIGN')))`
 }
 // Exemption is ONLY from incomplete-onboarding reminders with no live workflow.
 // Do not use this predicate to remove historical transactions or real conflicts.
@@ -17,9 +25,11 @@ export function actionableEmployeeSql(employee = 'e', type = 'et', status = 'es'
   ))`
 }
 export function isLegacyImport(notes: unknown): boolean {
-  return parsedNotes(notes)?.legacyImport?.sourceHash === klatenLegacySourceHash
+  const origin = parsedNotes(notes)?.legacyImport
+  return origin?.sourceHash === klatenLegacySourceHash
+    || (origin?.sourceHash === klatenRefreshSourceHash && origin.sourceSheet === 'DATABASE KARYAWAN')
 }
-function parsedNotes(notes: unknown): { legacyImport?: { sourceHash?: string; raw?: Record<string,string> }; operationalNotes?: string } | undefined {
+function parsedNotes(notes: unknown): { legacyImport?: { sourceHash?: string; sourceSheet?: string; raw?: Record<string,string> }; operationalNotes?: string } | undefined {
   try { return typeof notes === 'string' ? JSON.parse(notes) : typeof notes === 'object' && notes !== null ? notes : undefined } catch { return undefined }
 }
 export function employeeNotesForDisplay(notes: unknown) {
